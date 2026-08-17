@@ -1,0 +1,10 @@
+{
+  "name": "湖南农家乐联盟",
+  "appid": "__UNI__AGRITAINMENT_ALLIANCE",
+  "description": "农家乐联盟推客平台",
+  "versionName": "0.1.0",
+  "versionCode": 100,
+  "transformPx": false,
+  "h5": { "title": "湖南农家乐联盟", "router": { "mode": "hash", "base": "/" } },
+  "mp-weixin": { "appid": "touristappid", "setting": { "urlCheck": false }, "usingComponents": true }
+}

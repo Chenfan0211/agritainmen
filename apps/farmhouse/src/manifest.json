@@ -1,0 +1,10 @@
+{
+  "name": "石板溪农家乐",
+  "appid": "__UNI__AGRITAINMENT_FARMHOUSE",
+  "description": "农家乐独立门店小程序",
+  "versionName": "0.1.0",
+  "versionCode": 100,
+  "transformPx": false,
+  "h5": { "title": "石板溪农家乐", "router": { "mode": "hash", "base": "/" } },
+  "mp-weixin": { "appid": "touristappid", "setting": { "urlCheck": false }, "usingComponents": true }
+}

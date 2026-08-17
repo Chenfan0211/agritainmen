@@ -1,0 +1,13 @@
+{
+  "name": "农家乐供应链中台",
+  "appid": "__UNI__AGRITAINMENT_ADMIN",
+  "description": "农家乐数字供应链运营管理后台",
+  "versionName": "0.1.0",
+  "versionCode": 100,
+  "transformPx": false,
+  "h5": {
+    "title": "农家乐供应链中台",
+    "router": { "mode": "hash", "base": "/" },
+    "devServer": { "port": 5175 }
+  }
+}

@@ -1,0 +1,27 @@
+:root {
+  --admin-green: #153e2c;
+  --admin-green-2: #1d6b44;
+  --admin-green-soft: #e7f1eb;
+  --admin-gold: #b8903f;
+  --admin-bg: #f4f4ef;
+  --admin-panel: #ffffff;
+  --admin-ink: #202820;
+  --admin-muted: #6f786f;
+  --admin-line: #dedfd8;
+}
+
+page, body, #app {
+  min-height: 100%;
+  margin: 0;
+  background: var(--admin-bg);
+  color: var(--admin-ink);
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+* { box-sizing: border-box; }
+button, input, select { font: inherit; letter-spacing: 0; }
+button { border: 0; }
+button { transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
+button:not(:disabled):active { transform: translateY(1px); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid rgba(29, 107, 68, .34); outline-offset: 2px; }

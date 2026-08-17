@@ -1,0 +1,10 @@
+{
+  "name": "湖南农家乐用户端",
+  "appid": "__UNI__AGRITAINMENT_USER",
+  "description": "农家乐用户端：扫码进入推客直播间，查看门店套餐并跳转预订",
+  "versionName": "0.1.0",
+  "versionCode": 100,
+  "transformPx": false,
+  "h5": { "title": "湖南农家乐用户端", "router": { "mode": "hash", "base": "/" } },
+  "mp-weixin": { "appid": "touristappid", "setting": { "urlCheck": false }, "usingComponents": true }
+}

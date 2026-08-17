@@ -1,0 +1,40 @@
+{
+  "name": "agritainment-platform",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "scripts": {
+    "dev:admin": "pnpm --filter @agritainment/admin dev:h5",
+    "dev:farmhouse": "pnpm --filter @agritainment/farmhouse dev:h5",
+    "dev:alliance": "pnpm --filter @agritainment/alliance dev:h5",
+    "build:admin": "pnpm --filter @agritainment/admin build:h5",
+    "build:farmhouse:h5": "pnpm --filter @agritainment/farmhouse build:h5",
+    "build:farmhouse:mp": "pnpm --filter @agritainment/farmhouse build:mp-weixin",
+    "build:farmhouse:h5:yunshang": "pnpm --filter @agritainment/farmhouse build:h5:yunshang",
+    "build:farmhouse:mp:yunshang": "pnpm --filter @agritainment/farmhouse build:mp:yunshang",
+    "build:farmhouse:tenants": "node scripts/build-farmhouse-tenants.mjs",
+    "build:alliance:h5": "pnpm --filter @agritainment/alliance build:h5",
+    "build:alliance:mp": "pnpm --filter @agritainment/alliance build:mp-weixin",
+    "build": "pnpm build:admin && pnpm build:farmhouse:h5 && pnpm build:farmhouse:mp && pnpm build:alliance:h5 && pnpm build:alliance:mp && pnpm build:store && pnpm build:promoter && pnpm build:user",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run --exclude tests/e2e/**",
+    "test:e2e": "playwright test",
+    "audit:buttons": "node scripts/audit-buttons.mjs",
+    "dev:store": "pnpm --filter @agritainment/store dev:h5",
+    "dev:promoter": "pnpm --filter @agritainment/promoter dev:h5",
+    "dev:user": "pnpm --filter @agritainment/user dev:h5",
+    "build:promoter": "pnpm --filter @agritainment/promoter build:h5 && pnpm --filter @agritainment/promoter build:mp-weixin",
+    "build:user": "pnpm --filter @agritainment/user build:h5 && pnpm --filter @agritainment/user build:mp-weixin",
+    "build:store": "pnpm --filter @agritainment/store build:h5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "@types/node": "^22.15.3",
+    "@types/qrcode-generator": "^1.0.6",
+    "lucide-static": "^0.468.0",
+    "typescript": "^5.4.5",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "qrcode-generator": "^2.0.4"
+  }
+}
