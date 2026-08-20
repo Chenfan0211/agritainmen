@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { FarmStore, LiveRoom, MockScenario, Product, Promoter, ShareRecord, UserBinding } from '@agritainment/shared'
-import { DEMO_PASSWORD, createId, readShareRecords, readUserBindings, removePlatformLive, validatePhone, writePlatformLive } from '@agritainment/shared'
+import { DEMO_PASSWORD, createId, readPlatformCommissionSettlement, readShareRecords, readUserBindings, removePlatformLive, seedPlatformDemoData, validatePhone, writePlatformLive } from '@agritainment/shared'
 import { promoterRepository } from '../services/repository'
 
 interface PromoterState {
@@ -52,6 +52,12 @@ export const usePromoterStore = defineStore('promoter', {
           promoter: data.promoter,
           initialized: true
         })
+        seedPlatformDemoData()
+        const settlement = readPlatformCommissionSettlement(this.promoter?.id || '')
+        if (this.promoter && settlement) {
+          this.promoter.commission = settlement.commission
+          this.promoter.settled = settlement.settled
+        }
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {

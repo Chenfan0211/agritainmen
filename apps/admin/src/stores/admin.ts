@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AfterSale, Category, CommissionRule, CommissionSettlementRecord, DictGroup, DictItem, FarmStore, MockScenario, Order, PricePolicy, PriceTier, Product, Promoter, StoreAccount, Supplier, SupplierSettlementRecord } from '@agritainment/shared'
-import { DEMO_ACCOUNT, createId, mergeEntitySeeds, readPlatformMedia, round2, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, validateAccountPassword, writePlatformMedia, mergePlatformStoreAccounts, readPlatformStoreAccounts, readShareConfig, readShareRecords, writePlatformStoreAccounts, writeShareConfig } from '@agritainment/shared'
+import { DEMO_ACCOUNT, createId, markShareSettled, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformOrders, mergePlatformStoreAccounts, pendingShareTotal, readPlatformAfterSales, readPlatformMedia, readPlatformOrders, readPlatformStoreAccounts, readShareConfig, readShareRecords, round2, upsertPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, validateAccountPassword, writePlatformAfterSale, writePlatformCommissionSettlement, writePlatformMedia, writePlatformOrder, writePlatformStoreAccounts, writeShareConfig } from '@agritainment/shared'
 import { adminRepository } from '../services/repository'
 
 interface AdminState {
@@ -58,7 +58,7 @@ export const useAdminStore = defineStore('operations', {
     pendingProducts: (state) => state.products.filter((item) => item.status === 'pending').length,
     pendingOrders: (state) => state.orders.filter((item) => item.status === 'pending').length,
     pendingAfterSales: (state) => state.afterSales.filter((item) => !['refunded', 'rejected', 'refund-failed'].includes(item.status)).length,
-    totalCommission: (state) => round2(state.promoters.reduce((sum, item) => sum + item.commission, 0)),
+    totalCommission: () => pendingShareTotal(),
     totalGmv: (state) => round2(state.orders.reduce((sum, item) => sum + item.amount, 0)),
     activeFarmCount: (state) => state.farms.filter((item) => item.status === 'active').length,
     activeSupplierCount: (state) => state.suppliers.filter((item) => item.status === 'cooperating').length,
@@ -100,6 +100,8 @@ export const useAdminStore = defineStore('operations', {
           storeAccounts: mergePlatformStoreAccounts(data.storeAccounts, readPlatformStoreAccounts()),
           initialized: true
         })
+        this.orders = mergePlatformOrders(this.orders, readPlatformOrders())
+        this.afterSales = mergePlatformAfterSales(this.afterSales, readPlatformAfterSales())
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {
@@ -115,6 +117,7 @@ export const useAdminStore = defineStore('operations', {
       if (!trimmed) return false
       if (this.categories.some((item) => item.name === trimmed)) return false
       this.categories.unshift({ id: createId('C'), name: trimmed, type })
+      upsertPlatformEntity('categories', this.categories[0].id, this.categories[0])
       return true
     },
     updateCategory(id: string, name: string, type: Category['type']) {
@@ -124,6 +127,7 @@ export const useAdminStore = defineStore('operations', {
       if (this.categories.some((candidate) => candidate.id !== id && candidate.name === trimmed)) return false
       item.name = trimmed
       item.type = type
+      upsertPlatformEntity('categories', item.id, item)
       return true
     },
     removeCategory(id: string) {
@@ -229,6 +233,7 @@ export const useAdminStore = defineStore('operations', {
           reviewNote: coop ? '供销社体系渠道，自动通过' : '运营邀请入驻，等待供应商补充资质'
         }
       })
+      upsertPlatformEntity('suppliers', this.suppliers[0].id, this.suppliers[0])
       return true
     },
     updateSupplier(id: string, payload: { name: string; category: string; region?: string; contactPhone?: string; businessLicense?: string; permit?: string; validUntil?: string; coop?: boolean }) {
@@ -251,6 +256,7 @@ export const useAdminStore = defineStore('operations', {
         validUntil: payload.validUntil?.trim() || item.qualification.validUntil,
         reviewNote: item.qualification.reviewNote
       }
+      upsertPlatformEntity('suppliers', item.id, item)
       return true
     },
     auditSupplier(id: string, approved: boolean) {
@@ -258,16 +264,21 @@ export const useAdminStore = defineStore('operations', {
       if (!item) return
       item.certified = approved
       item.status = approved ? 'cooperating' : 'paused'
+      upsertPlatformEntity('suppliers', item.id, item)
     },
     toggleSupplier(id: string) {
       const item = this.suppliers.find((supplier) => supplier.id === id)
       if (!item || item.status === 'pending') return
       item.status = item.status === 'cooperating' ? 'paused' : 'cooperating'
       if (item.status === 'cooperating') item.certified = true
+      upsertPlatformEntity('suppliers', item.id, item)
     },
     auditProduct(id: string, approved: boolean) {
       const item = this.products.find((product) => product.id === id)
-      if (item) item.status = approved ? 'active' : 'rejected'
+      if (item) {
+        item.status = approved ? 'active' : 'rejected'
+        upsertPlatformEntity('products', item.id, item)
+      }
     },
     createProduct(payload: Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'stock' | 'source' | 'supplier' | 'spec' | 'images'> & { image?: string }) {
       const price = round2(payload.price)
@@ -281,6 +292,7 @@ export const useAdminStore = defineStore('operations', {
       })
       const createdProduct = this.products[0]
       writePlatformMedia(upsertPlatformProduct(readPlatformMedia(), createdProduct.id, createdProduct.image, createdProduct.images))
+      upsertPlatformEntity('products', createdProduct.id, createdProduct)
       return true
     },
     updateProduct(id: string, payload: { name?: string; category?: string; supplier?: string; cost?: number; price: number; stock: number; skuId?: string; spec?: string; image?: string; images?: string[] }) {
@@ -304,17 +316,20 @@ export const useAdminStore = defineStore('operations', {
       item.stock = item.skus.reduce((sum, candidate) => sum + candidate.stock, 0)
       item.cost = Math.min(...item.skus.map((candidate) => candidate.cost))
       writePlatformMedia(upsertPlatformProduct(readPlatformMedia(), item.id, item.image, item.images))
+      upsertPlatformEntity('products', item.id, item)
       return true
     },
     toggleProduct(id: string) {
       const item = this.products.find((product) => product.id === id)
       if (!item || item.status === 'pending' || item.status === 'rejected') return
       item.status = item.status === 'active' ? 'offline' : 'active'
+      upsertPlatformEntity('products', item.id, item)
     },
     createPolicy(name: string, type: PricePolicy['type'], scope: string, discount: number, tiers?: PriceTier[]) {
       discount = round2(discount)
       if (!name || !scope || discount <= 0 || discount > 100) return false
       this.policies.unshift({ id: createId('R'), name, type, scope, discount, enabled: true, tiers: tiers?.map((tier) => ({ ...tier, price: round2(tier.price) })) })
+      upsertPlatformEntity('policies', this.policies[0].id, this.policies[0])
       return true
     },
     updatePolicy(id: string, name: string, scope: string, discount: number, enabled?: boolean, tiers?: PriceTier[]) {
@@ -324,38 +339,37 @@ export const useAdminStore = defineStore('operations', {
       Object.assign(item, { name, scope, discount })
       if (enabled !== undefined) item.enabled = enabled
       if (tiers !== undefined) item.tiers = tiers.map((tier) => ({ ...tier, price: round2(tier.price) }))
+      upsertPlatformEntity('policies', item.id, item)
       return true
     },
     togglePolicy(id: string) {
       const item = this.policies.find((policy) => policy.id === id)
-      if (item) item.enabled = !item.enabled
+      if (item) {
+        item.enabled = !item.enabled
+        upsertPlatformEntity('policies', item.id, item)
+      }
     },
-    shipOrder(id: string, trackingNo?: string) {
+    shipOrder(id: string) {
       const item = this.orders.find((order) => order.id === id)
       if (!item || item.status !== 'pending') return false
       const now = new Date().toLocaleString('zh-CN')
       item.status = 'shipping'
-      item.trackingNo = trackingNo?.trim() || createId('SF')
-      item.logistics = [
-        { time: now, title: '供应商已发货', detail: `运单 ${item.trackingNo} 已录入` },
-        { time: '预计 2 小时内', title: '仓配中心揽收', detail: '等待模拟物流节点推进' }
-      ]
+      item.flow ||= []
+      item.flow.push({ time: now, action: '已发货 · 已安排司机配送', operator: '运营管理员', note: '中台直配，司机配送至门店' })
+      writePlatformOrder(item)
       return true
     },
     batchShipOrders(ids: string[]) {
       return ids.reduce((count, id) => count + (this.shipOrder(id) ? 1 : 0), 0)
     },
-    advanceLogistics(id: string) {
+    confirmOrder(id: string) {
       const item = this.orders.find((order) => order.id === id)
       if (!item || item.status !== 'shipping') return false
-      item.logistics ||= []
       const now = new Date().toLocaleString('zh-CN')
-      if (item.logistics.length === 0 || item.logistics.length === 2) {
-        item.logistics.push({ time: now, title: '配送中', detail: '商品已离开区域仓，正在配送至门店' })
-        return true
-      }
-      item.logistics.push({ time: now, title: '已签收', detail: `${item.customer} 已确认收货` })
       item.status = 'delivered'
+      item.flow ||= []
+      item.flow.push({ time: now, action: '已确认收货', operator: '运营管理员', note: '门店已签收' })
+      writePlatformOrder(item)
       return true
     },
     initiateAfterSale(orderId: string, type: AfterSale['type'], issue: string) {
@@ -375,6 +389,7 @@ export const useAdminStore = defineStore('operations', {
         image: firstItem?.image,
         history: [{ time: new Date().toLocaleString('zh-CN'), action: '用户发起售后，平台受理中', operator: '运营管理员' }]
       })
+      writePlatformAfterSale(this.afterSales[0])
       return true
     },
     rejectAfterSale(id: string) {
@@ -383,6 +398,7 @@ export const useAdminStore = defineStore('operations', {
       item.status = 'rejected'
       item.history ||= []
       item.history.push({ time: new Date().toLocaleString('zh-CN'), action: '售后申请已拒绝', operator: '运营管理员' })
+      writePlatformAfterSale(item)
       return true
     },
     approveAfterSaleRefund(id: string) {
@@ -391,6 +407,7 @@ export const useAdminStore = defineStore('operations', {
       item.status = 'refund-pending'
       item.history ||= []
       item.history.push({ time: new Date().toLocaleString('zh-CN'), action: '已同意退款，待退款', operator: '运营管理员' })
+      writePlatformAfterSale(item)
       return true
     },
     approveAfterSaleReturn(id: string) {
@@ -399,6 +416,7 @@ export const useAdminStore = defineStore('operations', {
       item.status = 'return-pending'
       item.history ||= []
       item.history.push({ time: new Date().toLocaleString('zh-CN'), action: '已同意退货，待退货', operator: '运营管理员' })
+      writePlatformAfterSale(item)
       return true
     },
     refundAfterSale(id: string, ok: boolean) {
@@ -408,6 +426,7 @@ export const useAdminStore = defineStore('operations', {
       item.refundAmount = ok ? item.amount : undefined
       item.history ||= []
       item.history.push({ time: new Date().toLocaleString('zh-CN'), action: ok ? `退款成功 ¥${item.amount.toFixed(2)}` : '退款失败', operator: '运营管理员' })
+      writePlatformAfterSale(item)
       return true
     },
     addFarm(payload: { name: string; region: string; city?: string; tags?: string[]; rating?: number; averageSpend?: number; status?: FarmStore['status']; image?: string; livePopularity?: number }) {
@@ -425,6 +444,7 @@ export const useAdminStore = defineStore('operations', {
       farmMedia = upsertPlatformFarm(farmMedia, createdFarm.id, createdFarm.image)
       farmMedia = upsertPlatformFarmPopularity(farmMedia, createdFarm.id, createdFarm.livePopularity)
       writePlatformMedia(farmMedia)
+      upsertPlatformEntity('farms', createdFarm.id, createdFarm)
       return true
     },
     updateFarm(id: string, payload: { name: string; region: string; city?: string; tags?: string[]; rating?: number; averageSpend?: number; status?: FarmStore['status']; image?: string; livePopularity?: number }) {
@@ -443,6 +463,7 @@ export const useAdminStore = defineStore('operations', {
       farmMedia = upsertPlatformFarm(farmMedia, item.id, item.image)
       farmMedia = upsertPlatformFarmPopularity(farmMedia, item.id, item.livePopularity)
       writePlatformMedia(farmMedia)
+      upsertPlatformEntity('farms', item.id, item)
       return true
     },
     addPromoter(payload: { name: string; level: string; type?: string; status: Promoter['status'] }) {
@@ -463,15 +484,28 @@ export const useAdminStore = defineStore('operations', {
       return true
     },
     settleCommissions() {
-      const settled = this.promoters.filter((item) => !item.settled && item.commission > 0)
-      const amount = Math.round(settled.reduce((sum, item) => sum + item.commission, 0) * 100) / 100
-      if (!settled.length || amount <= 0) return false
+      const unsettled = (readShareRecords() ?? []).filter((item) => item.role === 'promoter' && !item.settled)
+      if (!unsettled.length) return false
+      const byPromoter = new Map<string, { name: string; amount: number }>()
+      unsettled.forEach((item) => {
+        const key = item.promoterId || 'T001'
+        const entry = byPromoter.get(key) || { name: this.promoters.find((p) => p.id === key)?.name || key, amount: 0 }
+        entry.amount = Math.round((entry.amount + item.amount) * 100) / 100
+        byPromoter.set(key, entry)
+      })
+      const amount = Math.round(unsettled.reduce((sum, item) => sum + item.amount, 0) * 100) / 100
+      if (amount <= 0) return false
       const createdAt = new Date().toLocaleString('zh-CN')
       this.commissionSettlementRecords.unshift({
-        id: createId('CS'), promoterIds: settled.map((item) => item.id), amount, createdAt,
-        items: settled.map((item) => ({ promoterId: item.id, promoterName: item.name, amount: item.commission }))
+        id: createId('CS'), promoterIds: [...byPromoter.keys()], amount, createdAt,
+        items: [...byPromoter.entries()].map(([promoterId, entry]) => ({ promoterId, promoterName: entry.name, amount: entry.amount }))
       })
-      settled.forEach((item) => { item.commission = 0; item.settled = true })
+      markShareSettled(unsettled.map((item) => item.id))
+      byPromoter.forEach((entry, promoterId) => {
+        writePlatformCommissionSettlement(promoterId, { commission: entry.amount, settled: true, settledAt: createdAt })
+        const promoter = this.promoters.find((p) => p.id === promoterId)
+        if (promoter) { promoter.commission = 0; promoter.settled = true }
+      })
       this.lastSettledAt = createdAt
       return true
     },

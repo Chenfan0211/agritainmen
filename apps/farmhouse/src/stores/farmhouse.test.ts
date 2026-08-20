@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cloneSeed, members, products, tenant } from '@agritainment/shared'
+import { cloneSeed, members, products, tenant, writeUserLink } from '@agritainment/shared'
 import { useFarmhouseStore } from './farmhouse'
 
 if (!globalThis.localStorage) {
@@ -182,5 +182,44 @@ describe('user binding and consumer share', () => {
     localStorage.setItem('agritainment-platform-bindings', JSON.stringify({ U1: { userId: 'U1', promoterId: 'T001', status: 'bound', boundAt: 'x' } }))
     store.setReferrer({ type: 'staff', staffAccountId: 'SA003', name: '李店员' })
     expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')['U1'].promoterId).toBe('T001')
+  })
+})
+
+describe('openid and URL userId linking', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+  })
+
+  it('links URL userId with openid on wechat login', async () => {
+    const store = useFarmhouseStore()
+    store.setCurrentUser('U-FROM-USER-END')
+    await store.wechatLogin()
+    expect(store.auth.isLoggedIn).toBe(true)
+    expect(store.currentUserId).toBe('U-FROM-USER-END')
+    const links = JSON.parse(localStorage.getItem('agritainment-platform-user-links') || '{}')
+    expect(links[store.auth.openid]).toBe('U-FROM-USER-END')
+  })
+
+  it('reuses openid-mapped userId after it is linked', async () => {
+    const store = useFarmhouseStore()
+    await store.wechatLogin()
+    const openid = store.auth.openid
+    writeUserLink(openid, 'U-EXISTING')
+    store.logout()
+    store.currentUserId = ''
+    store.pendingUserId = ''
+    await store.wechatLogin()
+    expect(store.currentUserId).toBe('U-EXISTING')
+  })
+  it('applies local inventory overrides for the storefront', () => {
+    const store = useFarmhouseStore()
+    const seeded = cloneSeed(products.slice(0, 1))
+    store.$patch({ products: seeded, overrides: {} })
+    const p = store.products[0]
+    expect(store.setSkuStock(p.id, p.skus[0].id, 2)).toBe(true)
+    expect(store.products[0].skus[0].stock).toBe(2)
+    expect(store.toggleListed(p.id)).toBe(true)
+    expect(store.isListed(p.id)).toBe(false)
   })
 })

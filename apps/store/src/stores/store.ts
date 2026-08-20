@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { MockScenario, OrderItem, Product, PurchaseStatus } from '@agritainment/shared'
-import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, calcCartTotal, cloneSeed, createId, mergeEntitySeeds, mergePersistedDefaults, nextPurchaseStatus, purchaseSteps, readPlatformMedia, validatePhone, validateSmsCode } from '@agritainment/shared'
+import type { AfterSale, MockScenario, Order, OrderItem, OrderStatus, Product, PurchaseStatus } from '@agritainment/shared'
+import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, calcCartTotal, cloneSeed, createId, mergeEntitySeeds, mergePlatformEntities, mergePersistedDefaults, nextPurchaseStatus, purchaseSteps, readPlatformAfterSales, readPlatformEntities, readPlatformMedia, suppliers, validatePhone, validateSmsCode, writePlatformAfterSale, writePlatformOrder } from '@agritainment/shared'
 import { storeInfo, storeRepository } from '../services/repository'
 
 interface CartLine {
@@ -44,7 +44,23 @@ interface StoreState {
   cart: CartLine[]
   orders: StoreOrder[]
   checkoutError: string
+  overrides: Record<string, { stock?: Record<string, number>; listed?: boolean }>
   auth: { isLoggedIn: boolean; phone: string }
+}
+
+const purchaseToOrderStatus: Record<PurchaseStatus, OrderStatus> = {
+  submitted: 'pending', accepted: 'pending', shipped: 'shipping', delivering: 'shipping', received: 'delivered', completed: 'delivered', cancelled: 'unpaid-cancelled'
+}
+
+function toPlatformOrder(order: StoreOrder, products: Product[]): Order {
+  const first = order.items[0]
+  const product = first ? products.find((p) => p.id === first.productId) : undefined
+  return {
+    id: order.id, productName: first?.name || '进货商品', quantity: order.itemCount, amount: order.amount,
+    customer: storeInfo.name, channel: 'purchase', status: purchaseToOrderStatus[order.status],
+    createdAt: order.createdAt, items: order.items,
+    supplierId: suppliers.find((s) => s.name === product?.supplier)?.id
+  }
 }
 
 const logisticsEventFor = (status: PurchaseStatus, order: StoreOrder): LogisticsEvent => {
@@ -56,6 +72,7 @@ const logisticsEventFor = (status: PurchaseStatus, order: StoreOrder): Logistics
     case 'delivering': return { time: now, title: '配送中', detail: '已到达中转场，预计 1-2 天送达门店' }
     case 'received': return { time: now, title: '已签收', detail: '门店已收货并验货签收' }
     case 'completed': return { time: now, title: '订单完成', detail: '本单履约完成，期待再次合作' }
+    case 'cancelled': return { time: now, title: '订单已取消', detail: '门店取消进货单，中台已停止履约' }
   }
 }
 
@@ -243,9 +260,11 @@ export const useStoreStore = defineStore('store', {
     cart: [],
     orders: seedOrders(),
     checkoutError: '',
+    overrides: {},
     auth: { isLoggedIn: false, phone: '' }
   }),
   getters: {
+    isListed: (state) => (productId: string) => state.overrides[productId]?.listed !== false,
     cartCount: (state) => state.cart.reduce((sum, item) => sum + item.quantity, 0),
     cartTotal: (state) => calcCartTotal(state.cart.map(({ price, quantity }) => ({ price, quantity }))),
     orderMetrics: (state) => {
@@ -279,6 +298,9 @@ export const useStoreStore = defineStore('store', {
           initialized: true
         })
         applyPlatformMedia(null, this.products)
+        const entities = readPlatformEntities()
+        if (entities?.products) this.products = mergePlatformEntities(this.products, entities.products)
+        this.applyLocalOverrides()
         const storeMedia = readPlatformMedia()
         if (storeMedia?.farms['F001']) this.info.image = storeMedia.farms['F001']
         this.cart.forEach((line) => {
@@ -341,6 +363,33 @@ export const useStoreStore = defineStore('store', {
       this.cart = this.cart.filter((item) => !(item.productId === productId && item.skuId === skuId))
       this.checkoutError = ''
     },
+    applyLocalOverrides() {
+      Object.entries(this.overrides).forEach(([productId, ov]) => {
+        const product = this.products.find((item) => item.id === productId)
+        if (!product || !ov.stock) return
+        product.skus.forEach((sku) => {
+          if (ov.stock![sku.id] !== undefined) sku.stock = Math.max(0, Math.round(ov.stock![sku.id]))
+        })
+        product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
+      })
+    },
+    setSkuStock(productId: string, skuId: string, stock: number) {
+      const product = this.products.find((item) => item.id === productId)
+      const sku = product?.skus.find((item) => item.id === skuId)
+      if (!product || !sku) return false
+      const ov = this.overrides[productId] || (this.overrides[productId] = {})
+      ov.stock = ov.stock || {}
+      ov.stock[skuId] = Math.max(0, Math.round(Number(stock) || 0))
+      sku.stock = ov.stock[skuId]
+      product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
+      return true
+    },
+    toggleListed(productId: string) {
+      if (!this.products.some((item) => item.id === productId)) return false
+      const ov = this.overrides[productId] || (this.overrides[productId] = {})
+      ov.listed = ov.listed === false ? true : false
+      return true
+    },
     submitOrder(remark = '') {
       this.checkoutError = ''
       if (!this.cart.length) {
@@ -379,6 +428,7 @@ export const useStoreStore = defineStore('store', {
         logistics: [{ time: now, title: '订单已提交', detail: '已提交至甄选好物供应链中台，等待接单' }],
         remark: remark.trim() || undefined
       })
+      writePlatformOrder(toPlatformOrder(this.orders[0], this.products))
       this.cart = []
       return true
     },
@@ -387,6 +437,7 @@ export const useStoreStore = defineStore('store', {
       if (!order || order.status === 'completed') return false
       order.status = nextPurchaseStatus(order.status)
       order.logistics.push(logisticsEventFor(order.status, order))
+      writePlatformOrder(toPlatformOrder(order, this.products))
       return true
     },
     confirmReceipt(id: string) {
@@ -394,6 +445,28 @@ export const useStoreStore = defineStore('store', {
       if (!order || order.status !== 'delivering') return false
       order.status = 'received'
       order.logistics.push(logisticsEventFor('received', order))
+      writePlatformOrder(toPlatformOrder(order, this.products))
+      return true
+    },
+    cancelOrder(id: string) {
+      const order = this.orders.find((item) => item.id === id)
+      if (!order || (order.status !== 'submitted' && order.status !== 'accepted')) return false
+      order.status = 'cancelled'
+      order.logistics.push({ time: new Date().toLocaleString('zh-CN'), title: '订单已取消', detail: '门店取消进货单' })
+      writePlatformOrder(toPlatformOrder(order, this.products))
+      return true
+    },
+    initiateAfterSale(orderId: string) {
+      const order = this.orders.find((item) => item.id === orderId)
+      if (!order || (order.status !== 'received' && order.status !== 'completed')) return false
+      if (Object.values(readPlatformAfterSales() || {}).some((work) => work.orderId === orderId)) return false
+      const first = order.items[0]
+      writePlatformAfterSale({
+        id: createId('AS'), orderId, productName: first?.name || '进货商品', applicant: storeInfo.name,
+        type: 'refund', amount: order.amount, status: 'processing', issue: '进货商品质量问题，门店申请售后',
+        quantity: first?.quantity || order.itemCount, image: first?.image,
+        history: [{ time: new Date().toLocaleString('zh-CN'), action: '门店发起售后，平台受理中', operator: storeInfo.name }]
+      } as AfterSale)
       return true
     },
     repeatOrder(id: string) {

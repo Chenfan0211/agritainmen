@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { FarmStore, LiveRoom, MockScenario, Product } from '@agritainment/shared'
-import { createId, readUserBindings, upsertUserBinding } from '@agritainment/shared'
+import { getOrCreateUserId, readUserBindings, resolveUserIdentity, simulateWechatLogin, upsertUserBinding } from '@agritainment/shared'
 import { userRepository } from '../services/repository'
 
 interface UserState {
@@ -15,6 +15,7 @@ interface UserState {
   promoterId: string
   promoterName: string
   userId: string
+  auth: { isLoggedIn: boolean; openid: string }
 }
 
 export const useUserStore = defineStore('user', {
@@ -29,7 +30,8 @@ export const useUserStore = defineStore('user', {
     liveId: '',
     promoterId: '',
     promoterName: '',
-    userId: ''
+    userId: '',
+    auth: { isLoggedIn: false, openid: '' }
   }),
   getters: {
     currentLive: (state) => state.liveRooms.find((item) => item.id === state.liveId) || null,
@@ -62,21 +64,35 @@ export const useUserStore = defineStore('user', {
       }
     },
     applyLaunch(query: Record<string, string | undefined>) {
-      this.liveId = query.live || ''
-      this.promoterId = query.promoter || ''
-      this.promoterName = query.promoterName || ''
+      // 链接参数优先；无参数时复用本地已记录的直播号 / 推客ID（首次进入仍需链接或二维码）
+      const savedLive = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-live-id') : ''
+      const savedPromoter = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-promoter-id') : ''
+      const savedName = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-promoter-name') : ''
+      this.liveId = query.live || (typeof savedLive === 'string' ? savedLive : '') || ''
+      this.promoterId = query.promoter || (typeof savedPromoter === 'string' ? savedPromoter : '') || ''
+      this.promoterName = query.promoterName || (typeof savedName === 'string' ? savedName : '') || ''
+      if (this.liveId && typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-live-id', this.liveId)
+      if (this.promoterId && typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-promoter-id', this.promoterId)
+      if (this.promoterName && typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-promoter-name', this.promoterName)
+      // 用户ID：URL 传入优先；否则已授权 openid 解析统一 ID；最后本地匿名 ID
       if (query.userId && query.userId.length > 2) {
         this.userId = query.userId
         if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', query.userId)
-      } else {
-        const saved = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-id') : ''
-        this.userId = typeof saved === 'string' && saved ? saved : createId('U')
-        if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', this.userId)
+      } else if (!this.userId) {
+        this.userId = this.auth.openid ? resolveUserIdentity(this.auth.openid) : getOrCreateUserId()
       }
+      if (!this.userId || !this.promoterId) return
       const bindings = readUserBindings() ?? {}
       const existing = bindings[this.userId]
       if (existing && existing.status === 'bound') return
-      if (this.promoterId) upsertUserBinding({ userId: this.userId, promoterId: this.promoterId, status: 'pending' })
+      upsertUserBinding({ userId: this.userId, promoterId: this.promoterId, status: 'pending' })
+    },
+    async wechatLogin() {
+      const { openid } = await simulateWechatLogin()
+      this.auth = { isLoggedIn: true, openid }
+      this.userId = resolveUserIdentity(openid)
+      if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', this.userId)
+      return { openid, userId: this.userId }
     }
   }
 })

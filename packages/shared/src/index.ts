@@ -3,7 +3,7 @@ export type ProductSource = 'platform' | 'farmhouse'
 export type ProductStatus = 'active' | 'pending' | 'offline' | 'rejected'
 export type OrderStatus = 'pending' | 'shipping' | 'delivered' | 'after-sale' | 'paid-cancelled' | 'unpaid-cancelled'
 export type AfterSaleStatus = 'processing' | 'rejected' | 'refund-pending' | 'return-pending' | 'refunded' | 'refund-failed'
-export type PurchaseStatus = 'submitted' | 'accepted' | 'shipped' | 'delivering' | 'received' | 'completed'
+export type PurchaseStatus = 'submitted' | 'accepted' | 'shipped' | 'delivering' | 'received' | 'completed' | 'cancelled'
 export type MockScenario = 'normal' | 'empty' | 'failure'
 export type FarmAvailability = 'bookable' | 'full' | 'closed'
 export type CommissionStatus = 'pending' | 'available' | 'completed'
@@ -208,6 +208,13 @@ export interface FarmStore {
   livePopularity: number
 }
 
+export interface OrderFlowEvent {
+  time: string
+  action: string
+  operator: string
+  note?: string
+}
+
 export interface Order {
   id: string
   productName: string
@@ -219,6 +226,7 @@ export interface Order {
   createdAt: string
   trackingNo?: string
   logistics?: LogisticsEvent[]
+  flow?: OrderFlowEvent[]
   supplierId?: string
   settlementId?: string
   items?: OrderItem[]
@@ -665,16 +673,16 @@ export const farms: FarmStore[] = [
 ]
 
 export const orders: Order[] = [
-  { id: 'NJ202608110928', productName: '炎陵黄桃礼盒', quantity: 2, amount: 136, customer: '石板溪农家乐', channel: 'live', status: 'pending', createdAt: '2026-08-11 09:28', supplierId: 'S004', items: [{ productId: 'P002', skuId: 'P002-5J', name: '炎陵黄桃 5斤礼盒', skuName: '5斤礼盒', image: '/static/images/peach.webp', quantity: 2, price: 68 }] },
+  { id: 'NJ202608110928', productName: '炎陵黄桃礼盒', quantity: 2, amount: 136, customer: '石板溪农家乐', channel: 'live', status: 'pending', createdAt: '2026-08-11 09:28', supplierId: 'S004', items: [{ productId: 'P002', skuId: 'P002-5J', name: '炎陵黄桃 5斤礼盒', skuName: '5斤礼盒', image: '/static/images/peach.webp', quantity: 2, price: 68 }], flow: [{ time: '2026-08-11 09:28', action: '用户下单', operator: '石板溪农家乐' }, { time: '2026-08-11 09:28', action: '订单支付成功', operator: '石板溪农家乐' }] },
   { id: 'NJ202608110915', productName: '湘西烟熏柴火腊肉', quantity: 5, amount: 277.7, customer: '云上人家山景农庄', channel: 'shop', status: 'pending', createdAt: '2026-08-11 09:15', supplierId: 'S002', items: [{ productId: 'P001', skuId: 'P001-500', name: '湘西烟熏柴火腊肉 500g', skuName: '500g', image: '/static/images/bacon.webp', quantity: 3, price: 59.9 }, { productId: 'P009', skuId: 'P009-1', name: '招牌酱板鸭 整只装', skuName: '整只装', image: '/static/images/bacon.webp', quantity: 2, price: 49 }] },
-  { id: 'NJ202608110903', productName: '民宿一次性洗漱套装', quantity: 200, amount: 360, customer: '云上人家山景农庄', channel: 'purchase', status: 'shipping', createdAt: '2026-08-11 09:03', supplierId: 'S005', items: [{ productId: 'P014', skuId: 'P014-100', name: '民宿一次性洗漱套装', skuName: '100套/箱', image: '/static/images/field.webp', quantity: 200, price: 1.8 }] },
+  { id: 'NJ202608110903', productName: '民宿一次性洗漱套装', quantity: 200, amount: 360, customer: '云上人家山景农庄', channel: 'purchase', status: 'shipping', createdAt: '2026-08-11 09:03', supplierId: 'S005', items: [{ productId: 'P014', skuId: 'P014-100', name: '民宿一次性洗漱套装', skuName: '100套/箱', image: '/static/images/field.webp', quantity: 200, price: 1.8 }], flow: [{ time: '2026-08-11 09:03', action: '用户下单', operator: '云上人家山景农庄' }, { time: '2026-08-11 09:03', action: '订单支付成功', operator: '云上人家山景农庄' }, { time: '2026-08-11 09:03', action: '已发货 · 已安排司机配送', operator: '运营管理员' }] },
   { id: 'NJ202608110851', productName: '安化黑茶礼盒', quantity: 1, amount: 128, customer: '联盟推客 · 张同学', channel: 'live', status: 'shipping', createdAt: '2026-08-11 08:51', supplierId: 'S003', items: [{ productId: 'P003', skuId: 'P003-GIFT', name: '安化黑茶礼盒装', skuName: '雅藏礼盒', image: '/static/images/tea.webp', quantity: 1, price: 128 }] },
-  { id: 'NJ202608110842', productName: '武陵山野生土蜂蜜', quantity: 3, amount: 264, customer: '稻香村生态农庄', channel: 'shop', status: 'delivered', createdAt: '2026-08-11 08:42', supplierId: 'S006', items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 3, price: 88 }] },
+  { id: 'NJ202608110842', productName: '武陵山野生土蜂蜜', quantity: 3, amount: 264, customer: '稻香村生态农庄', channel: 'shop', status: 'delivered', createdAt: '2026-08-11 08:42', supplierId: 'S006', items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 3, price: 88 }], flow: [{ time: '2026-08-11 08:42', action: '用户下单', operator: '稻香村生态农庄' }, { time: '2026-08-11 08:42', action: '订单支付成功', operator: '稻香村生态农庄' }, { time: '2026-08-11 08:42', action: '已发货 · 已安排司机配送', operator: '运营管理员' }, { time: '2026-08-11 08:42', action: '已确认收货', operator: '运营管理员' }] },
   { id: 'NJ202608121030', productName: '湘西烟熏柴火腊肉', quantity: 6, amount: 359.4, customer: '石板溪农家乐', channel: 'shop', status: 'pending', createdAt: '2026-08-12 10:30', supplierId: 'S002', items: [{ productId: 'P001', skuId: 'P001-500', name: '湘西烟熏柴火腊肉 500g', skuName: '500g', image: '/static/images/bacon.webp', quantity: 6, price: 59.9 }] },
-  { id: 'NJ202608121015', productName: '安化黑茶礼盒装', quantity: 2, amount: 256, customer: '云上人家山景农庄', channel: 'purchase', status: 'unpaid-cancelled', createdAt: '2026-08-12 10:15', supplierId: 'S003', items: [{ productId: 'P003', skuId: 'P003-GIFT', name: '安化黑茶礼盒装', skuName: '雅藏礼盒', image: '/static/images/tea.webp', quantity: 2, price: 128 }] },
+  { id: 'NJ202608121015', productName: '安化黑茶礼盒装', quantity: 2, amount: 256, customer: '云上人家山景农庄', channel: 'purchase', status: 'unpaid-cancelled', createdAt: '2026-08-12 10:15', supplierId: 'S003', items: [{ productId: 'P003', skuId: 'P003-GIFT', name: '安化黑茶礼盒装', skuName: '雅藏礼盒', image: '/static/images/tea.webp', quantity: 2, price: 128 }], flow: [{ time: '2026-08-12 10:15', action: '用户下单', operator: '云上人家山景农庄' }, { time: '2026-08-12 10:15', action: '未支付取消', operator: '云上人家山景农庄' }] },
   { id: 'NJ202608120958', productName: '洞庭湖风干刁子鱼', quantity: 10, amount: 428, customer: '联盟推客 · 苗家阿妹', channel: 'live', status: 'shipping', createdAt: '2026-08-12 09:58', supplierId: 'S008', trackingNo: 'SF1493208660121', items: [{ productId: 'P016', skuId: 'P016-400', name: '洞庭湖风干刁子鱼 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 10, price: 42.8 }] },
   { id: 'NJ202608120945', productName: '民宿一次性洗漱套装', quantity: 100, amount: 350, customer: '稻香村生态农庄', channel: 'purchase', status: 'shipping', createdAt: '2026-08-12 09:45', supplierId: 'S005', trackingNo: 'DB4321689092', logistics: [{ time: '2026-08-12 09:45', title: '商家已发货', detail: '订单已由 德邦快递 揽收' }, { time: '2026-08-12 11:02', title: '运输中', detail: '包裹已到达长沙转运中心' }], items: [{ productId: 'P014', skuId: 'P014-100', name: '民宿一次性洗漱套装', skuName: '100套/箱', image: '/static/images/field.webp', quantity: 100, price: 3.5 }] },
-  { id: 'NJ202608120931', productName: '武陵山野生土蜂蜜', quantity: 2, amount: 176, customer: '联盟推客 · 土家幺妹', channel: 'live', status: 'paid-cancelled', createdAt: '2026-08-12 09:31', supplierId: 'S006', trackingNo: 'ZT7231096554', items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 2, price: 88 }] },
+  { id: 'NJ202608120931', productName: '武陵山野生土蜂蜜', quantity: 2, amount: 176, customer: '联盟推客 · 土家幺妹', channel: 'live', status: 'paid-cancelled', createdAt: '2026-08-12 09:31', supplierId: 'S006', trackingNo: 'ZT7231096554', items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 2, price: 88 }], flow: [{ time: '2026-08-12 09:31', action: '用户下单', operator: '联盟推客 · 土家幺妹' }, { time: '2026-08-12 09:31', action: '订单支付成功', operator: '联盟推客 · 土家幺妹' }, { time: '2026-08-12 09:31', action: '已支付取消', operator: '联盟推客 · 土家幺妹' }] },
   { id: 'NJ202608120918', productName: '农家自制剁辣椒', quantity: 20, amount: 798, customer: '橘子洲畔农家院', channel: 'shop', status: 'delivered', createdAt: '2026-08-12 09:18', items: [{ productId: 'P004', skuId: 'P004-2', name: '农家自制剁辣椒 2瓶', skuName: '2瓶装', image: '/static/images/chili.webp', quantity: 20, price: 39.9 }] },
   { id: 'NJ202608120905', productName: '宁乡花猪腊肠', quantity: 15, amount: 582, customer: '衡山南岳农家乐', channel: 'shop', status: 'delivered', createdAt: '2026-08-12 09:05', supplierId: 'S009', trackingNo: 'YT7754219833', logistics: [{ time: '2026-08-11 16:20', title: '商家已发货', detail: '订单已由 圆通速递 揽收' }, { time: '2026-08-11 21:47', title: '运输中', detail: '包裹已到达衡阳分拨中心' }, { time: '2026-08-12 08:35', title: '派送中', detail: '快递员正在派送' }], items: [{ productId: 'P017', skuId: 'P017-400', name: '宁乡花猪腊肠 400g', skuName: '400g', image: '/static/images/bacon.webp', quantity: 15, price: 38.8 }] },
   { id: 'NJ202608120851', productName: '农家四人欢聚套餐券', quantity: 3, amount: 864, customer: '联盟推客 · 湘农达人', channel: 'live', status: 'after-sale', createdAt: '2026-08-12 08:51', items: [{ productId: 'P007', skuId: 'P007-4P', name: '农家四人欢聚套餐券', skuName: '四人套餐券', image: '/static/images/farmhouse.webp', quantity: 3, price: 288 }] },
@@ -963,6 +971,8 @@ export const liveRooms: LiveRoom[] = [
   { id: 'L010', emoji: '🧋', title: '常德擂茶夜话 · 老字号开讲', host: '常德柳叶姐', hostRole: '推客主播', viewers: 7300, productName: '常德擂茶', productPrice: 25.8, status: 'live', reminded: false, image: '/static/images/field.webp', farmId: 'F025', city: '常德市' },
   { id: 'L011', emoji: '🍠', title: '永州香芋大集 · 粉糯爆款', host: '永州香芋哥', hostRole: '推客主播', viewers: 0, productName: '江永香芋', productPrice: 32.8, status: 'preview', reminded: false, image: '/static/images/field.webp', farmId: 'F021', city: '永州市' },
   { id: 'L012', emoji: '🌶', title: '双峰辣酱下饭专场', host: '娄底辣酱哥', hostRole: '推客主播', viewers: 11200, productName: '双峰辣酱', productPrice: 29.9, status: 'live', reminded: false, image: '/static/images/chili.webp', farmId: 'F022', city: '娄底市' },
+  { id: 'L013', emoji: '🐟', title: '洞庭湖鲜开渔季 · 刁子鱼秒杀', host: '山里阿强', hostRole: '推客主播', viewers: 12400, productName: '风干刁子鱼', productPrice: 42.8, status: 'live', reminded: false, image: '/static/images/field.webp', farmId: 'F020', city: '郴州市', promoterId: 'T001', linkedFarms: [{ farmId: 'F003', packageIds: ['P054'] }, { farmId: 'F006', packageIds: ['P065'] }] },
+  { id: 'L014', emoji: '🍵', title: '高山云雾茶 · 春日采茶慢直播', host: '张同学', hostRole: '推客主播', viewers: 0, productName: '高山云雾茶', productPrice: 128, status: 'preview', reminded: false, image: '/static/images/tea.webp', farmId: 'F002', city: '张家界市', promoterId: 'T001', linkedFarms: [{ farmId: 'F002', packageIds: ['P055'] }] }
 ]
 
 export const members: Member[] = [
@@ -1528,6 +1538,7 @@ export interface ShareRecord {
   rate: number
   amount: number
   createdAt: string
+  settled?: boolean
 }
 
 interface PlatformJsonStorage {
@@ -1643,6 +1654,204 @@ export function writeShareRecord(record: ShareRecord): void {
   writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, [record, ...records])
 }
 
+/** 整表覆盖写入分成记录（结算标记等） */
+export function writeShareRecords(records: ShareRecord[]): void {
+  writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, records)
+}
+
+/** 按 id 批量标记分成已结算 */
+export function markShareSettled(ids: string[]): void {
+  const records = readShareRecords() ?? []
+  const idSet = new Set(ids)
+  let changed = false
+  records.forEach((item) => { if (idSet.has(item.id) && !item.settled) { item.settled = true; changed = true } })
+  if (changed) writeShareRecords(records)
+}
+
+/** 推客未结算分成求和（佣金结算口径） */
+export function pendingShareAmount(promoterId: string): number {
+  const records = readShareRecords() ?? []
+  const sum = records
+    .filter((item) => item.role === 'promoter' && item.promoterId === promoterId && !item.settled)
+    .reduce((acc, item) => acc + item.amount, 0)
+  return Math.round(sum * 100) / 100
+}
+
+/** 所有推客未结算分成总额 */
+export function pendingShareTotal(): number {
+  const records = readShareRecords() ?? []
+  const sum = records.filter((item) => item.role === 'promoter' && !item.settled).reduce((acc, item) => acc + item.amount, 0)
+  return Math.round(sum * 100) / 100
+}
+
+/** 推客端演示数据：仅在对应存储通道为空时写入一次，不覆盖用户真实数据 */
+export const demoShareRecords: ShareRecord[] = [
+  { id: 'SR-D001', userId: 'U9001', orderId: 'NJ202608151132', orderAmount: 288, role: 'promoter', promoterId: 'T001', rate: 5, amount: 14.4, createdAt: '2026-08-15 11:32' },
+  { id: 'SR-D002', userId: 'U9002', orderId: 'NJ202608141026', orderAmount: 128, role: 'promoter', promoterId: 'T001', rate: 8, amount: 10.24, createdAt: '2026-08-14 10:26' },
+  { id: 'SR-D003', userId: 'U9003', orderId: 'NJ202608121843', orderAmount: 68.9, role: 'promoter', promoterId: 'T001', rate: 10, amount: 6.89, createdAt: '2026-08-12 18:43' },
+  { id: 'SR-D004', userId: 'U9004', orderId: 'NJ202608110947', orderAmount: 59.9, role: 'promoter', promoterId: 'T001', rate: 8, amount: 4.79, createdAt: '2026-08-11 09:47' },
+  { id: 'SR-D005', userId: 'U9005', orderId: 'NJ202608091618', orderAmount: 45, role: 'promoter', promoterId: 'T001', rate: 5, amount: 2.25, createdAt: '2026-08-09 16:18' }
+]
+
+export const demoUserBindings: Record<string, UserBinding> = {
+  U9001: { userId: 'U9001', promoterId: 'T001', status: 'bound', boundAt: '2026-08-15 11:35' },
+  U9002: { userId: 'U9002', promoterId: 'T001', status: 'bound', boundAt: '2026-08-14 10:30' },
+  U9003: { userId: 'U9003', promoterId: 'T001', status: 'pending' },
+  U9004: { userId: 'U9004', promoterId: 'T001', status: 'bound', boundAt: '2026-08-11 09:50' },
+  U9005: { userId: 'U9005', promoterId: 'T001', status: 'pending' }
+}
+
+export function seedPlatformDemoData(): void {
+  if (!readShareRecords()) writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, demoShareRecords)
+  if (!readUserBindings()) writePlatformJson(PLATFORM_BINDINGS_STORAGE_KEY, demoUserBindings)
+}
+
+// ===== 中台主数据发布：admin 维护的商品/门店/供应商/价格策略/品类全字段发布，其他应用读取覆盖 =====
+export const PLATFORM_ENTITIES_STORAGE_KEY = 'agritainment-platform-entities'
+
+export type PlatformEntityKind = 'products' | 'farms' | 'suppliers' | 'policies' | 'categories'
+
+export interface PlatformEntities {
+  products?: Record<string, Product>
+  farms?: Record<string, FarmStore>
+  suppliers?: Record<string, Supplier>
+  policies?: Record<string, PricePolicy>
+  categories?: Record<string, Category>
+  updatedAt: string
+}
+
+export function readPlatformEntities(): PlatformEntities | null {
+  const entities = readPlatformJson<PlatformEntities>(PLATFORM_ENTITIES_STORAGE_KEY)
+  return entities && typeof entities === 'object' ? entities : null
+}
+
+export function writePlatformEntities(entities: PlatformEntities): void {
+  writePlatformJson(PLATFORM_ENTITIES_STORAGE_KEY, entities)
+}
+
+/** 按 id 整体覆盖某类实体快照（无删除语义：商品/门店用上下架/停用表达业务状态） */
+export function upsertPlatformEntity(kind: PlatformEntityKind, id: string, entity: unknown): PlatformEntities {
+  const base = readPlatformEntities() ?? { updatedAt: '' }
+  const map = { ...((base[kind] as Record<string, unknown> | undefined) || {}) }
+  map[id] = entity
+  const next: PlatformEntities = { ...base, [kind]: map, updatedAt: new Date().toISOString() }
+  writePlatformEntities(next)
+  return next
+}
+
+/** 平台实体覆盖种子：按 id 整体替换，追加平台独有实体；无记录保持种子 */
+export function mergePlatformEntities<T extends { id: string }>(list: T[], map: Record<string, T> | undefined): T[] {
+  if (!map) return list
+  const existing = new Set(list.map((item) => item.id))
+  const merged = list.map((item) => (map[item.id] ? { ...item, ...map[item.id] } : item))
+  for (const entity of Object.values(map)) {
+    if (!existing.has(entity.id)) merged.push(entity)
+  }
+  return merged
+}
+
+export function applyPlatformEntities(
+  products: Product[] | null | undefined,
+  farms: FarmStore[] | null | undefined,
+  suppliers: Supplier[] | null | undefined,
+  policies: PricePolicy[] | null | undefined,
+  categories: Category[] | null | undefined,
+  entities: PlatformEntities | null = readPlatformEntities()
+): void {
+  if (!entities) return
+  if (Array.isArray(products) && entities.products) products.splice(0, products.length, ...mergePlatformEntities(products, entities.products))
+  if (Array.isArray(farms) && entities.farms) farms.splice(0, farms.length, ...mergePlatformEntities(farms, entities.farms))
+  if (Array.isArray(suppliers) && entities.suppliers) suppliers.splice(0, suppliers.length, ...mergePlatformEntities(suppliers, entities.suppliers))
+  if (Array.isArray(policies) && entities.policies) policies.splice(0, policies.length, ...mergePlatformEntities(policies, entities.policies))
+  if (Array.isArray(categories) && entities.categories) categories.splice(0, categories.length, ...mergePlatformEntities(categories, entities.categories))
+}
+
+// ===== 订单/售后跨端串联：消费端下单写入，中台履约/售后处理回写 =====
+export const PLATFORM_ORDERS_STORAGE_KEY = 'agritainment-platform-orders'
+export const PLATFORM_AFTERSALES_STORAGE_KEY = 'agritainment-platform-after-sales'
+
+export function readPlatformOrders(): Record<string, Order> | null {
+  const orders = readPlatformJson<Record<string, Order>>(PLATFORM_ORDERS_STORAGE_KEY)
+  return orders && typeof orders === 'object' ? orders : null
+}
+export function writePlatformOrder(order: Order): void {
+  const orders = readPlatformOrders() ?? {}
+  writePlatformJson(PLATFORM_ORDERS_STORAGE_KEY, { ...orders, [order.id]: order })
+}
+export function mergePlatformOrders(defaults: Order[], published: Record<string, Order> | null): Order[] {
+  if (!published) return defaults
+  const byId = new Map(defaults.map((item) => [item.id, item]))
+  const merged = defaults.map((item) => published[item.id] ?? item)
+  for (const order of Object.values(published)) {
+    if (!byId.has(order.id)) merged.unshift(order)
+  }
+  return merged
+}
+export function readPlatformAfterSales(): Record<string, AfterSale> | null {
+  const works = readPlatformJson<Record<string, AfterSale>>(PLATFORM_AFTERSALES_STORAGE_KEY)
+  return works && typeof works === 'object' ? works : null
+}
+export function writePlatformAfterSale(work: AfterSale): void {
+  const works = readPlatformAfterSales() ?? {}
+  writePlatformJson(PLATFORM_AFTERSALES_STORAGE_KEY, { ...works, [work.id]: work })
+}
+export function mergePlatformAfterSales(defaults: AfterSale[], published: Record<string, AfterSale> | null): AfterSale[] {
+  if (!published) return defaults
+  const byId = new Map(defaults.map((item) => [item.id, item]))
+  const merged = defaults.map((item) => published[item.id] ?? item)
+  for (const work of Object.values(published)) {
+    if (!byId.has(work.id)) merged.unshift(work)
+  }
+  return merged
+}
+
+export const ORDER_STATUS_TEXT: Record<OrderStatus, string> = {
+  pending: '待发货', shipping: '已发货', delivered: '已完成', 'after-sale': '已完成',
+  'paid-cancelled': '已支付取消', 'unpaid-cancelled': '未支付取消'
+}
+
+export function orderStatusText(status: OrderStatus): string {
+  return ORDER_STATUS_TEXT[status] || status
+}
+
+/** 消费端读取中台回写的订单状态（未出现在平台通道返回 null） */
+export function readPlatformOrderStatus(orderId: string): string | null {
+  const order = readPlatformOrders()?.[orderId]
+  return order ? orderStatusText(order.status) : null
+}
+
+export function readPlatformOrder(orderId: string): Order | null {
+  return readPlatformOrders()?.[orderId] || null
+}
+export function readPlatformAfterSaleStatus(orderId: string): string | null {
+  const work = Object.values(readPlatformAfterSales() || {}).find((item) => item.orderId === orderId)
+  if (!work) return null
+  const map: Record<string, string> = { processing: '售后中', rejected: '售后拒绝', 'refund-pending': '待退款', 'return-pending': '待退货', refunded: '已退款', 'refund-failed': '退款失败' }
+  return map[work.status] || work.status
+}
+
+// ===== 佣金结算回流：中台结算后同步推客端/联盟端 =====
+export const PLATFORM_SETTLEMENTS_STORAGE_KEY = 'agritainment-platform-settlements'
+
+export interface PlatformCommissionSettlement {
+  commission: number
+  settled: boolean
+  settledAt?: string
+}
+
+export function readPlatformCommissionSettlement(promoterId: string): PlatformCommissionSettlement | null {
+  const settlements = readPlatformJson<Record<string, PlatformCommissionSettlement>>(PLATFORM_SETTLEMENTS_STORAGE_KEY)
+  return settlements?.[promoterId] || null
+}
+
+export function writePlatformCommissionSettlement(promoterId: string, payload: PlatformCommissionSettlement): void {
+  const settlements = readPlatformJson<Record<string, PlatformCommissionSettlement>>(PLATFORM_SETTLEMENTS_STORAGE_KEY) || {}
+  settlements[promoterId] = payload
+  writePlatformJson(PLATFORM_SETTLEMENTS_STORAGE_KEY, settlements)
+}
+
+
+
 /** 门店账号：中控台与门店端店长工作台共享 */
 export function readPlatformStoreAccounts(): StoreAccount[] | null {
   const accounts = readPlatformJson<StoreAccount[]>(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY)
@@ -1670,6 +1879,78 @@ export function resolveShare(
   if (!role) return null
   const rate = role === 'promoter' ? config.promoterRate : config.staffRate
   return { role, rate, amount: round2((amount * rate) / 100) }
+}
+
+
+/** 用户身份：openid 锚定到稳定 userId，用户端 / 门店端统一 */
+export const USER_ID_STORAGE_KEY = 'agritainment-user-id'
+export const PLATFORM_USER_LINKS_STORAGE_KEY = 'agritainment-platform-user-links'
+
+function readUserStorageValue(key: string): string {
+  const storage = platformJsonStorage()
+  if (!storage) return ''
+  try {
+    let saved = storage.read(key)
+    if (typeof saved === 'string') {
+      try {
+        saved = JSON.parse(saved)
+      } catch {
+        // 非 JSON 字符串（如纯 userId）
+      }
+    }
+    if (typeof saved === 'string') return saved
+    if (saved && typeof saved === 'object' && 'data' in saved) {
+      const data = (saved as { data?: unknown }).data
+      if (typeof data === 'string') return data
+    }
+  } catch {
+    // 忽略
+  }
+  return ''
+}
+
+function writeUserStorageValue(key: string, value: string): void {
+  const storage = platformJsonStorage()
+  if (!storage) return
+  try {
+    storage.write(key, value)
+  } catch {
+    // 忽略
+  }
+}
+
+/** 读取或生成本地匿名 userId（两端共用，H5 同源一致） */
+export function getOrCreateUserId(): string {
+  const saved = readUserStorageValue(USER_ID_STORAGE_KEY)
+  if (saved) return saved
+  const userId = createId('U')
+  writeUserStorageValue(USER_ID_STORAGE_KEY, userId)
+  return userId
+}
+
+/** openid -> userId 映射（共享通道，H5 同域共享） */
+export function readUserLinks(): Record<string, string> | null {
+  const links = readPlatformJson<Record<string, string>>(PLATFORM_USER_LINKS_STORAGE_KEY)
+  return links && typeof links === 'object' ? links : null
+}
+export function writeUserLink(openid: string, userId: string): void {
+  if (!openid || !userId) return
+  const links = readUserLinks() ?? {}
+  writePlatformJson(PLATFORM_USER_LINKS_STORAGE_KEY, { ...links, [openid]: userId })
+}
+export function resolveUserIdByOpenid(openid: string): string {
+  if (!openid) return ''
+  return (readUserLinks() ?? {})[openid] || ''
+}
+
+/** 以 openid 解析统一 userId：已映射则复用；否则用本地 userId 并建立 openid↔userId 映射 */
+export function resolveUserIdentity(openid: string): string {
+  if (!openid) return getOrCreateUserId()
+  const linked = resolveUserIdByOpenid(openid)
+  if (linked) return linked
+  const userId = getOrCreateUserId()
+  writeUserLink(openid, userId)
+  return userId
 }
 
 export * from './auth'

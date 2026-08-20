@@ -1,10 +1,23 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cloneSeed, farms, liveRooms, products, promoters } from '@agritainment/shared'
+import { cloneSeed, farms, liveRooms, products, promoters, upsertUserBinding } from '@agritainment/shared'
 import { useAllianceStore } from './alliance'
 
+if (!globalThis.localStorage) {
+  const storage = new Map<string, string>()
+  globalThis.localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => { storage.set(key, value) },
+    removeItem: (key: string) => { storage.delete(key) },
+    clear: () => storage.clear(),
+    key: () => null,
+    get length() { return storage.size }
+  } as unknown as Storage
+}
+
+
 describe('alliance store interactions', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
 
   it('records one viewer and creates a booking', () => {
     const store = useAllianceStore()
@@ -90,5 +103,11 @@ describe('alliance auth', () => {
     expect(store.auth.isLoggedIn).toBe(true)
     store.logout()
     expect(store.auth).toEqual({ isLoggedIn: false, phone: '' })
+  })
+  it('includes platform bindings in the fan list', () => {
+    const store = useAllianceStore()
+    store.$patch({ promoter: cloneSeed(promoters[0]) })
+    upsertUserBinding({ userId: 'BIND1', promoterId: 'T001', status: 'bound', boundAt: '2026-08-19 10:00' })
+    expect(store.allFans.some((fan) => fan.id === 'B-BIND1')).toBe(true)
   })
 })

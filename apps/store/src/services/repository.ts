@@ -1,4 +1,4 @@
-import { applyPlatformMedia, cloneSeed, mockDelay, products, purchaseSupplies, readPlatformMedia, selectableProducts } from '@agritainment/shared'
+import { applyPlatformMedia, cloneSeed, mergePlatformEntities, mockDelay, products, purchaseSupplies, readPlatformEntities, readPlatformMedia, selectableProducts } from '@agritainment/shared'
 import type { MockScenario, Product } from '@agritainment/shared'
 
 /** 门店订货商城本地补充的中台可订货商品（补齐套餐券/预制菜等分类展示） */
@@ -76,7 +76,8 @@ export function deriveStoreMetrics(products: Product[]): StoreMetrics {
 export const storeRepository = {
   loadStore: (scenario: MockScenario = 'normal') => {
     const info = { ...storeInfo }
-    const storeProducts = cloneSeed(storeCatalog)
+    const platformProducts = mergePlatformEntities(cloneSeed(selectableProducts), readPlatformEntities()?.products)
+    const storeProducts = cloneSeed([...platformProducts, ...(p014 ? [p014] : []), ...purchaseSupplies, ...storeExtras])
     applyPlatformMedia(null, storeProducts)
     const media = readPlatformMedia()
     if (media?.farms['F001']) info.image = media.farms['F001']

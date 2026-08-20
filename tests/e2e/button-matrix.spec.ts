@@ -44,9 +44,11 @@ test('admin buttons open data surfaces and keep overflow local', async ({ page }
   await page.locator('.drawer-head .icon-button').click()
 
   await page.locator('.nav-item', { hasText: '订单履约' }).click()
-  await page.locator('.row-actions uni-button', { hasText: '物流' }).first().click()
-  await expect(page.locator('.drawer')).toContainText('物流轨迹')
-  await expect(page.locator('.drawer')).toContainText('推进物流状态')
+  await page.locator('.row-actions uni-button', { hasText: '发货' }).first().click()
+  await expect(page.locator('.row-actions uni-button', { hasText: '流转' }).first()).toBeVisible()
+  await page.locator('.row-actions uni-button', { hasText: '流转' }).first().click()
+  await expect(page.locator('.drawer')).toContainText('订单流转记录')
+  await expect(page.locator('.drawer')).toContainText('运营管理员')
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(1024)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.reload()
@@ -125,7 +127,7 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await page.locator('.combo').first().locator('uni-button', { hasText: '预订' }).click()
   await page.locator('.booking-sheet uni-button', { hasText: '确认预订' }).click()
   await expect(page.locator('.records')).toContainText('四人欢聚套餐')
-  await page.locator('.sheet-head uni-button').click()
+  await page.locator('.sub-head .icon-button').click()
 
   await page.locator('.tabbar uni-button').nth(2).click()
   await page.locator('.product-body uni-button').first().click()
@@ -134,7 +136,7 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await page.locator('.product-detail-actions uni-button', { hasText: '加入购物车' }).click()
   await page.locator('.checkout-summary uni-button', { hasText: '提交订单' }).click()
   await expect(page.locator('.records')).toContainText('待发货')
-  await page.locator('.sheet-head uni-button').click()
+  await page.locator('.sub-head .icon-button').click()
 
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.member-hero .recharge').click()

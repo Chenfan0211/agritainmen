@@ -1,20 +1,50 @@
 ﻿import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { afterSales, categories, cloneSeed, farms, orders, products, suppliers } from '@agritainment/shared'
+import { afterSales, categories, cloneSeed, farms, mergePlatformOrders, orders, pendingShareAmount, products, promoters, readPlatformCommissionSettlement, readPlatformOrders, suppliers, writePlatformOrder, writeShareRecords } from '@agritainment/shared'
 import { useAdminStore } from './admin'
 
-describe('admin store interactions', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+if (!globalThis.localStorage) {
+  const storage = new Map<string, string>()
+  globalThis.localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => { storage.set(key, value) },
+    removeItem: (key: string) => { storage.delete(key) },
+    clear: () => storage.clear(),
+    key: () => null,
+    get length() { return storage.size }
+  } as unknown as Storage
+}
 
-  it('creates tracking events and advances delivery', () => {
+
+describe('admin store interactions', () => {
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
+
+  it('ships directly with driver dispatch and confirms receipt', () => {
     const store = useAdminStore()
     store.orders = cloneSeed(orders)
-    store.shipOrder(store.orders[0].id)
-    expect(store.orders[0].trackingNo).toMatch(/^SF/)
-    expect(store.orders[0].logistics).toHaveLength(2)
-    store.advanceLogistics(store.orders[0].id)
-    store.advanceLogistics(store.orders[0].id)
+    expect(store.shipOrder(store.orders[0].id)).toBe(true)
+    expect(store.orders[0].status).toBe('shipping')
+    expect(store.orders[0].trackingNo).toBeUndefined()
+    const shipFlow = store.orders[0].flow
+    expect(shipFlow?.[shipFlow.length - 1]).toMatchObject({ action: '已发货 · 已安排司机配送', operator: '运营管理员' })
+    expect(store.confirmOrder(store.orders[0].id)).toBe(true)
     expect(store.orders[0].status).toBe('delivered')
+    const doneFlow = store.orders[0].flow
+    expect(doneFlow?.[doneFlow.length - 1]).toMatchObject({ action: '已确认收货', operator: '运营管理员' })
+    expect(store.shipOrder(store.orders[0].id)).toBe(false)
+    expect(store.confirmOrder(store.orders[0].id)).toBe(false)
+  })
+
+  it('merges store-submitted orders and writes back fulfillment status', () => {
+    const store = useAdminStore()
+    store.orders = cloneSeed(orders)
+    writePlatformOrder({ id: 'SO-TEST01', productName: '湘西烟熏柴火腊肉', quantity: 2, amount: 76, customer: '石板溪农家乐·门店', channel: 'purchase', status: 'pending', createdAt: '2026-08-18 10:00' })
+    store.orders = mergePlatformOrders(store.orders, readPlatformOrders())
+    expect(store.orders.some((item) => item.id === 'SO-TEST01')).toBe(true)
+    expect(store.shipOrder('SO-TEST01')).toBe(true)
+    expect(readPlatformOrders()?.['SO-TEST01']?.status).toBe('shipping')
+    expect(store.confirmOrder('SO-TEST01')).toBe(true)
+    expect(readPlatformOrders()?.['SO-TEST01']?.status).toBe('delivered')
   })
 
   it('records an after-sale refund flow and exports', () => {
@@ -85,6 +115,7 @@ describe('admin store interactions', () => {
     expect(store.settleSuppliers(['S006'])).toBe(false)
     expect(store.supplierSettlementRecords[0]).toMatchObject({ orderIds: ['NJ202608110842', 'NJ202607291457', 'NJ202607301917'], amount: 616 })
     expect(store.supplierSettlementRecords[0].items[0]).toMatchObject({ supplierId: 'S006', orderIds: ['NJ202608110842', 'NJ202607291457', 'NJ202607301917'], amount: 616 })
+    writeShareRecords([{ id: 'SR-T', userId: 'u', orderId: 'o', orderAmount: 200, role: 'promoter', promoterId: 'T1', rate: 5, amount: 10, createdAt: 'x' }])
     expect(store.settleCommissions()).toBe(true)
     expect(store.settleCommissions()).toBe(false)
     expect(store.commissionSettlementRecords[0].amount).toBe(10)
@@ -212,5 +243,17 @@ describe('admin auth', () => {
     expect(store.storeAccounts[0].role).toBe('owner')
     expect(store.toggleStoreAccount(item.id)).toBe(true)
     expect(store.storeAccounts[0].enabled).toBe(false)
+  })
+  it('writes commission settlement to the platform channel', () => {
+    const store = useAdminStore()
+    store.promoters = cloneSeed(promoters)
+    writeShareRecords([
+      { id: 'SR-S1', userId: 'U1', orderId: 'O1', orderAmount: 100, role: 'promoter', promoterId: 'T001', rate: 5, amount: 5, createdAt: '2026-08-19 10:00' },
+      { id: 'SR-S2', userId: 'U2', orderId: 'O2', orderAmount: 100, role: 'promoter', promoterId: 'T001', rate: 3, amount: 3, createdAt: '2026-08-19 10:01' }
+    ])
+    expect(store.settleCommissions()).toBe(true)
+    expect(readPlatformCommissionSettlement('T001')?.settled).toBe(true)
+    expect(readPlatformCommissionSettlement('T001')?.commission).toBe(8)
+    expect(pendingShareAmount('T001')).toBe(0)
   })
 })

@@ -2,8 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import type { ECharts } from 'echarts'
-import type { AfterSale, AfterSaleStatus, Category, CommissionRule, DictGroup, DictItem, FarmStore, Order, OrderItem, OrderStatus, PricePolicy, Product, Promoter, StoreAccount, StoreRole, Supplier } from '@agritainment/shared'
-import { derivePlatformMetrics, focusFirstInteractive, formatNumber, installKeyboardButtonSupport, money, readShareConfig, readShareRecords, round2, toCsv, validatePricePolicy, writeShareConfig } from '@agritainment/shared'
+import type { AfterSale, AfterSaleStatus, Category, CommissionRule, DictGroup, DictItem, FarmStore, Order, OrderFlowEvent, OrderItem, OrderStatus, PricePolicy, Product, Promoter, StoreAccount, StoreRole, Supplier } from '@agritainment/shared'
+import { derivePlatformMetrics, focusFirstInteractive, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount, readShareConfig, readShareRecords, round2, toCsv, validatePricePolicy, writeShareConfig } from '@agritainment/shared'
 import UiIcon from '../../components/UiIcon.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
 
@@ -17,11 +17,11 @@ const active = ref<ModuleKey>('dashboard')
 const keyword = ref('')
 const page = ref(1)
 const pageSize = 20
-const dialog = ref<'supplier' | 'supplier-edit' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'product' | 'product-edit' | 'category' | 'category-edit' | 'promoter' | 'promoter-edit' | 'ship' | 'after-sale-init' | 'commission' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
+const dialog = ref<'supplier' | 'supplier-edit' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'product' | 'product-edit' | 'category' | 'category-edit' | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
 type DetailType = 'todos' | 'supplier' | 'order' | 'afterSale' | 'farm'
 type TierFormRow = { minQty: number; maxQty: number | null | ''; price: number; discountOff: number }
 const detail = ref<{ type: DetailType; id?: string } | null>(null)
-const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部农家乐', discount: 8, tiers: [] as TierFormRow[], spec: '', image: '', images: [] as string[], region: '湖南省', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', trackingNo: '', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', businessLicense: '', permit: '', validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '' })
+const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部农家乐', discount: 8, tiers: [] as TierFormRow[], spec: '', image: '', images: [] as string[], region: '湖南省', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', businessLicense: '', permit: '', validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '' })
 const period = ref('本月')
 const trendRange = ref<'7d' | '1m' | '3m' | '1y'>('7d')
 const nowText = ref('')
@@ -103,7 +103,7 @@ const titles: Record<ModuleKey, { title: string; subtitle: string }> = {
   products: { title: '商品库管理', subtitle: '统一选品 · 统一标准 · 覆盖农产品、预制菜、食材调料、酒水饮料、文旅伴手礼、民宿用品' },
   categories: { title: '品类管理', subtitle: '商品品类与供应商品类统一维护 · 支持新增、修改与删除' },
   prices: { title: '价格体系', subtitle: '支持集采价、阶梯价、区域价、会员价等多维价格策略 · 帮助农家乐降低采购成本' },
-  orders: { title: '订单履约', subtitle: '订单、库存、发货、物流统一管理 · 直播成交订单由中台统一承接履约' },
+  orders: { title: '订单履约', subtitle: '订单、库存、发货、配送统一管理 · 直播成交订单由中台统一承接履约' },
   afterSales: { title: '售后结算', subtitle: '统一售后服务与结算分账 · 减少农家乐履约压力' },
   farms: { title: '农家乐管理', subtitle: '门店入驻、经营状态与选品数据' },
   promoters: { title: '推客管理', subtitle: '推客、达人、主播资源管理 · 锁粉归因与排行' },
@@ -225,7 +225,8 @@ const filteredPromoterCommissionRows = computed(() => {
   const q = commissionKeyword.value.trim().toLowerCase()
   return store.promoters.filter((item) => {
     const matchesKeyword = !q || `${item.name}${item.level}`.toLowerCase().includes(q)
-    const matchesStatus = commissionStatusFilter.value === '全部' || (commissionStatusFilter.value === '未结算' && !item.settled) || (commissionStatusFilter.value === '已结算' && item.settled)
+    const pending = pendingShareAmount(item.id)
+    const matchesStatus = commissionStatusFilter.value === '全部' || (commissionStatusFilter.value === '未结算' && pending > 0) || (commissionStatusFilter.value === '已结算' && pending <= 0)
     return matchesKeyword && matchesStatus
   })
 })
@@ -344,7 +345,7 @@ function toggleSupplier(id: string) {
 
 function openDialog(type: 'supplier' | 'policy' | 'farm') {
   rememberOverlayTrigger()
-  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部农家乐', discount: 8, tiers: [], spec: '', image: '', images: [], region: type === 'farm' ? '' : '湖南省', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', trackingNo: '', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', businessLicense: '', permit: '', validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending', categoryType: 'product', level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '' }
+  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部农家乐', discount: 8, tiers: [], spec: '', image: '', images: [], region: type === 'farm' ? '' : '湖南省', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', businessLicense: '', permit: '', validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending', categoryType: 'product', level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '' }
   if (type === 'supplier') form.value.category = '生鲜农产'
   dialog.value = type
   focusOverlay()
@@ -383,6 +384,19 @@ function orderTotalQty(order: Order) {
 
 function orderFulfillmentText(status: OrderStatus) {
   return ({ pending: '待发货', shipping: '已发货', delivered: '已完成', 'after-sale': '已完成', 'paid-cancelled': '已支付取消', 'unpaid-cancelled': '未支付取消' } as Record<OrderStatus, string>)[status]
+}
+
+function orderFlow(order: Order): OrderFlowEvent[] {
+  if (order.flow?.length) return order.flow
+  const base: OrderFlowEvent[] = [
+    { time: order.createdAt, action: '用户下单', operator: order.customer },
+    { time: order.createdAt, action: '订单支付成功', operator: order.customer }
+  ]
+  if (order.status === 'paid-cancelled') return [...base, { time: order.createdAt, action: '已支付取消', operator: order.customer }]
+  if (order.status === 'unpaid-cancelled') return [base[0], { time: order.createdAt, action: '未支付取消', operator: order.customer }]
+  if (order.status === 'shipping') return [...base, { time: order.createdAt, action: '已发货 · 已安排司机配送', operator: '运营管理员' }]
+  if (order.status === 'delivered' || order.status === 'after-sale') return [...base, { time: order.createdAt, action: '已发货 · 已安排司机配送', operator: '运营管理员' }, { time: order.createdAt, action: '已确认收货', operator: '运营管理员' }]
+  return base
 }
 
 function orderPaidAmount(order: Order) {
@@ -711,11 +725,14 @@ function previewSupplierLicenses(current: 'businessLicense' | 'permit') {
   uni.previewImage({ current: isImageData(currentUrl) ? currentUrl : urls[0], urls })
 }
 
-function openShip(order: Order) {
-  openDialog('farm')
-  form.value.id = order.id
-  form.value.trackingNo = order.trackingNo || `SF${Date.now().toString().slice(-10)}`
-  dialog.value = 'ship'
+function confirmShip(order: Order) {
+  if (!store.shipOrder(order.id)) return showToast('该订单当前不可发货')
+  showToast('已发货，司机配送中')
+}
+
+function confirmOrder(order: Order) {
+  if (!store.confirmOrder(order.id)) return showToast('该订单当前不可确认收货')
+  showToast('已确认收货')
 }
 
 const editingAfterSale = computed(() => store.afterSales.find((item) => item.id === form.value.id))
@@ -830,7 +847,6 @@ async function saveDialog() {
     else if (dialog.value === 'product') saved = store.createProduct({ name: form.value.name, category: form.value.category, price: Number(form.value.price), cost: Number(form.value.cost), stock: Number(form.value.stock), source: form.value.source, supplier: form.value.supplier, spec: form.value.spec, image: form.value.image || undefined, images: form.value.images })
     else saved = store.updateProduct(form.value.id, { name: form.value.name, category: form.value.category, supplier: form.value.supplier, cost: Number(form.value.cost), price: Number(form.value.price), stock: Number(form.value.stock), skuId: form.value.skuId, spec: form.value.spec, image: form.value.image || undefined, images: form.value.images })
   }
-  if (dialog.value === 'ship') saved = store.shipOrder(form.value.id, form.value.trackingNo)
   if (dialog.value === 'after-sale-init') {
     if (!form.value.initIssue) { saved = false; errorMessage = '请选择售后原因' }
     else saved = store.initiateAfterSale(form.value.id, form.value.result, form.value.initIssue)
@@ -889,7 +905,7 @@ function exportCurrent() {
     products: [['商品', '规格', '品类', '供应商', '集采价', '建议零售', '库存', '状态'], ...productRows.value.map((row) => [row.product.name, row.sku.name, row.product.category, row.product.supplier, row.product.source === 'platform' ? round2(row.sku.cost) : '', round2(row.sku.price), row.sku.stock, statusText(row.product.status)])],
     categories: [['品类', '类型', '使用数量'], ...filteredCategories.value.map((item) => [item.name, item.type === 'product' ? '商品品类' : item.type === 'supplier' ? '供应商品类' : '通用', categoryUsage(item)])],
     prices: [['策略', '类型', '范围', '优惠比例', '状态'], ...filteredPolicies.value.map((item) => [item.name, item.type, item.scope, item.discount, item.enabled ? '启用' : '停用'])],
-    orders: [['订单号', '商品', '数量', '客户', '渠道', '金额', '实付金额', '状态', '售后状态', '运单号'], ...visibleOrders.value.map((item) => [item.id, item.items?.map((p) => p.name).join('、') || item.productName, orderTotalQty(item), item.customer, channelText(item.channel), round2(item.amount), round2(orderPaidAmount(item)), orderFulfillmentText(item.status), orderAfterStatus(item), item.trackingNo || ''])],
+    orders: [['订单号', '商品', '数量', '客户', '渠道', '金额', '实付金额', '状态', '售后状态'], ...visibleOrders.value.map((item) => [item.id, item.items?.map((p) => p.name).join('、') || item.productName, orderTotalQty(item), item.customer, channelText(item.channel), round2(item.amount), round2(orderPaidAmount(item)), orderFulfillmentText(item.status), orderAfterStatus(item)])],
     afterSales: [['工单', '订单', '商品', '申请方', '类型', '金额', '状态'], ...filteredAfterSales.value.map((item) => [item.id, item.orderId, item.productName, item.applicant, item.type, round2(item.amount), afterSaleStatusText(item.status)])],
     farms: [['门店', '区域', '选品数', 'GMV', '状态'], ...filteredFarms.value.map((item) => [item.name, item.region, item.selectedCount, round2(item.gmv), statusText(item.status)])],
     promoters: [['推客', '等级', '锁粉', '订单', 'GMV', '佣金'], ...filteredPromoters.value.map((item) => [item.name, item.level, item.fans, item.orders, round2(item.gmv), round2(item.commission)])],
@@ -1150,7 +1166,7 @@ onBeforeUnmount(() => {
           <view class="lower-grid">
             <section class="panel"><view class="panel-head"><h2>热销商品 TOP 5</h2><text>本月</text></view>
               <view v-for="product in metrics.hotProducts" :key="product.name" class="rank-row">
-                <image class="hot-thumb" :src="product.image || '/static/images/rice.webp'" mode="aspectFill" /><view><strong>{{ product.name }}</strong><small>供应商：{{ product.supplier }}</small></view><view class="hot-right"><b>{{ money(product.amount) }}</b><small>{{ product.units }} 件</small></view>
+                <image class="hot-thumb" :src="product.image || '/static/images/rice.webp'" mode="aspectFit" /><view><strong>{{ product.name }}</strong><small>供应商：{{ product.supplier }}</small></view><view class="hot-right"><b>{{ money(product.amount) }}</b><small>{{ product.units }} 件</small></view>
               </view>
             </section>
             <section class="panel"><view class="panel-head"><h2>待办事项</h2><text>{{ store.pendingSuppliers + store.pendingProducts + store.pendingAfterSales + 1 }} 项待处理</text></view>
@@ -1196,7 +1212,7 @@ onBeforeUnmount(() => {
           <view class="goods-tools"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称" /></label><select v-model="productCategoryFilter"><option value="全部">全品类</option><option v-for="option in productCategories" :key="option.id" :value="option.name">{{ option.name }}</option></select><select v-model="productSourceFilter"><option value="全部">全部来源</option><option value="platform">中台甄选</option><option value="farmhouse">门店自有(待审{{ store.pendingProducts }})</option></select><select v-model="productStatusFilter"><option value="全部">全部状态</option><option value="active">已上架</option><option value="offline">已下架</option><option value="pending">待审核</option></select></view><text class="goods-count">共 {{ productRows.length }} 条规格数据</text></view>
           <view class="table-row table-head product-grid"><text>商品</text><text>品类</text><text>来源</text><text>规格</text><text>集采价</text><text>建议零售</text><text>库存</text><text>已售</text><text>状态</text><text>操作</text></view>
           <view v-for="row in pagedProductRows" :key="row.key" class="table-row product-grid">
-            <view class="product-cell"><image class="product-thumb" :src="row.product.image || '/static/images/rice.webp'" mode="aspectFill" /><view><strong>{{ row.product.name }}</strong><small class="sku-no">{{ row.sku.name }} · {{ row.product.source === 'platform' ? productSkuNo(row.product) : `${row.product.supplier} 提交` }}</small></view></view>
+            <view class="product-cell"><image class="product-thumb" :src="row.product.image || '/static/images/rice.webp'" mode="aspectFit" /><view><strong>{{ row.product.name }}</strong><small class="sku-no">{{ row.sku.name }} · {{ row.product.source === 'platform' ? productSkuNo(row.product) : `${row.product.supplier} 提交` }}</small></view></view>
             <text>{{ row.product.category }}</text><span class="source-pill" :class="row.product.source">{{ row.product.source === 'platform' ? '中台甄选' : '农家乐自有' }}</span><text>{{ row.sku.name }}</text><strong>{{ row.product.source === 'platform' ? '¥' + formatNumber(row.sku.cost) : '—' }}</strong><strong>¥{{ formatNumber(row.sku.price) }}</strong><text>{{ row.sku.stock.toLocaleString('zh-CN') }}</text><text>{{ row.product.sales.toLocaleString('zh-CN') }}</text>
             <span class="status" :class="row.product.status">{{ row.product.status === 'pending' ? '待审核' : statusText(row.product.status) }}</span>
              <view class="row-actions"><button @click="openProductDialog(row.product, row.sku.id)">编辑</button><template v-if="row.product.status === 'pending'"><button :disabled="isOperating(`product-${row.product.id}`)" @click="runOperation(`product-${row.product.id}`, () => store.auditProduct(row.product.id, true), '商品已通过审核')">{{ isOperating(`product-${row.product.id}`) ? '处理中...' : '审核' }}</button><button class="danger" :disabled="isOperating(`product-${row.product.id}`)" @click="runOperation(`product-${row.product.id}`, () => store.auditProduct(row.product.id, false), '商品已驳回')">驳回</button></template><button v-else :disabled="isOperating(`product-${row.product.id}`)" @click="runOperation(`product-${row.product.id}`, () => store.toggleProduct(row.product.id), '商品状态已更新')">{{ isOperating(`product-${row.product.id}`) ? '处理中...' : row.product.status === 'active' ? '下架' : '上架' }}</button></view>
@@ -1230,12 +1246,12 @@ onBeforeUnmount(() => {
             <view class="done"><b>✓</b><small>下单付款</small><strong>{{ metrics.orderStats.total }} 单</strong></view>
             <view class="done"><b>✓</b><small>中台接单</small><strong>自动分配供应商</strong></view>
             <view class="cur"><b>3</b><small>仓配发货</small><strong>{{ metrics.orderStats.pending }} 单处理中</strong></view>
-            <view><b>4</b><small>物流配送</small><strong>在途 {{ metrics.orderStats.shipping }} 单</strong></view>
+            <view><b>4</b><small>司机配送</small><strong>在途 {{ metrics.orderStats.shipping }} 单</strong></view>
             <view><b>5</b><small>确认收货</small><strong>—</strong></view>
             <view><b>6</b><small>结算分账</small><strong>T+1 结算</strong></view>
           </view>
                     <view class="table-row table-head order-grid"><text>订单号</text><text>商品</text><text>数量</text><text>下单门店 / 渠道</text><text>金额</text><text>实付金额</text><text>来源</text><text>状态</text><text>售后状态</text><text>操作</text></view>
-          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><button v-if="item.status === 'pending'" class="order-select" :class="{ selected: selectedOrderIds.includes(item.id) }" :title="selectedOrderIds.includes(item.id) ? '取消选择' : '选择订单'" @click="toggleOrderSelection(item.id)"><UiIcon v-if="selectedOrderIds.includes(item.id)" name="check" :size="12" /></button><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><image v-if="p.image" class="order-thumb" :src="p.image" mode="aspectFill" @click="previewImage(p.image)" /><span v-else class="row-emoji">{{ rowEmoji(p.name) }}</span><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id)" @click="openAfterSaleInit(item)">发起售后</button><button v-if="item.status === 'pending'" @click="openShip(item)">发货</button><button v-else @click="openDetail('order', item.id)">物流</button></view></view>
+          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><button v-if="item.status === 'pending'" class="order-select" :class="{ selected: selectedOrderIds.includes(item.id) }" :title="selectedOrderIds.includes(item.id) ? '取消选择' : '选择订单'" @click="toggleOrderSelection(item.id)"><UiIcon v-if="selectedOrderIds.includes(item.id)" name="check" :size="12" /></button><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><image v-if="p.image" class="order-thumb" :src="p.image" mode="aspectFit" @click="previewImage(p.image)" /><span v-else class="row-emoji">{{ rowEmoji(p.name) }}</span><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id)" @click="openAfterSaleInit(item)">发起售后</button><button v-if="item.status === 'pending'" @click="confirmShip(item)">发货</button><button v-else @click="openDetail('order', item.id)">流转</button></view></view>
           <view v-if="!visibleOrders.length" class="empty-state">没有符合筛选条件的订单</view><PaginationBar :page="page" :page-size="pageSize" :total="visibleOrders.length" @change="page = $event" />
         </section>
 
@@ -1251,7 +1267,7 @@ onBeforeUnmount(() => {
           <template v-if="afterTab === '售后工单'">
           <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="afterKeyword" placeholder="搜索工单号 / 订单号 / 商品 / 申请方" /></label><select v-model="afterTypeFilter"><option value="全部">全部类型</option><option value="reship">破损补寄</option><option value="refund">退货退款</option><option value="claim">质量理赔</option></select><select v-model="afterReasonFilter"><option value="全部">全部原因</option><option v-for="reason in afterReasonOptions" :key="reason" :value="reason">{{ reason }}</option></select></view>
           <view class="table-row table-head after-grid"><text>工单</text><text>商品</text><text>数量</text><text>类型</text><text>申请金额</text><text>退款金额</text><text>状态</text><text>操作</text></view>
-          <view v-for="item in pagedAfterSales" :key="item.id" class="table-row after-grid"><view><strong>{{ item.id }}</strong><small>{{ item.orderId }}</small></view><view class="product-cell"><image class="after-thumb" :src="item.image || '/static/images/rice.webp'" mode="aspectFill" /><view><strong>{{ item.productName }}</strong><small>{{ item.issue || item.applicant }}</small></view></view><text>{{ item.quantity ?? '—' }}</text><text>{{ item.type === 'reship' ? '破损补寄' : item.type === 'refund' ? '退货退款' : '质量理赔' }}</text><strong>{{ money(item.amount) }}</strong><text class="refund-amount">{{ item.refundAmount != null ? money(item.refundAmount) : '—' }}</text><span class="status" :class="item.status">{{ afterSaleStatusText(item.status) }}</span><view class="row-actions"><template v-if="item.status === 'processing'"><button @click="confirmAction('确认拒绝该售后申请？', () => runOperation(`after-${item.id}`, () => store.rejectAfterSale(item.id), '已拒绝售后'))">拒绝</button><button @click="confirmAction('确认同意退款？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleRefund(item.id), '已同意退款'))">同意退款</button><button @click="confirmAction('确认同意退货？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleReturn(item.id), '已同意退货'))">同意退货</button></template><template v-else-if="item.status === 'refund-pending' || item.status === 'return-pending'"><button @click="confirmAction('确认退款已到账？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, true), '退款成功'))">确认退款</button><button class="danger" @click="confirmAction('确认退款失败？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, false), '已标记退款失败'))">退款失败</button></template><button v-else @click="openDetail('afterSale', item.id)">记录</button></view></view><view v-if="!filteredAfterSales.length" class="empty-state">没有符合条件的售后工单</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredAfterSales.length" @change="page = $event" />
+          <view v-for="item in pagedAfterSales" :key="item.id" class="table-row after-grid"><view><strong>{{ item.id }}</strong><small>{{ item.orderId }}</small></view><view class="product-cell"><image class="after-thumb" :src="item.image || '/static/images/rice.webp'" mode="aspectFit" /><view><strong>{{ item.productName }}</strong><small>{{ item.issue || item.applicant }}</small></view></view><text>{{ item.quantity ?? '—' }}</text><text>{{ item.type === 'reship' ? '破损补寄' : item.type === 'refund' ? '退货退款' : '质量理赔' }}</text><strong>{{ money(item.amount) }}</strong><text class="refund-amount">{{ item.refundAmount != null ? money(item.refundAmount) : '—' }}</text><span class="status" :class="item.status">{{ afterSaleStatusText(item.status) }}</span><view class="row-actions"><template v-if="item.status === 'processing'"><button @click="confirmAction('确认拒绝该售后申请？', () => runOperation(`after-${item.id}`, () => store.rejectAfterSale(item.id), '已拒绝售后'))">拒绝</button><button @click="confirmAction('确认同意退款？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleRefund(item.id), '已同意退款'))">同意退款</button><button @click="confirmAction('确认同意退货？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleReturn(item.id), '已同意退货'))">同意退货</button></template><template v-else-if="item.status === 'refund-pending' || item.status === 'return-pending'"><button @click="confirmAction('确认退款已到账？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, true), '退款成功'))">确认退款</button><button class="danger" @click="confirmAction('确认退款失败？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, false), '已标记退款失败'))">退款失败</button></template><button v-else @click="openDetail('afterSale', item.id)">记录</button></view></view><view v-if="!filteredAfterSales.length" class="empty-state">没有符合条件的售后工单</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredAfterSales.length" @change="page = $event" />
           </template>
           <view v-else class="settlement-history after-flow">
             <view v-if="!store.supplierSettlementRecords.length && !store.commissionSettlementRecords.length" class="empty-state">暂无结算流水</view>
@@ -1270,7 +1286,7 @@ onBeforeUnmount(() => {
           </view>
           <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="搜索门店名称 / 区域" /></label><select v-model="farmCityFilter"><option value="全部城市">全部城市</option><option v-for="city in farmCityOptions" :key="city" :value="city">{{ city }}</option></select><select v-model="farmStatusFilter"><option value="全部门店">全部门店</option><option value="经营中">经营中</option><option value="筹备中">筹备中</option><option value="已停用">已停用</option><option value="试点样板">试点样板</option></select></view>
           <view class="table-row table-head farm-grid"><text>农家乐门店</text><text>区域</text><text>小程序</text><text>已选品</text><text>本月 GMV</text><text>人气值</text><text>状态</text><text>操作</text></view>
-          <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><image class="farm-thumb" :src="item.image || '/static/images/farmhouse.webp'" mode="aspectFill" @click="previewImage(item.image || '/static/images/farmhouse.webp')" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><text>{{ item.livePopularity.toLocaleString('zh-CN') }}</text><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button @click="openFarmEdit(item)">修改</button></view></view><view v-if="!filteredFarms.length" class="empty-state">没有符合条件的门店</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredFarms.length" @change="page = $event" />
+          <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><image class="farm-thumb" :src="item.image || '/static/images/farmhouse.webp'" mode="aspectFit" @click="previewImage(item.image || '/static/images/farmhouse.webp')" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><text>{{ item.livePopularity.toLocaleString('zh-CN') }}</text><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button @click="openFarmEdit(item)">修改</button></view></view><view v-if="!filteredFarms.length" class="empty-state">没有符合条件的门店</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredFarms.length" @change="page = $event" />
           </template>
           <template v-else>
             <view class="module-search"><select v-model="farmAccountFilter"><option value="全部">全部门店</option><option v-for="farm in store.farms" :key="farm.id" :value="farm.id">{{ farm.name }}</option></select><button class="button primary" @click="openAccountDialog()"><UiIcon name="plus" :size="16" />新增门店账号</button></view>
@@ -1300,13 +1316,13 @@ onBeforeUnmount(() => {
           <template v-if="commissionTab === '佣金结算'">
             <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><select v-model="commissionStatusFilter"><option value="全部">全部结算状态</option><option value="未结算">未结算</option><option value="已结算">已结算</option></select></view>
             <view class="commission-status-table">
-              <view class="panel-head"><h2>推客结算状态</h2><text>未结算 {{ store.promoters.filter((p) => !p.settled).length }} 人 · 已结算 {{ store.promoters.filter((p) => p.settled).length }} 人</text></view>
+              <view class="panel-head"><h2>推客结算状态</h2><text>未结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) > 0).length }} 人 · 已结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) <= 0).length }} 人</text></view>
               <view class="table-row table-head commission-status-grid"><text>推客</text><text>类型</text><text>待结佣金</text><text>结算状态</text></view>
-              <view v-for="item in pagedPromoterCommissionRows" :key="item.id" class="table-row commission-status-grid" :class="item.settled ? 'status-settled' : 'status-unsettled'">
+              <view v-for="item in pagedPromoterCommissionRows" :key="item.id" class="table-row commission-status-grid" :class="pendingShareAmount(item.id) <= 0 ? 'status-settled' : 'status-unsettled'">
                 <view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view>
                 <span class="source-pill" :class="item.type === '主播' ? 'host' : item.type === '达人' ? 'expert' : 'platform'">{{ item.type || '推客' }}</span>
-                <strong>{{ money(item.commission) }}</strong>
-                <span class="status" :class="item.settled ? 'delivered' : 'pending'">{{ item.settled ? '已结算' : '未结算' }}</span>
+                <strong>{{ money(pendingShareAmount(item.id)) }}</strong>
+                <span class="status" :class="pendingShareAmount(item.id) <= 0 ? 'delivered' : 'pending'">{{ pendingShareAmount(item.id) <= 0 ? '已结算' : '未结算' }}</span>
               </view>
               <view v-if="!filteredPromoterCommissionRows.length" class="empty-state">暂无推客结算数据</view>
               <PaginationBar :page="page" :page-size="pageSize" :total="filteredPromoterCommissionRows.length" @change="page = $event" />
@@ -1364,7 +1380,7 @@ onBeforeUnmount(() => {
 
      <view v-if="dialog" class="modal-mask" @click.self="closeOverlay">
        <view class="modal" role="dialog" aria-modal="true" @keydown="trapFocus">
-         <view class="modal-head"><view><h2>{{ dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'product' ? '新增商品' : dialog === 'product-edit' ? '编辑商品' : dialog === 'ship' ? '录入模拟运单' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>保存后立即写入本地演示数据</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
+         <view class="modal-head"><view><h2>{{ dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'product' ? '新增商品' : dialog === 'product-edit' ? '编辑商品' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>保存后立即写入本地演示数据</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
         <label v-if="['policy','policy-edit'].includes(dialog)" class="field"><text>名称</text><input v-model="form.name" placeholder="请输入名称" /></label>
         <template v-if="dialog === 'supplier' || dialog === 'supplier-edit'">
           <label class="field"><text>供应商名称</text><input v-model="form.name" placeholder="请输入供应商名称" /></label>
@@ -1421,7 +1437,6 @@ onBeforeUnmount(() => {
         </template>
         <template v-if="dialog === 'policy' || dialog === 'policy-edit'"><label class="field"><text>策略类型</text><select v-model="form.type" :disabled="dialog === 'policy-edit'"><option value="group">集采价</option><option value="ladder">阶梯价</option><option value="region">区域价</option><option value="member">会员价</option></select></label><label class="field"><text>适用范围</text><input v-model="form.scope" /></label><label class="field"><text>优惠比例（1-100%）</text><input v-model.number="form.discount" type="number" min="1" max="100" /></label><label v-if="dialog === 'policy-edit'" class="field"><text>规则状态</text><select v-model="form.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label><view v-if="form.type === 'ladder'" class="tier-editor"><view class="tier-editor-head"><text>阶梯档位</text><button class="mini-button" type="button" @click="addTier">＋ 添加档位</button></view><view v-for="(tier, ti) in form.tiers" :key="ti" class="tier-editor-row"><label class="field"><text>起始数量</text><input v-model.number="tier.minQty" type="number" min="1" placeholder="如 1" /></label><label class="field"><text>上限数量（留空=无上限）</text><input v-model.number="tier.maxQty" type="number" min="1" placeholder="留空为无上限" /></label><label class="field"><text>集采单价</text><input v-model.number="tier.price" type="number" min="0" step="0.1" placeholder="如 42" /></label><label class="field"><text>让利 %</text><input v-model.number="tier.discountOff" type="number" min="0" max="100" placeholder="如 30" /></label><button class="compact-button danger" type="button" @click="removeTier(ti)">删除</button></view></view></template>
         <template v-if="dialog === 'product' || dialog === 'product-edit'"><label v-if="dialog === 'product'" class="field"><text>商品来源</text><select v-model="form.source"><option value="platform">中台商品</option><option value="farmhouse">门店自有</option></select></label><label class="field"><text>商品名称</text><input v-model="form.name" placeholder="请输入商品名称" /></label><label class="field"><text>商品规格</text><input v-model="form.spec" placeholder="如 500g/袋" /></label><label class="field"><text>品类</text><select v-model="form.category"><option v-for="option in productCategories" :key="option.id" :value="option.name">{{ option.name }}</option></select></label><label class="field"><text>供应商</text><select v-model="form.supplier"><option v-for="option in supplierOptions" :key="option" :value="option">{{ option }}</option></select></label><label v-if="dialog === 'product-edit' && editingProduct?.skus.length" class="field"><text>商品规格</text><select v-model="form.skuId" @change="selectProductSku"><option v-for="sku in editingProduct.skus" :key="sku.id" :value="sku.id">{{ sku.name }}</option></select></label><label class="field"><text>零售价</text><input v-model.number="form.price" type="number" min="0.01" /></label><label class="field"><text>采集价</text><input v-model.number="form.cost" type="number" min="0" /></label><label class="field"><text>库存</text><input v-model.number="form.stock" type="number" min="0" /></label><view class="field"><text>主图</text><view class="upload-row"><button v-if="!form.image" class="upload-button" type="button" @click="chooseProductMain">＋ 上传主图</button><image v-if="form.image" class="upload-preview" :src="form.image" mode="aspectFit" @click="previewImage(form.image)" /><template v-if="form.image"><button class="upload-button" type="button" @click="chooseProductMain">重新选择</button><button class="upload-button danger" type="button" @click="removeProductMain">移除</button></template></view></view><view class="field"><text>详情图（可多张）</text><view class="upload-row"><button class="upload-button" type="button" @click="chooseProductImages">＋ 添加详情图</button><view v-for="(img, idx) in form.images" :key="idx" class="gallery-thumb"><image :src="img" mode="aspectFit" @click="previewImage(img)" /><button class="gallery-remove" type="button" @click="removeProductImage(idx)">×</button></view></view></view></template>
-        <label v-if="dialog === 'ship'" class="field"><text>模拟运单号</text><input v-model="form.trackingNo" /></label>
         <template v-if="dialog === 'after-sale-init'"><label class="field"><text>售后订单</text><input :value="form.id" disabled /></label><label class="field"><text>售后类型</text><select v-model="form.result"><option value="refund">退款</option><option value="reship">补发</option><option value="claim">理赔</option></select></label><label class="field"><text>售后原因</text><select v-model="form.initIssue"><option value="">请选择原因</option><option v-for="reason in afterReasonOptions" :key="reason" :value="reason">{{ reason }}</option></select></label></template>
         <template v-if="dialog === 'commission'"><label class="field"><text>佣金比例（1-100%）</text><input v-model.number="form.rate" type="number" min="1" max="100" /></label></template>
         <template v-if="dialog === 'promoter' || dialog === 'promoter-edit'">
@@ -1455,7 +1470,7 @@ onBeforeUnmount(() => {
 
      <view v-if="detail" class="drawer-mask" @click.self="closeOverlay">
        <aside class="drawer" role="dialog" aria-modal="true" @keydown="trapFocus">
-         <view class="drawer-head"><view><small>本地演示数据</small><h2>{{ detail.type === 'todos' ? '待办中心' : detail.type === 'supplier' ? '供应商详情' : detail.type === 'order' ? '物流轨迹' : detail.type === 'afterSale' ? '售后处理记录' : '门店经营数据' }}</h2></view><view class="drawer-head-actions"><button v-if="detail.type === 'todos'" class="mark-read-button" @click="markAllRead"><UiIcon name="check" :size="15" />全部已读</button><button class="icon-button" aria-label="关闭抽屉" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view></view>
+         <view class="drawer-head"><view><small>本地演示数据</small><h2>{{ detail.type === 'todos' ? '待办中心' : detail.type === 'supplier' ? '供应商详情' : detail.type === 'order' ? '订单流转记录' : detail.type === 'afterSale' ? '售后处理记录' : '门店经营数据' }}</h2></view><view class="drawer-head-actions"><button v-if="detail.type === 'todos'" class="mark-read-button" @click="markAllRead"><UiIcon name="check" :size="15" />全部已读</button><button class="icon-button" aria-label="关闭抽屉" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view></view>
         <view v-if="detail.type === 'todos'" class="drawer-list todo-detail">
           <button @click="detailModule('suppliers')"><span>供应商资质审核</span><b>{{ store.pendingSuppliers }}</b></button>
           <button @click="detailModule('products')"><span>门店自有商品审核</span><b>{{ store.pendingProducts }}</b></button>
@@ -1470,7 +1485,7 @@ onBeforeUnmount(() => {
              <view class="panel-head"><h2>供应商品</h2><text>{{ supplierProducts(selectedSupplier).length }} 款</text></view>
              <view v-if="!supplierProducts(selectedSupplier).length" class="empty-state">该供应商暂无商品</view>
              <view v-for="product in supplierProducts(selectedSupplier)" :key="product.id" class="supplier-product-row">
-               <image class="supplier-thumb" :src="product.image" mode="aspectFill" @click="previewImage(product.image)" />
+               <image class="supplier-thumb" :src="product.image" mode="aspectFit" @click="previewImage(product.image)" />
                <view class="sp-name"><strong>{{ product.name }}</strong><small>{{ product.category }} · {{ product.supplier }}</small></view>
                 <strong>¥{{ formatNumber(product.price) }}</strong>
                <span class="status" :class="product.status">{{ product.status === 'pending' ? '待审核' : statusText(product.status) }}</span>
@@ -1479,10 +1494,11 @@ onBeforeUnmount(() => {
            <view class="drawer-actions"><button class="button secondary" @click="openSupplierEdit(selectedSupplier)">修改资料</button><template v-if="selectedSupplier.status === 'pending'"><button class="button primary" :disabled="isOperating(`supplier-${selectedSupplier.id}`)" @click="auditSupplier(selectedSupplier.id, true)">{{ isOperating(`supplier-${selectedSupplier.id}`) ? '处理中...' : '通过资质' }}</button><button class="button danger-button" :disabled="isOperating(`supplier-${selectedSupplier.id}`)" @click="auditSupplier(selectedSupplier.id, false)">驳回</button></template><button v-else class="button primary" :disabled="isOperating(`supplier-${selectedSupplier.id}`)" @click="toggleSupplier(selectedSupplier.id)">{{ isOperating(`supplier-${selectedSupplier.id}`) ? '处理中...' : selectedSupplier.status === 'cooperating' ? '暂停合作' : '恢复合作' }}</button></view>
         </view>
         <view v-else-if="detail.type === 'order' && selectedOrder" class="drawer-list">
-          <view class="detail-hero"><view class="detail-icon"><UiIcon name="truck" :size="25" /></view><view><h3>{{ selectedOrder.id }}</h3><text>{{ selectedOrder.customer }} · {{ selectedOrder.productName }}</text></view></view>
-          <view class="tracking-number"><small>模拟运单号</small><strong>{{ selectedOrder.trackingNo || '历史订单暂未记录运单号' }}</strong></view>
-          <view class="timeline-list"><view v-for="(event, index) in selectedOrder.logistics || [{ time: selectedOrder.createdAt, title: statusText(selectedOrder.status), detail: '历史订单状态记录' }]" :key="`${event.time}-${index}`"><span></span><view><strong>{{ event.title }}</strong><small>{{ event.time }}</small><text>{{ event.detail }}</text></view></view></view>
-          <button v-if="selectedOrder.status === 'shipping'" class="button primary wide" @click="store.advanceLogistics(selectedOrder.id); showToast('物流节点已推进')">推进物流状态</button>
+          <view class="detail-hero"><view class="detail-icon"><UiIcon name="list-tree" :size="25" /></view><view><h3>{{ selectedOrder.id }}</h3><text>{{ selectedOrder.customer }} · {{ selectedOrder.productName }}</text></view></view>
+          <view class="detail-grid"><view><small>下单时间</small><strong>{{ selectedOrder.createdAt }}</strong></view><view><small>订单状态</small><strong>{{ orderFulfillmentText(selectedOrder.status) }}</strong></view><view><small>实付金额</small><strong>¥{{ formatNumber(orderPaidAmount(selectedOrder)) }}</strong></view><view><small>订单渠道</small><strong>{{ channelText(selectedOrder.channel) }}</strong></view></view>
+          <h3>订单流转记录</h3>
+          <view class="timeline-list"><view v-for="(event, index) in orderFlow(selectedOrder)" :key="`${event.time}-${index}`"><span></span><view><strong>{{ event.action }}</strong><small>{{ event.time }} · {{ event.operator }}</small><text v-if="event.note">{{ event.note }}</text></view></view></view>
+          <button v-if="selectedOrder.status === 'shipping'" class="button primary wide" @click="confirmOrder(selectedOrder)">确认收货</button>
         </view>
         <view v-else-if="detail.type === 'afterSale' && selectedAfterSale" class="drawer-list">
           <view class="detail-hero"><view class="detail-icon"><UiIcon name="headset" :size="25" /></view><view><h3>{{ selectedAfterSale.id }}</h3><text>{{ selectedAfterSale.productName }} · {{ money(selectedAfterSale.amount) }}</text></view></view>
@@ -1490,7 +1506,7 @@ onBeforeUnmount(() => {
            <view v-if="selectedAfterSale.refundAmount != null" class="history-row"><strong>{{ selectedAfterSale.refundMethod === 'return' ? '退货退款' : '仅退款' }}</strong><small>退款金额 {{ money(selectedAfterSale.refundAmount) }} · {{ selectedAfterSale.refundMode === 'full' ? '全额退款' : selectedAfterSale.refundMode === 'ratio' ? '按比例退款' : '自定义退款' }}</small></view>
         </view>
         <view v-else-if="detail.type === 'farm' && selectedFarm" class="drawer-list">
-          <image class="farm-cover" :src="selectedFarm.image" mode="aspectFill" @click="previewImage(selectedFarm.image)" /><h3>{{ selectedFarm.name }}</h3><text class="drawer-muted">{{ selectedFarm.region }} · {{ selectedFarm.tags.join(' · ') }}</text>
+          <image class="farm-cover" :src="selectedFarm.image" mode="aspectFit" @click="previewImage(selectedFarm.image)" /><h3>{{ selectedFarm.name }}</h3><text class="drawer-muted">{{ selectedFarm.region }} · {{ selectedFarm.tags.join(' · ') }}</text>
           <view class="detail-grid"><view><small>本月 GMV</small><strong>{{ money(selectedFarm.gmv) }}</strong></view><view><small>选品数量</small><strong>{{ selectedFarm.selectedCount }} SKU</strong></view><view><small>月订单</small><strong>{{ selectedFarm.monthlySales }} 单</strong></view><view><small>门店评分</small><strong>{{ selectedFarm.rating }} 分</strong></view><view><small>人气值</small><strong>{{ selectedFarm.livePopularity.toLocaleString('zh-CN') }}</strong></view></view>
           <view class="drawer-actions"><button class="button secondary" @click="openFarmEdit(selectedFarm)">修改资料</button></view>
         </view>
@@ -1684,8 +1700,8 @@ button, uni-button { text-align: center; }
 .module-search{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .module-search .search-box{width:240px}
 .module-search select{height:36px;min-width:120px;padding:0 8px;border:1px solid var(--admin-line);border-radius:5px;background:#fff;font-size:12px}
-.product-thumb{width:42px;height:42px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:cover}
-.product-cell .after-thumb{width:40px;height:40px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:cover}
+.product-thumb{width:42px;height:42px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:contain}
+.product-cell .after-thumb{width:40px;height:40px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:contain}
 .refund-amount{color:#a34339;font-weight:700}
 .refund-apply{color:var(--admin-green-2);font-size:16px}
 .flow-view{display:flex;flex-direction:column;gap:16px}
@@ -1701,7 +1717,7 @@ button, uni-button { text-align: center; }
 .rule-meta{color:var(--admin-muted);font-size:11px;line-height:1.5}
 .rule-top .compact-button{margin:0}
 
-.hot-thumb{width:34px;height:34px;border-radius:8px;background:#f1f6ef;flex:none;object-fit:cover}
+.hot-thumb{width:34px;height:34px;border-radius:8px;background:#f1f6ef;flex:none;object-fit:contain}
 .gallery-thumb{position:relative;width:64px;height:64px}
 .gallery-thumb image{width:64px;height:64px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8;cursor:zoom-in}
 .gallery-remove{position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;background:#a34339;color:#fff;font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}

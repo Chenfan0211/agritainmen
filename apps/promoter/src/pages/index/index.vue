@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import type { FarmStore, LiveRoom, Product } from '@agritainment/shared'
-import { createId, formatNumber, installKeyboardButtonSupport, money } from '@agritainment/shared'
+import { createId, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount } from '@agritainment/shared'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
 import qrcode from 'qrcode-generator'
 // #endif
 import { usePromoterStore } from '../../stores/promoter'
+import { userPortalBase } from '../../config/portal'
 
 type SheetKey = 'login' | 'create-live' | 'share' | 'shares' | 'bound-users' | null
 
@@ -22,6 +23,7 @@ const selectedPackages = reactive<Record<string, string[]>>({})
 
 const myLives = computed(() => store.myLives)
 const totalShare = computed(() => store.myShares.reduce((sum, item) => sum + item.amount, 0))
+const pendingShare = computed(() => pendingShareAmount(store.promoter?.id || ''))
 const farmName = (id: string) => store.farms.find((item) => item.id === id)?.name || id
 const packagesOfFarm = (farmId: string) => store.products.filter((item) => (item.farmIds || []).includes(farmId))
 const liveFarmCount = (room: LiveRoom) => room.linkedFarms?.length || 0
@@ -83,9 +85,8 @@ function saveLive() {
 }
 
 function liveLink(room: LiveRoom) {
-  const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const promoterName = encodeURIComponent(store.promoter?.name || '推客')
-  return `${origin}/#/pages/index/index?promoter=${store.promoter?.id}&promoterName=${promoterName}&live=${room.id}`
+  return `${userPortalBase}#/pages/index/index?promoter=${store.promoter?.id}&promoterName=${promoterName}&live=${room.id}`
 }
 
 async function openShare(room: LiveRoom) {
@@ -194,10 +195,10 @@ onMounted(async () => {
     </view>
 
     <template v-else>
-      <view class="promoter-head"><view class="profile"><view class="pav emoji-thumb">🧑‍💼</view><view><text class="pname">推客 · {{ store.promoter?.name }}</text><small class="plv">联盟推客<text class="vip">{{ store.promoter?.level }}</text></small></view></view></view>
+      <view class="promoter-head"><view class="head-row"><view class="profile"><view class="pav emoji-thumb">🧑‍💼</view><view><text class="pname">推客 · {{ store.promoter?.name }}</text><small class="plv">联盟推客<text class="vip">{{ store.promoter?.level }}</text></small></view></view><button class="head-share-btn" @click="sheet = 'shares'"><UiIcon name="badge-dollar-sign" :size="14" />分成明细</button></view></view>
       <view class="wallet-card">
-        <view class="wallet-top"><view><small>消费分成累计（元）</small><strong>{{ money(totalShare) }}</strong></view><button @click="sheet = 'shares'">分成明细</button></view>
-        <view class="wallet-stats"><view><text>{{ money(store.promoter?.commission ?? 0) }}</text><small>推广佣金</small></view><view><text>{{ store.promoter?.fans ?? 0 }}</text><small>绑定用户</small></view><view><text>{{ store.myBoundUsers.filter((item) => item.status === 'bound').length }}</text><small>正式绑定</small></view></view>
+        <view class="wallet-top"><view><small>消费分成累计（元）</small><strong>{{ money(totalShare) }}</strong></view></view>
+        <view class="wallet-stats"><view><text>{{ money(pendingShare) }}</text><small>推广佣金<text v-if="store.promoter?.settled" class="settled-tag">已结算</text></small></view><view><text>{{ store.promoter?.fans ?? 0 }}</text><small>绑定用户</small></view><view><text>{{ store.myBoundUsers.filter((item) => item.status === 'bound').length }}</text><small>正式绑定</small></view></view>
       </view>
 
       <view class="quick-tools">
@@ -210,7 +211,7 @@ onMounted(async () => {
       <view v-if="!myLives.length" class="empty">还没有直播，点击「创建直播」开始推广门店套餐</view>
       <view class="live-list">
         <view v-for="room in myLives" :key="room.id" class="live-card">
-          <image class="live-cover" :src="room.image" mode="aspectFill" />
+          <image class="live-cover" :src="room.image" mode="aspectFit" />
           <view class="live-body">
             <view class="live-title-row"><text class="live-title">{{ room.title }}</text><span :class="room.status">{{ room.status === 'live' ? '直播中' : '预告' }}</span></view>
             <small class="live-meta">绑定 {{ liveFarmCount(room) }} 家门店 · {{ room.viewers.toLocaleString('zh-CN') }} 人观看</small>
@@ -230,11 +231,11 @@ onMounted(async () => {
 
       <view v-if="sheet === 'create-live'" class="create-live">
         <label class="field"><text>直播标题</text><input v-model="liveForm.title" placeholder="如 石板溪土鸡宴专场" /></label>
-        <view class="field"><text>封面</text><view class="cover-row"><image v-for="cover in coverOptions" :key="cover" :src="cover" mode="aspectFill" :class="{ active: liveForm.image === cover }" @click="liveForm.image = cover" /><image v-if="liveForm.image && !coverOptions.includes(liveForm.image)" :src="liveForm.image" mode="aspectFill" class="active uploaded" @click="liveForm.image = '/static/images/farmhouse.webp'" /></view><button class="upload-btn" @click="chooseLiveCover">＋ 上传封面</button></view>
+        <view class="field"><text>封面</text><view class="cover-row"><image v-for="cover in coverOptions" :key="cover" :src="cover" mode="aspectFit" :class="{ active: liveForm.image === cover }" @click="liveForm.image = cover" /><image v-if="liveForm.image && !coverOptions.includes(liveForm.image)" :src="liveForm.image" mode="aspectFit" class="active uploaded" @click="liveForm.image = '/static/images/farmhouse.webp'" /></view><button class="upload-btn" @click="chooseLiveCover">＋ 上传封面</button></view>
         <view class="field"><text>开播状态</text><view class="chips"><button :class="{ active: liveForm.status === 'preview' }" @click="liveForm.status = 'preview'">预告</button><button :class="{ active: liveForm.status === 'live' }" @click="liveForm.status = 'live'">直播中</button></view></view>
-        <view class="field"><text>选择门店（可多选）</text><view class="farm-grid"><view v-for="farm in store.farms" :key="farm.id" class="farm-option" :class="{ active: liveForm.selectedFarms.includes(farm.id) }" @click="toggleFarm(farm.id)"><image :src="farm.image" mode="aspectFill" /><text>{{ farm.name }}</text></view></view></view>
+        <view class="field"><text>选择门店（可多选）</text><view class="farm-grid"><view v-for="farm in store.farms" :key="farm.id" class="farm-option" :class="{ active: liveForm.selectedFarms.includes(farm.id) }" @click="toggleFarm(farm.id)"><image :src="farm.image" mode="aspectFit" /><text>{{ farm.name }}</text></view></view></view>
         <template v-for="farmId in liveForm.selectedFarms" :key="farmId">
-          <view class="field"><text>{{ farmName(farmId) }} · 选择套餐（可多选）</text><view class="pkg-grid"><view v-for="pkg in packagesOfFarm(farmId)" :key="pkg.id" class="pkg-option" :class="{ active: (selectedPackages[farmId] || []).includes(pkg.id) }" @click="togglePackage(farmId, pkg.id)"><image :src="pkg.image" mode="aspectFill" /><view><text>{{ pkg.name }}</text><small>{{ money(pkg.price) }}</small></view></view><view v-if="!packagesOfFarm(farmId).length" class="pkg-empty">该门店暂无套餐券商品</view></view></view>
+          <view class="field"><text>{{ farmName(farmId) }} · 选择套餐（可多选）</text><view class="pkg-grid"><view v-for="pkg in packagesOfFarm(farmId)" :key="pkg.id" class="pkg-option" :class="{ active: (selectedPackages[farmId] || []).includes(pkg.id) }" @click="togglePackage(farmId, pkg.id)"><image :src="pkg.image" mode="aspectFit" /><view><text>{{ pkg.name }}</text><small>{{ money(pkg.price) }}</small></view></view><view v-if="!packagesOfFarm(farmId).length" class="pkg-empty">该门店暂无套餐券商品</view></view></view>
         </template>
         <button class="primary-button" @click="saveLive">{{ liveForm.id ? '保存修改并发布' : '创建并发布直播' }}</button>
       </view>
@@ -271,9 +272,12 @@ onMounted(async () => {
 .login-field{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .login-field text{font-size:11px;font-weight:700}
 .login-field input{height:42px;border:1px solid #eee;border-radius:8px;padding:0 12px;font-size:13px}
-.primary-button{height:44px;border-radius:10px;background:#c83245;color:#fff;font-weight:800;font-size:14px;margin-top:8px}
+.primary-button{height:44px;border-radius:10px;background:#c83245;color:#fff;font-weight:800;font-size:14px;margin-top:8px;display:flex;align-items:center;justify-content:center;text-align:center}
 .login-hint{text-align:center;color:#b5a8ab;font-size:10px;margin-top:4px}
 .promoter-head{background:linear-gradient(135deg,#3a566f,#243a4f);color:#fff;padding:28px 18px 22px}
+.head-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.head-share-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:30px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:11px;font-weight:700;flex:none;transition:background .15s ease,transform .15s ease}
+.head-share-btn:active{background:rgba(255,255,255,.26);transform:translateY(-1px)}
 .profile{display:flex;align-items:center;gap:12px}
 .pav{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.16);font-size:26px}
 .pname{font-size:17px;font-weight:900;display:block}
@@ -282,14 +286,16 @@ onMounted(async () => {
 .wallet-card{margin:14px 14px 0;padding:14px;background:#fff;border:1px solid #efe6e6;border-radius:14px}
 .wallet-top{display:flex;align-items:center;justify-content:space-between}
 .wallet-top small,.wallet-top strong{display:block}
-.wallet-top strong{font-size:24px;color:#c83245;margin-top:4px}
-.wallet-top button{min-height:30px;padding:0 10px;border-radius:6px;background:#fdeef1;color:#c83245;font-size:10px;font-weight:700}
+.wallet-top strong{font-size:28px;color:#c83245;margin-top:4px}
+
 .wallet-stats{display:grid;grid-template-columns:repeat(3,1fr);margin-top:14px;text-align:center}
 .wallet-stats text,.wallet-stats small{display:block}
 .wallet-stats text{font-size:15px;font-weight:800}
 .wallet-stats small{color:#8a7d80;font-size:9px;margin-top:3px}
+.wallet-stats .settled-tag{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;background:#e8f3ec;color:#17633f;font-size:8px;font-weight:700}
 .quick-tools{margin:14px 14px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.quick-tools button{background:#fff;border:1px solid #efe6e6;border-radius:12px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:7px;font-size:11px;font-weight:800;color:#3a566f}
+.quick-tools button{background:#fff;border:1px solid #efe6e6;border-radius:14px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;font-size:11px;font-weight:800;color:#3a566f;box-shadow:0 6px 16px -12px rgba(58,86,111,.45);transition:transform .15s ease,box-shadow .15s ease}
+.quick-tools button:active{transform:translateY(-1px) scale(.98);box-shadow:0 10px 20px -12px rgba(58,86,111,.55)}
 .section-head{display:flex;align-items:center;justify-content:space-between;margin:20px 16px 10px}
 .section-head span{width:4px;height:14px;border-radius:2px;background:#c83245;display:inline-block}
 .section-head>view{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:900}
@@ -306,7 +312,9 @@ onMounted(async () => {
 .live-title-row span.preview{background:#eef3f8;color:#45658d}
 .live-meta{display:block;color:#8a7d80;font-size:10px;margin-top:5px}
 .live-actions{display:flex;gap:8px;margin-top:10px}
-.live-actions .mini{min-height:30px;padding:0 10px;border-radius:6px;background:#f4f0ee;font-size:10px;font-weight:700;flex:1}
+.live-actions .mini{min-height:34px;padding:0 10px;border-radius:8px;background:#f4f0ee;font-size:10px;font-weight:700;flex:1;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1;transition:filter .15s ease}
+.live-actions .mini:active{filter:brightness(.94)}
+.live-actions .mini::after{border:none}
 .live-actions .mini.accent{background:#3a566f;color:#fff}
 .live-actions .mini.danger{background:#fdeef1;color:#c83245}
 .sheet-mask{position:fixed;inset:0;background:rgba(20,16,18,.45);z-index:30;display:flex;align-items:flex-end}
@@ -320,9 +328,9 @@ onMounted(async () => {
 .cover-row{display:flex;gap:8px;overflow-x:auto}
 .cover-row image{width:64px;height:64px;border-radius:10px;border:2px solid transparent;flex:none}
 .cover-row image.active{border-color:#c83245}
-.cover-row image.uploaded{border-color:#17633f;background:#f0f6f0}.upload-btn{margin-top:8px;min-height:32px;padding:0 12px;border:1px solid #e5d8da;border-radius:8px;background:#fff7f8;color:#c83245;font-size:11px;font-weight:700;align-self:flex-start}
+.cover-row image.uploaded{border-color:#17633f;background:#f0f6f0}.upload-btn{margin-top:8px;min-height:32px;padding:0 12px;border:1px solid #e5d8da;border-radius:8px;background:#fff7f8;color:#c83245;font-size:11px;font-weight:700;align-self:flex-start;display:flex;align-items:center;justify-content:center}
 .chips{display:flex;gap:8px}
-.chips button{min-height:34px;padding:0 14px;border-radius:17px;background:#f4f0ee;font-size:11px;font-weight:700}
+.chips button{min-height:34px;padding:0 14px;border-radius:17px;background:#f4f0ee;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;text-align:center}
 .chips button.active{background:#c83245;color:#fff}
 .farm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .farm-option{border:1px solid #eee;border-radius:10px;overflow:hidden;position:relative;text-align:center}
@@ -355,4 +363,11 @@ onMounted(async () => {
 .data-list span.bound{background:#e8f3ec;color:#17633f}
 .data-list span.pending{background:#fff3d6;color:#8a5b12}
 @media(min-width:700px){.app-shell{max-width:430px;margin:0 auto;box-shadow:0 0 0 1px #e4dcdc}.sheet-mask{justify-content:center}.sheet{max-width:430px}}
+
+/* ===== uni-button 默认样式修正：关闭按钮图标居中 / 按钮组居左 / 清除默认伪元素 ===== */
+.sheet-head uni-button, .sheet-head button, .wallet-top uni-button, .quick-tools uni-button, .live-actions uni-button, .chips uni-button, .upload-btn { margin: 0; }
+.sheet-head uni-button, .sheet-head button, .wallet-top uni-button { padding: 0; }
+.sheet-head uni-button { display: grid; place-items: center; line-height: 1; }
+.chips uni-button { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+.sheet-head uni-button::after, .chips uni-button::after, .quick-tools uni-button::after, .live-actions uni-button::after, .wallet-top uni-button::after, .primary-button::after, .upload-btn::after { border: none; background: none; }
 </style>

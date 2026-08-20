@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { BalanceEntry, Booking, FarmStore, Member, MockScenario, Product, PromotionRecord, Role, StoreAccount, StorefrontOrder, TenantConfig } from '@agritainment/shared'
-import { applyPlatformMedia, calcCartTotal, cloneSeed, createId, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformStoreAccounts, readPlatformStoreAccounts, readShareConfig, readUserBindings, resolveShare, round2, simulateWechatLogin, storeAccounts, upsertUserBinding, writePlatformStoreAccounts, writeShareRecord } from '@agritainment/shared'
+import { applyPlatformMedia, calcCartTotal, cloneSeed, createId, getOrCreateUserId, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, readPlatformEntities, readPlatformStoreAccounts, readShareConfig, readUserBindings, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, simulateWechatLogin, storeAccounts, suppliers, upsertUserBinding, writePlatformOrder, writePlatformStoreAccounts, writeShareRecord, writeUserLink } from '@agritainment/shared'
 import { farmhouseRepository } from '../services/repository'
 
 interface CartLine {
@@ -52,6 +52,7 @@ interface FarmhouseState {
   role: Role
   products: Product[]
   selectableProducts: Product[]
+  overrides: Record<string, { stock?: Record<string, number>; listed?: boolean }>
   cart: CartLine[]
   bookings: Booking[]
   orders: StorefrontOrder[]
@@ -65,6 +66,8 @@ interface FarmhouseState {
   storeAccounts: StoreAccount[]
   loggedAccountId: string
   currentUserId: string
+  pendingUserId: string
+  deliveryAddress: string
   referrer: { type?: 'promoter' | 'staff'; name?: string; promoterId?: string; staffAccountId?: string; liveId?: string }
 }
 
@@ -80,6 +83,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     role: 'customer',
     products: [],
     selectableProducts: [],
+    overrides: {},
     cart: [],
     rooms: seedRooms(),
     bookings: [
@@ -109,9 +113,12 @@ export const useFarmhouseStore = defineStore('storefront', {
     storeAccounts: [],
     loggedAccountId: '',
     currentUserId: '',
+    pendingUserId: '',
+    deliveryAddress: '',
     referrer: {}
   }),
   getters: {
+    isListed: (state) => (productId: string) => state.products.some((item) => item.id === productId) && state.overrides[productId]?.listed !== false,
     cartCount: (state) => state.cart.reduce((sum, item) => sum + item.quantity, 0),
     cartTotal: (state) => calcCartTotal(state.cart.map(({ price, quantity }) => ({ price, quantity }))),
     balance: (state) => state.member.balance,
@@ -140,12 +147,14 @@ export const useFarmhouseStore = defineStore('storefront', {
           initialized: true
         })
         if (this.farm) applyPlatformMedia([this.farm], this.products)
+        const entities = readPlatformEntities()
+        if (entities?.products) this.products = mergePlatformEntities(this.products, entities.products)
+        this.applyLocalOverrides()
         applyPlatformMedia(null, this.selectableProducts)
         this.storeAccounts = mergePlatformStoreAccounts(storeAccounts, readPlatformStoreAccounts())
+        if (!this.deliveryAddress) this.deliveryAddress = this.tenant?.address || ''
         if (!this.currentUserId) {
-          const savedUserId = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-id') : ''
-          this.currentUserId = typeof savedUserId === 'string' && savedUserId ? savedUserId : createId('U')
-          if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', this.currentUserId)
+          this.currentUserId = getOrCreateUserId()
         }
         this.cart.forEach((line) => {
           const product = this.products.find((item) => item.id === line.productId)
@@ -232,7 +241,14 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.member.balance = Math.round((this.member.balance - total) * 100) / 100
       this.member.points += Math.floor(total)
       const orderId = createId('SO')
-      this.orders.unshift({ id: orderId, amount: total, itemCount, status: '待发货', createdAt: new Date().toLocaleString('zh-CN'), items: this.cart.map((item) => ({ productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: item.image, quantity: item.quantity, price: item.price })) })
+      const cartItems = this.cart.map((item) => ({ productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: item.image, quantity: item.quantity, price: item.price }))
+      this.orders.unshift({ id: orderId, amount: total, itemCount, status: '待发货', createdAt: new Date().toLocaleString('zh-CN'), items: cartItems })
+      const firstProduct = this.cart[0] ? this.products.find((p) => p.id === this.cart[0].productId) : undefined
+      writePlatformOrder({
+        id: orderId, productName: cartItems[0]?.name || '特产商品', quantity: itemCount, amount: total,
+        customer: `游客 · ${this.member.name}`, channel: 'shop', status: 'pending', createdAt: new Date().toLocaleString('zh-CN'),
+        items: cartItems, supplierId: suppliers.find((s) => s.name === firstProduct?.supplier)?.id
+      })
       this.resolveOrderShare(orderId, total)
       this.balanceEntries.unshift({ id: createId('BL'), type: 'consume', amount: -total, balance: this.member.balance, description: `商城订单消费 · ${itemCount} 件商品`, createdAt: new Date().toLocaleString('zh-CN') })
       this.cart = []
@@ -257,6 +273,33 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.balanceEntries.unshift({ id: createId('BL'), type: 'recharge', amount, balance: this.member.balance, description: '会员储值充值', createdAt: new Date().toLocaleString('zh-CN') })
       return true
     },
+    applyLocalOverrides() {
+      Object.entries(this.overrides).forEach(([productId, ov]) => {
+        const product = this.products.find((item) => item.id === productId)
+        if (!product || !ov.stock) return
+        product.skus.forEach((sku) => {
+          if (ov.stock![sku.id] !== undefined) sku.stock = Math.max(0, Math.round(ov.stock![sku.id]))
+        })
+        product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
+      })
+    },
+    setSkuStock(productId: string, skuId: string, stock: number) {
+      const product = this.products.find((item) => item.id === productId)
+      const sku = product?.skus.find((item) => item.id === skuId)
+      if (!product || !sku) return false
+      const ov = this.overrides[productId] || (this.overrides[productId] = {})
+      ov.stock = ov.stock || {}
+      ov.stock[skuId] = Math.max(0, Math.round(Number(stock) || 0))
+      sku.stock = ov.stock[skuId]
+      product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
+      return true
+    },
+    toggleListed(productId: string) {
+      if (!this.products.some((item) => item.id === productId)) return false
+      const ov = this.overrides[productId] || (this.overrides[productId] = {})
+      ov.listed = ov.listed === false ? true : false
+      return true
+    },
     listProduct(productId: string, retailPrice: number) {
       const source = this.selectableProducts.find((item) => item.id === productId)
       if (!source) return false
@@ -269,6 +312,8 @@ export const useFarmhouseStore = defineStore('storefront', {
       target.skus.forEach((sku) => { sku.price = round2(sku.price + delta) })
       if (existing) existing.stock = existing.skus.reduce((sum, sku) => sum + sku.stock, 0)
       else this.products.unshift({ ...target, status: 'active', farmIds: [...new Set([...target.farmIds, this.farm?.id || this.tenant?.farmId || 'F001'])] })
+      const ov = this.overrides[source.id] || (this.overrides[source.id] = {})
+      ov.listed = true
       return true
     },
     addRoom(payload: Omit<Room, 'id'>) {
@@ -364,6 +409,17 @@ export const useFarmhouseStore = defineStore('storefront', {
     async wechatLogin() {
       const { openid } = await simulateWechatLogin()
       this.auth = { isLoggedIn: true, openid }
+      const linked = resolveUserIdByOpenid(openid)
+      if (linked) {
+        this.currentUserId = linked
+      } else if (this.pendingUserId) {
+        // 把用户端带过来的 ID 与当前 openid 关联，实现 openid 和 ID 绑定
+        this.currentUserId = this.pendingUserId
+        writeUserLink(openid, this.pendingUserId)
+      } else {
+        this.currentUserId = resolveUserIdentity(openid)
+      }
+      if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', this.currentUserId)
       return true
     },
     loginWithAccount(account: string, password: string) {
@@ -390,6 +446,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     setCurrentUser(userId: string) {
       if (!userId) return
       this.currentUserId = userId
+      this.pendingUserId = userId
       if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', userId)
     },
     setReferrer(referrer: { type?: 'promoter' | 'staff'; name?: string; promoterId?: string; staffAccountId?: string; liveId?: string }) {
@@ -428,6 +485,10 @@ export const useFarmhouseStore = defineStore('storefront', {
       if (!item) return false
       item.enabled = !item.enabled
       writePlatformStoreAccounts(this.storeAccounts)
+      return true
+    },
+    setDeliveryAddress(address: string) {
+      this.deliveryAddress = address.trim()
       return true
     },
     logout() {

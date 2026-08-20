@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import type { Booking, Product, Role, StoreAccount, StoreRole, StorefrontOrder } from '@agritainment/shared'
-import { calcMargin, formatNumber, installKeyboardButtonSupport, money } from '@agritainment/shared'
+import { calcMargin, formatNumber, installKeyboardButtonSupport, money, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrderStatus } from '@agritainment/shared'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
 import qrcode from 'qrcode-generator'
@@ -10,7 +10,7 @@ import qrcode from 'qrcode-generator'
 import { useFarmhouseStore, type FoodItem, type Room } from '../../stores/farmhouse'
 
 type TabKey = 'home' | 'reserve' | 'shop' | 'member'
-type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'staff-admin' | null
+type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'staff-admin' | 'orders' | 'bookings' | 'ledger' | 'help' | null
 type SheetKey = 'login' | 'cart' | 'orders' | 'bookings' | 'room-form' | 'food-form' | 'share' | 'product' | 'contact' | 'foods' | 'ledger' | 'recharge' | 'identity' | 'help' | 'booking-form' | 'service' | 'staff-form' | 'staff-promo' | null
 
 const store = useFarmhouseStore()
@@ -21,6 +21,15 @@ const heroStyle = computed(() => {
 let disposeKeyboardButtons: () => void = () => undefined
 const activeTab = ref<TabKey>('home')
 const workView = ref<WorkView>(null)
+const verifyKeyword = ref('')
+const roomKeyword = ref('')
+const foodKeyword = ref('')
+const selectKeyword = ref('')
+const staffKeyword = ref('')
+const orderKeyword = ref('')
+const bookingKeyword = ref('')
+const ledgerKeyword = ref('')
+const deliveryAddressDraft = ref('')
 const sheet = ref<SheetKey>(null)
 const category = ref('全部')
 const shopKeyword = ref('')
@@ -57,14 +66,15 @@ const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: 'member', label: '会员', icon: 'crown' }
 ]
 
-const categories = ['全部', '土特产', '生鲜农产', '套餐券', '伴手礼', '酒水饮料']
+const categories = computed(() => ['全部', ...Array.from(new Set(store.products.map((item) => item.category)))])
+const activePolicies = computed(() => Object.values(readPlatformEntities()?.policies || {}).filter((item) => item.enabled))
 const shopOrder = ['P001', 'P002', 'P010', 'P007', 'P008', 'P004', 'P005', 'P006']
 const visibleProducts = computed(() => {
   const order = new Map(shopOrder.map((id, i) => [id, i]))
   return store.products
     .filter((item) => {
       const matchesCategory = category.value === '全部' || item.category === category.value
-      return matchesCategory
+      return matchesCategory && store.isListed(item.id)
     })
     .sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
 })
@@ -151,14 +161,16 @@ function submitBooking() {
   const bookingImage = reserveType.value === 'room' ? (store.rooms.find((room) => room.name === booking.name)?.image || '/static/images/mountain.webp') : '/static/images/farmhouse.webp'
   const payload: Omit<Booking, 'id' | 'status'> = { type: reserveType.value, ...booking, image: bookingImage }
   if (!store.submitBooking(payload)) return toast('该场次已预订，请更换时间')
-  sheet.value = 'bookings'
+  sheet.value = null
+  workView.value = 'bookings'
   toast('预订成功')
 }
 
 function checkout() {
   if (!requireLogin(() => checkout())) return
   if (!store.checkout()) return toast(store.checkoutError)
-  sheet.value = 'orders'
+  sheet.value = null
+  workView.value = 'orders'
   toast('订单提交成功')
 }
 
@@ -169,7 +181,8 @@ function recharge() {
 function confirmRecharge() {
   if (!requireLogin(() => confirmRecharge())) return
   if (!store.recharge(rechargeAmount.value)) return toast('请选择有效充值金额')
-  sheet.value = 'ledger'
+  sheet.value = null
+  workView.value = 'ledger'
   toast(`已充值 ${money(rechargeAmount.value)}`)
 }
 
@@ -185,7 +198,7 @@ function listProduct(product: Product) {
 }
 
 function isListed(product: Product) {
-  return store.products.some((item) => item.id === product.id && item.status === 'active')
+  return store.isListed(product.id)
 }
 function retailPreview(product: Product) {
   const draft = Number(retailDraft[product.id] ?? getRetail(product))
@@ -272,6 +285,57 @@ const staffQrDataUrl = ref('')
 const currentStaffAccount = computed(() => store.storeAccounts.find((item) => item.id === store.loggedAccountId))
 const myStaffPromoEnabled = computed(() => store.role === 'staff' && !!currentStaffAccount.value?.promoEnabled)
 const myStaffAccounts = computed(() => store.storeAccounts.filter((item) => item.farmId === (store.tenant?.farmId || store.farm?.id || 'F001')))
+
+const filteredVerifyBookings = computed(() => {
+  const kw = verifyKeyword.value.trim().toLowerCase()
+  if (!kw) return store.bookings
+  return store.bookings.filter((item) => `${item.name}${item.date}${item.session}${item.status}`.toLowerCase().includes(kw))
+})
+const filteredRooms = computed(() => {
+  const kw = roomKeyword.value.trim().toLowerCase()
+  if (!kw) return store.rooms
+  return store.rooms.filter((room) => `${room.name}${room.capacity}${room.status}`.toLowerCase().includes(kw))
+})
+const filteredFoods = computed(() => {
+  const kw = foodKeyword.value.trim().toLowerCase()
+  if (!kw) return store.foods
+  return store.foods.filter((food) => `${food.name}${food.description}`.toLowerCase().includes(kw))
+})
+const filteredSelectable = computed(() => {
+  const kw = selectKeyword.value.trim().toLowerCase()
+  if (!kw) return store.selectableProducts
+  return store.selectableProducts.filter((product) => `${product.name}${product.category}`.toLowerCase().includes(kw))
+})
+const filteredStaffAccounts = computed(() => {
+  const kw = staffKeyword.value.trim().toLowerCase()
+  if (!kw) return myStaffAccounts.value
+  return myStaffAccounts.value.filter((acc) => `${acc.name}${acc.account}`.toLowerCase().includes(kw))
+})
+const filteredOrders = computed(() => {
+  const kw = orderKeyword.value.trim().toLowerCase()
+  if (!kw) return store.orders
+  return store.orders.filter((order) => `${order.id}${orderTitle(order)}`.toLowerCase().includes(kw))
+})
+const filteredBookings = computed(() => {
+  const kw = bookingKeyword.value.trim().toLowerCase()
+  if (!kw) return store.bookings
+  return store.bookings.filter((item) => `${item.name}${item.date}${item.session}`.toLowerCase().includes(kw))
+})
+const filteredLedger = computed(() => {
+  const kw = ledgerKeyword.value.trim().toLowerCase()
+  if (!kw) return store.balanceEntries
+  return store.balanceEntries.filter((entry) => `${entry.description}${entry.amount}`.toLowerCase().includes(kw))
+})
+
+function openHelp() {
+  deliveryAddressDraft.value = store.deliveryAddress || store.tenant?.address || ''
+  workView.value = 'help'
+}
+function saveDeliveryAddress() {
+  if (!deliveryAddressDraft.value.trim()) return toast('请填写收货地址')
+  store.setDeliveryAddress(deliveryAddressDraft.value)
+  toast('收货地址已保存')
+}
 const referrerText = computed(() => {
   const referrer = store.referrer
   if (!referrer?.name) return ''
@@ -365,7 +429,7 @@ function openFoodForm(food?: FoodItem) {
   sheet.value = 'food-form'
 }
 function saveFoodForm() {
-  const payload = { name: foodForm.name.trim(), description: foodForm.description.trim(), price: foodForm.price, originalPrice: foodForm.originalPrice || undefined, emoji: foodForm.emoji.trim() || undefined, image: foodForm.image }
+  const payload = { name: foodForm.name.trim(), description: foodForm.description.trim(), price: foodForm.price, originalPrice: foodForm.originalPrice || undefined, image: foodForm.image }
   const ok = editingFoodId.value ? store.updateFood(editingFoodId.value, payload) : store.addFood(payload)
   if (!ok) return toast('请填写菜品名称且价格需大于 0')
   sheet.value = null
@@ -458,6 +522,23 @@ function cancelBooking(id: string) {
 
 
 
+const platformOrderStatus = (orderId: string) => readPlatformOrderStatus(orderId)
+const afterSaleStatusOf = (orderId: string) => readPlatformAfterSaleStatus(orderId)
+const stockDrafts = reactive<Record<string, Record<string, number>>>({})
+function ensureStockDrafts() {
+  store.products.forEach((p) => {
+    if (!stockDrafts[p.id]) stockDrafts[p.id] = {}
+    p.skus.forEach((s) => { if (stockDrafts[p.id][s.id] === undefined) stockDrafts[p.id][s.id] = s.stock })
+  })
+}
+function commitStock(product: Product) {
+  product.skus.forEach((s) => { const v = stockDrafts[product.id]?.[s.id]; if (v !== undefined) store.setSkuStock(product.id, s.id, v) })
+  toast('本店库存已更新')
+}
+function toggleListed(productId: string) {
+  if (!store.toggleListed(productId)) return toast('请先上架到本店商城')
+  toast(store.isListed(productId) ? '已上架本店' : '已从本店商城下架')
+}
 function orderTitle(order: StorefrontOrder) {
   return order.items.map((line) => `${line.name} ×${line.quantity}`).join('、')
 }
@@ -474,9 +555,32 @@ onMounted(async () => {
   const scenario = query.mock
   if (scenario === 'empty' || scenario === 'failure') store.setMockScenario(scenario)
   await store.initialize()
+  ensureStockDrafts()
   if (typeof query.userId === 'string' && query.userId) store.setCurrentUser(query.userId)
   if (typeof query.promoter === 'string' && query.promoter) store.setReferrer({ type: 'promoter', promoterId: query.promoter, name: String(query.promoterName || ''), liveId: typeof query.live === 'string' ? query.live : undefined })
   if (typeof query.staff === 'string' && query.staff) store.setReferrer({ type: 'staff', staffAccountId: query.staff, name: String(query.staffName || '') })
+  // 直达结算：URL 带 productId/skuId/qty → 自动加购并打开购物车结算弹层
+  if (typeof query.productId === 'string' && query.productId) {
+    const directProduct = store.products.find((item) => item.id === query.productId)
+    if (directProduct) {
+      const skuId = typeof query.skuId === 'string' && query.skuId ? query.skuId : undefined
+      const sku = directProduct.skus.find((item) => item.id === skuId) || (directProduct.skus.length === 1 ? directProduct.skus[0] : undefined)
+      const qty = Math.max(1, Number(query.qty) || 1)
+      if (sku && sku.stock > 0) {
+        const result = store.addToCart(directProduct, sku.id)
+        if (result !== 'out-of-stock') {
+          for (let i = 1; i < qty; i++) store.changeCart(directProduct.id, sku.id, 1)
+          sheet.value = 'cart'
+        } else {
+          toast('套餐库存不足')
+        }
+      } else {
+        toast('该套餐暂不可购')
+      }
+    } else {
+      toast('该套餐暂不可购')
+    }
+  }
   if (typeof document !== 'undefined') {
     document.documentElement.style.setProperty('--farm-green', store.tenant?.theme || '#17633f')
     document.title = store.tenant?.name || '农家乐门店'
@@ -500,10 +604,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="work-metric-band"><view><small>中台可选</small><strong>{{ store.selectableProducts.length }} SKU</strong></view><view><small>本店已上架</small><strong>{{ store.products.filter(item => item.source === 'farmhouse' || item.status === 'active').length }}</strong></view><view><small>建议毛利率</small><strong>30%+</strong></view></view>
         <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店长专属：从甄选好物供应链中台选品，设置零售价后上架，零售价与供货价的差额即本店利润。上架后顾客即可在「商城」购买。</text></view>
         <view class="section-head compact"><view><span></span><text>中台可选商品</text></view><small>供货价 → 你的零售价</small></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="selectKeyword" placeholder="搜索中台商品名称 / 品类" /></view>
         <view class="select-list">
-          <view v-for="product in store.selectableProducts" :key="product.id" class="select-item">
+          <view v-for="product in filteredSelectable" :key="product.id" class="select-item">
             <view class="si-head">
-              <image class="select-emoji" :src="product.image" mode="aspectFill" />
+              <image class="select-emoji" :src="product.image" mode="aspectFit" />
               <view class="si-title"><text class="item-title">{{ product.name }}</text><small class="si-sub">中台供货价 <b>{{ money(product.cost) }}</b> · 建议零售 {{ money(product.price) }}</small></view>
               <span class="si-status" :class="isListed(product) ? 'listed' : ''">{{ isListed(product) ? '已上架' : '未上架' }}</span>
             </view>
@@ -512,6 +617,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
               <view class="si-margin"><text>毛利</text><strong :class="{ neg: calcMargin(product.cost, retailPreview(product)).amount < 0 }">{{ money(calcMargin(product.cost, retailPreview(product)).amount) }} · <span>{{ calcMargin(product.cost, retailPreview(product)).rate }}%</span></strong></view>
             </view>
             <button class="si-btn" :class="{ listed: isListed(product) }" :disabled="isListed(product) && getRetail(product) === store.products.find(item => item.id === product.id)?.price" @click="listProduct(product)">{{ isListed(product) ? '✓ 已上架本店' : '上架到本店商城' }}</button>
+            <view v-if="isListed(product)" class="si-local"><view class="si-stock"><label v-for="sku in product.skus" :key="sku.id" class="si-stock-sku"><text>{{ sku.name }}</text><input v-model.number="stockDrafts[product.id][sku.id]" type="number" /></label></view><view class="si-local-actions"><button class="si-confirm" @click="commitStock(product)">保存库存</button><button class="si-confirm danger" @click="toggleListed(product.id)">下架</button></view></view>
           </view>
         </view>
       </view>
@@ -519,10 +625,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <view v-else-if="workView === 'verify'" class="work-page page-pad">
         <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">订单核销</text><text class="page-sub">到店核对预订/预约信息，确认后核销</text></view></view>
         <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店员与店长均可核销：顾客到店出示预订信息，核对后点击「核销」，状态变为已核销。</text></view>
-        <view v-if="!store.bookings.length" class="empty-page"><UiIcon name="calendar-check" :size="28" /><text>暂无预订记录</text></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="verifyKeyword" placeholder="搜索预订名称 / 日期 / 状态" /></view>
+        <view v-if="!filteredVerifyBookings.length" class="empty-page"><UiIcon name="calendar-check" :size="28" /><text>暂无预订记录</text></view>
         <view class="verify-list">
-          <view v-for="item in store.bookings" :key="item.id" class="verify-item">
-            <image v-if="item.image" class="verify-emoji" :src="item.image" mode="aspectFill" /><view v-else class="verify-emoji emoji-thumb">🪟</view>
+          <view v-for="item in filteredVerifyBookings" :key="item.id" class="verify-item">
+            <image v-if="item.image" class="verify-emoji" :src="item.image" mode="aspectFit" /><view v-else class="verify-emoji emoji-thumb">🪟</view>
             <view class="verify-main"><text class="item-title">{{ item.name }}</text><small>{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small></view>
             <span class="verify-status" :class="item.status === 'reserved' ? '' : item.status === 'cancelled' ? 'cancel' : 'ok'">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span>
             <button v-if="item.status === 'reserved'" class="verify-btn" @click="verifyBooking(item.id)">核销</button>
@@ -534,9 +641,10 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <view v-else-if="workView === 'design-rooms'" class="work-page page-pad">
         <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">设计特色包厢</text><text class="page-sub">新增 / 编辑 / 删除包厢，保存后即时展示到首页与预订页</text></view><button class="text-button" @click="openRoomForm()">＋ 新增包厢</button></view>
         <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店长专属：包厢名称、容量、场次与状态会展示给顾客，请确保信息准确。</text></view>
-        <view v-if="!store.rooms.length" class="empty-page"><UiIcon name="door-open" :size="28" /><text>还没有包厢，点击右上角「新增包厢」</text></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="roomKeyword" placeholder="搜索包厢名称 / 容量 / 状态" /></view>
+        <view v-if="!filteredRooms.length" class="empty-page"><UiIcon name="door-open" :size="28" /><text>还没有包厢，点击右上角「新增包厢」</text></view>
         <view class="design-list">
-          <view v-for="room in store.rooms" :key="room.id" class="design-item">
+          <view v-for="room in filteredRooms" :key="room.id" class="design-item">
             <image v-if="room.image" class="design-emoji" :src="room.image" mode="aspectFit" /><span v-else class="design-emoji emoji-thumb">{{ room.emoji || '🪟' }}</span>
             <view class="design-main"><text class="item-title">{{ room.name }}</text><small>{{ room.capacity }} · {{ room.sessions }} · {{ room.status }}</small></view>
             <view class="design-actions"><button class="design-edit" @click="openRoomForm(room)">编辑</button><button class="design-del" @click="removeRoom(room.id)">删除</button></view>
@@ -547,10 +655,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <view v-else-if="workView === 'design-foods'" class="work-page page-pad">
         <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">设计招牌土菜</text><text class="page-sub">新增 / 编辑 / 删除菜品，保存后即时展示到首页招牌土菜</text></view><button class="text-button" @click="openFoodForm()">＋ 新增菜品</button></view>
         <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店长专属：菜品名称、描述与价格会展示给顾客，请确保信息准确。</text></view>
-        <view v-if="!store.foods.length" class="empty-page"><UiIcon name="utensils" :size="28" /><text>还没有菜品，点击右上角「新增菜品」</text></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="foodKeyword" placeholder="搜索菜品名称 / 描述" /></view>
+        <view v-if="!filteredFoods.length" class="empty-page"><UiIcon name="utensils" :size="28" /><text>还没有菜品，点击右上角「新增菜品」</text></view>
         <view class="design-list">
-          <view v-for="food in store.foods" :key="food.id" class="design-item">
-            <image v-if="food.image" class="design-emoji" :src="food.image" mode="aspectFit" /><span v-else class="design-emoji emoji-thumb">{{ food.emoji || '🍲' }}</span>
+          <view v-for="food in filteredFoods" :key="food.id" class="design-item">
+            <image v-if="food.image" class="design-emoji" :src="food.image" mode="aspectFill" /><view v-else class="design-emoji empty-box"></view>
             <view class="design-main"><text class="item-title">{{ food.name }}</text><small>{{ food.description }} · {{ money(food.price) }}</small></view>
             <view class="design-actions"><button class="design-edit" @click="openFoodForm(food)">编辑</button><button class="design-del" @click="removeFood(food.id)">删除</button></view>
           </view>
@@ -560,13 +669,51 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <view v-else-if="workView === 'staff-admin'" class="work-page page-pad">
         <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">店员管理</text><text class="page-sub">本店店员登录账号 · 推广权限由店长选配</text></view><button class="text-button" @click="openStaffForm()">＋ 新增店员</button></view>
         <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店员可登录本店核销订单；开启「推广权限」后店员可生成自己的推广码，用户扫码下单后店员按比例分成。</text></view>
-        <view v-if="!myStaffAccounts.length" class="empty-page"><UiIcon name="users" :size="28" /><text>本店暂无店员账号，点击右上角「新增店员」</text></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="staffKeyword" placeholder="搜索店员姓名 / 账号" /></view>
+        <view v-if="!filteredStaffAccounts.length" class="empty-page"><UiIcon name="users" :size="28" /><text>本店暂无店员账号，点击右上角「新增店员」</text></view>
         <view class="design-list">
-          <view v-for="acc in myStaffAccounts" :key="acc.id" class="design-item">
+          <view v-for="acc in filteredStaffAccounts" :key="acc.id" class="design-item">
             <view class="design-emoji emoji-thumb">{{ acc.role === 'owner' ? '🧑‍💼' : '🧑‍🍳' }}</view>
             <view class="design-main"><text class="item-title">{{ acc.name }}</text><small>{{ acc.account }} · {{ acc.role === 'owner' ? '店主' : '店员' }} · 推广{{ acc.promoEnabled ? '已开' : '关闭' }} · {{ acc.enabled ? '启用' : '停用' }}</small></view>
             <view class="design-actions"><button class="design-edit" @click="openStaffForm(acc)">编辑</button><button class="design-del" @click="store.toggleStoreAccount(acc.id); toast('账号状态已切换')">{{ acc.enabled ? '停用' : '启用' }}</button></view>
           </view>
+        </view>
+      </view>
+
+      <view v-else-if="workView === 'orders'" class="work-page page-pad">
+        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">我的订单</text><text class="page-sub">共 {{ store.orders.length }} 单 · 供应链中台统一履约</text></view></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></view>
+        <view v-if="!filteredOrders.length" class="empty-page"><UiIcon name="package-check" :size="28" /><text>还没有订单，去商城逛逛吧～</text></view>
+        <view class="records order-records">
+          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><image v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">📦</view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
+        </view>
+      </view>
+
+      <view v-else-if="workView === 'bookings'" class="work-page page-pad">
+        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">我的预订</text><text class="page-sub">共 {{ store.bookings.length }} 个预订 · 到店出示核销</text></view></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="bookingKeyword" placeholder="搜索预订名称 / 日期" /></view>
+        <view v-if="!filteredBookings.length" class="empty-page"><UiIcon name="calendar-check" :size="28" /><text>还没有预订，去门店逛逛吧～</text></view>
+        <view class="records order-records">
+          <view v-for="item in filteredBookings" :key="item.id" class="rec-line"><image v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">🪟</view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="item.status === 'reserved'" class="rebuy-button" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span></view>
+        </view>
+      </view>
+
+      <view v-else-if="workView === 'ledger'" class="work-page page-pad">
+        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">储值记录</text><text class="page-sub">充值 / 消费明细</text></view></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="ledgerKeyword" placeholder="搜索描述 / 金额" /></view>
+        <view v-if="!filteredLedger.length" class="empty-page"><UiIcon name="credit-card" :size="28" /><text>暂无储值流水</text></view>
+        <view class="ledger-list">
+          <view v-for="entry in filteredLedger" :key="entry.id"><view><text>{{ entry.description }}</text><small>{{ entry.createdAt }} · 余额 {{ money(entry.balance) }}</small></view><strong :class="entry.type">{{ entry.amount > 0 ? '+' : '' }}{{ money(entry.amount) }}</strong></view>
+        </view>
+      </view>
+
+      <view v-else-if="workView === 'help'" class="work-page page-pad">
+        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">设置与帮助</text><text class="page-sub">收货地址 · 客服 · 关于</text></view></view>
+        <view class="help-sheet">
+          <view class="help-row address-edit-row"><UiIcon name="map-pin" :size="20" /><view class="help-edit"><text>收货地址</text><input v-model="deliveryAddressDraft" placeholder="请输入收货地址" /></view><button class="address-save" @click="saveDeliveryAddress">保存</button></view>
+          <view class="help-row" @click="makePhoneCall"><UiIcon name="headset" :size="20" /><view><text>联系客服</text><small>{{ store.tenant?.phone }} · 营业 {{ store.tenant?.hours }}</small></view><UiIcon name="chevron-right" :size="17" /></view>
+          <view class="help-row"><UiIcon name="store" :size="20" /><view><text>关于平台</text><small>湖南农家乐数字供应链与引流服务平台 · 演示版本</small></view><UiIcon name="chevron-right" :size="17" /></view>
+          <view class="help-row logout-help" @click="logout"><UiIcon name="door-open" :size="20" /><view><text>退出登录</text><small>退出当前微信登录账号</small></view><UiIcon name="chevron-right" :size="17" /></view>
         </view>
       </view>
 
@@ -578,11 +725,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
             <view class="hero-shade"></view>
             <view class="hero-content"><text class="location">📍 {{ store.farm?.city || '湘西州' }} · 距您 {{ store.tenant?.distanceKm || 8.6 }}km</text><text class="hero-title">{{ store.tenant?.name }}</text><text class="hero-sub">⭐ {{ store.farm?.rating || 4.9 }} 分 · {{ store.tenant?.slogan }} · 营业 {{ store.tenant?.hours }}</text></view>
           </view>
-           <view class="store-summary"><image :src="store.farm?.image || '/static/images/farmhouse.webp'" mode="aspectFill" /><view><text class="item-title">{{ store.tenant?.name }}</text><text class="rating">⭐ {{ store.farm?.rating || 0 }} · 月售 {{ store.farm?.monthlySales || 0 }}+ · 本地口碑店</text><view class="tag-row"><text v-for="tag in store.farm?.storeTags || store.farm?.tags || []" :key="tag">{{ tag }}</text></view></view><button class="call-button" @click="sheet = 'contact'"><UiIcon name="phone" :size="17" />电话</button></view>
+           <view class="store-summary"><image :src="store.farm?.image || '/static/images/farmhouse.webp'" mode="aspectFit" /><view><text class="item-title">{{ store.tenant?.name }}</text><text class="rating">⭐ {{ store.farm?.rating || 0 }} · 月售 {{ store.farm?.monthlySales || 0 }}+ · 本地口碑店</text><view class="tag-row"><text v-for="tag in store.farm?.storeTags || store.farm?.tags || []" :key="tag">{{ tag }}</text></view></view><button class="call-button" @click="sheet = 'contact'"><UiIcon name="phone" :size="17" />电话</button></view>
           <view class="quick-grid"><button @click="openReservation('room', '观溪雅间')"><UiIcon name="door-open" :size="22" /><text>包厢预订</text></button><button @click="openReservation('package', '四人欢聚套餐')"><UiIcon name="utensils" :size="22" /><text>套餐预订</text></button><button @click="chooseTab('shop')"><UiIcon name="shopping-bag" :size="22" /><text>特产商城</text></button><button @click="chooseTab('member')"><UiIcon name="crown" :size="22" /><text>会员中心</text></button></view>
           <view class="notice"><UiIcon name="megaphone" :size="18" /><text>端午特惠：到店满 200 减 30，会员储值享 9 折，分享好友下单得佣金～</text></view>
           <view class="section-head"><view><span></span><text>招牌土菜</text></view><button v-if="store.foods.length" @click="sheet = 'foods'">查看更多</button></view>
-          <view v-if="store.foods.length" class="food-scroll"><view class="food-list"><view v-for="food in store.foods.slice(0, 4)" :key="food.id" class="food-card"><image class="food-thumb" :src="food.image" mode="aspectFill" /><text>{{ food.name }}</text><small>{{ food.description }}</small><view class="food-price"><strong>{{ money(food.price) }}</strong><del v-if="food.originalPrice">{{ money(food.originalPrice) }}</del></view></view></view></view>
+          <view v-if="store.foods.length" class="food-scroll"><view class="food-list"><view v-for="food in store.foods.slice(0, 4)" :key="food.id" class="food-card"><image class="food-thumb" :src="food.image" mode="aspectFit" /><text>{{ food.name }}</text><small>{{ food.description }}</small><view class="food-price"><strong>{{ money(food.price) }}</strong><del v-if="food.originalPrice">{{ money(food.originalPrice) }}</del></view></view></view></view>
           <view v-else class="empty-page home-empty"><UiIcon name="utensils" :size="28" /><text>暂无招牌土菜，店主可到会员中心→设计招牌土菜添加</text></view>
           <view class="section-head"><view><span></span><text>特色包厢</text></view><button class="more-button" @click="chooseTab('reserve')">去预订 ›</button></view>
           <view v-if="store.rooms.length" class="room-list"><view v-for="room in store.rooms.slice(0, 2)" :key="room.id" class="room-card"><image class="room-emoji" :src="room.image" mode="aspectFit" /><view><text>{{ room.name }}</text><small>{{ room.capacity }}</small></view><button @click="openReservation('room', room.name)">立即预订</button></view></view>
@@ -598,7 +745,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view class="section-head compact"><view><span></span><text>包厢预订</text></view></view>
           <view v-if="store.rooms.length" class="reserve-list">
             <view v-for="room in store.rooms" :key="room.id" class="room">
-              <image class="rimg" :src="room.image" mode="aspectFill" />
+              <image class="rimg" :src="room.image" mode="aspectFit" />
               <view class="rb"><view class="rn">{{ room.name }}<text :class="room.status === '仅余晚市' ? 'status-busy' : 'status-free'">{{ room.status }}</text></view><view class="rd">{{ room.capacity }}</view><view class="rfoot"><span class="rd">🕐 {{ room.sessions }}</span><button class="booknow" @click="openBookingForm('room', room.name, room.people)">预订</button></view></view>
             </view>
           </view>
@@ -606,7 +753,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view class="section-head compact"><view><span></span><text>套餐预订</text></view><small>含锁定食材</small></view>
           <view class="combo-list">
             <view v-for="pkg in packageCards" :key="pkg.name" class="combo">
-              <image class="ci" :src="pkg.image" mode="aspectFill" />
+              <image class="ci" :src="pkg.image" mode="aspectFit" />
               <view class="cb"><view class="cn">{{ pkg.name }}</view><view class="cl">{{ pkg.detail }}</view><view class="cprice">{{ pkg.price }}</view></view>
               <button class="booknow" @click="openBookingForm('package', pkg.name, pkg.people)">预订</button>
             </view>
@@ -618,8 +765,9 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view class="mobile-head"><text class="page-title">特产商城</text><text class="page-sub">土特产 · 农产品 · 套餐券 · 伴手礼</text></view>
                     <view class="chip-scroll"><view class="chips"><button v-for="item in categories" :key="item" :class="{ active: category === item }" @click="category = item">{{ item }}</button></view></view>
           <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>甄选好物供应链中台</b>，统一品控、统一履约、价格更优。</text></view>
+          <view v-if="activePolicies.length" class="policy-hint">🎯 中台价格策略：<b>{{ activePolicies.map((p) => p.name).join('、') }}</b> 已生效</view>
           <view v-if="visibleProducts.length" class="product-grid">
-             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><image class="product-emoji" :src="product.image" mode="aspectFill" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><text class="source-tag">{{ product.tags[0] }}</text><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
+             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><image class="product-emoji" :src="product.image" mode="aspectFit" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><text class="source-tag">{{ product.tags[0] }}</text><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
           </view><view v-else class="empty-page"><UiIcon name="search" :size="28" /><text>没有找到相关商品</text><small>试试其他关键词或分类</small></view>
         </view>
 
@@ -632,7 +780,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
             <view class="role-block"><view class="section-head compact"><view><span></span><text>切换演示身份</text></view></view><view class="segmented roles"><button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ active: store.role === role }" @click="chooseRole(role)">{{ roleNames[role] }}</button></view><text class="role-help">{{ store.role === 'customer' ? '浏览、预订、商城和会员功能' : store.role === 'staff' ? '包含顾客功能，并可核销订单' : '包含全部功能，并可设计包厢土菜、选品上架、核销订单' }}</text></view>
             <view class="promotion"><view><UiIcon name="badge-dollar-sign" :size="24" /><text>💰 分销推广中心</text><small>分享门店 / 商品给好友，好友下单你就赚佣金。员工、老客户、推客、主播均可参与，形成私域裂变。</small></view>            <view class="promo-stats"><view><text>累计佣金</text><strong>¥{{ formatNumber(store.member.cumulativeCommission ?? 0) }}</strong></view><view><text>我的粉丝</text><strong>{{ store.member.fans ?? 0 }}</strong></view><view><text>本月订单</text><strong>{{ store.member.monthlyOrders ?? 0 }}</strong></view></view><button @click="sheet = 'share'"><UiIcon name="link" :size="16" />🔗 生成我的专属推广海报</button></view>
             <view v-if="store.canOperate" class="workbench"><view class="section-head compact"><view><span></span><text>店铺经营工作台</text></view></view><button @click="workView = 'verify'"><UiIcon name="check" :size="21" /><view><text>订单核销</text><small>到店核销预订/预约订单</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'design-rooms'"><UiIcon name="door-open" :size="21" /><view><text>设计特色包厢</text><small>新增 / 编辑 / 删除包厢</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'design-foods'"><UiIcon name="utensils" :size="21" /><view><text>设计招牌土菜</text><small>新增 / 编辑 / 删除菜品</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'select'"><UiIcon name="tags" :size="21" /><view><text>选品上架</text><small>自主定价并上架到本店商城</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.role === 'manager'" @click="workView = 'staff-admin'"><UiIcon name="users" :size="21" /><view><text>店员管理</text><small>添加登录账号 · 配置推广权限</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="myStaffPromoEnabled" @click="openStaffPromo()"><UiIcon name="link" :size="21" /><view><text>我的推广码</text><small>生成店员推广码 / 链接</small></view><UiIcon name="chevron-right" :size="18" /></button></view>
-            <view class="mine-list"><button @click="sheet = 'orders'"><UiIcon name="package-check" :size="20" /><view><text>我的订单</text><small>共 {{ store.orders.length }} 单</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="sheet = 'bookings'"><UiIcon name="calendar-check" :size="20" /><view><text>我的预订</text><small>共 {{ store.bookings.length }} 个预订</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="sheet = 'ledger'"><UiIcon name="credit-card" :size="20" /><view><text>储值记录</text><small>充值 / 消费明细</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="sheet = 'help'"><UiIcon name="headset" :size="20" /><view><text>设置与帮助</text><small>收货地址 · 客服 · 关于</small></view><UiIcon name="chevron-right" :size="18" /></button></view>
+            <view class="mine-list"><button @click="workView = 'orders'"><UiIcon name="package-check" :size="20" /><view><text>我的订单</text><small>共 {{ store.orders.length }} 单</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="workView = 'bookings'"><UiIcon name="calendar-check" :size="20" /><view><text>我的预订</text><small>共 {{ store.bookings.length }} 个预订</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="workView = 'ledger'"><UiIcon name="credit-card" :size="20" /><view><text>储值记录</text><small>充值 / 消费明细</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="openHelp()"><UiIcon name="headset" :size="20" /><view><text>设置与帮助</text><small>收货地址 · 客服 · 关于</small></view><UiIcon name="chevron-right" :size="18" /></button></view>
             <view class="member-footer">平台支持 · 湖南省电子商务协会 · 甄选好物供应链中台</view>
             <view class="recharge-options"><text>快捷充值</text><view class="choice-row"><button v-for="item in [100,300,500,1000]" :key="item" :class="{ active: rechargeAmount === item }" @click="rechargeAmount = item">{{ money(item) }}</button></view><button class="primary-button" @click="recharge">模拟充值</button></view>
           </view>
@@ -677,11 +825,9 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </template>
         </view>
 
-           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }"><image :src="item.image" mode="aspectFill" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" @click="checkout">提交订单</button></view></view>
+           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }"><image :src="item.image" mode="aspectFit" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" @click="checkout">提交订单</button></view></view>
 
-           <view v-else-if="sheet === 'orders'" class="records order-records"><text class="rec-sub">共 {{ store.orders.length }} 单 · 供应链中台统一履约</text><view v-if="!store.orders.length" class="empty">还没有订单，去商城逛逛吧～</view><view v-for="item in store.orders" :key="item.id" class="rec-line"><image class="rec-ic" :src="item.items[0]?.image || '/static/images/field.webp'" mode="aspectFill" /><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button></view><span class="rec-st">{{ item.status }}</span></view><button class="outline-button" @click="sheet = null">关闭</button></view>
-          <view v-else-if="sheet === 'bookings'" class="records order-records"><text class="rec-sub">共 {{ store.bookings.length }} 个预订 · 到店出示核销</text><view v-if="!store.bookings.length" class="empty">还没有预订，去门店逛逛吧～</view><view v-for="item in store.bookings" :key="item.id" class="rec-line"><image v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFill" /><view v-else class="rec-ic emoji-thumb">🪟</view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="item.status === 'reserved'" class="rebuy-button" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span></view><button class="outline-button" @click="sheet = null">关闭</button></view>
-          <view v-else-if="sheet === 'room-form'" class="design-form">
+           <view v-else-if="sheet === 'room-form'" class="design-form">
             <label class="form-field"><text>包厢名称</text><input v-model="roomForm.name" placeholder="如：观溪雅间" /></label>
             <view class="form-field"><text>展示图片</text>
               <view class="design-upload-row">
@@ -704,7 +850,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
             <label class="form-field"><text>菜品描述</text><input v-model="foodForm.description" placeholder="如：柴火慢炖 3 小时" /></label>
             <label class="form-field"><text>售价（元）</text><input v-model.number="foodForm.price" type="digit" /></label>
             <label class="form-field"><text>原价（元，可选）</text><input v-model.number="foodForm.originalPrice" type="digit" placeholder="留空则无划线价" /></label>
-            <label class="form-field"><text>展示图标</text><input v-model="foodForm.emoji" placeholder="如：🍲" /></label>
+
             <view class="form-field"><text>菜品图片</text>
               <view class="design-upload-row">
                 <image class="room-form-image" :src="foodForm.image" mode="aspectFit" />
@@ -721,14 +867,12 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 
 
 
-           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><image :src="selectedProduct.image" mode="aspectFill" /><text>{{ selectedProduct.name }}</text><small>{{ selectedProduct.tags.join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!sku.stock" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!selectedSkuId" @click="addSelectedProduct">加入购物车</button></view></view>
+           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><image :src="selectedProduct.image" mode="aspectFit" /><text>{{ selectedProduct.name }}</text><small>{{ selectedProduct.tags.join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!sku.stock" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!selectedSkuId" @click="addSelectedProduct">加入购物车</button></view></view>
            <view v-else-if="sheet === 'booking-form'" class="booking-sheet"><small class="booking-sub">选择日期 / 场次 / 人数，确认后将发送到店提醒</small><view class="booking-section"><text>📅 选择日期</text><view class="ui-chips"><button v-for="item in bookingDates.slice(0, 3)" :key="item" :class="{ sel: booking.date === item }" @click="booking.date = item">{{ item }}</button></view></view><view class="booking-section"><text>🕐 选择场次</text><view class="ui-chips"><button v-for="item in ['午市 11:00','晚市 17:30']" :key="item" :class="{ sel: booking.session === item }" @click="booking.session = item">{{ item }}</button></view></view><view class="booking-section"><text>👥 用餐人数</text><view class="ui-chips"><button v-for="item in [4,6,8,10,20]" :key="item" :class="{ sel: booking.people === item }" @click="booking.people = item">{{ item }} 人</button></view></view><button class="primary-button" @click="submitBooking">确认预订</button></view>
 <view v-else-if="sheet === 'contact'" class="contact-sheet"><small class="contact-sub">营业 {{ store.tenant?.hours }} · {{ store.tenant?.slogan }}</small><view class="ui-opt sel" @click="copyPhone"><text>门店电话</text><span>{{ store.tenant?.phone }}</span></view><button class="primary-button" @click="makePhoneCall">📞 拨打电话</button><button class="outline-button" @click="sheet = null">取消</button></view>
-          <view v-else-if="sheet === 'foods'" class="food-detail-list"><view v-if="!store.foods.length" class="empty">暂无招牌菜品</view><view v-for="food in store.foods" :key="food.id"><image :src="food.image" mode="aspectFill" /><view><text>{{ food.name }}</text><small>{{ food.description }}</small></view><strong>{{ money(food.price) }}</strong><button @click="sheet = null; openReservation('package', food.name)">预订</button></view></view><view v-else-if="sheet === 'service' && selectedService" class="service-detail"><image class="s-emoji" :src="selectedService.image" mode="aspectFill" /><text class="s-name">{{ selectedService.name }}</text><small class="s-desc">{{ selectedService.desc }}</small><view class="s-rows"><view><text>适合人群</text><strong>{{ selectedService.suitable }}</strong></view><view><text>体验时长</text><strong>{{ selectedService.duration }}</strong></view><view><text>参与方式</text><strong>{{ selectedService.fee }}</strong></view></view><view class="s-order"><text>📅 选择日期</text><view class="ui-chips"><button v-for="d in bookingDates.slice(0, 3)" :key="d" :class="{ sel: serviceBooking.date === d }" @click="serviceBooking.date = d">{{ d }}</button></view></view><view class="s-order"><text>👥 人数</text><view class="ui-chips"><button v-for="p in [2, 4, 6, 8]" :key="p" :class="{ sel: serviceBooking.people === p }" @click="serviceBooking.people = p">{{ p }} 人</button></view></view><view class="s-fee"><text>费用</text><strong>¥{{ selectedService.price }}/人 × {{ serviceBooking.people }} 人 = ¥{{ serviceFee }}</strong></view><button class="primary-button" @click="submitServiceOrder">确认下单</button><button class="outline-button" @click="makePhoneCall">📞 电话咨询</button></view>
-           <view v-else-if="sheet === 'ledger'" class="ledger-list"><view v-if="!store.balanceEntries.length" class="empty">暂无储值流水</view><view v-for="entry in store.balanceEntries" :key="entry.id"><view><text>{{ entry.description }}</text><small>{{ entry.createdAt }} · 余额 {{ money(entry.balance) }}</small></view><strong :class="entry.type">{{ entry.amount > 0 ? '+' : '' }}{{ money(entry.amount) }}</strong></view></view>
-          <view v-else-if="sheet === 'recharge'" class="recharge-confirm"><text class="recharge-sub">当前余额 {{ money(store.balance) }} · 储值享 9 折，可用于堂食与商城</text><view class="ui-chips"><button v-for="item in [100,300,500,1000]" :key="item" :class="{ sel: rechargeAmount === item }" @click="rechargeAmount = item">¥{{ item }}</button></view><button class="primary-button" @click="confirmRecharge">确认充值</button></view>
+          <view v-else-if="sheet === 'foods'" class="food-detail-list"><view v-if="!store.foods.length" class="empty">暂无招牌菜品</view><view v-for="food in store.foods" :key="food.id"><image :src="food.image" mode="aspectFit" /><view><text>{{ food.name }}</text><small>{{ food.description }}</small></view><strong>{{ money(food.price) }}</strong><button @click="sheet = null; openReservation('package', food.name)">预订</button></view></view><view v-else-if="sheet === 'service' && selectedService" class="service-detail"><image class="s-emoji" :src="selectedService.image" mode="aspectFit" /><text class="s-name">{{ selectedService.name }}</text><small class="s-desc">{{ selectedService.desc }}</small><view class="s-rows"><view><text>适合人群</text><strong>{{ selectedService.suitable }}</strong></view><view><text>体验时长</text><strong>{{ selectedService.duration }}</strong></view><view><text>参与方式</text><strong>{{ selectedService.fee }}</strong></view></view><view class="s-order"><text>📅 选择日期</text><view class="ui-chips"><button v-for="d in bookingDates.slice(0, 3)" :key="d" :class="{ sel: serviceBooking.date === d }" @click="serviceBooking.date = d">{{ d }}</button></view></view><view class="s-order"><text>👥 人数</text><view class="ui-chips"><button v-for="p in [2, 4, 6, 8]" :key="p" :class="{ sel: serviceBooking.people === p }" @click="serviceBooking.people = p">{{ p }} 人</button></view></view><view class="s-fee"><text>费用</text><strong>¥{{ selectedService.price }}/人 × {{ serviceBooking.people }} 人 = ¥{{ serviceFee }}</strong></view><button class="primary-button" @click="submitServiceOrder">确认下单</button><button class="outline-button" @click="makePhoneCall">📞 电话咨询</button></view>
+           <view v-else-if="sheet === 'recharge'" class="recharge-confirm"><text class="recharge-sub">当前余额 {{ money(store.balance) }} · 储值享 9 折，可用于堂食与商城</text><view class="ui-chips"><button v-for="item in [100,300,500,1000]" :key="item" :class="{ sel: rechargeAmount === item }" @click="rechargeAmount = item">¥{{ item }}</button></view><button class="primary-button" @click="confirmRecharge">确认充值</button></view>
           <view v-else-if="sheet === 'identity'" class="identity-sheet"><small class="identity-sub">演示不同角色可见的功能权限</small><view class="identity-options"><button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ sel: store.role === role }" @click="chooseRole(role); sheet = null"><view><text>{{ role === 'customer' ? '👤' : role === 'staff' ? '🧑‍🍳' : '🧑‍💼' }} {{ roleNames[role] }}</text><small>{{ role === 'customer' ? '普通消费者 · 仅购物、预订与会员' : role === 'staff' ? '可见「店员专区」· 核销订单' : '设计包厢/土菜 + 选品上架 + 核销订单 · 管理本店' }}</small></view><span>{{ store.role === role ? '✓' : '›' }}</span></button></view><button class="outline-button" @click="sheet = null">取消</button></view>
-          <view v-else-if="sheet === 'help'" class="help-sheet"><view class="help-row"><UiIcon name="map-pin" :size="20" /><view><text>收货地址</text><small>{{ store.tenant?.address }}</small></view><UiIcon name="chevron-right" :size="17" /></view><view class="help-row" @click="makePhoneCall"><UiIcon name="headset" :size="20" /><view><text>联系客服</text><small>{{ store.tenant?.phone }} · 营业 {{ store.tenant?.hours }}</small></view><UiIcon name="chevron-right" :size="17" /></view><view class="help-row"><UiIcon name="store" :size="20" /><view><text>关于平台</text><small>湖南农家乐数字供应链与引流服务平台 · 演示版本</small></view><UiIcon name="chevron-right" :size="17" /></view><view class="help-row logout-help" @click="logout"><UiIcon name="door-open" :size="20" /><view><text>退出登录</text><small>退出当前微信登录账号</small></view><UiIcon name="chevron-right" :size="17" /></view></view>
           <view v-else-if="sheet === 'staff-form'" class="design-form">
             <label class="form-field"><text>姓名</text><input v-model="staffForm.name" placeholder="如 李店员" /></label>
             <label class="form-field"><text>登录账号（手机号）</text><input v-model="staffForm.account" placeholder="如 13800000002" /></label>
@@ -847,6 +991,22 @@ button, uni-button { text-align: center; }
 .mine-list button, .workbench button, .record-link { justify-content: flex-start; text-align: left; }
 .record-link .ui-icon:last-child { margin-left: auto; }
 
+/* ===== 操作按钮水平垂直居中 + 清除默认边框（统一） ===== */
+.chips uni-button, .choice-row uni-button, .segmented uni-button, .dates uni-button,
+.call-button, .more-button, .room-card uni-button, .small-button, .reserve-card uni-button,
+.primary-button, .outline-button, .design-upload-btn, .promotion>uni-button, .identity-row uni-button {
+  display: inline-flex; align-items: center; justify-content: center; text-align: center;
+}
+.chips uni-button::after, .choice-row uni-button::after, .segmented uni-button::after,
+.dates uni-button::after, .call-button::after, .room-card uni-button::after, .small-button::after,
+.reserve-card uni-button::after, .primary-button::after, .outline-button::after,
+.design-upload-btn::after, .quick-grid uni-button::after, .tabbar uni-button::after, .sheet-head uni-button::after,
+.promotion>uni-button::after, .identity-row uni-button::after, .member-hero uni-button::after,
+.mine-list uni-button::after, .workbench uni-button::after { border: none; }
+.chips uni-button:active, .choice-row uni-button:active, .room-card uni-button:active,
+.reserve-card uni-button:active, .primary-button:active, .outline-button:active,
+.design-upload-btn:active, .quick-grid uni-button:active { opacity: .88; }
+
 
 
 
@@ -925,6 +1085,7 @@ button, uni-button { text-align: center; }
 .poster-sheet .outline-button{background:#f1f1ec;color:#555;border:1px solid #f1f1ec}
 .rec-st.ok{color:#1a6b41;background:#eef5ef}
 .rec-st.go{color:#52617f;background:#e9ecf2}
+.rec-st.after{color:#a34339;background:#f9e7e4}.si-local{margin-top:8px;border-top:1px dashed #e5e8e1;padding-top:8px}.si-stock{display:flex;gap:8px;flex-wrap:wrap}.si-stock-sku{display:flex;align-items:center;gap:4px}.si-stock-sku text{font-size:9px;color:var(--farm-muted)}.si-stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:11px}.si-local-actions{display:flex;gap:6px;margin-top:6px}.si-local-actions .si-confirm{margin:0}.si-local-actions .si-confirm.danger{background:#f9e7e4;color:#a34339}
 
 
 /* ===== 预订页 1:1（日期胶囊/包厢/套餐） ===== */
@@ -970,6 +1131,7 @@ button, uni-button { text-align: center; }
 /* ===== 商城 1:1（提示条/副标题） ===== */
 .supply-note{background:#fff9e9!important;border-color:#ecdfbd!important;color:#765c27!important}
 .supply-note .note-emoji{font-size:18px;line-height:1;flex-shrink:0}
+.policy-hint{margin:10px 0;padding:9px 12px;border-radius:7px;background:var(--farm-green-soft);border:1px solid #cfe2d6;color:#315e48;font-size:11px;font-weight:700;text-align:left}.policy-hint b{color:var(--farm-green)}
 .supply-note b{color:#9a6b1f;font-weight:800}
 .shop-page .muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workbench .section-head text{color:#fff}
@@ -1061,4 +1223,15 @@ button, uni-button { text-align: center; }
 .design-form .primary-button{width:100%;min-height:46px}
 
 .home-empty{min-height:120px;margin:0 16px;border:1px dashed var(--farm-line);border-radius:14px;background:#fff}
+
+/* ===== 列表搜索 / 菜品空占位 / 收货地址编辑 ===== */
+.list-search{display:flex;align-items:center;gap:8px;margin:12px 0;padding:0 12px;height:40px;background:#fff;border:1px solid var(--farm-line);border-radius:8px}
+.list-search input{flex:1;height:100%;font-size:12px}
+.design-emoji.empty-box{background:#f2f4ee}
+.address-edit-row{align-items:flex-start}
+.address-edit-row .help-edit{flex:1;min-width:0}
+.address-edit-row .help-edit text{display:block;font-size:12px;font-weight:800}
+.address-edit-row .help-edit input{width:100%;height:36px;margin-top:6px;padding:0 10px;border:1px solid var(--farm-line);border-radius:7px;font-size:12px;background:#fff}
+.address-save{min-height:32px;padding:0 12px;border-radius:7px;background:var(--farm-green);color:#fff;font-size:11px;font-weight:700;flex:none;display:inline-flex;align-items:center;justify-content:center;margin:0}
+.address-save::after{border:none;background:none}
 </style>

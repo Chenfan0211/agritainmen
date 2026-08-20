@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AllianceBooking, CommissionEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, Product, Promoter, PromotionRecord, TravelRoute } from '@agritainment/shared'
-import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, validatePhone, validateSmsCode } from '@agritainment/shared'
+import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, readPlatformCommissionSettlement, readUserBindings, validatePhone, validateSmsCode } from '@agritainment/shared'
 import { allianceRepository } from '../services/repository'
 
 interface FanRecord {
@@ -97,7 +97,13 @@ export const useAllianceStore = defineStore('discovery', {
   getters: {
     cumulativeCommission: (state) => state.promoter?.cumulativeCommission ?? Math.round(state.commissionEntries.filter((item) => item.type === 'income').reduce((sum, item) => sum + item.amount, 0) * 100) / 100,
     pendingCommission: (state) => Math.round(state.commissionEntries.filter((item) => item.type === 'income' && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0) * 100) / 100,
-    availableCommission: (state) => Math.max(0, Math.round(state.commissionEntries.filter((item) => (item.type === 'income' && item.status === 'available') || item.type === 'withdrawal').reduce((sum, item) => sum + item.amount, 0) * 100) / 100),
+    commissionSettled: (state) => !!state.promoter && readPlatformCommissionSettlement(state.promoter.id)?.settled === true,
+    allFans: (state) => {
+      const bindings = Object.values(readUserBindings() || {}).filter((item) => item.promoterId === state.promoter?.id)
+      const platform = bindings.map((item) => ({ id: `B-${item.userId}`, name: `用户 ${item.userId}`, source: '分享推广', lockedAt: item.boundAt || '' }))
+      return [...platform, ...state.fans].sort((a, b) => (b.lockedAt || '').localeCompare(a.lockedAt || ''))
+    },
+    availableCommission: (state) => state.promoter && readPlatformCommissionSettlement(state.promoter.id)?.settled ? 0 : Math.max(0, Math.round(state.commissionEntries.filter((item) => (item.type === 'income' && item.status === 'available') || item.type === 'withdrawal').reduce((sum, item) => sum + item.amount, 0) * 100) / 100),
     withdrawalRecords: (state) => state.commissionEntries.filter((item) => item.type === 'withdrawal').map((item) => ({ amount: Math.abs(item.amount), method: item.description.replace(/提现$/, ''), createdAt: item.createdAt })),
     liveRanking: (state) => [...state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city))].sort((a, b) => b.livePopularity - a.livePopularity),
     cityFarms: (state) => state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city)),

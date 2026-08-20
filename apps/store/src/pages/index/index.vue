@@ -1,7 +1,7 @@
 <template>
   <view v-if="!store.auth.isLoggedIn" class="login-page">
     <view class="login-card">
-      <view class="login-head"><image class="login-logo" :src="store.info.image" mode="aspectFill" /><text class="login-title">门店订货商城</text><text class="login-sub">甄选好物供应链 · 供货价直采 · 中台直配到店</text></view>
+      <view class="login-head"><image class="login-logo" :src="store.info.image" mode="aspectFit" /><text class="login-title">门店订货商城</text><text class="login-sub">甄选好物供应链 · 供货价直采 · 中台直配到店</text></view>
       <view class="login-tabs">
         <button :class="{ active: loginTab === 'password' }" @click="loginTab = 'password'">密码登录</button>
         <button :class="{ active: loginTab === 'code' }" @click="loginTab = 'code'">验证码登录</button>
@@ -37,12 +37,13 @@
           </view>
           <view class="search-bar"><UiIcon name="search" :size="18" /><input v-model="keyword" placeholder="搜索供应链商品 / 供应商" confirm-type="search" /></view>
           <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>甄选好物供应链中台</b>，统一品控、统一履约、供货价直采。</text></view>
+          <view v-if="activePolicies.length" class="policy-hint">🎯 中台价格策略：<b>{{ activePolicies.map((p) => p.name).join('、') }}</b> 已生效</view>
           <view class="chip-scroll"><view class="chips"><button v-for="item in categories" :key="item.key" :class="{ active: category === item.key }" @click="category = item.key">{{ item.label }}<text class="chip-count">{{ item.count }}</text></button></view></view>
           <view v-if="visibleProducts.length" class="result-count">共 {{ visibleProducts.length }} 款商品 · 中台直配到店</view>
           <view v-if="visibleProducts.length" class="product-grid">
             <view v-for="product in visibleProducts" :key="product.id" class="product-card">
               <button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)">
-                <image class="product-emoji" :src="product.image" mode="aspectFill" />
+                <image class="product-emoji" :src="product.image" mode="aspectFit" />
                 <text v-if="product.source === 'platform'">中台供</text>
               </button>
               <view class="product-body">
@@ -79,9 +80,9 @@
         <view class="chip-scroll"><view class="chips order-chips"><button v-for="item in orderFilters" :key="item.key" :class="{ active: orderFilter === item.key }" @click="orderFilter = item.key">{{ item.label }}<text class="chip-count">{{ item.count }}</text></button></view></view>
         <view v-if="filteredOrders.length" class="order-list">
           <button v-for="order in filteredOrders" :key="order.id" class="order-card" @click="openOrder(order.id)">
-            <view class="order-top"><text class="order-no">{{ order.id }}</text><span class="status-badge" :class="order.status">{{ statusLabel(order.status) }}</span></view>
+            <view class="order-top"><text class="order-no">{{ order.id }}</text><span class="status-badge" :class="order.status">{{ displayStatus(order) }}</span></view>
             <view class="order-main">
-              <image class="order-emoji" :src="order.items[0]?.image || '/static/images/field.webp'" mode="aspectFill" />
+              <image class="order-emoji" :src="order.items[0]?.image || '/static/images/field.webp'" mode="aspectFit" />
               <view class="order-info">
                 <text class="order-title">{{ orderTitle(order) }}</text>
                 <small>{{ order.createdAt }} · 共 {{ order.itemCount }} 件 · {{ order.trackingNo ? '运单 ' + order.trackingNo : '等待接单' }}</small>
@@ -100,7 +101,7 @@
       <view v-else class="tab-page store-page">
         <view class="store-hero">
           <view class="store-hero-top"><text class="page-title">门店工作台</text><small>供货价直采 · 供应链中台直配</small></view>
-          <view class="store-identity"><image class="store-emoji" :src="store.info.image" mode="aspectFill" /><view><text>{{ store.info.name }}</text><small>{{ store.info.region }} · {{ store.info.contact }}</small></view></view>
+          <view class="store-identity"><image class="store-emoji" :src="store.info.image" mode="aspectFit" /><view><text>{{ store.info.name }}</text><small>{{ store.info.region }} · {{ store.info.contact }}</small></view></view>
           <view class="metric-band store-metrics">
             <view><small>本月进货额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
             <view><small>订货单数</small><strong>{{ store.orderMetrics.orderCount }}</strong></view>
@@ -120,9 +121,17 @@
           <view class="hot-list">
             <view v-for="(item, index) in storeMetrics.hotOrders" :key="item.id" class="hot-item">
               <text class="hot-rank">{{ index + 1 }}</text>
-              <image class="hot-emoji" :src="item.image" mode="aspectFill" />
+              <image class="hot-emoji" :src="item.image" mode="aspectFit" />
               <view class="hot-main"><text>{{ item.name }}</text><small>已订 {{ item.times }} 次</small></view>
               <strong>{{ money(item.amount) }}</strong>
+            </view>
+          </view>
+          <view class="section-head compact"><view><span></span><text>商品管理</text></view><small>本店库存 · 上下架（独立管理）</small></view>
+          <view class="stock-list">
+            <view v-for="product in store.products" :key="product.id" class="stock-row">
+              <view class="stock-main"><text>{{ product.name }}</text><small>供货价 {{ money(product.cost) }} · {{ store.isListed(product.id) ? '已上架' : '已下架' }}</small></view>
+              <view class="stock-skus"><label v-for="sku in product.skus" :key="sku.id" class="stock-sku"><text>{{ sku.name }}</text><input v-model.number="stockDrafts[product.id][sku.id]" type="number" /></label></view>
+              <view class="stock-actions"><button class="compact-button" @click="commitStock(product)">保存库存</button><button class="compact-button" :class="{ off: !store.isListed(product.id) }" @click="toggleListed(product.id)">{{ store.isListed(product.id) ? '下架' : '上架' }}</button></view>
             </view>
           </view>
           <view class="section-head compact"><view><span></span><text>门店信息</text></view></view>
@@ -159,7 +168,7 @@
           </view>
 
           <view v-if="sheet === 'product' && selectedProduct" class="product-detail">
-            <image class="product-detail-emoji" :src="selectedProduct.image" mode="aspectFill" />
+            <image class="product-detail-emoji" :src="selectedProduct.image" mode="aspectFit" />
             <text>{{ selectedProduct.name }}</text>
             <small>{{ selectedProduct.supplier }} · {{ selectedProduct.tags.join(' / ') }}</small>
             <view class="detail-price"><strong>{{ money(selectedSku?.cost ?? selectedProduct.cost) }}</strong><del>{{ money(selectedProduct.price) }}</del><span>省 {{ savePercent(selectedProduct) }}%</span></view>
@@ -177,7 +186,7 @@
           <view v-else-if="sheet === 'cart'" class="sheet-list">
             <view v-if="!store.cart.length" class="empty">进货单还是空的</view>
             <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }">
-              <image :src="item.image" mode="aspectFill" />
+              <image :src="item.image" mode="aspectFit" />
               <view><text>{{ item.name }}</text><small>{{ item.skuName }} · 供货价 {{ money(item.price) }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price * item.quantity) }}</strong></view>
               <view class="stepper">
                 <button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button>
@@ -212,7 +221,7 @@
           </view>
 
           <view v-else-if="sheet === 'order' && selectedOrder" class="order-detail">
-            <view class="order-detail-head"><text>{{ selectedOrder.id }}</text><span class="status-badge" :class="selectedOrder.status">{{ statusLabel(selectedOrder.status) }}</span></view>
+            <view class="order-detail-head"><text>{{ selectedOrder.id }}</text><span class="status-badge" :class="selectedOrder.status">{{ displayStatus(selectedOrder) }}</span></view>
             <view class="steps">
               <view v-for="(step, index) in purchaseSteps" :key="step" class="step" :class="{ done: stepIndex >= index, current: step === selectedOrder.status }">
                 <view class="step-dot">{{ index + 1 }}</view><small>{{ statusLabel(step) }}</small>
@@ -226,7 +235,7 @@
             </view>
             <view class="order-items">
               <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line">
-                <image :src="item.image" mode="aspectFill" />
+                <image :src="item.image" mode="aspectFit" />
                 <view><text>{{ item.name }}</text><small>{{ item.skuName }} ×{{ item.quantity }}</small></view>
                 <strong>{{ money(item.price * item.quantity) }}</strong>
               </view>
@@ -237,10 +246,13 @@
               <view v-if="selectedOrder.remark"><text>备注</text><strong class="remark">{{ selectedOrder.remark }}</strong></view>
               <view v-if="selectedOrder.trackingNo"><text>运单号</text><strong>{{ selectedOrder.trackingNo }}</strong></view>
             </view>
+            <view v-if="afterSaleStatus(selectedOrder.id)" class="after-sale-status">售后状态：{{ afterSaleStatus(selectedOrder.id) }}</view>
             <view class="order-actions">
               <button class="outline-button" @click="repeatOrder(selectedOrder.id)">再次下单</button>
+              <button v-if="selectedOrder.status === 'submitted' || selectedOrder.status === 'accepted'" class="outline-button" @click="cancelOrder(selectedOrder.id)">取消订单</button>
               <button v-if="selectedOrder.status === 'delivering'" class="primary-button" @click="confirmReceipt(selectedOrder.id)">确认收货</button>
-              <button v-else-if="selectedOrder.status !== 'completed'" class="primary-button" @click="advanceOrder(selectedOrder.id)">推进状态（演示）</button>
+              <button v-if="selectedOrder.status === 'received' || selectedOrder.status === 'completed'" class="primary-button" @click="submitStoreAfterSale(selectedOrder.id)">发起售后</button>
+              <button v-if="selectedOrder.status !== 'completed' && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'received'" class="primary-button" @click="advanceOrder(selectedOrder.id)">推进状态（演示）</button>
             </view>
           </view>
 
@@ -277,9 +289,9 @@
   </view>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Product, PurchaseStatus } from '@agritainment/shared'
-import { installKeyboardButtonSupport, money, purchaseSteps, validatePhone } from '@agritainment/shared'
+import { installKeyboardButtonSupport, money, orderStatusText, purchaseSteps, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrder, validatePhone } from '@agritainment/shared'
 import UiIcon from '../../components/UiIcon.vue'
 import { deriveStoreMetrics } from '../../services/repository'
 import { useStoreStore } from '../../stores/store'
@@ -289,6 +301,22 @@ type SheetKey = 'product' | 'cart' | 'checkout' | 'order' | 'address' | 'contact
 
 const store = useStoreStore()
 const storeMetrics = computed(() => deriveStoreMetrics(store.products))
+const activePolicies = computed(() => Object.values(readPlatformEntities()?.policies || {}).filter((item) => item.enabled))
+const stockDrafts = reactive<Record<string, Record<string, number>>>({})
+function ensureStockDrafts() {
+  store.products.forEach((p) => {
+    if (!stockDrafts[p.id]) stockDrafts[p.id] = {}
+    p.skus.forEach((s) => { if (stockDrafts[p.id][s.id] === undefined) stockDrafts[p.id][s.id] = s.stock })
+  })
+}
+function commitStock(product: Product) {
+  product.skus.forEach((s) => { const v = stockDrafts[product.id]?.[s.id]; if (v !== undefined) store.setSkuStock(product.id, s.id, v) })
+  toast('库存已更新（本店独立，不回传中台）')
+}
+function toggleListed(productId: string) {
+  if (!store.toggleListed(productId)) return toast('商品不存在')
+  toast(store.isListed(productId) ? '已上架到本店商城' : '已从本店商城下架')
+}
 
 const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: 'shop', label: '商城', icon: 'shopping-bag' },
@@ -307,9 +335,15 @@ const selectedOrderId = ref('')
 const remark = ref('')
 
 const statusLabels: Record<PurchaseStatus, string> = {
-  submitted: '待接单', accepted: '待发货', shipped: '已发货', delivering: '配送中', received: '已收货', completed: '已完成'
+  submitted: '待接单', accepted: '待发货', shipped: '已发货', delivering: '配送中', received: '已收货', completed: '已完成', cancelled: '已取消'
 }
 const statusLabel = (status: PurchaseStatus) => statusLabels[status]
+const displayStatus = (order: { id: string; status: PurchaseStatus }) => {
+  const platform = readPlatformOrder(order.id)
+  if (platform && platform.status !== 'pending') return orderStatusText(platform.status)
+  return statusLabel(order.status)
+}
+const afterSaleStatus = (orderId: string) => readPlatformAfterSaleStatus(orderId)
 
 const categories = computed(() => {
   const keys = ['全部', ...new Set(store.products.map((item) => item.category))]
@@ -325,7 +359,7 @@ const visibleProducts = computed(() => {
   return store.products.filter((item) => {
     const matchesCategory = category.value === '全部' || item.category === category.value
     const matchesKeyword = !kw || item.name.includes(kw) || item.supplier.includes(kw) || item.tags.some((tag) => tag.includes(kw))
-    return matchesCategory && matchesKeyword
+    return matchesCategory && matchesKeyword && store.isListed(item.id)
   })
 })
 
@@ -478,6 +512,30 @@ function confirmReceipt(id: string) {
   toast('已确认收货')
 }
 
+function cancelOrder(id: string) {
+  uni.showModal({
+    title: '取消进货单',
+    content: '确认取消该进货单？取消后中台将标记为未支付取消。',
+    success: (res) => {
+      if (!res.confirm) return
+      if (!store.cancelOrder(id)) return toast('当前订单状态不可取消')
+      toast('订单已取消')
+    }
+  })
+}
+
+function submitStoreAfterSale(id: string) {
+  uni.showModal({
+    title: '发起售后',
+    content: '确认对这笔进货单发起售后？平台受理后将进入售后结算处理。',
+    success: (res) => {
+      if (!res.confirm) return
+      if (!store.initiateAfterSale(id)) return toast('该订单已发起售后或状态不可售后')
+      toast('售后已发起，等待平台处理')
+    }
+  })
+}
+
 function repeatOrder(id: string) {
   if (!store.repeatOrder(id)) return toast(store.checkoutError || '订单商品当前无库存')
   sheet.value = 'cart'
@@ -533,6 +591,7 @@ onMounted(async () => {
   const scenario = uni.getLaunchOptionsSync().query?.mock
   if (scenario === 'empty' || scenario === 'failure') store.setMockScenario(scenario)
   await store.initialize()
+  ensureStockDrafts()
   if (typeof document !== 'undefined') {
     document.documentElement.style.setProperty('--farm-green', '#17633f')
     document.title = '门店订货商城'
@@ -574,6 +633,7 @@ onBeforeUnmount(() => disposeKeyboardButtons?.())
 .supply-note,.security-note { margin:14px 0;padding:12px;background:#fff9e9;border:1px solid #ecdfbd;border-radius:7px;display:flex;align-items:flex-start;gap:8px;color:#765c27;font-size:10px;line-height:1.5; }
 .security-note { background:var(--farm-green-soft);border-color:#cfe2d6;color:#315e48; }
 .supply-note b,.security-note b { font-weight:800; }
+.policy-hint{margin:12px 0;padding:9px 12px;border-radius:7px;background:#eef5ef;border:1px solid #cfe2d6;color:#315e48;font-size:11px;font-weight:700}.policy-hint b{color:#17633f}
 .note-emoji { flex:none; }
 
 /* ===== 订单汇总 ===== */
@@ -659,6 +719,7 @@ onBeforeUnmount(() => disposeKeyboardButtons?.())
 .checkout-summary .primary-button { margin-top:8px; }
 .checkout-summary .save { color:var(--farm-green); }
 .checkout-summary .remark { color:var(--farm-muted);font-size:10px;font-weight:600;text-align:right; }
+.stock-list{max-height:320px;overflow-y:auto;border:1px solid var(--farm-line);border-radius:10px;padding:4px 10px;background:#fff}.stock-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid #eef0eb}.stock-row:last-child{border-bottom:0}.stock-main text{font-size:11px;font-weight:800;display:block}.stock-main small{display:block;margin-top:3px;color:var(--farm-muted);font-size:9px}.stock-skus{display:flex;gap:6px;flex-wrap:wrap}.stock-sku{display:flex;align-items:center;gap:4px}.stock-sku text{font-size:9px;color:var(--farm-muted)}.stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:11px}.stock-actions{display:flex;gap:6px;align-items:center}.stock-actions .compact-button{min-height:28px;padding:0 8px;border-radius:5px;background:var(--farm-green);color:#fff;font-size:10px;font-weight:700}.stock-actions .compact-button.off{background:#f0f2ed;color:#687168}
 .primary-button { width:100%;height:44px;border-radius:6px;background:var(--farm-green);color:#fff;font-weight:800;font-size:13px; }
 .outline-button { width:100%;height:40px;border-radius:6px;background:#fff;color:var(--farm-green);border:1px solid #bad3c4;font-size:11px;font-weight:700; }
 .empty { padding:50px 0;text-align:center;color:var(--farm-muted);font-size:11px; }
@@ -754,6 +815,7 @@ onBeforeUnmount(() => disposeKeyboardButtons?.())
 .order-item-line small { margin-top:4px;color:var(--farm-muted);font-size:9px; }
 .order-item-line strong { font-size:11px;color:var(--farm-red);white-space:nowrap; }
 .order-actions { margin-top:16px;display:grid;gap:9px; }
+.after-sale-status{margin-top:14px;padding:10px 12px;border-radius:7px;background:#fff3e8;border:1px solid #f2d9b8;color:#9a6b1f;font-size:11px;font-weight:700}
 
 /* ===== 门店工作台 ===== */
 .store-hero { padding:calc(28px + env(safe-area-inset-top)) 18px 20px;background:linear-gradient(135deg,#3a566f,#243a4f);color:#fff; }
@@ -854,6 +916,13 @@ onBeforeUnmount(() => disposeKeyboardButtons?.())
 .stepper uni-button {
   padding: 0;
 }
+
+/* ===== 清除 uni-button 默认边框 ===== */
+.chips uni-button::after, .primary-button::after, .outline-button::after,
+.product-foot uni-button::after, .cart-count::after, .sheet-head uni-button::after,
+.stepper uni-button::after, .login-tabs uni-button::after, .tabbar uni-button::after,
+.code-button::after, .login-button::after, .logout-button::after, .quick-grid uni-button::after { border: none; }
+.chips uni-button:active, .quick-grid uni-button:active, .primary-button:active, .outline-button:active { opacity: .88; }
 
 /* ===== 登录页 ===== */
 .login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#0e3a26,#17633f 58%,#2f8a5b);padding:24px}

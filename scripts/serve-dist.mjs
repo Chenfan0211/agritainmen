@@ -21,7 +21,10 @@ const mimeTypes = {
   '.webp': 'image/webp'
 }
 
+const skipPorts = new Set((process.env.SERVE_SKIP || '').split(',').map((item) => Number(item.trim())).filter(Boolean))
+
 for (const [port, relativeRoot] of roots) {
+  if (skipPorts.has(port)) continue
   const root = join(process.cwd(), relativeRoot)
   createServer((request, response) => {
     const requestPath = decodeURIComponent((request.url || '/').split('?')[0])
@@ -39,7 +42,7 @@ for (const [port, relativeRoot] of roots) {
         }
       })
       .pipe(response)
-  }).listen(port, '127.0.0.1')
+  }).listen(port, process.env.HOST || '127.0.0.1')
 }
 
 console.log('H5 previews ready on ports 8791-8797')

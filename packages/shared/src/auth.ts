@@ -29,16 +29,56 @@ interface WechatUni {
   }) => void
 }
 
+export const MOCK_OPENID_STORAGE_KEY = 'agritainment-mock-openid'
+
+function readMockOpenid(): string {
+  try {
+    const scope = globalThis as { localStorage?: Storage }
+    if (scope.localStorage) {
+      const value = scope.localStorage.getItem(MOCK_OPENID_STORAGE_KEY)
+      if (value) return value
+    }
+    const uniRef = (globalThis as unknown as { uni?: { getStorageSync?: (key: string) => unknown } }).uni
+    const stored = uniRef?.getStorageSync?.(MOCK_OPENID_STORAGE_KEY)
+    if (typeof stored === 'string' && stored) return stored
+  } catch {
+    // 忽略
+  }
+  return ''
+}
+
+function writeMockOpenid(openid: string): void {
+  try {
+    const scope = globalThis as { localStorage?: Storage }
+    if (scope.localStorage) {
+      scope.localStorage.setItem(MOCK_OPENID_STORAGE_KEY, openid)
+      return
+    }
+    const uniRef = (globalThis as unknown as { uni?: { setStorageSync?: (key: string, value: unknown) => void } }).uni
+    uniRef?.setStorageSync?.(MOCK_OPENID_STORAGE_KEY, openid)
+  } catch {
+    // 忽略
+  }
+}
+
 /**
- * 模拟微信授权登录：
+ * 模拟微信授权登录（设备级稳定）：
  * - 微信小程序端先 uni.login 取 code，再本地映射为 mock openid；
- * - H5 / 测试环境直接返回 mock openid。
+ * - H5 / 测试环境直接返回 mock openid；
+ * - openid 首次生成后持久化，同一设备/同一端重复登录返回同一 openid。
  */
 export function simulateWechatLogin(): Promise<{ openid: string }> {
   return new Promise((resolve) => {
     const finish = (code?: string) => {
+      const existing = readMockOpenid()
+      if (existing) {
+        resolve({ openid: existing })
+        return
+      }
       const seed = (code || 'h5').slice(0, 10).replace(/[^a-zA-Z0-9]/g, '') || 'h5'
-      resolve({ openid: `mock_openid_${seed}_${Math.random().toString(36).slice(2, 8)}` })
+      const openid = `mock_openid_${seed}_${Math.random().toString(36).slice(2, 8)}`
+      writeMockOpenid(openid)
+      resolve({ openid })
     }
     const uniRef = (globalThis as unknown as { uni?: WechatUni }).uni
     const isMpWeixin = uniRef?.getSystemInfoSync?.().uniPlatform === 'mp-weixin'

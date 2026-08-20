@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+﻿import { beforeEach, describe, expect, it } from 'vitest'
 import type { PlatformMedia } from './index'
 
 if (!globalThis.localStorage) {
@@ -12,7 +12,7 @@ if (!globalThis.localStorage) {
     get length() { return storage.size }
   } as unknown as Storage
 }
-import { PERSISTENCE_VERSION, afterSales, calcCartTotal, calcMargin, derivePlatformMetrics, farms, mergeEntitySeeds, migratePersistedState, nextPurchaseStatus, orders, readShareConfig, resolveShare, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, simulateWechatLogin, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode } from './index'
+import { PERSISTENCE_VERSION, afterSales, calcCartTotal, calcMargin, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, readShareConfig, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode } from './index'
 
 describe('shared business helpers', () => {
   it('calculates cart totals without floating point drift', () => {
@@ -325,4 +325,55 @@ describe('platform business channels', () => {
     products.filter((item) => item.category === '套餐券').forEach((item) => (item.farmIds || []).forEach((farmId) => couponByFarm.set(farmId, (couponByFarm.get(farmId) || 0) + 1)))
     ;['F001', 'F002', 'F003', 'F004', 'F005', 'F006', 'F007', 'F009'].forEach((farmId) => expect(couponByFarm.get(farmId) || 0).toBeGreaterThanOrEqual(1))
   })
+})
+
+describe('user identity (openid anchor)', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('keeps mock openid stable on same device', async () => {
+    const first = await simulateWechatLogin()
+    const second = await simulateWechatLogin()
+    expect(second.openid).toBe(first.openid)
+  })
+
+  it('creates and reuses local anonymous userId', () => {
+    const id1 = getOrCreateUserId()
+    const id2 = getOrCreateUserId()
+    expect(id1).toBe(id2)
+    expect(id1.startsWith('U')).toBe(true)
+  })
+
+  it('links openid to userId on first resolve and reuses it later', () => {
+    const userId = resolveUserIdentity('mock_openid_abc')
+    expect(resolveUserIdByOpenid('mock_openid_abc')).toBe(userId)
+    expect(resolveUserIdentity('mock_openid_abc')).toBe(userId)
+  })
+
+  it('keeps distinct openids mapped to the same local user until each is linked', () => {
+    const a = resolveUserIdentity('openid_A')
+    writeUserLink('openid_B', a)
+    expect(resolveUserIdByOpenid('openid_B')).toBe(a)
+  })
+describe('platform after-sale status text', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('maps platform after-sale work order to readable status', () => {
+    writePlatformAfterSale({ id: 'AS-TEST1', orderId: 'O-TEST1', productName: '测试商品', applicant: '测试门店', type: 'refund', amount: 86, status: 'processing', issue: '质量问题', quantity: 1 })
+    expect(readPlatformAfterSaleStatus('O-TEST1')).toBe('售后中')
+  })
+})
+describe('share settlement helpers', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('sums pending shares and marks them settled', () => {
+    writeShareRecords([
+      { id: 'SR-A', userId: 'u1', orderId: 'o1', orderAmount: 100, role: 'promoter', promoterId: 'T1', rate: 5, amount: 5, createdAt: 'x' },
+      { id: 'SR-B', userId: 'u2', orderId: 'o2', orderAmount: 100, role: 'promoter', promoterId: 'T1', rate: 3, amount: 3, createdAt: 'x' }
+    ])
+    expect(pendingShareAmount('T1')).toBe(8)
+    expect(pendingShareTotal()).toBe(8)
+    markShareSettled(['SR-A'])
+    expect(pendingShareAmount('T1')).toBe(3)
+  })
+})
 })

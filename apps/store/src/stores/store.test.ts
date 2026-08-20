@@ -1,11 +1,24 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cloneSeed } from '@agritainment/shared'
+import { cloneSeed, readPlatformAfterSales, readPlatformEntities, readPlatformOrders } from '@agritainment/shared'
 import { deriveStoreMetrics, storeCatalog } from '../services/repository'
 import { useStoreStore } from './store'
 
+if (!globalThis.localStorage) {
+  const storage = new Map<string, string>()
+  globalThis.localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => { storage.set(key, value) },
+    removeItem: (key: string) => { storage.delete(key) },
+    clear: () => storage.clear(),
+    key: () => null,
+    get length() { return storage.size }
+  } as unknown as Storage
+}
+
+
 describe('store ordering store interactions', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
 
   it('adds single-SKU products directly and requires SKU selection for multi-SKU', () => {
     const store = useStoreStore()
@@ -131,4 +144,34 @@ describe('deriveStoreMetrics', () => {
     expect(m.hotOrders[0].amount).toBe(Math.round(m.hotOrders[0].times * storeCatalog.find((p) => p.id === m.hotOrders[0].id)!.price))
   })
 })
+  it('cancels pending orders and initiates store after-sale', () => {
+    const store = useStoreStore()
+    const seeded = cloneSeed(storeCatalog)
+    store.$patch({ products: seeded, cart: [], orders: [], checkoutError: '' })
+    const tea = seeded.find((item) => item.id === 'P003')!
+    store.addToCart(tea)
+    expect(store.submitOrder('')).toBe(true)
+    const orderId = store.orders[0].id
+    expect(readPlatformOrders()?.[orderId]?.status).toBe('pending')
+    expect(store.cancelOrder(orderId)).toBe(true)
+    expect(store.orders[0].status).toBe('cancelled')
+    expect(readPlatformOrders()?.[orderId]?.status).toBe('unpaid-cancelled')
+    expect(store.initiateAfterSale(orderId)).toBe(false)
+    store.orders[0].status = 'received'
+    expect(store.initiateAfterSale(orderId)).toBe(true)
+    const works = readPlatformAfterSales() || {}
+    expect(Object.values(works)[0]?.status).toBe('processing')
+  })
+  it('manages independent local stock and listing without touching platform entities', () => {
+    const store = useStoreStore()
+    const seeded = cloneSeed(storeCatalog)
+    const tea = seeded.find((item) => item.id === 'P003')!
+    store.$patch({ products: seeded, cart: [], orders: [], checkoutError: '', overrides: {} })
+    expect(store.setSkuStock(tea.id, tea.skus[0].id, 3)).toBe(true)
+    const product = store.products.find((item) => item.id === 'P003')!
+    expect(product.skus[0].stock).toBe(3)
+    expect(store.toggleListed(tea.id)).toBe(true)
+    expect(store.isListed(tea.id)).toBe(false)
+    expect(readPlatformEntities()?.products?.[tea.id]).toBeUndefined()
+  })
 })
