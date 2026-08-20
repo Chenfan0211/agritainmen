@@ -9,7 +9,8 @@ const apps = {
   '/alliance/': 'apps/alliance/dist/single-origin/alliance',
   '/store/': 'apps/store/dist/single-origin/store',
   '/promoter/': 'apps/promoter/dist/single-origin/promoter',
-  '/user/': 'apps/user/dist/single-origin/user'
+  '/user/': 'apps/user/dist/single-origin/user',
+  '/supplier/': 'apps/supplier/dist/single-origin/supplier'
 }
 const mime = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json',

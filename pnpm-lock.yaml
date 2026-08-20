@@ -255,6 +255,49 @@ importers:
         specifier: ^2.2.10
         version: 2.2.12(typescript@5.9.3)
 
+  apps/supplier:
+    dependencies:
+      '@agritainment/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@dcloudio/uni-app':
+        specifier: 3.0.0-5020320260806002
+        version: 3.0.0-5020320260806002(@dcloudio/types@3.4.31)(postcss@8.5.26)(rollup@4.62.4)(supports-color@5.5.0)(vite@5.2.8(@types/node@22.20.1)(sass@1.102.0)(terser@5.49.2))(vue@3.4.21(typescript@5.9.3))
+      '@dcloudio/uni-components':
+        specifier: 3.0.0-5020320260806002
+        version: 3.0.0-5020320260806002(postcss@8.5.26)(rollup@4.62.4)(supports-color@5.5.0)(vite@5.2.8(@types/node@22.20.1)(sass@1.102.0)(terser@5.49.2))(vue@3.4.21(typescript@5.9.3))
+      '@dcloudio/uni-h5':
+        specifier: 3.0.0-5020320260806002
+        version: 3.0.0-5020320260806002(postcss@8.5.26)(rollup@4.62.4)(supports-color@5.5.0)(vite@5.2.8(@types/node@22.20.1)(sass@1.102.0)(terser@5.49.2))(vue@3.4.21(typescript@5.9.3))
+      pinia:
+        specifier: 2.2.0
+        version: 2.2.0(typescript@5.9.3)(vue@3.4.21(typescript@5.9.3))
+      vue:
+        specifier: 3.4.21
+        version: 3.4.21(typescript@5.9.3)
+    devDependencies:
+      '@dcloudio/types':
+        specifier: 3.4.31
+        version: 3.4.31
+      '@dcloudio/vite-plugin-uni':
+        specifier: 3.0.0-5020320260806002
+        version: 3.0.0-5020320260806002(postcss@8.5.26)(rollup@4.62.4)(supports-color@5.5.0)(vite@5.2.8(@types/node@22.20.1)(sass@1.102.0)(terser@5.49.2))(vue@3.4.21(typescript@5.9.3))
+      '@vue/tsconfig':
+        specifier: ^0.5.1
+        version: 0.5.1
+      sass:
+        specifier: ^1.89.0
+        version: 1.102.0
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+      vite:
+        specifier: 5.2.8
+        version: 5.2.8(@types/node@22.20.1)(sass@1.102.0)(terser@5.49.2)
+      vue-tsc:
+        specifier: ^2.2.10
+        version: 2.2.12(typescript@5.9.3)
+
   apps/user:
     dependencies:
       '@agritainment/shared':

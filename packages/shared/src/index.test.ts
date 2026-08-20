@@ -1,5 +1,5 @@
 ﻿import { beforeEach, describe, expect, it } from 'vitest'
-import type { PlatformMedia } from './index'
+import type { Order, OrderItem, OrderStatus, PlatformMedia, SupplierFulfillment } from './index'
 
 if (!globalThis.localStorage) {
   const storage = new Map<string, string>()
@@ -12,7 +12,7 @@ if (!globalThis.localStorage) {
     get length() { return storage.size }
   } as unknown as Storage
 }
-import { PERSISTENCE_VERSION, afterSales, calcCartTotal, calcMargin, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, readShareConfig, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode } from './index'
+import { PERSISTENCE_VERSION, afterSales, calcCartTotal, calcMargin, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, readShareConfig, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode , acceptSupplierOrder, assignSupplierDriver, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, validateSupplierAccount, writePlatformDrivers } from './index'
 
 describe('shared business helpers', () => {
   it('calculates cart totals without floating point drift', () => {
@@ -376,4 +376,115 @@ describe('share settlement helpers', () => {
     expect(pendingShareAmount('T1')).toBe(3)
   })
 })
+})
+
+describe('supplier fulfillment helpers', () => {
+  beforeEach(() => localStorage.clear())
+
+  const item = (skuId: string, name: string, quantity: number): OrderItem => ({ productId: skuId, skuId, name, skuName: name, image: '/static/images/bacon.webp', quantity, price: 10 })
+
+  it('computes shortage from actual quantities and clamps out-of-range inputs', () => {
+    const items = [item('S1', '腊肉', 10), item('S2', '辣椒酱', 5)]
+    expect(computeShortage(items, { S1: 8 })).toEqual([{ skuId: 'S1', name: '腊肉', ordered: 10, actual: 8, shortage: 2 }])
+    expect(computeShortage(items, { S1: 12, S2: 0 })).toEqual([{ skuId: 'S2', name: '辣椒酱', ordered: 5, actual: 0, shortage: 5 }])
+    expect(computeShortage(items, { S1: 10, S2: 5 })).toEqual([])
+    expect(computeShortage(items, { S1: -3 })).toEqual([{ skuId: 'S1', name: '腊肉', ordered: 10, actual: 0, shortage: 10 }])
+  })
+
+  it('derives supplier metrics across statuses and today counts', () => {
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const order = (id: string, status: OrderStatus, amount: number, createdAt: string, fulfillment?: Partial<SupplierFulfillment>): Order => ({ id, productName: 'x', quantity: 1, amount, customer: 's', channel: 'purchase', status, createdAt, ...(fulfillment ? { supplierFulfillment: { status: 'submitted', shortages: [], handovers: [], updatedAt: '', ...fulfillment } } : {}) })
+    const orders = [
+      order('A', 'pending', 10, `${today} 09:00`),
+      order('B', 'pending', 20, `${today} 09:10`),
+      order('C', 'pending', 30, `${today} 09:20`, { status: 'accepted' }),
+      order('D', 'shipping', 40, '2026-08-01 09:00', { status: 'shipped' }),
+      order('E', 'shipping', 50, '2026-08-01 09:00', { status: 'delivering', shortages: [{ skuId: 'S1', name: '腊肉', ordered: 10, actual: 8, shortage: 2 }] }),
+      order('F', 'delivered', 60, '2026-08-01 09:00', { status: 'received' })
+    ]
+    const metrics = deriveSupplierMetrics(orders)
+    expect(metrics.toAcceptCount).toBe(2)
+    expect(metrics.toDispatchCount).toBe(1)
+    expect(metrics.toHandoverCount).toBe(1)
+    expect(metrics.deliveringCount).toBe(1)
+    expect(metrics.shortageOrderCount).toBe(1)
+    expect(metrics.todayOrderCount).toBe(3)
+    expect(metrics.todayAmount).toBe(60)
+  })
+
+  it('ensures fulfillment from order status for store-submitted orders', () => {
+    const order = (status: OrderStatus): Order => ({ id: 'x', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status, createdAt: 'x' })
+    expect(ensureSupplierFulfillment(order('pending')).status).toBe('submitted')
+    expect(ensureSupplierFulfillment(order('shipping')).status).toBe('shipped')
+    expect(ensureSupplierFulfillment(order('delivered')).status).toBe('received')
+    expect(ensureSupplierFulfillment(order('unpaid-cancelled')).status).toBe('cancelled')
+  })
+
+  it('runs full accept→assign→handover-out→handover-in lifecycle and mirrors order status', () => {
+    let order: Order = { id: 'O1', productName: '腊肉', quantity: 10, amount: 380, customer: '石板溪门店', channel: 'purchase', status: 'pending', createdAt: '2026-08-20 09:00', items: [item('S1', '腊肉', 10)] }
+    order = acceptSupplierOrder(order, '湘西腊味合作社')!
+    expect(order.supplierFulfillment?.status).toBe('accepted')
+    order = assignSupplierDriver(order, demoDrivers[0], '湘西腊味合作社')!
+    expect(order.supplierFulfillment).toMatchObject({ status: 'shipped', shipType: 'driver', driverId: 'D001', driverName: '张伟' })
+    expect(order.status).toBe('shipping')
+    order = handoverSupplierOut(order, { S1: 8 }, { id: 'sup', name: '湘西腊味合作社', role: 'supplier' })!
+    expect(order.supplierFulfillment?.status).toBe('delivering')
+    expect(order.supplierFulfillment?.shortages).toEqual([{ skuId: 'S1', name: '腊肉', ordered: 10, actual: 8, shortage: 2 }])
+    expect(order.supplierFulfillment?.handovers).toHaveLength(1)
+    order = handoverSupplierIn(order, { id: 'D001', name: '张伟', role: 'driver' })!
+    expect(order.supplierFulfillment?.status).toBe('received')
+    expect(order.status).toBe('delivered')
+    expect(order.supplierFulfillment?.handovers).toHaveLength(2)
+    expect(order.flow?.some((event) => event.action.includes('到店交接完成'))).toBe(true)
+  })
+
+  it('rejects out-of-order transitions and guards reassign', () => {
+    let order: Order = { id: 'O2', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'pending', createdAt: 'x' }
+    expect(assignSupplierDriver(order, demoDrivers[0], 'sup')).toBeNull()
+    order = acceptSupplierOrder(order, 'sup')!
+    order = assignSupplierDriver(order, demoDrivers[0], 'sup')!
+    expect(acceptSupplierOrder(order, 'sup')).toBeNull()
+    expect(handoverSupplierIn(order, { id: 'D001', name: '张伟', role: 'driver' })).toBeNull()
+    order = handoverSupplierOut(order, { S1: 1 }, { id: 'sup', name: 'sup', role: 'supplier' })!
+    expect(handoverSupplierOut(order, { S1: 1 }, { id: 'sup', name: 'sup', role: 'supplier' })).toBeNull()
+    expect(reassignSupplierDriver(order, demoDrivers[0], 'sup')).toBeNull()
+    const reassigned = reassignSupplierDriver(order, demoDrivers[1], 'sup')!
+    expect(reassigned.supplierFulfillment?.driverName).toBe('李强')
+    expect(reassigned.flow?.some((event) => event.action.includes('改派司机'))).toBe(true)
+  })
+
+  it('ships courier with tracking number and confirms delivered', () => {
+    let order: Order = { id: 'O3', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'pending', createdAt: 'x' }
+    order = acceptSupplierOrder(order, 'sup')!
+    expect(shipSupplierCourier(order, '', 'sup')).toBeNull()
+    order = shipSupplierCourier(order, 'SF001', 'sup')!
+    expect(order.supplierFulfillment).toMatchObject({ status: 'shipped', shipType: 'courier', trackingNo: 'SF001' })
+    expect(order.trackingNo).toBe('SF001')
+    order = handoverSupplierOut(order, {}, { id: 'sup', name: 'sup', role: 'supplier' })!
+    expect(order.supplierFulfillment?.status).toBe('delivering')
+    order = confirmCourierDelivered(order, { id: 'sup', name: 'sup', role: 'supplier' })!
+    expect(order.status).toBe('delivered')
+    expect(order.supplierFulfillment?.status).toBe('received')
+  })
+
+  it('manages driver storage and active-task counts', () => {
+    expect(readPlatformDrivers()).toBeNull()
+    writePlatformDrivers(demoDrivers)
+    expect(readPlatformDrivers()).toHaveLength(3)
+    expect(mergePlatformDrivers(demoDrivers, readPlatformDrivers())).toHaveLength(3)
+    expect(mergePlatformDrivers(demoDrivers, [{ ...demoDrivers[0], name: '张师傅' }])).toHaveLength(3)
+    expect(mergePlatformDrivers([], readPlatformDrivers())).toHaveLength(3)
+    const orders: Order[] = [
+      { id: 'A', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'shipping', createdAt: 'x', supplierFulfillment: { status: 'shipped', shipType: 'driver', driverId: 'D001', driverName: '张伟', shortages: [], handovers: [], updatedAt: 'x' } },
+      { id: 'B', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'shipping', createdAt: 'x', supplierFulfillment: { status: 'delivering', shipType: 'driver', driverId: 'D001', driverName: '张伟', shortages: [], handovers: [], updatedAt: 'x' } },
+      { id: 'C', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'delivered', createdAt: 'x', supplierFulfillment: { status: 'received', shipType: 'driver', driverId: 'D001', driverName: '张伟', shortages: [], handovers: [], updatedAt: 'x' } }
+    ]
+    expect(driverActiveTaskCounts(orders)).toEqual({ D001: 2 })
+    expect(validateSupplierAccount('supplier', '123456')).toBe(true)
+    expect(validateSupplierAccount('supplier', 'bad')).toBe(false)
+    expect(findActiveDriver(demoDrivers, 'driver01', '123456')?.id).toBe('D001')
+    expect(findActiveDriver(demoDrivers, 'driver01', 'bad')).toBeNull()
+    expect(findDriverByAccount(demoDrivers, 'driver01')?.status).toBe('active')
+  })
 })

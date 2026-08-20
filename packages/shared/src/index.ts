@@ -215,6 +215,48 @@ export interface OrderFlowEvent {
   note?: string
 }
 
+export interface ShortageItem {
+  skuId: string
+  name: string
+  ordered: number
+  actual: number
+  shortage: number
+}
+
+export interface HandoverLog {
+  id: string
+  type: 'out' | 'in'
+  orderId: string
+  time: string
+  operatorId: string
+  operatorName: string
+  operatorRole: 'supplier' | 'driver'
+  note?: string
+  shortageCount?: number
+}
+
+export interface DriverAccount {
+  id: string
+  supplierId: string
+  name: string
+  account: string
+  password: string
+  phone?: string
+  status: 'active' | 'disabled'
+  createdAt: string
+}
+
+export interface SupplierFulfillment {
+  status: PurchaseStatus
+  shipType?: 'driver' | 'courier'
+  driverId?: string
+  driverName?: string
+  trackingNo?: string
+  shortages: ShortageItem[]
+  handovers: HandoverLog[]
+  updatedAt: string
+}
+
 export interface Order {
   id: string
   productName: string
@@ -230,6 +272,7 @@ export interface Order {
   supplierId?: string
   settlementId?: string
   items?: OrderItem[]
+  supplierFulfillment?: SupplierFulfillment
 }
 
 export interface Booking {
@@ -1951,6 +1994,212 @@ export function resolveUserIdentity(openid: string): string {
   const userId = getOrCreateUserId()
   writeUserLink(openid, userId)
   return userId
+}
+
+// ===== 供应商履约：司机账号 / 配送交接 / 缺货（apps/supplier）=====
+export const PLATFORM_DRIVERS_STORAGE_KEY = 'agritainment-platform-drivers'
+export const SUPPLIER_DEMO_ID = 'S002'
+export const SUPPLIER_DEMO_ACCOUNT = 'supplier'
+export const SUPPLIER_DEMO_PASSWORD = '123456'
+
+export function readPlatformDrivers(): DriverAccount[] | null {
+  const drivers = readPlatformJson<DriverAccount[]>(PLATFORM_DRIVERS_STORAGE_KEY)
+  return Array.isArray(drivers) ? drivers : null
+}
+export function writePlatformDrivers(drivers: DriverAccount[]): void {
+  writePlatformJson(PLATFORM_DRIVERS_STORAGE_KEY, drivers)
+}
+export function mergePlatformDrivers(defaults: DriverAccount[], published: DriverAccount[] | null): DriverAccount[] {
+  if (!published) return defaults
+  const byId = new Map(published.map((item) => [item.id, item]))
+  const merged = defaults.map((item) => byId.get(item.id) ?? item)
+  const ids = new Set(merged.map((item) => item.id))
+  return [...merged, ...published.filter((item) => !ids.has(item.id))]
+}
+
+export const demoDrivers: DriverAccount[] = [
+  { id: 'D001', supplierId: SUPPLIER_DEMO_ID, name: '张伟', account: 'driver01', password: '123456', phone: '13711110001', status: 'active', createdAt: '2026-08-18 09:00' },
+  { id: 'D002', supplierId: SUPPLIER_DEMO_ID, name: '李强', account: 'driver02', password: '123456', phone: '13711110002', status: 'active', createdAt: '2026-08-18 09:05' },
+  { id: 'D003', supplierId: SUPPLIER_DEMO_ID, name: '王芳', account: 'driver03', password: '123456', phone: '13711110003', status: 'active', createdAt: '2026-08-18 09:10' }
+]
+
+const supplierStatusToOrderStatus: Record<PurchaseStatus, OrderStatus> = {
+  submitted: 'pending', accepted: 'pending', shipped: 'shipping', delivering: 'shipping', received: 'delivered', completed: 'delivered', cancelled: 'unpaid-cancelled'
+}
+
+/** 门店进货单若无履约信息（如 store 直接提交的单），按 Order.status 推导初始履约状态 */
+export function ensureSupplierFulfillment(order: Order): SupplierFulfillment {
+  if (order.supplierFulfillment) return order.supplierFulfillment
+  const status: PurchaseStatus =
+    order.status === 'shipping' ? 'shipped' :
+    order.status === 'delivered' ? 'received' :
+    order.status === 'unpaid-cancelled' || order.status === 'paid-cancelled' ? 'cancelled' : 'submitted'
+  return { status, shortages: [], handovers: [], updatedAt: order.createdAt }
+}
+
+export function computeShortage(items: OrderItem[], actuals: Record<string, number>): ShortageItem[] {
+  return items
+    .map((item) => {
+      const raw = actuals[item.skuId]
+      const actual = Number.isFinite(raw) ? Math.max(0, Math.min(item.quantity, Math.round(raw))) : item.quantity
+      return { skuId: item.skuId, name: item.name, ordered: item.quantity, actual, shortage: item.quantity - actual }
+    })
+    .filter((item) => item.shortage > 0)
+}
+
+export interface SupplierMetrics {
+  toAcceptCount: number
+  toDispatchCount: number
+  toHandoverCount: number
+  deliveringCount: number
+  shortageOrderCount: number
+  todayOrderCount: number
+  todayAmount: number
+}
+
+export function deriveSupplierMetrics(orders: Order[]): SupplierMetrics {
+  const now = new Date()
+  const todayPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const isToday = (value: string) => value.startsWith(todayPrefix)
+  const todayOrders = orders.filter((order) => isToday(order.createdAt))
+  return {
+    toAcceptCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'submitted').length,
+    toDispatchCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'accepted').length,
+    toHandoverCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'shipped').length,
+    deliveringCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'delivering').length,
+    shortageOrderCount: orders.filter((order) => (order.supplierFulfillment?.shortages.length || 0) > 0).length,
+    todayOrderCount: todayOrders.length,
+    todayAmount: round2(todayOrders.reduce((sum, order) => sum + order.amount, 0))
+  }
+}
+
+export function driverActiveTaskCounts(orders: Order[]): Record<string, number> {
+  const result: Record<string, number> = {}
+  for (const order of orders) {
+    const fulfillment = order.supplierFulfillment
+    if (fulfillment?.driverId && fulfillment.shipType === 'driver' && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')) {
+      result[fulfillment.driverId] = (result[fulfillment.driverId] || 0) + 1
+    }
+  }
+  return result
+}
+
+export function validateSupplierAccount(account: string, password: string): boolean {
+  return account.trim() === SUPPLIER_DEMO_ACCOUNT && password === SUPPLIER_DEMO_PASSWORD
+}
+export function findDriverByAccount(drivers: DriverAccount[], account: string): DriverAccount | null {
+  return drivers.find((driver) => driver.account === account.trim()) || null
+}
+export function findActiveDriver(drivers: DriverAccount[], account: string, password: string): DriverAccount | null {
+  const driver = findDriverByAccount(drivers, account)
+  return driver && driver.status === 'active' && driver.password === password ? driver : null
+}
+
+function flowEvent(action: string, operator: string, note?: string): OrderFlowEvent {
+  const event: OrderFlowEvent = { time: new Date().toLocaleString('zh-CN'), action, operator }
+  if (note) event.note = note
+  return event
+}
+
+export function acceptSupplierOrder(order: Order, operator: string): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  if (fulfillment.status !== 'submitted') return null
+  const now = new Date().toLocaleString('zh-CN')
+  return {
+    ...order,
+    status: 'pending',
+    flow: [...(order.flow || []), flowEvent('中台已接单 · 供应商已接单，备货中', operator)],
+    supplierFulfillment: { ...fulfillment, status: 'accepted', updatedAt: now }
+  }
+}
+
+export function assignSupplierDriver(order: Order, driver: DriverAccount, operator: string): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  if (fulfillment.status !== 'accepted') return null
+  if (!driver || driver.status !== 'active') return null
+  if (driver.supplierId !== (order.supplierId || SUPPLIER_DEMO_ID)) return null
+  const now = new Date().toLocaleString('zh-CN')
+  return {
+    ...order,
+    status: 'shipping',
+    flow: [...(order.flow || []), flowEvent(`已发货 · 已指派司机 ${driver.name} 配送`, operator)],
+    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'driver', driverId: driver.id, driverName: driver.name, updatedAt: now }
+  }
+}
+
+export function reassignSupplierDriver(order: Order, driver: DriverAccount, operator: string): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  if (!fulfillment.driverId || fulfillment.shipType !== 'driver') return null
+  if (fulfillment.status !== 'shipped' && fulfillment.status !== 'delivering') return null
+  if (!driver || driver.status !== 'active' || driver.id === fulfillment.driverId) return null
+  if (driver.supplierId !== (order.supplierId || SUPPLIER_DEMO_ID)) return null
+  const now = new Date().toLocaleString('zh-CN')
+  return {
+    ...order,
+    status: 'shipping',
+    flow: [...(order.flow || []), flowEvent(`改派司机 · ${driver.name}（原 ${fulfillment.driverName || '未指派'}）`, operator)],
+    supplierFulfillment: { ...fulfillment, driverId: driver.id, driverName: driver.name, updatedAt: now }
+  }
+}
+
+export function shipSupplierCourier(order: Order, trackingNo: string, operator: string): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  if (fulfillment.status !== 'accepted') return null
+  if (!trackingNo || !trackingNo.trim()) return null
+  const now = new Date().toLocaleString('zh-CN')
+  return {
+    ...order,
+    status: 'shipping',
+    trackingNo: trackingNo.trim(),
+    flow: [...(order.flow || []), flowEvent(`已发货 · 快递直发，运单 ${trackingNo.trim()}`, operator)],
+    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'courier', trackingNo: trackingNo.trim(), updatedAt: now }
+  }
+}
+
+export function handoverSupplierOut(order: Order, actuals: Record<string, number>, operator: { id: string; name: string; role: 'supplier' | 'driver' }, note?: string): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  if (fulfillment.status !== 'shipped') return null
+  const shortages = computeShortage(order.items || [], actuals)
+  const now = new Date().toLocaleString('zh-CN')
+  const handover: HandoverLog = { id: createId('H'), type: 'out', orderId: order.id, time: now, operatorId: operator.id, operatorName: operator.name, operatorRole: operator.role, shortageCount: shortages.length }
+  if (note) handover.note = note
+  const flow = [...(order.flow || []), flowEvent(fulfillment.shipType === 'courier' ? '出库交接完成 · 快递揽收' : `出库交接完成 · 司机 ${fulfillment.driverName || ''} 领货`, operator.name)]
+  if (shortages.length) {
+    flow.push(flowEvent(`缺货 ${shortages.length} 项：${shortages.map((item) => `${item.name} -${item.shortage}`).join('、')}`, operator.name))
+  }
+  return {
+    ...order,
+    status: 'shipping',
+    flow,
+    supplierFulfillment: { ...fulfillment, status: 'delivering', shortages, handovers: [...fulfillment.handovers, handover], updatedAt: now }
+  }
+}
+
+export function handoverSupplierIn(order: Order, operator: { id: string; name: string; role: 'supplier' | 'driver' }, note?: string): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  if (fulfillment.status !== 'delivering' || fulfillment.shipType !== 'driver') return null
+  if (fulfillment.driverId !== operator.id) return null
+  const now = new Date().toLocaleString('zh-CN')
+  const handover: HandoverLog = { id: createId('H'), type: 'in', orderId: order.id, time: now, operatorId: operator.id, operatorName: operator.name, operatorRole: operator.role }
+  if (note) handover.note = note
+  return {
+    ...order,
+    status: 'delivered',
+    flow: [...(order.flow || []), flowEvent(`到店交接完成 · 司机 ${operator.name} 已与门店交接`, operator.name)],
+    supplierFulfillment: { ...fulfillment, status: 'received', handovers: [...fulfillment.handovers, handover], updatedAt: now }
+  }
+}
+
+export function confirmCourierDelivered(order: Order, operator: { id: string; name: string; role: 'supplier' | 'driver' }): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  if (fulfillment.status !== 'delivering' || fulfillment.shipType !== 'courier') return null
+  const now = new Date().toLocaleString('zh-CN')
+  return {
+    ...order,
+    status: 'delivered',
+    flow: [...(order.flow || []), flowEvent('已签收 · 快递送达门店', operator.name)],
+    supplierFulfillment: { ...fulfillment, status: 'received', updatedAt: now }
+  }
 }
 
 export * from './auth'

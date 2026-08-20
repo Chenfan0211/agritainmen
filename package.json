@@ -14,7 +14,7 @@
     "build:farmhouse:tenants": "node scripts/build-farmhouse-tenants.mjs",
     "build:alliance:h5": "pnpm --filter @agritainment/alliance build:h5",
     "build:alliance:mp": "pnpm --filter @agritainment/alliance build:mp-weixin",
-    "build": "pnpm build:admin && pnpm build:farmhouse:h5 && pnpm build:farmhouse:mp && pnpm build:alliance:h5 && pnpm build:alliance:mp && pnpm build:store && pnpm build:promoter && pnpm build:user",
+    "build": "pnpm build:admin && pnpm build:farmhouse:h5 && pnpm build:farmhouse:mp && pnpm build:alliance:h5 && pnpm build:alliance:mp && pnpm build:store && pnpm build:supplier && pnpm build:promoter && pnpm build:user",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run --exclude tests/e2e/**",
     "test:e2e": "playwright test",
@@ -24,7 +24,9 @@
     "dev:user": "pnpm --filter @agritainment/user dev:h5",
     "build:promoter": "pnpm --filter @agritainment/promoter build:h5 && pnpm --filter @agritainment/promoter build:mp-weixin",
     "build:user": "pnpm --filter @agritainment/user build:h5 && pnpm --filter @agritainment/user build:mp-weixin",
-    "build:store": "pnpm --filter @agritainment/store build:h5"
+    "build:store": "pnpm --filter @agritainment/store build:h5",
+    "dev:supplier": "pnpm --filter @agritainment/supplier dev:h5",
+    "build:supplier": "pnpm --filter @agritainment/supplier build:h5"
   },
   "devDependencies": {
     "@playwright/test": "1.55.0",

@@ -1,0 +1,28 @@
+:root {
+  --sup-green: #14532d;
+  --sup-green-deep: #0d3a1f;
+  --sup-green-soft: #e8f3ec;
+  --sup-gold: #b8903f;
+  --sup-red: #b91c1c;
+  --sup-bg: #f4f5f1;
+  --sup-panel: #ffffff;
+  --sup-ink: #1f2a22;
+  --sup-muted: #6b756d;
+  --sup-line: #dfe3dc;
+}
+
+page, body, #app {
+  min-height: 100%;
+  margin: 0;
+  background: var(--sup-bg);
+  color: var(--sup-ink);
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+* { box-sizing: border-box; }
+button, input { font: inherit; letter-spacing: 0; }
+button { border: 0; transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
+button:not(:disabled):active { transform: scale(.98); }
+button:disabled { opacity: .48; pointer-events: none; }
+button:focus-visible, input:focus-visible { outline: 2px solid rgba(20, 83, 45, .35); outline-offset: 2px; }
