@@ -14,5 +14,12 @@
     "devServer": {
       "port": 5178
     }
+  },
+  "mp-weixin": {
+    "appid": "touristappid",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true
   }
 }

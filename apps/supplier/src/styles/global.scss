@@ -1,21 +1,40 @@
+// ============ 供应商端设计令牌 ============
+$sup-green: #14532d;
+$sup-green-deep: #0d3a1f;
+$sup-green-soft: #e8f3ec;
+$sup-gold: #b8903f;
+$sup-red: #b91c1c;
+$sup-bg: #f4f5f1;
+$sup-panel: #ffffff;
+$sup-ink: #1f2a22;
+$sup-muted: #6b756d;
+$sup-line: #dfe3dc;
+$sup-radius-sm: 8px;
+$sup-radius: 12px;
+$sup-radius-lg: 16px;
+$sup-shadow: 0 2px 10px rgba(15, 23, 18, .06);
+
 :root {
-  --sup-green: #14532d;
-  --sup-green-deep: #0d3a1f;
-  --sup-green-soft: #e8f3ec;
-  --sup-gold: #b8903f;
-  --sup-red: #b91c1c;
-  --sup-bg: #f4f5f1;
-  --sup-panel: #ffffff;
-  --sup-ink: #1f2a22;
-  --sup-muted: #6b756d;
-  --sup-line: #dfe3dc;
+  --sup-green: #{$sup-green};
+  --sup-green-deep: #{$sup-green-deep};
+  --sup-green-soft: #{$sup-green-soft};
+  --sup-gold: #{$sup-gold};
+  --sup-red: #{$sup-red};
+  --sup-bg: #{$sup-bg};
+  --sup-panel: #{$sup-panel};
+  --sup-ink: #{$sup-ink};
+  --sup-muted: #{$sup-muted};
+  --sup-line: #{$sup-line};
+  --sup-radius-sm: #{$sup-radius-sm};
+  --sup-radius: #{$sup-radius};
+  --sup-radius-lg: #{$sup-radius-lg};
 }
 
 page, body, #app {
   min-height: 100%;
   margin: 0;
-  background: var(--sup-bg);
-  color: var(--sup-ink);
+  background: $sup-bg;
+  color: $sup-ink;
   font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
   letter-spacing: 0;
 }
@@ -26,3 +45,100 @@ button { border: 0; transition: background-color .16s ease, color .16s ease, bor
 button:not(:disabled):active { transform: scale(.98); }
 button:disabled { opacity: .48; pointer-events: none; }
 button:focus-visible, input:focus-visible { outline: 2px solid rgba(20, 83, 45, .35); outline-offset: 2px; }
+
+// ============ 布局 ============
+.app-shell { min-height: 100vh; }
+.page-pad { padding: 14px 16px calc(76px + env(safe-area-inset-bottom)); }
+.page-state { padding: 80px 20px; text-align: center; color: $sup-muted; }
+
+// ============ 头部 hero ============
+.hero { background: linear-gradient(160deg, $sup-green-deep 0%, $sup-green 70%, #1e6b41 100%); color: #fff; padding: 18px 16px 16px; }
+.hero-top { display: flex; align-items: center; gap: 10px; }
+.hero-avatar { width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, .16); display: flex; align-items: center; justify-content: center; font-size: 22px; color: #fff; flex: none; }
+.hero-title { display: block; font-size: 17px; font-weight: 700; }
+.hero-sub { display: block; margin-top: 2px; font-size: 12px; color: rgba(255, 255, 255, .72); }
+.hero-logout { margin-left: auto; flex: none; border: 1px solid rgba(255, 255, 255, .35); border-radius: 10px; color: #fff; padding: 7px 12px; font-size: 12px; background: transparent; }
+.hero-stats { display: flex; gap: 10px; margin-top: 14px; }
+.hero-stats > view { flex: 1; min-width: 0; background: rgba(255, 255, 255, .1); border-radius: 12px; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+// ============ 区块标题 ============
+.section-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; margin: 16px 0 10px; }
+.section-title::before { content: ''; width: 4px; height: 14px; border-radius: 2px; background: $sup-green; }
+.hero-stat-label { font-size: 10px; color: rgba(255, 255, 255, .72); }
+.hero-stat-value { font-size: 17px; font-weight: 700; }
+.section-sub { font-size: 12px; color: $sup-muted; font-weight: 400; margin-left: auto; }
+// ============ 卡片 ============
+.card { background: $sup-panel; border-radius: $sup-radius; box-shadow: $sup-shadow; }
+.list-card { background: $sup-panel; border-radius: $sup-radius; box-shadow: $sup-shadow; padding: 12px 14px; margin-bottom: 10px; }
+
+// ============ 统计卡 ============
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat-card { background: $sup-panel; border-radius: $sup-radius; box-shadow: $sup-shadow; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.stat-card-label { font-size: 11px; color: $sup-muted; }
+.stat-card-value { font-size: 20px; }
+.stat-card.warn .stat-card-value { color: $sup-red; }
+
+// ============ chips 筛选 ============
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chips.scroll-x { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+.chip { padding: 7px 13px; border-radius: 20px; background: $sup-panel; border: 1px solid $sup-line; font-size: 13px; color: $sup-muted; flex: none; }
+.chip.active { background: $sup-green; color: #fff; border-color: $sup-green; font-weight: 600; }
+.chip-count { font-size: 11px; opacity: .75; margin-left: 3px; }
+
+// ============ 搜索条 ============
+.search-bar { display: flex; align-items: center; gap: 6px; background: $sup-panel; border: 1px solid $sup-line; border-radius: 10px; padding: 8px 12px; margin-top: 10px; }
+.search-bar input { height: 22px; border: 0; outline: 0; font-size: 13px; flex: 1; min-width: 0; background: transparent; }
+
+// ============ 按钮 ============
+.primary-button { background: $sup-green; color: #fff; border-radius: 10px; padding: 11px 16px; font-size: 14px; font-weight: 600; text-align: center; }
+.outline-button { background: $sup-panel; border: 1px solid $sup-line; color: $sup-ink; border-radius: 10px; padding: 11px 16px; font-size: 14px; text-align: center; }
+.danger-button { background: $sup-panel; border: 1px solid rgba(185, 28, 28, .4); color: $sup-red; border-radius: 10px; padding: 11px 16px; font-size: 14px; text-align: center; }
+.mini-button { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
+
+// ============ 徽标 / 标签 ============
+.badge { display: inline-flex; align-items: center; font-size: 11px; padding: 2px 9px; border-radius: 10px; font-weight: 600; flex: none; }
+.badge.submitted, .badge.cancelled { background: #f3f0e8; color: #8a6d1f; }
+.badge.accepted { background: #eaf0fb; color: #2f5bb3; }
+.badge.shipped { background: $sup-green-soft; color: $sup-green; }
+.badge.delivering { background: #fdf1e2; color: #a05a12; }
+.badge.received, .badge.completed { background: $sup-green-soft; color: $sup-green; }
+.badge.active { background: $sup-green-soft; color: $sup-green; }
+.badge.disabled { background: #f2f2f2; color: $sup-muted; }
+.tag { display: inline-flex; align-items: center; font-size: 11px; padding: 2px 8px; border-radius: 8px; flex: none; font-weight: 600; }
+.tag.danger { background: #fdeaea; color: $sup-red; }
+.tag.out { background: $sup-green-soft; color: $sup-green; }
+.tag.in { background: #eaf0fb; color: #2f5bb3; }
+
+// ============ 表单 ============
+.form-field { display: flex; flex-direction: column; gap: 6px; }
+.form-field > text { font-size: 12px; color: $sup-muted; }
+.form-field input { height: 44px; border: 1px solid $sup-line; border-radius: 10px; padding: 0 12px; font-size: 14px; background: #fff; }
+.form-error { font-size: 12px; color: $sup-red; margin-top: 8px; }
+
+// ============ 弹层（底部 sheet）============
+.sheet-mask { position: fixed; inset: 0; background: rgba(15, 23, 18, .45); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+.sheet-panel { background: $sup-panel; width: 100%; max-height: 86vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.sheet-title { font-size: 16px; font-weight: 700; }
+.icon-button { width: 32px; height: 32px; border-radius: 10px; background: $sup-bg; display: flex; align-items: center; justify-content: center; flex: none; }
+.sheet-actions { display: flex; gap: 10px; margin-top: 16px; }
+.sheet-actions .primary-button, .sheet-actions .outline-button, .sheet-actions .danger-button { flex: 1; }
+
+// ============ 空态 ============
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 0; color: $sup-muted; text-align: center; }
+.empty-state text { font-size: 14px; }
+
+// ============ toast ============
+.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: rgba(15, 23, 18, .88); color: #fff; border-radius: 20px; padding: 10px 20px; font-size: 13px; z-index: 99; white-space: nowrap; }
+
+// ============ 底部 tabbar ============
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; background: $sup-panel; border-top: 1px solid $sup-line; padding-bottom: env(safe-area-inset-bottom); }
+.tab-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0 6px; font-size: 10px; color: $sup-muted; background: transparent; position: relative; }
+.tab-item.active { color: $sup-green; font-weight: 600; }
+.tab-badge { position: absolute; top: 2px; right: calc(50% - 20px); background: $sup-red; color: #fff; font-size: 10px; min-width: 16px; height: 16px; line-height: 16px; border-radius: 8px; padding: 0 4px; }
+
+// ============ 通用行 ============
+.row { display: flex; align-items: center; gap: 10px; }
+.row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.muted { font-size: 12px; color: $sup-muted; }
+.order-no { font-size: 13px; font-weight: 600; color: $sup-ink; }

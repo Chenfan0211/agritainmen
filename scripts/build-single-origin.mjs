@@ -11,8 +11,7 @@ const apps = [
   { app: 'alliance', prefix: '/alliance/' },
   { app: 'store', prefix: '/store/' },
   { app: 'promoter', prefix: '/promoter/' },
-  { app: 'user', prefix: '/user/' },
-  { app: 'supplier', prefix: '/supplier/' }
+  { app: 'user', prefix: '/user/' }
 ]
 
 function build(app, base) {
