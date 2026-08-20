@@ -58,9 +58,9 @@
       <!-- 供应商模块 -->
       <template v-if="store.auth.role === 'supplier'">
         <view v-if="active === 'dashboard'" class="page-pad">
-          <view class="section-title">配送订单<text class="section-sub">待处理 {{ recentOrders.length }} 单</text></view>
-          <view v-if="recentOrders.length">
-            <view v-for="order in recentOrders" :key="order.id" class="list-card" @click="openOrder(order)">
+          <view class="section-title">配送订单<text class="section-sub">今日配送 {{ store.todayDeliveryOrders.length }} 单</text></view>
+          <view v-if="store.todayDeliveryOrders.length">
+            <view v-for="order in store.todayDeliveryOrders" :key="order.id" class="list-card" @click="openOrder(order)">
               <view class="row">
                 <view class="row-main">
                   <view class="row-top"><text class="order-no">{{ order.id }}</text><span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status) }}</span></view>
@@ -70,7 +70,7 @@
               </view>
             </view>
           </view>
-          <view v-else class="empty-state"><UiIcon name="package" :size="28" /><text>暂无待处理配送订单</text></view>
+          <view v-else class="empty-state"><UiIcon name="package" :size="28" /><text>今日暂无配送订单</text></view>
 
           <view class="section-title">最近交接日志</view>
           <view v-if="recentHandovers.length">
@@ -84,6 +84,10 @@
             </view>
           </view>
           <view v-else class="empty-state"><UiIcon name="list-tree" :size="28" /><text>暂无交接日志</text></view>
+          <view class="dashboard-foot">
+            <button class="outline-button mini-button" @click="askResetDemo">重置演示数据</button>
+            <text class="muted">清空本地订单 / 司机数据并重新播种</text>
+          </view>
         </view>
 
         <view v-else-if="active === 'orders'" class="page-pad">
@@ -180,7 +184,7 @@
               <view class="task-items">
                 <view v-for="item in order.items" :key="`${item.productId}-${item.skuId}`" class="task-item"><image :src="item.image" mode="aspectFit" /><text>{{ item.name }}</text><text class="muted">×{{ item.quantity }}</text></view>
               </view>
-              <view v-if="orderShortage(order).length" class="task-shortage"><span class="tag danger">缺货 {{ orderShortage(order).length }} 项</span><text class="muted">{{ orderShortage(order).map((item) => `${item.name} 缺 ${item.shortage}`).join('、') }}</text></view>
+              <view v-if="orderShortage(order).length" class="task-shortage"><span class="tag" :class="hasUnhandledShortage(order) ? 'danger' : 'out'">{{ hasUnhandledShortage(order) ? `缺货 ${orderShortage(order).length} 项` : '已补发' }}</span><text class="muted">{{ orderShortage(order).map((item) => `${item.name} 缺 ${item.shortage}${item.handled ? '(已补发)' : ''}`).join('、') }}</text></view>
               <button v-if="orderFulfillment(order).status === 'shipped'" class="outline-button" disabled>待供应商出库交接</button>
               <button v-else class="primary-button" @click="openDriverHandover(order)">到店交接</button>
             </view>
@@ -239,7 +243,11 @@
             <view class="store-line"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ selectedOrder.customer }}</text><text class="muted">{{ storeInfoOf(selectedOrder.customer).address }} · {{ storeInfoOf(selectedOrder.customer).contact }} {{ storeInfoOf(selectedOrder.customer).phone }}</text></view></view>
             <view v-if="orderShortage(selectedOrder).length" class="section-title">缺货清单 <span class="tag danger">缺货 {{ orderShortage(selectedOrder).length }} 项</span></view>
             <view v-if="orderShortage(selectedOrder).length">
-              <view v-for="item in orderShortage(selectedOrder)" :key="item.skuId" class="shortage-line"><text>{{ item.name }}</text><text class="muted">应发 {{ item.ordered }} · 实发 {{ item.actual }}</text><span class="tag danger">缺 {{ item.shortage }}</span></view>
+              <view v-for="item in orderShortage(selectedOrder)" :key="item.skuId" class="shortage-line">
+                <view class="row-main"><text>{{ item.name }}</text><text class="muted">应发 {{ item.ordered }} · 实发 {{ item.actual }}</text></view>
+                <span class="tag" :class="item.handled ? 'out' : 'danger'">{{ item.handled ? '已补发' : '缺 ' + item.shortage }}</span>
+                <button v-if="store.auth.role === 'supplier' && !item.handled" class="outline-button mini-button" @click="markHandled(item.skuId)">标记补发</button>
+              </view>
             </view>
             <view class="section-title">交接记录</view>
             <view v-if="handoversOf(selectedOrder).length" class="log-list">
@@ -339,6 +347,15 @@
             <text v-if="driverFormError" class="form-error">{{ driverFormError }}</text>
             <view class="sheet-actions">
               <button class="primary-button" @click="confirmReset">确认重置</button>
+              <button class="outline-button" @click="closeSheet">取 消</button>
+            </view>
+          </view>
+
+          <view v-else-if="sheet === 'reset-confirm'" class="driver-form-sheet">
+            <view class="sheet-head"><text class="sheet-title">重置演示数据</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <text class="muted">将清空本地订单、司机与交接数据并恢复为初始演示数据（同源下其它端共享数据也会重置为演示集）。</text>
+            <view class="sheet-actions">
+              <button class="primary-button" @click="confirmResetDemo">确认重置</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
           </view>
@@ -452,11 +469,9 @@ const filteredOrders = computed(() => store.supplierOrders.filter((order) => {
   const matchesKeyword = !keyword || `${order.id}${order.customer}`.toLowerCase().includes(keyword)
   return matchesFilter && matchesKeyword
 }))
-const recentOrders = computed(() => store.supplierOrders.filter((order) => ['submitted', 'accepted', 'shipped', 'delivering'].includes(orderFulfillment(order).status)).slice(0, 5))
-
 const selectedOrder = ref<Order | null>(null)
 const selectedOrderIds = ref<string[]>([])
-const sheet = ref<null | 'order' | 'assign' | 'reassign' | 'courier' | 'handover-out' | 'handover-in' | 'driver-form' | 'driver-edit' | 'driver-reset' | 'driver-toggle-confirm'>(null)
+const sheet = ref<null | 'order' | 'assign' | 'reassign' | 'courier' | 'handover-out' | 'handover-in' | 'driver-form' | 'driver-edit' | 'driver-reset' | 'driver-toggle-confirm' | 'reset-confirm'>(null)
 
 function orderFulfillment(order: Order) {
   return order.supplierFulfillment || { status: 'submitted', shortages: [], handovers: [], updatedAt: order.createdAt }
@@ -525,6 +540,26 @@ function batchAccept() {
 function openOrder(order: Order) {
   selectedOrder.value = order
   sheet.value = 'order'
+}
+function hasUnhandledShortage(order: Order) {
+  return orderShortage(order).some((item) => !item.handled)
+}
+function markHandled(skuId: string) {
+  const orderId = selectedOrder.value?.id
+  if (!orderId) return
+  if (store.markShortageHandled(orderId, skuId)) {
+    selectedOrder.value = store.orders.find((order) => order.id === orderId) || selectedOrder.value
+    toast('已标记补发')
+  }
+}
+function askResetDemo() {
+  sheet.value = 'reset-confirm'
+}
+async function confirmResetDemo() {
+  closeSheet()
+  await store.resetDemoData()
+  active.value = 'dashboard'
+  toast('演示数据已重置')
 }
 function closeSheet() {
   sheet.value = null
@@ -739,6 +774,7 @@ $line: #dfe3dc;
 .order-check > view.checked { background: $green; border-color: $green; }
 .order-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .outline-button.danger { color: $red; border-color: rgba(185, 28, 28, .4); }
+.dashboard-foot { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px dashed $line; }
 
 // ===== 司机 =====
 .driver-avatar { width: 40px; height: 40px; border-radius: 50%; background: $green-soft; display: flex; align-items: center; justify-content: center; color: $green; flex: none; }

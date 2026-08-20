@@ -23,6 +23,10 @@ export function storeInfoOf(storeName: string) {
   return storeDirectory[storeName] || { address: '门店地址以到店实际为准', contact: '门店', phone: '' }
 }
 
+function dateOnly(offsetDays: number): string {
+  return dateTime(offsetDays, '00:00').slice(0, 10)
+}
+
 function dateTime(offsetDays: number, time: string): string {
   const date = new Date()
   date.setDate(date.getDate() - offsetDays)
@@ -113,14 +117,14 @@ function seedOrders(): Order[] {
     {
       id: 'SO-S003', customer: '石板溪农家乐·门店', items: [bacon(10)], createdAt: d1_1430,
       status: 'shipping',
-      fulfillment: fulfillmentOf({ status: 'shipped', shipType: 'driver', driverId: 'D001', driverName: '张伟' }),
+      fulfillment: fulfillmentOf({ status: 'shipped', shipType: 'driver', driverId: 'D001', driverName: '张伟', deliverDate: dateOnly(0) }),
       flow: [...acceptedFlow(d1_1430, dateTime(1, '15:00')), { time: dateTime(1, '15:10'), action: '已发货 · 已指派司机 张伟 配送', operator: supplierInfo.name }]
     },
     {
       id: 'SO-S004', customer: '云上人家·门店', items: [tea(5)], createdAt: d1_1520,
       status: 'shipping',
       fulfillment: fulfillmentOf({
-        status: 'delivering', shipType: 'driver', driverId: 'D002', driverName: '李强',
+        status: 'delivering', shipType: 'driver', driverId: 'D002', driverName: '李强', deliverDate: dateOnly(0),
         handovers: [{ id: 'H-S004-OUT', type: 'out', orderId: 'SO-S004', time: dateTime(1, '16:00'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 0 }]
       }),
       flow: [...acceptedFlow(d1_1520, dateTime(1, '15:40')), { time: dateTime(1, '16:00'), action: '出库交接完成 · 司机 李强 领货', operator: supplierInfo.name }]
@@ -129,7 +133,7 @@ function seedOrders(): Order[] {
       id: 'SO-S005', customer: '石板溪农家乐·门店', items: [fruit(8)], createdAt: d2_0940,
       status: 'delivered',
       fulfillment: fulfillmentOf({
-        status: 'received', shipType: 'driver', driverId: 'D001', driverName: '张伟',
+        status: 'received', shipType: 'driver', driverId: 'D001', driverName: '张伟', deliverDate: dateOnly(2),
         handovers: [
           { id: 'H-S005-OUT', type: 'out', orderId: 'SO-S005', time: dateTime(2, '10:00'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 0 },
           { id: 'H-S005-IN', type: 'in', orderId: 'SO-S005', time: dateTime(2, '13:20'), operatorId: 'D001', operatorName: '张伟', operatorRole: 'driver' }
@@ -145,14 +149,14 @@ function seedOrders(): Order[] {
     {
       id: 'SO-S006', customer: '云上人家·门店', items: [oil(4)], createdAt: d1_1100, trackingNo: 'SF888800001',
       status: 'shipping',
-      fulfillment: fulfillmentOf({ status: 'shipped', shipType: 'courier', trackingNo: 'SF888800001' }),
+      fulfillment: fulfillmentOf({ status: 'shipped', shipType: 'courier', trackingNo: 'SF888800001', deliverDate: dateOnly(0) }),
       flow: [...acceptedFlow(d1_1100, dateTime(1, '11:20')), { time: dateTime(1, '11:30'), action: '已发货 · 快递直发，运单 SF888800001', operator: supplierInfo.name }]
     },
     {
       id: 'SO-S007', customer: '石板溪农家乐·门店', items: [bacon(10), chili(5)], createdAt: d1_1610,
       status: 'shipping',
       fulfillment: fulfillmentOf({
-        status: 'delivering', shipType: 'driver', driverId: 'D003', driverName: '王芳',
+        status: 'delivering', shipType: 'driver', driverId: 'D003', driverName: '王芳', deliverDate: dateOnly(0),
         shortages: [{ skuId: 'P001-500', name: '湘西烟熏柴火腊肉', ordered: 10, actual: 8, shortage: 2 }],
         handovers: [{ id: 'H-S007-OUT', type: 'out', orderId: 'SO-S007', time: dateTime(1, '16:40'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 1 }]
       }),

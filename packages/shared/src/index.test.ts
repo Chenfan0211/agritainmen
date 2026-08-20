@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { Order, OrderItem, OrderStatus, PlatformMedia, SupplierFulfillment } from './index'
 
 if (!globalThis.localStorage) {
@@ -12,7 +12,7 @@ if (!globalThis.localStorage) {
     get length() { return storage.size }
   } as unknown as Storage
 }
-import { PERSISTENCE_VERSION, afterSales, calcCartTotal, calcMargin, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, readShareConfig, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode , acceptSupplierOrder, assignSupplierDriver, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, validateSupplierAccount, writePlatformDrivers } from './index'
+import { PERSISTENCE_VERSION, afterSales, calcCartTotal, calcMargin, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, readShareConfig, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode , acceptSupplierOrder, assignSupplierDriver, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, validateSupplierAccount, writePlatformDrivers , todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder } from './index'
 
 describe('shared business helpers', () => {
   it('calculates cart totals without floating point drift', () => {
@@ -486,5 +486,43 @@ describe('supplier fulfillment helpers', () => {
     expect(findActiveDriver(demoDrivers, 'driver01', '123456')?.id).toBe('D001')
     expect(findActiveDriver(demoDrivers, 'driver01', 'bad')).toBeNull()
     expect(findDriverByAccount(demoDrivers, 'driver01')?.status).toBe('active')
+  })
+})
+
+describe('supplier date dimension and shortage handling', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('provides today string and clears platform keys', () => {
+    const today = todayString()
+    expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    writePlatformOrder({ id: 'CLEAR-T1', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'pending', createdAt: 'x' })
+    expect(readPlatformOrders()?.['CLEAR-T1']).toBeTruthy()
+    clearPlatformJson(PLATFORM_ORDERS_STORAGE_KEY)
+    expect(readPlatformOrders()).toBeNull()
+  })
+
+  it('sets deliverDate on assign and courier ship', () => {
+    const today = todayString()
+    let order: Order = { id: 'D1', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'pending', createdAt: 'x' }
+    order = acceptSupplierOrder(order, 'sup')!
+    order = assignSupplierDriver(order, demoDrivers[0], 'sup')!
+    expect(order.supplierFulfillment?.deliverDate).toBe(today)
+    let courier: Order = { id: 'D2', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'pending', createdAt: 'x' }
+    courier = acceptSupplierOrder(courier, 'sup')!
+    courier = shipSupplierCourier(courier, 'SF1', 'sup')!
+    expect(courier.supplierFulfillment?.deliverDate).toBe(today)
+  })
+
+  it('marks shortage handled once and guards repeats', () => {
+    let order: Order = { id: 'S1', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'pending', createdAt: 'x', items: [{ productId: 'P', skuId: 'S', name: '腊肉', skuName: '500g', image: 'i', quantity: 5, price: 1 }] }
+    order = acceptSupplierOrder(order, 'sup')!
+    order = assignSupplierDriver(order, demoDrivers[0], 'sup')!
+    order = handoverSupplierOut(order, { S: 3 }, { id: 'sup', name: 'sup', role: 'supplier' })!
+    expect(order.supplierFulfillment?.shortages).toHaveLength(1)
+    const handled = markShortageHandled(order, 'S', 'sup')!
+    expect(handled.supplierFulfillment?.shortages[0].handled).toBe(true)
+    expect(handled.flow?.some((event) => event.action.includes('已标记补发'))).toBe(true)
+    expect(markShortageHandled(handled, 'S', 'sup')).toBeNull()
+    expect(markShortageHandled(order, 'NO-SKU', 'sup')).toBeNull()
   })
 })

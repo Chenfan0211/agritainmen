@@ -221,6 +221,8 @@ export interface ShortageItem {
   ordered: number
   actual: number
   shortage: number
+  handled?: boolean
+  handledAt?: string
 }
 
 export interface HandoverLog {
@@ -254,6 +256,7 @@ export interface SupplierFulfillment {
   trackingNo?: string
   shortages: ShortageItem[]
   handovers: HandoverLog[]
+  deliverDate?: string
   updatedAt: string
 }
 
@@ -1633,6 +1636,24 @@ function writePlatformJson(key: string, value: unknown): void {
   }
 }
 
+export function clearPlatformJson(key: string): void {
+  try {
+    const scope = globalThis as { localStorage?: Storage }
+    if (scope.localStorage && typeof scope.localStorage.removeItem === 'function') {
+      scope.localStorage.removeItem(key)
+      return
+    }
+  } catch {
+    // 忽略
+  }
+  try {
+    const uniRef = (globalThis as unknown as { uni?: { removeStorageSync?: (key: string) => void } }).uni
+    uniRef?.removeStorageSync?.(key)
+  } catch {
+    // 忽略
+  }
+}
+
 /** 推客直播：创建/更新即发布，用户端合并读取；下架写 null 删除标记，防止种子直播复活 */
 export function readPlatformLives(): Record<string, LiveRoom | null> | null {
   const lives = readPlatformJson<Record<string, LiveRoom | null>>(PLATFORM_LIVES_STORAGE_KEY)
@@ -1760,6 +1781,7 @@ export interface PlatformEntities {
   suppliers?: Record<string, Supplier>
   policies?: Record<string, PricePolicy>
   categories?: Record<string, Category>
+  deliverDate?: string
   updatedAt: string
 }
 
@@ -2123,7 +2145,7 @@ export function assignSupplierDriver(order: Order, driver: DriverAccount, operat
     ...order,
     status: 'shipping',
     flow: [...(order.flow || []), flowEvent(`已发货 · 已指派司机 ${driver.name} 配送`, operator)],
-    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'driver', driverId: driver.id, driverName: driver.name, updatedAt: now }
+    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'driver', driverId: driver.id, driverName: driver.name, deliverDate: todayString(), updatedAt: now }
   }
 }
 
@@ -2152,7 +2174,7 @@ export function shipSupplierCourier(order: Order, trackingNo: string, operator: 
     status: 'shipping',
     trackingNo: trackingNo.trim(),
     flow: [...(order.flow || []), flowEvent(`已发货 · 快递直发，运单 ${trackingNo.trim()}`, operator)],
-    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'courier', trackingNo: trackingNo.trim(), updatedAt: now }
+    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'courier', trackingNo: trackingNo.trim(), deliverDate: todayString(), updatedAt: now }
   }
 }
 
@@ -2201,5 +2223,24 @@ export function confirmCourierDelivered(order: Order, operator: { id: string; na
     supplierFulfillment: { ...fulfillment, status: 'received', updatedAt: now }
   }
 }
+
+export function todayString(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+export function markShortageHandled(order: Order, skuId: string, operatorName: string): Order | null {
+  const fulfillment = ensureSupplierFulfillment(order)
+  const target = fulfillment.shortages.find((item) => item.skuId === skuId)
+  if (!target || target.handled) return null
+  const now = new Date().toLocaleString('zh-CN')
+  const shortages = fulfillment.shortages.map((item) => item.skuId === skuId ? { ...item, handled: true, handledAt: now } : item)
+  return {
+    ...order,
+    flow: [...(order.flow || []), flowEvent(`已标记补发 · ${target.name} 缺 ${target.shortage}`, operatorName)],
+    supplierFulfillment: { ...fulfillment, shortages, updatedAt: now }
+  }
+}
+
 
 export * from './auth'

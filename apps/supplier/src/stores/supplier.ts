@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import type { DriverAccount, MockScenario, Order, ShortageItem } from '@agritainment/shared'
 import {
-  SUPPLIER_DEMO_ID, acceptSupplierOrder, assignSupplierDriver, cloneSeed, confirmCourierDelivered, createId,
+  PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, SUPPLIER_DEMO_ID, acceptSupplierOrder, assignSupplierDriver, clearPlatformJson, cloneSeed, confirmCourierDelivered, createId,
   deriveSupplierMetrics, demoDrivers, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount,
-  handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, readPlatformDrivers, readPlatformOrders,
-  reassignSupplierDriver, shipSupplierCourier, validateSupplierAccount, writePlatformDrivers, writePlatformOrder
+  handoverSupplierIn, handoverSupplierOut, markShortageHandled, mergePlatformDrivers, readPlatformDrivers, readPlatformOrders,
+  reassignSupplierDriver, shipSupplierCourier, todayString, validateSupplierAccount, writePlatformDrivers, writePlatformOrder
 } from '@agritainment/shared'
 import { seedSupplierDataOnce, supplierInfo } from '../services/repository'
 
@@ -38,6 +38,12 @@ export const useSupplierStore = defineStore('supplier', {
   }),
   getters: {
     metrics: (state) => deriveSupplierMetrics(state.orders),
+    todayDeliveryOrders: (state) => state.orders.filter((order) => {
+      const fulfillment = order.supplierFulfillment
+      if (!fulfillment) return false
+      if (fulfillment.status === 'submitted' || fulfillment.status === 'accepted') return true
+      return fulfillment.deliverDate === todayString() && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
+    }),
     activeDrivers: (state) => state.drivers.filter((driver) => driver.status === 'active'),
     driverTaskCounts: (state) => driverActiveTaskCounts(state.orders),
     supplierOrders: (state) => state.orders.filter((order) => order.channel === 'purchase' && order.supplierId === SUPPLIER_DEMO_ID),
@@ -45,7 +51,7 @@ export const useSupplierStore = defineStore('supplier', {
       if (state.auth.role !== 'driver' || !state.auth.driverId) return []
       return state.orders.filter((order) => {
         const fulfillment = order.supplierFulfillment
-        return fulfillment?.shipType === 'driver' && fulfillment.driverId === state.auth.driverId && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
+        return fulfillment?.shipType === 'driver' && fulfillment.driverId === state.auth.driverId && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering') && fulfillment.deliverDate === todayString()
       })
     },
     myHistory: (state) => {
@@ -112,6 +118,16 @@ export const useSupplierStore = defineStore('supplier', {
     logout() {
       this.auth = { isLoggedIn: false, role: null, account: '', name: '', supplierId: SUPPLIER_DEMO_ID }
       this.loginError = ''
+    },
+    markShortageHandled(orderId: string, skuId: string) {
+      if (this.auth.role !== 'supplier') return false
+      const order = this.orders.find((item) => item.id === orderId)
+      return order ? this.commitOrder(markShortageHandled(order, skuId, this.auth.name || supplierInfo.name)) : false
+    },
+    async resetDemoData() {
+      clearPlatformJson(PLATFORM_ORDERS_STORAGE_KEY)
+      clearPlatformJson(PLATFORM_DRIVERS_STORAGE_KEY)
+      await this.initialize(true)
     },
     commitOrder(next: Order | null) {
       if (!next) return false

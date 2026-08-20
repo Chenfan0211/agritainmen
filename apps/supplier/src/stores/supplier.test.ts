@@ -129,4 +129,44 @@ describe('supplier store interactions', () => {
       expect(store.handoverOut(another.id, actuals).ok).toBe(false)
     }
   })
+
+  it('filters myTasks by deliverDate, marks shortage handled, and resets demo data', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+    store.loginSupplier('supplier', '123456')
+
+    // accept + assign an order -> deliverDate today
+    const submitted = store.orders.find((order) => order.supplierFulfillment?.status === 'submitted')!
+    store.acceptOrder(submitted.id)
+    store.assignDriver(submitted.id, 'D001')
+
+    // mark the seeded shortage (SO-S007, driver D003) as handled and persist
+    const shortOrder = store.orders.find((order) => (order.supplierFulfillment?.shortages.length || 0) > 0)!
+    const sku = shortOrder.supplierFulfillment!.shortages[0].skuId
+    expect(store.markShortageHandled(shortOrder.id, sku)).toBe(true)
+    expect(readPlatformOrders()?.[shortOrder.id]?.supplierFulfillment?.shortages[0].handled).toBe(true)
+
+    // driver03 sees SO-S007 today (deliverDate = today)
+    store.logout()
+    expect(store.loginDriver('driver03', '123456')).toBe(true)
+    expect(store.myTasks.some((order) => order.id === shortOrder.id)).toBe(true)
+
+    // a task dated in the past is excluded from today tasks
+    store.logout()
+    store.loginSupplier('supplier', '123456')
+    const assigned = store.orders.find((order) => order.supplierFulfillment?.driverId === 'D001')!
+    assigned.supplierFulfillment!.deliverDate = '2000-01-01'
+    store.logout()
+    store.loginDriver('driver01', '123456')
+    expect(store.myTasks.some((order) => order.id === assigned.id)).toBe(false)
+
+    // reset demo data -> shortage unhandled again, 3 drivers
+    store.logout()
+    store.loginSupplier('supplier', '123456')
+    await store.resetDemoData()
+    const resetShort = store.orders.find((order) => (order.supplierFulfillment?.shortages.length || 0) > 0)!
+    expect(resetShort.supplierFulfillment?.shortages[0].handled).toBeFalsy()
+    expect(store.drivers.length).toBe(3)
+  })
+
 })
