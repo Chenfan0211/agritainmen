@@ -2,7 +2,8 @@
   <!-- 登录 -->
   <view v-if="!store.auth.isLoggedIn" class="login-page">
     <view class="login-card">
-      <view class="login-logo"><UiIcon name="truck" :size="34" /></view>
+      <image class="login-banner" src="/static/images/farmhouse.webp" mode="aspectFill" />
+      <view class="login-body">
       <text class="login-title">供应商配送工作台</text>
       <text class="login-sub">甄选好物供应链 · 供应商与司机双角色配送履约</text>
       <view class="role-tabs">
@@ -16,6 +17,7 @@
       <text v-if="store.loginError" class="form-error login-error">{{ store.loginError }}</text>
       <button class="primary-button login-button" :disabled="busy" @click="submitLogin">登 录</button>
       <text class="login-hint">{{ loginRole === 'supplier' ? '演示供应商：supplier / 123456（已自动填充）' : '演示司机：driver01 / 123456（已自动填充）' }}</text>
+      </view>
     </view>
   </view>
 
@@ -28,16 +30,16 @@
       <!-- 供应商头部 -->
       <view v-if="store.auth.role === 'supplier'" class="hero">
         <view class="hero-top">
-          <view class="hero-avatar"><text>{{ supplierInfo.emoji }}</text></view>
+          <image class="hero-avatar" src="/static/images/bacon.webp" mode="aspectFill" />
           <view><text class="hero-title">{{ supplierInfo.name }}</text><view class="hero-sub">{{ supplierInfo.region }} · {{ supplierInfo.category }}</view></view>
           <button class="hero-logout" @click="logout">退出</button>
         </view>
         <view class="hero-stats">
-          <view><text class="hero-stat-label">待接单</text><text class="hero-stat-value">{{ store.metrics.toAcceptCount }}</text></view>
-          <view><text class="hero-stat-label">待发货</text><text class="hero-stat-value">{{ store.metrics.toDispatchCount }}</text></view>
-          <view><text class="hero-stat-label">配送中</text><text class="hero-stat-value">{{ store.metrics.deliveringCount }}</text></view>
-          <view><text class="hero-stat-label">今日缺货</text><text class="hero-stat-value">{{ store.metrics.shortageOrderCount }}</text></view>
-          <view><text class="hero-stat-label">司机</text><text class="hero-stat-value">{{ store.activeDrivers.length }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">待接单</text><text class="hero-stat-value">{{ store.metrics.toAcceptCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">待发货</text><text class="hero-stat-value">{{ store.metrics.toDispatchCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">配送中</text><text class="hero-stat-value">{{ store.metrics.deliveringCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">今日缺货</text><text class="hero-stat-value">{{ store.metrics.shortageOrderCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">司机</text><text class="hero-stat-value">{{ store.activeDrivers.length }}</text></view>
         </view>
       </view>
 
@@ -49,8 +51,8 @@
           <button class="hero-logout" @click="logout">退出</button>
         </view>
         <view class="hero-stats">
-          <view><text class="hero-stat-label">今日任务</text><text class="hero-stat-value">{{ store.myTasks.length }}</text></view>
-          <view><text class="hero-stat-label">今日完成</text><text class="hero-stat-value">{{ driverDoneToday }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">今日任务</text><text class="hero-stat-value">{{ store.myTasks.length }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">今日完成</text><text class="hero-stat-value">{{ driverDoneToday }}</text></view>
         </view>
       </view>
       <!-- 供应商模块 -->
@@ -719,9 +721,10 @@ $muted: #6b756d;
 $line: #dfe3dc;
 
 // ===== 登录页 =====
-.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(160deg, $green-deep 0%, $green 60%, #1e6b41 100%); }
-.login-card { width: 100%; max-width: 380px; background: $panel; border-radius: 16px; padding: 28px 24px; box-shadow: 0 18px 48px rgba(13, 58, 31, .28); }
-.login-logo { width: 64px; height: 64px; margin: 0 auto 12px; border-radius: 16px; background: $green-soft; color: $green; display: flex; align-items: center; justify-content: center; }
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: calc(24px + env(safe-area-inset-top)) 24px 24px; background: linear-gradient(160deg, $green-deep 0%, $green 60%, #1e6b41 100%); }
+.login-card { width: 100%; max-width: 380px; background: $panel; border-radius: 16px; overflow: hidden; box-shadow: 0 18px 48px rgba(13, 58, 31, .28); }
+.login-banner { width: 100%; height: 150px; display: block; }
+.login-body { padding: 22px 24px 26px; }
 .login-title { display: block; text-align: center; font-size: 20px; font-weight: 700; color: $ink; }
 .login-sub { display: block; text-align: center; margin-top: 6px; font-size: 12px; color: $muted; }
 .role-tabs { display: flex; gap: 8px; margin: 20px 0 16px; }
