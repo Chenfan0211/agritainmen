@@ -269,7 +269,8 @@
             <view v-if="assignableDrivers.length" class="driver-options">
               <button v-for="driver in assignableDrivers" :key="driver.id" class="driver-option" :class="{ active: assignDriverId === driver.id }" @click="assignDriverId = driver.id">
                 <view class="driver-avatar"><UiIcon name="user-round" :size="18" /></view>
-                <view class="row-main"><text>{{ driver.name }}</text><text class="muted">{{ driver.phone }}</text></view>
+                <text class="driver-option-name">{{ driver.name }}</text>
+                <text class="muted">{{ driver.phone }}</text>
                 <view v-if="assignDriverId === driver.id" class="radio-dot"></view>
               </button>
             </view>
@@ -807,9 +808,10 @@ $line: #dfe3dc;
 
 // ===== 指派/改派 =====
 .driver-options { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-.driver-option { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid $line; border-radius: 10px; text-align: left; background: #fff; }
+.driver-option { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid $line; border-radius: 10px; text-align: left; background: #fff; width: 100%; margin-left: 0; margin-right: 0; }
+.driver-option-name { font-size: 14px; font-weight: 600; }
 .driver-option.active { border-color: $green; background: $green-soft; }
-.radio-dot { width: 16px; height: 16px; border-radius: 50%; background: $green; flex: none; }
+.radio-dot { width: 16px; height: 16px; border-radius: 50%; background: $green; flex: none; margin-left: auto; }
 
 // ===== 出库交接 =====
 .actual-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }

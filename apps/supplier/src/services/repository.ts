@@ -52,6 +52,8 @@ const egg = (quantity: number): SeedItem => ({ productId: 'SP09', skuId: 'SP09-3
 const tea = (quantity: number): SeedItem => ({ productId: 'SP19', skuId: 'SP19-1', name: '安化黑茶砖', skuName: '1kg 砖', image: '/static/images/tea.webp', quantity, price: 96 })
 const oil = (quantity: number): SeedItem => ({ productId: 'SP20', skuId: 'SP20-1', name: '土榨菜籽油', skuName: '5L 装', image: '/static/images/field.webp', quantity, price: 70 })
 const fruit = (quantity: number): SeedItem => ({ productId: 'SP10', skuId: 'SP10-5J', name: '时令鲜果礼盒', skuName: '5 斤礼盒', image: '/static/images/peach.webp', quantity, price: 45 })
+const honey = (quantity: number): SeedItem => ({ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜', skuName: '500g', image: '/static/images/honey.webp', quantity, price: 88 })
+const rice = (quantity: number): SeedItem => ({ productId: 'PP05', skuId: 'PP05-1', name: '生态富硒米', skuName: '25kg', image: '/static/images/rice.webp', quantity, price: 168 })
 
 function orderAmount(items: SeedItem[]): number {
   return Math.round(items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100) / 100
@@ -166,7 +168,73 @@ function seedOrders(): Order[] {
         { time: dateTime(1, '16:40'), action: '出库交接完成 · 司机 王芳 领货', operator: supplierInfo.name },
         { time: dateTime(1, '16:40'), action: '缺货 1 项：湘西烟熏柴火腊肉 -2', operator: supplierInfo.name }
       ]
+    },
+    {
+      id: 'SO-S008', customer: '石板溪农家乐·门店', items: [honey(6)], createdAt: dateTime(0, '11:20'),
+      status: 'pending', fulfillment: fulfillmentOf({ status: 'submitted' }), flow: submittedFlow(dateTime(0, '11:20'))
+    },
+    {
+      id: 'SO-S009', customer: '云上人家·门店', items: [rice(4)], createdAt: dateTime(0, '11:35'),
+      status: 'pending', fulfillment: fulfillmentOf({ status: 'accepted' }), flow: acceptedFlow(dateTime(0, '11:35'), dateTime(0, '12:00'))
+    },
+    {
+      id: 'SO-S010', customer: '石板溪农家乐·门店', items: [tea(3), chili(6)], createdAt: dateTime(1, '09:10'),
+      status: 'shipping', fulfillment: fulfillmentOf({ status: 'shipped', shipType: 'driver', driverId: 'D001', driverName: '张伟', deliverDate: dateOnly(0) }),
+      flow: [...acceptedFlow(dateTime(1, '09:10'), dateTime(1, '09:30')), { time: dateTime(1, '09:40'), action: '已发货 · 已指派司机 张伟 配送', operator: supplierInfo.name }]
+    },
+    {
+      id: 'SO-S011', customer: '云上人家·门店', items: [bacon(8), egg(12)], createdAt: dateTime(1, '10:05'),
+      status: 'shipping', fulfillment: fulfillmentOf({
+        status: 'delivering', shipType: 'driver', driverId: 'D002', driverName: '李强', deliverDate: dateOnly(0),
+        shortages: [{ skuId: 'P001-500', name: '湘西烟熏柴火腊肉', ordered: 8, actual: 6, shortage: 2 }],
+        handovers: [{ id: 'H-S011-OUT', type: 'out', orderId: 'SO-S011', time: dateTime(1, '10:40'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 1 }]
+      }),
+      flow: [
+        ...acceptedFlow(dateTime(1, '10:05'), dateTime(1, '10:20')),
+        { time: dateTime(1, '10:30'), action: '已发货 · 已指派司机 李强 配送', operator: supplierInfo.name },
+        { time: dateTime(1, '10:40'), action: '出库交接完成 · 司机 李强 领货', operator: supplierInfo.name },
+        { time: dateTime(1, '10:40'), action: '缺货 1 项：湘西烟熏柴火腊肉 -2', operator: supplierInfo.name }
+      ]
+    },
+    {
+      id: 'SO-S012', customer: '石板溪农家乐·门店', items: [rice(6), oil(2)], createdAt: dateTime(3, '09:00'),
+      status: 'delivered', fulfillment: fulfillmentOf({
+        status: 'received', shipType: 'driver', driverId: 'D002', driverName: '李强', deliverDate: dateOnly(3),
+        handovers: [
+          { id: 'H-S012-OUT', type: 'out', orderId: 'SO-S012', time: dateTime(3, '10:00'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 0 },
+          { id: 'H-S012-IN', type: 'in', orderId: 'SO-S012', time: dateTime(3, '13:30'), operatorId: 'D002', operatorName: '李强', operatorRole: 'driver' }
+        ]
+      }),
+      flow: [
+        ...acceptedFlow(dateTime(3, '09:00'), dateTime(3, '09:30')),
+        { time: dateTime(3, '09:40'), action: '已发货 · 已指派司机 李强 配送', operator: supplierInfo.name },
+        { time: dateTime(3, '10:00'), action: '出库交接完成 · 司机 李强 领货', operator: supplierInfo.name },
+        { time: dateTime(3, '13:30'), action: '到店交接完成 · 司机 李强 已与门店交接', operator: '李强' }
+      ]
+    },
+    {
+      id: 'SO-S013', customer: '云上人家·门店', items: [honey(4)], createdAt: dateTime(1, '14:00'), trackingNo: 'SF888800002',
+      status: 'shipping', fulfillment: fulfillmentOf({ status: 'shipped', shipType: 'courier', trackingNo: 'SF888800002', deliverDate: dateOnly(0) }),
+      flow: [...acceptedFlow(dateTime(1, '14:00'), dateTime(1, '14:20')), { time: dateTime(1, '14:30'), action: '已发货 · 快递直发，运单 SF888800002', operator: supplierInfo.name }]
+    },
+    {
+      id: 'SO-S014', customer: '石板溪农家乐·门店', items: [fruit(4)], createdAt: dateTime(1, '15:00'),
+      status: 'unpaid-cancelled', fulfillment: fulfillmentOf({ status: 'cancelled' }),
+      flow: [...submittedFlow(dateTime(1, '15:00')), { time: dateTime(1, '15:20'), action: '订单已取消 · 门店取消进货单', operator: '门店' }]
+    },
+    {
+      id: 'SO-S015', customer: '云上人家·门店', items: [egg(8), chili(4)], createdAt: dateTime(1, '16:00'),
+      status: 'shipping', fulfillment: fulfillmentOf({
+        status: 'delivering', shipType: 'driver', driverId: 'D001', driverName: '张伟', deliverDate: dateOnly(0),
+        handovers: [{ id: 'H-S015-OUT', type: 'out', orderId: 'SO-S015', time: dateTime(1, '16:30'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 0 }]
+      }),
+      flow: [
+        ...acceptedFlow(dateTime(1, '16:00'), dateTime(1, '16:15')),
+        { time: dateTime(1, '16:20'), action: '已发货 · 已指派司机 张伟 配送', operator: supplierInfo.name },
+        { time: dateTime(1, '16:30'), action: '出库交接完成 · 司机 张伟 领货', operator: supplierInfo.name }
+      ]
     }
+
   ]
   return specs.map(toOrder)
 }
