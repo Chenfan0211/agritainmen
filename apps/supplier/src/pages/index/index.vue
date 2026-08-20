@@ -128,7 +128,7 @@
           <button class="primary-button" style="margin-top:10px" @click="openDriverForm">＋ 新增司机</button>
           <view v-if="filteredDrivers.length" style="margin-top:12px">
             <view v-for="driver in filteredDrivers" :key="driver.id" class="list-card">
-              <view class="row">
+              <view class="row driver-row">
                 <view class="driver-avatar"><UiIcon name="user-round" :size="20" /></view>
                 <view class="row-main">
                   <view class="row-top"><text style="font-size:15px;font-weight:600">{{ driver.name }}</text><span class="badge" :class="driver.status">{{ driver.status === 'active' ? '启用' : '停用' }}</span></view>
@@ -250,9 +250,8 @@
             <view class="log-list">
               <view v-for="(event, index) in (selectedOrder.flow || [])" :key="index" class="log-event"><view class="log-dot"></view><view class="row-main"><text>{{ event.action }}</text><text class="muted">{{ event.time }} · {{ event.operator }}</text></view></view>
             </view>
-            <view class="sheet-actions">
+            <view v-if="orderActions(selectedOrder).length" class="sheet-actions">
               <button v-for="action in orderActions(selectedOrder)" :key="action.key" class="outline-button" :class="{ 'primary-button': action.primary }" @click="runAction(action.key, selectedOrder)">{{ action.label }}</button>
-              <button class="outline-button" @click="closeSheet">关 闭</button>
             </view>
           </view>
 
@@ -743,6 +742,8 @@ $line: #dfe3dc;
 
 // ===== 司机 =====
 .driver-avatar { width: 40px; height: 40px; border-radius: 50%; background: $green-soft; display: flex; align-items: center; justify-content: center; color: $green; flex: none; }
+.driver-row { align-items: flex-start; }
+.driver-row .outline-button { margin-top: 2px; }
 .driver-actions { display: flex; gap: 8px; margin-top: 10px; }
 
 // ===== 任务（司机端）=====
