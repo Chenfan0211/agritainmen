@@ -41,6 +41,8 @@ page, body, #app {
 
 * { box-sizing: border-box; }
 button, input { font: inherit; letter-spacing: 0; }
+button { line-height: 1.15; }
+button::after { border: none; }
 button { border: 0; margin: 0; transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: scale(.98); }
 button:disabled { opacity: .48; pointer-events: none; }

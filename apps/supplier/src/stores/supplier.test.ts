@@ -169,4 +169,35 @@ describe('supplier store interactions', () => {
     expect(store.drivers.length).toBe(3)
   })
 
+  it('seeds incrementally: missing demo orders/drivers merged without overwriting existing data', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+    store.loginSupplier('supplier', '123456')
+
+    // progress one order (submitted -> accepted) so it diverges from seed
+    const submitted = store.orders.find((order) => order.supplierFulfillment?.status === 'submitted')!
+    store.acceptOrder(submitted.id)
+    const acceptedId = submitted.id
+    expect(readPlatformOrders()?.[acceptedId]?.supplierFulfillment?.status).toBe('accepted')
+
+    // re-seed (simulates next launch): must NOT overwrite the progressed order, and merges missing demo data
+    await store.initialize(true)
+    store.loginSupplier('supplier', '123456')
+    expect(readPlatformOrders()?.[acceptedId]?.supplierFulfillment?.status).toBe('accepted')
+    expect(store.orders.length).toBeGreaterThanOrEqual(18)
+    expect(store.drivers.length).toBe(3)
+
+    // driver03 王芳: today task SO-S007 + history SO-S016
+    store.logout()
+    expect(store.loginDriver('driver03', '123456')).toBe(true)
+    expect(store.myTasks.some((o) => o.id === 'SO-S007')).toBe(true)
+    expect(store.myHistory.some((o) => o.id === 'SO-S016')).toBe(true)
+
+    // driver01 张伟: >=3 today tasks + history SO-S017
+    store.logout()
+    expect(store.loginDriver('driver01', '123456')).toBe(true)
+    expect(store.myTasks.length).toBeGreaterThanOrEqual(3)
+    expect(store.myHistory.some((o) => o.id === 'SO-S017')).toBe(true)
+  })
+
 })

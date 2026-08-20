@@ -233,20 +233,69 @@ function seedOrders(): Order[] {
         { time: dateTime(1, '16:20'), action: '已发货 · 已指派司机 张伟 配送', operator: supplierInfo.name },
         { time: dateTime(1, '16:30'), action: '出库交接完成 · 司机 张伟 领货', operator: supplierInfo.name }
       ]
+    },
+    {
+      id: 'SO-S016', customer: '石板溪农家乐·门店', items: [honey(4), rice(5)], createdAt: dateTime(2, '09:20'),
+      status: 'delivered', fulfillment: fulfillmentOf({
+        status: 'received', shipType: 'driver', driverId: 'D003', driverName: '王芳', deliverDate: dateOnly(2),
+        handovers: [
+          { id: 'H-S016-OUT', type: 'out', orderId: 'SO-S016', time: dateTime(2, '10:00'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 0 },
+          { id: 'H-S016-IN', type: 'in', orderId: 'SO-S016', time: dateTime(2, '14:00'), operatorId: 'D003', operatorName: '王芳', operatorRole: 'driver' }
+        ]
+      }),
+      flow: [
+        ...acceptedFlow(dateTime(2, '09:20'), dateTime(2, '09:40')),
+        { time: dateTime(2, '09:50'), action: '已发货 · 已指派司机 王芳 配送', operator: supplierInfo.name },
+        { time: dateTime(2, '10:00'), action: '出库交接完成 · 司机 王芳 领货', operator: supplierInfo.name },
+        { time: dateTime(2, '14:00'), action: '到店交接完成 · 司机 王芳 已与门店交接', operator: '王芳' }
+      ]
+    },
+    {
+      id: 'SO-S017', customer: '云上人家·门店', items: [tea(3), chili(6)], createdAt: dateTime(3, '08:40'),
+      status: 'delivered', fulfillment: fulfillmentOf({
+        status: 'received', shipType: 'driver', driverId: 'D001', driverName: '张伟', deliverDate: dateOnly(3),
+        handovers: [
+          { id: 'H-S017-OUT', type: 'out', orderId: 'SO-S017', time: dateTime(3, '09:30'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 0 },
+          { id: 'H-S017-IN', type: 'in', orderId: 'SO-S017', time: dateTime(3, '12:40'), operatorId: 'D001', operatorName: '张伟', operatorRole: 'driver' }
+        ]
+      }),
+      flow: [
+        ...acceptedFlow(dateTime(3, '08:40'), dateTime(3, '09:00')),
+        { time: dateTime(3, '09:10'), action: '已发货 · 已指派司机 张伟 配送', operator: supplierInfo.name },
+        { time: dateTime(3, '09:30'), action: '出库交接完成 · 司机 张伟 领货', operator: supplierInfo.name },
+        { time: dateTime(3, '12:40'), action: '到店交接完成 · 司机 张伟 已与门店交接', operator: '张伟' }
+      ]
+    },
+    {
+      id: 'SO-S018', customer: '石板溪农家乐·门店', items: [egg(15)], createdAt: dateTime(2, '10:10'),
+      status: 'delivered', fulfillment: fulfillmentOf({
+        status: 'received', shipType: 'driver', driverId: 'D002', driverName: '李强', deliverDate: dateOnly(2),
+        handovers: [
+          { id: 'H-S018-OUT', type: 'out', orderId: 'SO-S018', time: dateTime(2, '11:00'), operatorId: SUPPLIER_DEMO_ID, operatorName: supplierInfo.name, operatorRole: 'supplier', shortageCount: 0 },
+          { id: 'H-S018-IN', type: 'in', orderId: 'SO-S018', time: dateTime(2, '15:20'), operatorId: 'D002', operatorName: '李强', operatorRole: 'driver' }
+        ]
+      }),
+      flow: [
+        ...acceptedFlow(dateTime(2, '10:10'), dateTime(2, '10:30')),
+        { time: dateTime(2, '10:40'), action: '已发货 · 已指派司机 李强 配送', operator: supplierInfo.name },
+        { time: dateTime(2, '11:00'), action: '出库交接完成 · 司机 李强 领货', operator: supplierInfo.name },
+        { time: dateTime(2, '15:20'), action: '到店交接完成 · 司机 李强 已与门店交接', operator: '李强' }
+      ]
     }
-
   ]
   return specs.map(toOrder)
 }
 
-/** 幂等种子：共享订单无任何 S002 进货单时写入演示订单；司机存储为空时写入演示司机 */
+/** 幂等种子：按 id 增量合并缺失的演示订单；司机存储为空或缺少演示司机时补全 */
 export function seedSupplierDataOnce(): void {
-  const published = readPlatformOrders()
-  const hasSupplierOrders = published ? Object.values(published).some((order) => order.channel === 'purchase' && order.supplierId === SUPPLIER_DEMO_ID) : false
-  if (!hasSupplierOrders) {
-    seedOrders().forEach((order) => writePlatformOrder(order))
-  }
-  if (!readPlatformDrivers()) {
+  const published = readPlatformOrders() || {}
+  seedOrders().forEach((order) => { if (!published[order.id]) writePlatformOrder(order) })
+  const currentDrivers = readPlatformDrivers()
+  if (!currentDrivers || currentDrivers.length === 0) {
     writePlatformDrivers(cloneSeed(demoDrivers))
+  } else {
+    const byId = new Set(currentDrivers.map((driver) => driver.id))
+    const missingDrivers = demoDrivers.filter((driver) => !byId.has(driver.id))
+    if (missingDrivers.length) writePlatformDrivers([...currentDrivers, ...cloneSeed(missingDrivers)])
   }
 }
