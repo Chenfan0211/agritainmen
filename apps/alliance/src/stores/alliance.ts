@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AllianceBooking, CommissionEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, Product, Promoter, PromotionRecord, TravelRoute } from '@agritainment/shared'
-import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, readPlatformCommissionSettlement, readUserBindings, validatePhone, validateSmsCode } from '@agritainment/shared'
+import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, buildPortalUrl, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, readPlatformCommissionSettlement, readUserBindings, validatePhone, validateSmsCode } from '@agritainment/shared'
 import { allianceRepository } from '../services/repository'
 
 interface FanRecord {
@@ -9,6 +9,12 @@ interface FanRecord {
   source: string
   lockedAt: string
 }
+
+const alliancePortalLink = (targetType: 'farm' | 'product' | 'live', targetId: string, promoterId = 'T001') => buildPortalUrl('user', 'pages/index/index', {
+  promoter: promoterId,
+  live: targetType === 'live' ? targetId : undefined,
+  activity: `${targetType}:${targetId}`
+}, import.meta.env.VITE_PORTAL_ORIGIN || '')
 
 interface AllianceState {
   initialized: boolean
@@ -70,13 +76,13 @@ export const useAllianceStore = defineStore('discovery', {
       { id: 'CM003', type: 'income', amount: 36.8, description: '东江湖鲜开捕节直播推广佣金', createdAt: '2026-08-12 16:20', status: 'pending', targetType: 'live', targetId: 'L005' }
     ],
     promotionRecords: [
-      { id: 'PR-SEED', targetType: 'farm' as const, targetId: 'F001', targetName: '石板溪农家乐', link: 'https://demo.local/farm/F001?promoter=T001', shareCount: 3, lockedFans: 1, estimatedCommission: 78, createdAt: '2026-08-11 09:20' },
-      { id: 'PR-002', targetType: 'product' as const, targetId: 'P001', targetName: '湘西烟熏柴火腊肉', link: 'https://demo.local/product/P001?promoter=T001', shareCount: 5, lockedFans: 2, estimatedCommission: 42.8, createdAt: '2026-08-10 10:12' },
-      { id: 'PR-003', targetType: 'farm' as const, targetId: 'F002', targetName: '云上人家山景农庄', link: 'https://demo.local/farm/F002?promoter=T001', shareCount: 2, lockedFans: 1, estimatedCommission: 36, createdAt: '2026-08-10 14:36' },
-      { id: 'PR-004', targetType: 'live' as const, targetId: 'L001', targetName: '石板溪掌柜带你吃土鸡宴', link: 'https://demo.local/live/L001?promoter=T001', shareCount: 8, lockedFans: 3, estimatedCommission: 96, createdAt: '2026-08-11 11:05' },
-      { id: 'PR-005', targetType: 'product' as const, targetId: 'P002', targetName: '炎陵黄桃 5斤礼盒', link: 'https://demo.local/product/P002?promoter=T001', shareCount: 6, lockedFans: 2, estimatedCommission: 24.5, createdAt: '2026-08-11 19:44' },
-      { id: 'PR-006', targetType: 'farm' as const, targetId: 'F006', targetName: '衡山南岳农家乐', link: 'https://demo.local/farm/F006?promoter=T001', shareCount: 3, lockedFans: 1, estimatedCommission: 28, createdAt: '2026-08-12 09:52' },
-      { id: 'PR-007', targetType: 'live' as const, targetId: 'L005', targetName: '东江湖鲜开捕节 · 刁子鱼直发', link: 'https://demo.local/live/L005?promoter=T001', shareCount: 4, lockedFans: 2, estimatedCommission: 64, createdAt: '2026-08-12 16:18' }
+      { id: 'PR-SEED', targetType: 'farm' as const, targetId: 'F001', targetName: '石板溪农家乐', link: alliancePortalLink('farm', 'F001'), shareCount: 3, lockedFans: 1, estimatedCommission: 78, createdAt: '2026-08-11 09:20' },
+      { id: 'PR-002', targetType: 'product' as const, targetId: 'P001', targetName: '湘西烟熏柴火腊肉', link: alliancePortalLink('product', 'P001'), shareCount: 5, lockedFans: 2, estimatedCommission: 42.8, createdAt: '2026-08-10 10:12' },
+      { id: 'PR-003', targetType: 'farm' as const, targetId: 'F002', targetName: '云上人家山景农庄', link: alliancePortalLink('farm', 'F002'), shareCount: 2, lockedFans: 1, estimatedCommission: 36, createdAt: '2026-08-10 14:36' },
+      { id: 'PR-004', targetType: 'live' as const, targetId: 'L001', targetName: '石板溪掌柜带你吃土鸡宴', link: alliancePortalLink('live', 'L001'), shareCount: 8, lockedFans: 3, estimatedCommission: 96, createdAt: '2026-08-11 11:05' },
+      { id: 'PR-005', targetType: 'product' as const, targetId: 'P002', targetName: '炎陵黄桃 5斤礼盒', link: alliancePortalLink('product', 'P002'), shareCount: 6, lockedFans: 2, estimatedCommission: 24.5, createdAt: '2026-08-11 19:44' },
+      { id: 'PR-006', targetType: 'farm' as const, targetId: 'F006', targetName: '衡山南岳农家乐', link: alliancePortalLink('farm', 'F006'), shareCount: 3, lockedFans: 1, estimatedCommission: 28, createdAt: '2026-08-12 09:52' },
+      { id: 'PR-007', targetType: 'live' as const, targetId: 'L005', targetName: '东江湖鲜开捕节 · 刁子鱼直发', link: alliancePortalLink('live', 'L005'), shareCount: 4, lockedFans: 2, estimatedCommission: 64, createdAt: '2026-08-12 16:18' }
     ],
     bookings: [
       { id: 'AB2026080101', farmId: 'F001', farmName: '石板溪农家乐', date: '8/12', session: '午市 11:30', people: 4, status: 'confirmed', createdAt: '2026-08-10 09:12' },
@@ -222,7 +228,7 @@ export const useAllianceStore = defineStore('discovery', {
       }
       const record: PromotionRecord = {
         id: createId('PR'), targetType, targetId: id, targetName: name,
-        link: `https://demo.local/${targetType}/${id}?promoter=${this.promoter?.id || 'guest'}`,
+        link: alliancePortalLink(targetType, id, this.promoter?.id || 'T001'),
         shareCount: 1, lockedFans: 1, estimatedCommission: commission,
         createdAt: new Date().toLocaleString('zh-CN')
       }

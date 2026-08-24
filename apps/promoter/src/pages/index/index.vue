@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import type { FarmStore, LiveRoom, Product } from '@agritainment/shared'
-import { createId, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount } from '@agritainment/shared'
+import { buildPortalUrl, createId, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount } from '@agritainment/shared'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
 import qrcode from 'qrcode-generator'
@@ -45,7 +45,10 @@ function openCreateLive(room?: LiveRoom) {
   if (room) {
     Object.assign(liveForm, { id: room.id, title: room.title, image: room.image || '/static/images/farmhouse.webp', status: room.status, selectedFarms: (room.linkedFarms || []).map((item) => item.farmId) })
     Object.keys(selectedPackages).forEach((key) => delete selectedPackages[key])
-    ;(room.linkedFarms || []).forEach((item) => { selectedPackages[item.farmId] = [...item.packageIds] })
+    ;(room.linkedFarms || []).forEach((item) => {
+      const candidateIds = new Set(packagesOfFarm(item.farmId).map((product) => product.id))
+      selectedPackages[item.farmId] = item.packageIds.filter((id) => candidateIds.has(id))
+    })
   } else {
     Object.assign(liveForm, { id: '', title: '', image: '/static/images/farmhouse.webp', status: 'preview', selectedFarms: [] })
     Object.keys(selectedPackages).forEach((key) => delete selectedPackages[key])
@@ -73,7 +76,10 @@ function togglePackage(farmId: string, packageId: string) {
 
 function saveLive() {
   const linkedFarms = liveForm.selectedFarms
-    .map((farmId) => ({ farmId, packageIds: selectedPackages[farmId] || [] }))
+    .map((farmId) => {
+      const candidateIds = new Set(packagesOfFarm(farmId).map((product) => product.id))
+      return { farmId, packageIds: (selectedPackages[farmId] || []).filter((id) => candidateIds.has(id)) }
+    })
     .filter((item) => item.packageIds.length)
   if (!liveForm.title.trim()) return toast('请填写直播标题')
   if (!linkedFarms.length) return toast('请至少选择一个门店套餐')
@@ -84,9 +90,14 @@ function saveLive() {
   toast(liveForm.id ? '直播已更新并发布' : '直播已创建并发布')
 }
 
+function toggleLive(room: LiveRoom) {
+  if (!store.toggleLiveStatus(room.id)) return toast('当前直播没有有效门店套餐，无法开播')
+  toast(room.status === 'live' ? '已开播' : '已改为预告')
+}
+
 function liveLink(room: LiveRoom) {
-  const promoterName = encodeURIComponent(store.promoter?.name || '推客')
-  return `${userPortalBase}#/pages/index/index?promoter=${store.promoter?.id}&promoterName=${promoterName}&live=${room.id}`
+  const origin = userPortalBase.replace(/\/user\/?$/, '')
+  return buildPortalUrl('user', 'pages/index/index', { promoter: store.promoter?.id, promoterName: store.promoter?.name || '推客', live: room.id }, origin)
 }
 
 async function openShare(room: LiveRoom) {
@@ -216,7 +227,7 @@ onMounted(async () => {
             <view class="live-title-row"><text class="live-title">{{ room.title }}</text><span :class="room.status">{{ room.status === 'live' ? '直播中' : '预告' }}</span></view>
             <small class="live-meta">绑定 {{ liveFarmCount(room) }} 家门店 · {{ room.viewers.toLocaleString('zh-CN') }} 人观看</small>
             <view class="live-actions">
-              <button class="mini" @click="store.toggleLiveStatus(room.id); toast(room.status === 'live' ? '已开播' : '已改为预告')">{{ room.status === 'live' ? '转为预告' : '开播' }}</button>
+              <button class="mini" @click="toggleLive(room)">{{ room.status === 'live' ? '转为预告' : '开播' }}</button>
               <button class="mini" @click="openCreateLive(room)">编辑</button>
               <button class="mini accent" @click="openShare(room)">分享/二维码</button>
               <button class="mini danger" @click="confirmRemoveLive(room)">下架</button>

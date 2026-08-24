@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Order, OrderItem, OrderStatus, PlatformMedia, SupplierFulfillment } from './index'
+import { CATALOG_SCHEMA_VERSION, C_COMMERCE_SCHEMA_VERSION, DEFAULT_PRICING_DEFAULTS, PLATFORM_CONFIG_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, allocateCatalogCommissions, allocateStoreCatalogCommission, applyCatalogStockOperation, buildPortalUrl, catalogPriceForSku, catalogProductToCProduct, catalogProductToProduct, catalogProductsForAudience, commitCatalogTransaction, deriveCOrderStatus, ensureCatalogState, ensureCCommerceSchemaVersion, markCatalogTransactionStockApplied, mergeCSubOrderFulfillment, migrateLegacyCatalog, normalizeCAddresses, normalizeCOrders, normalizeCProducts, PLATFORM_C_INVENTORY_STORAGE_KEY, PLATFORM_C_PRODUCTS_STORAGE_KEY, prepareCatalogTransaction, readCAddresses, readCatalogState, readCatalogTransactionJournal, readCCommerceSchemaVersion, readCInventoryState, readCProducts, readCCommissionRecords, readPendingCatalogTransactions, readPricingDefaults, readShareConfig, readStoreCatalogSelectionState, readStoreCatalogSelections, removeCAddress, resolveCReferralChain, saveCatalogProduct, saveStoreCatalogSelection, seedCCommerceData, updateCatalogStock, upsertStoreCatalogSelection, writeCatalogState, writeCAddresses, writeCCommissionRecords, writeCInventoryState, writePricingDefaults, writeShareConfig, publishCSubOrderToSupplier, syncCSubOrderFromSupplier, readVersionedRecord, writeVersionedRecord } from './index'
+import type { CProduct, CProductSku, CatalogProduct, CatalogState, Order, OrderItem, OrderStatus, PlatformMedia, SupplierFulfillment } from './index'
 
 if (!globalThis.localStorage) {
   const storage = new Map<string, string>()
@@ -12,7 +13,249 @@ if (!globalThis.localStorage) {
     get length() { return storage.size }
   } as unknown as Storage
 }
-import { PERSISTENCE_VERSION, afterSales, calcCartTotal, calcMargin, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, readShareConfig, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode , acceptSupplierOrder, assignSupplierDriver, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, validateSupplierAccount, writePlatformDrivers , todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder } from './index'
+import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode , acceptSupplierOrder, assignSupplierDriver, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, validateSupplierAccount, writePlatformDrivers , todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_LIVE, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
+
+describe('C端分销商城 helpers', () => {
+  beforeEach(() => localStorage.clear())
+  const sku: CProductSku = { id: 'C001-SKU', name: '500g', image: '/static/images/bacon.webp', stock: 20, basePrice: 20, level1Commission: 10, level2Commission: 15 }
+
+  it('derives cumulative prices by user level', () => {
+    expect(cPriceForSku(sku, 'level1')).toBe(20)
+    expect(cPriceForSku(sku, 'level2')).toBe(30)
+    expect(cPriceForSku(sku, 'normal')).toBe(45)
+  })
+
+  it('allocates fixed commissions by quantity and two-level chain', () => {
+    const items = [{ productId: 'C001', skuId: sku.id, name: '腊肉', skuName: sku.name, image: sku.image, quantity: 2, unitPrice: 45, basePrice: 20, level1Commission: 10, level2Commission: 15, supplierId: 'S002' }]
+    expect(allocateCCommissions(items, { level1Id: 'T001', level2Id: 'T002' }, 'normal')).toMatchObject([
+      { beneficiaryId: 'T001', beneficiaryLevel: 'level1', amount: 20 },
+      { beneficiaryId: 'T002', beneficiaryLevel: 'level2', amount: 30 }
+    ])
+    expect(allocateCCommissions(items, { level2Id: 'T002' }, 'normal')[0]).toMatchObject({ beneficiaryId: 'T002', beneficiaryLevel: 'level2', amount: 30 })
+    expect(allocateCCommissions(items, { level1Id: 'T001', level2Id: 'SELF' }, 'level2')[0]).toMatchObject({ beneficiaryId: 'T001', beneficiaryLevel: 'level1', amount: 20 })
+    expect(allocateCCommissions(items, { level2Id: 'SELF' }, 'level1')).toEqual([])
+  })
+
+  it('splits C order items by supplier and advances statuses', () => {
+    const items = [
+      { productId: 'C001', skuId: 'A', name: 'A', skuName: 'A', image: '', quantity: 1, unitPrice: 45, basePrice: 20, level1Commission: 10, level2Commission: 15, supplierId: 'S001' },
+      { productId: 'C002', skuId: 'B', name: 'B', skuName: 'B', image: '', quantity: 2, unitPrice: 30, basePrice: 12, level1Commission: 8, level2Commission: 10, supplierId: 'S002' }
+    ]
+    expect(splitCOrderItems(items).map((group) => [group.supplierId, group.items.length])).toEqual([['S001', 1], ['S002', 1]])
+    expect(nextCOrderStatus('pending_payment')).toBe('paid')
+    expect(nextCOrderStatus('shipped')).toBe('received')
+    expect(nextCOrderStatus('partially_shipped')).toBe('partially_received')
+    expect(nextCOrderStatus('received')).toBe('received')
+  })
+
+  it('builds same-origin portal links without accepting userId as a parameter', () => {
+    expect(buildPortalUrl('user', 'pages/index/index', { promoter: 'T001', live: 'L001', userId: 'U-ATTACK' }, 'http://127.0.0.1:8780'))
+      .toBe('http://127.0.0.1:8780/user/#/pages/index/index?promoter=T001&live=L001')
+    expect(buildPortalUrl('user', 'pages/index/index', { promoter: 'T001', userId: 'U-ATTACK' }))
+      .toBe('/user/#/pages/index/index?promoter=T001')
+  })
+
+  it('publishes a paid C sub-order once and maps supplier courier status back', () => {
+    const order = {
+      id: 'CO-1', userId: 'U-1', level: 'normal' as const,
+      address: { id: 'A-1', userId: 'U-1', receiver: '甲', phone: '13800000000', region: '湖南', detail: '一号', isDefault: true },
+      amount: 45, items: [], status: 'paid' as const, createdAt: '2026-08-21T10:00:00.000Z', commissionAllocations: [],
+      subOrders: [{ id: 'CSO-1', supplierId: 'S002', supplierName: '供应商 A', items: [{ productId: 'C001', skuId: 'C001-500', name: '腊肉', skuName: '500g', image: '', quantity: 1, unitPrice: 45, basePrice: 20, level1Commission: 10, level2Commission: 15, supplierId: 'S002' }], amount: 45, status: 'paid' as const, logistics: [] }]
+    }
+    const first = publishCSubOrderToSupplier(order, order.subOrders[0])
+    const second = publishCSubOrderToSupplier(order, order.subOrders[0])
+    expect(first.id).toBe('C-MALL-CSO-1')
+    expect(second.id).toBe(first.id)
+    expect(first.supplierOrderLink).toMatchObject({ source: 'c-mall', sourceOrderId: 'CO-1', sourceSubOrderId: 'CSO-1', customerUserId: 'U-1' })
+    const next = syncCSubOrderFromSupplier(order, order.subOrders[0], { ...first, status: 'shipping', trackingNo: 'SF001', supplierFulfillment: { status: 'shipped', shipType: 'courier', trackingNo: 'SF001', shortages: [], handovers: [], updatedAt: '2026-08-21T11:00:00.000Z' } })
+    expect(next.subOrders[0]).toMatchObject({ status: 'shipped', trackingNo: 'SF001', courier: '快递配送' })
+  })
+
+  it('does not regress terminal C sub-order states from stale supplier snapshots', () => {
+    const sub = { id: 'CSO-1', supplierId: 'S002', supplierName: '供应商 A', items: [], amount: 0, status: 'received' as const, logistics: [{ time: '2026-08-21T12:00:00.000Z', title: '已签收', detail: '用户确认收货' }] }
+    const stale = { status: 'shipped' as const, trackingNo: 'OLD', logistics: [{ time: '2026-08-21T10:00:00.000Z', title: '已发货', detail: '旧快照' }] }
+    expect(mergeCSubOrderFulfillment(sub, stale)).toMatchObject({ status: 'received', trackingNo: 'OLD', logistics: sub.logistics })
+    expect(mergeCSubOrderFulfillment({ ...sub, status: 'after_sale' }, stale).status).toBe('after_sale')
+    expect(mergeCSubOrderFulfillment({ ...sub, status: 'cancelled' }, stale).status).toBe('cancelled')
+  })
+
+  it('does not regress a shipped sub-order to paid from an accepted snapshot', () => {
+    const current = {
+      id: 'CSO-SHIPPED', supplierId: 'S002', supplierName: '供应商 A', items: [], amount: 0,
+      status: 'shipped' as const, trackingNo: 'SF-CURRENT', courier: '顺丰速运',
+      logistics: [{ time: '2026-08-21T11:00:00.000Z', title: '已发货', detail: '顺丰速运已揽收' }]
+    }
+
+    expect(mergeCSubOrderFulfillment(current, { status: 'accepted', shipType: 'courier', trackingNo: '' })).toEqual(current)
+  })
+
+  it('keeps newer logistics when a same-state snapshot contains an older shorter history', () => {
+    const submitted = { time: '2026-08-21T09:00:00.000Z', title: '订单已提交', detail: '等待供应商接单' }
+    const shipped = { time: '2026-08-21T10:00:00.000Z', title: '已发货', detail: '顺丰速运已揽收' }
+    const transporting = { time: '2026-08-21T12:00:00.000Z', title: '运输中', detail: '包裹已到达长沙转运中心' }
+    const current = {
+      id: 'CSO-LOGISTICS', supplierId: 'S002', supplierName: '供应商 A', items: [], amount: 0,
+      status: 'shipped' as const, trackingNo: 'SF-CURRENT', courier: '顺丰速运',
+      logistics: [submitted, shipped, transporting]
+    }
+
+    expect(mergeCSubOrderFulfillment(current, {
+      status: 'shipped', shipType: 'courier', trackingNo: '', logistics: [submitted, shipped]
+    })).toEqual(current)
+  })
+
+  it('merges repeated fulfillment snapshots idempotently without duplicate logistics', () => {
+    const submitted = { time: '2026-08-21T09:00:00.000Z', title: '订单已提交', detail: '等待供应商接单' }
+    const shipped = { time: '2026-08-21T10:00:00.000Z', title: '已发货', detail: '顺丰速运已揽收' }
+    const transporting = { time: '2026-08-21T12:00:00.000Z', title: '运输中', detail: '包裹已到达长沙转运中心' }
+    const current = {
+      id: 'CSO-IDEMPOTENT', supplierId: 'S002', supplierName: '供应商 A', items: [], amount: 0,
+      status: 'shipped' as const, trackingNo: 'SF-CURRENT', courier: '顺丰速运', logistics: [submitted, transporting]
+    }
+    const snapshot = { status: 'shipped' as const, shipType: 'courier' as const, trackingNo: 'SF-CURRENT', logistics: [submitted, shipped] }
+    const first = mergeCSubOrderFulfillment(current, snapshot)
+    const second = mergeCSubOrderFulfillment(first, snapshot)
+
+    expect(first.logistics).toEqual([submitted, shipped, transporting])
+    expect(second).toEqual(first)
+  })
+
+  it('validates active referral chains and rejects invalid or paused promoters', () => {
+    expect(resolveCReferralChain('T002', promoters, {
+      'U-DEMO-L2': { userId: 'U-DEMO-L2', promoterId: 'T002', level: 'level2', parentPromoterId: 'T001', status: 'active' }
+    })).toEqual({ level1Id: 'T001', level2Id: 'T002' })
+    expect(resolveCReferralChain('missing', promoters, {})).toBeNull()
+    expect(resolveCReferralChain('T002', promoters.map((item) => item.id === 'T002' ? { ...item, status: 'paused' as const } : item), {
+      'U-DEMO-L2': { userId: 'U-DEMO-L2', promoterId: 'T002', level: 'level2', parentPromoterId: 'T001', status: 'active' }
+    })).toBeNull()
+    expect(resolveCReferralChain('T002', promoters, {
+      'U-DEMO-L2': { userId: 'U-DEMO-L2', promoterId: 'T002', level: 'level2', status: 'active' }
+    })).toEqual({ level2Id: 'T002' })
+    expect(resolveCReferralChain('T001', promoters, {})).toEqual({ level2Id: 'T001' })
+  })
+
+  it('derives aggregate status from independently fulfilled sub-orders', () => {
+    const sub = (status: 'paid' | 'shipped' | 'received' | 'after_sale') => ({ status } as never)
+    expect(deriveCOrderStatus([sub('paid'), sub('shipped')])).toBe('partially_shipped')
+    expect(deriveCOrderStatus([sub('received'), sub('shipped')])).toBe('partially_received')
+    expect(deriveCOrderStatus([sub('after_sale'), sub('received')])).toBe('partially_after_sale')
+  })
+
+  it('persists and replaces the complete address collection', () => {
+    writeCAddresses({ A: { id: 'A', userId: 'U1', receiver: '甲', phone: '13800000000', region: '湖南', detail: '一号', isDefault: true } })
+    expect(readCAddresses()?.A.receiver).toBe('甲')
+    writeCAddresses({ B: { id: 'B', userId: 'U1', receiver: '乙', phone: '13900000000', region: '湖南', detail: '二号', isDefault: true } })
+    expect(readCAddresses()).toEqual({ B: expect.objectContaining({ receiver: '乙' }) })
+  })
+
+  it('rejects stale C inventory writes by revision', () => {
+    const products = [{
+      id: 'C-INV', name: '库存测试', category: '测试', supplierId: 'S1', supplierName: '供应商', image: '', tags: [], status: 'active' as const, shippingType: 'courier' as const,
+      skus: [{ id: 'C-INV-SKU', name: '默认', image: '', stock: 2, basePrice: 1, level1Commission: 1, level2Commission: 1 }]
+    }]
+    expect(writeCInventoryState({ revision: 1, products }, 0)).toBe(true)
+    expect(writeCInventoryState({ revision: 2, products: [{ ...products[0], skus: [{ ...products[0].skus[0], stock: 1 }] }] }, 0)).toBe(false)
+    expect(readCInventoryState()).toMatchObject({ revision: 1, products })
+  })
+
+  it('accepts only the next revision for generic shared records', () => {
+    expect(writeVersionedRecord('versioned-test', { revision: 1, updatedAt: '2026-08-21T10:00:00.000Z', data: { value: 'first' } }, 0)).toBe(true)
+    expect(writeVersionedRecord('versioned-test', { revision: 2, updatedAt: '2026-08-21T11:00:00.000Z', data: { value: 'stale' } }, 0)).toBe(false)
+    expect(writeVersionedRecord('versioned-test', { revision: 2, updatedAt: '2026-08-21T09:00:00.000Z', data: { value: 'older' } }, 1)).toBe(false)
+    expect(readVersionedRecord<{ value: string }>('versioned-test')).toMatchObject({ revision: 1, data: { value: 'first' } })
+  })
+
+  it('migrates legacy C product arrays to revisioned inventory storage', () => {
+    const products = [{
+      id: 'C-LEGACY', name: '旧商品', category: '测试', supplierId: 'S1', supplierName: '供应商', image: '', tags: [], status: 'active' as const, shippingType: 'courier' as const,
+      skus: [{ id: 'C-LEGACY-SKU', name: '默认', image: '', stock: 2, basePrice: 1, level1Commission: 1, level2Commission: 1 }]
+    }]
+    localStorage.setItem(PLATFORM_C_PRODUCTS_STORAGE_KEY, JSON.stringify(products))
+    expect(readCInventoryState()).toMatchObject({ revision: 0, products })
+    expect(JSON.parse(localStorage.getItem(PLATFORM_C_INVENTORY_STORAGE_KEY) || '{}')).toMatchObject({ revision: 0, products })
+  })
+
+  it('normalizes invalid C products and monetary fields before storage', () => {
+    const valid = { ...cProducts[0], skus: [{ ...cProducts[0].skus[0], stock: 2.9, basePrice: 20.126, level1Commission: 10.004, level2Commission: 15.005 }] }
+    const invalid = { ...valid, id: 'BAD', skus: [{ ...valid.skus[0], stock: -1 }] }
+    expect(normalizeCProducts([valid, invalid])).toMatchObject([{ id: valid.id, skus: [{ stock: 2, basePrice: 20.13, level1Commission: 10, level2Commission: 15.01 }] }])
+  })
+
+  it('keeps one latest default address and drops malformed addresses', () => {
+    const normalized = normalizeCAddresses({
+      old: { id: 'old', userId: 'U1', receiver: '甲', phone: '13800000000', region: '湖南', detail: '一号', isDefault: true, updatedAt: '2026-01-01T00:00:00.000Z' },
+      latest: { id: 'latest', userId: 'U1', receiver: '乙', phone: '13900000000', region: '湖南', detail: '二号', isDefault: true, updatedAt: '2026-02-01T00:00:00.000Z' },
+      invalid: { id: 'invalid', userId: '', receiver: '', phone: 'bad', region: '', detail: '', isDefault: true }
+    })
+    expect(normalized).toEqual(expect.objectContaining({ latest: expect.objectContaining({ isDefault: true }), old: expect.objectContaining({ isDefault: false }) }))
+    expect(normalized.invalid).toBeUndefined()
+  })
+
+  it('normalizes order times, logistics and commission sub-order ownership', () => {
+    const order = {
+      id: 'CO-NORMALIZE', userId: 'U1', level: 'normal' as const, address: { id: 'A', userId: 'U1', receiver: '甲', phone: '13800000000', region: '湖南', detail: '一号', isDefault: true }, amount: 45.126,
+      items: [], subOrders: [{ id: 'SO-1', supplierId: 'S1', supplierName: '供应商', items: [{ productId: 'P', skuId: 'S', name: '商品', skuName: '规格', image: '', quantity: 1, unitPrice: 45.126, basePrice: 20, level1Commission: 10, level2Commission: 15, supplierId: 'S1' }], amount: 45.126, status: 'paid' as const, logistics: [{ time: 'invalid', title: '订单已提交', detail: '' }] }],
+      commissionAllocations: [{ id: 'CC-1', orderId: 'CO-NORMALIZE', subOrderId: 'SO-1', beneficiaryId: 'T1', beneficiaryLevel: 'level1' as const, amount: 10.126, status: 'pending' as const, createdAt: 'invalid' }], status: 'paid' as const, createdAt: 'invalid'
+    }
+    const normalized = normalizeCOrders({ [order.id]: order })[order.id]
+    expect(normalized.amount).toBe(45.13)
+    expect(normalized.subOrders[0].items[0].unitPrice).toBe(45.13)
+    expect(normalized.subOrders[0].logistics[0].time).toMatch(/T/)
+    expect(normalized.commissionAllocations[0].subOrderId).toBe('SO-1')
+  })
+
+  it('initializes an independent C commerce schema version', () => {
+    expect(readCCommerceSchemaVersion()).toBe(0)
+    ensureCCommerceSchemaVersion()
+    expect(readCCommerceSchemaVersion()).toBe(C_COMMERCE_SCHEMA_VERSION)
+  })
+
+  it('rejects orders whose address belongs to another user', () => {
+    const order = {
+      id: 'CO-OWNER', userId: 'U1', level: 'normal' as const,
+      address: { id: 'A', userId: 'U2', receiver: '乙', phone: '13900000000', region: '湖南', detail: '二号', isDefault: true },
+      amount: 1, items: [], subOrders: [{ id: 'SO-OWNER', supplierId: 'S1', supplierName: '供应商', items: [{ productId: 'P', skuId: 'S', name: '商品', skuName: '规格', image: '', quantity: 1, unitPrice: 1, basePrice: 1, level1Commission: 0, level2Commission: 0, supplierId: 'S1' }], amount: 1, status: 'paid' as const, logistics: [] }],
+      commissionAllocations: [], status: 'paid' as const, createdAt: new Date().toISOString()
+    }
+    expect(normalizeCOrders({ [order.id]: order })).toEqual({})
+  })
+
+  it('rejects duplicate sub-order ids instead of deriving an ambiguous order', () => {
+    const item = { productId: 'P', skuId: 'S', name: '商品', skuName: '规格', image: '', quantity: 1, unitPrice: 1, basePrice: 1, level1Commission: 0, level2Commission: 0, supplierId: 'S1' }
+    const order = {
+      id: 'CO-DUP', userId: 'U1', level: 'normal' as const,
+      address: { id: 'A', userId: 'U1', receiver: '甲', phone: '13800000000', region: '湖南', detail: '一号', isDefault: true }, amount: 2, items: [item, item],
+      subOrders: [{ id: 'SO-DUP', supplierId: 'S1', supplierName: '供应商', items: [item], amount: 1, status: 'paid' as const, logistics: [] }, { id: 'SO-DUP', supplierId: 'S2', supplierName: '供应商2', items: [item], amount: 1, status: 'paid' as const, logistics: [] }],
+      commissionAllocations: [], status: 'paid' as const, createdAt: new Date().toISOString()
+    }
+    expect(normalizeCOrders({ [order.id]: order })).toEqual({})
+  })
+
+  it('reseeds the C catalog when persisted inventory is empty', () => {
+    localStorage.setItem(PLATFORM_C_INVENTORY_STORAGE_KEY, JSON.stringify({ revision: 9, products: [] }))
+    seedCCommerceData()
+    expect(readCProducts()).toHaveLength(cProducts.length)
+  })
+
+  it('normalizes commission writes and excludes invalid records', () => {
+    writeCCommissionRecords([
+      { id: 'CC-VALID', orderId: 'CO1', subOrderId: 'SO1', beneficiaryId: 'T1', beneficiaryLevel: 'level1', amount: 10.126, status: 'pending', createdAt: '2026-01-01' },
+      { id: 'CC-INVALID', orderId: '', subOrderId: '', beneficiaryId: 'T1', beneficiaryLevel: 'level1', amount: 20, status: 'pending', createdAt: '2026-01-01' }
+    ])
+    expect(readCCommissionRecords()).toEqual([expect.objectContaining({ id: 'CC-VALID', amount: 10.13 })])
+  })
+
+  it('promotes the first remaining address after deleting the default', () => {
+    writeCAddresses({
+      first: { id: 'first', userId: 'U1', receiver: '甲', phone: '13800000000', region: '湖南', detail: '一号', isDefault: false, updatedAt: '2026-01-01' },
+      second: { id: 'second', userId: 'U1', receiver: '乙', phone: '13900000000', region: '湖南', detail: '二号', isDefault: false, updatedAt: '2026-02-01' },
+      selected: { id: 'selected', userId: 'U1', receiver: '丙', phone: '13700000000', region: '湖南', detail: '三号', isDefault: true, updatedAt: '2026-03-01' }
+    })
+    removeCAddress('selected')
+    expect(readCAddresses()?.first?.isDefault).toBe(true)
+    expect(readCAddresses()?.second?.isDefault).toBe(false)
+  })
+})
 
 describe('shared business helpers', () => {
   it('calculates cart totals without floating point drift', () => {
@@ -349,10 +592,12 @@ describe('user identity (openid anchor)', () => {
     expect(resolveUserIdentity('mock_openid_abc')).toBe(userId)
   })
 
-  it('keeps distinct openids mapped to the same local user until each is linked', () => {
+  it('keeps distinct openids isolated unless explicitly linked', () => {
     const a = resolveUserIdentity('openid_A')
-    writeUserLink('openid_B', a)
-    expect(resolveUserIdByOpenid('openid_B')).toBe(a)
+    const b = resolveUserIdentity('openid_B')
+    expect(b).not.toBe(a)
+    writeUserLink('openid_C', a)
+    expect(resolveUserIdByOpenid('openid_C')).toBe(a)
   })
 describe('platform after-sale status text', () => {
   beforeEach(() => localStorage.clear())
@@ -392,23 +637,23 @@ describe('supplier fulfillment helpers', () => {
   })
 
   it('derives supplier metrics across statuses and today counts', () => {
-    const now = new Date()
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const today = todayString()
     const order = (id: string, status: OrderStatus, amount: number, createdAt: string, fulfillment?: Partial<SupplierFulfillment>): Order => ({ id, productName: 'x', quantity: 1, amount, customer: 's', channel: 'purchase', status, createdAt, ...(fulfillment ? { supplierFulfillment: { status: 'submitted', shortages: [], handovers: [], updatedAt: '', ...fulfillment } } : {}) })
     const orders = [
       order('A', 'pending', 10, `${today} 09:00`),
       order('B', 'pending', 20, `${today} 09:10`),
       order('C', 'pending', 30, `${today} 09:20`, { status: 'accepted' }),
-      order('D', 'shipping', 40, '2026-08-01 09:00', { status: 'shipped' }),
-      order('E', 'shipping', 50, '2026-08-01 09:00', { status: 'delivering', shortages: [{ skuId: 'S1', name: '腊肉', ordered: 10, actual: 8, shortage: 2 }] }),
-      order('F', 'delivered', 60, '2026-08-01 09:00', { status: 'received' })
+      order('D', 'shipping', 40, '2026-08-01 09:00', { status: 'shipped', deliverDate: today, shortages: [{ skuId: 'S0', name: '腊肉', ordered: 4, actual: 3, shortage: 1, handled: true }] }),
+      order('E', 'shipping', 50, '2026-08-01 09:00', { status: 'delivering', deliverDate: today, shortages: [{ skuId: 'S1', name: '腊肉', ordered: 10, actual: 8, shortage: 2 }] }),
+      order('F', 'delivered', 60, '2026-08-01 09:00', { status: 'received', deliverDate: today, shortages: [{ skuId: 'S2', name: '辣椒酱', ordered: 5, actual: 3, shortage: 2 }] }),
+      order('G', 'shipping', 70, '2026-08-01 09:00', { status: 'delivering', deliverDate: '2026-08-01', shortages: [{ skuId: 'S3', name: '土蜂蜜', ordered: 5, actual: 4, shortage: 1 }] })
     ]
     const metrics = deriveSupplierMetrics(orders)
     expect(metrics.toAcceptCount).toBe(2)
     expect(metrics.toDispatchCount).toBe(1)
     expect(metrics.toHandoverCount).toBe(1)
-    expect(metrics.deliveringCount).toBe(1)
-    expect(metrics.shortageOrderCount).toBe(1)
+    expect(metrics.deliveringCount).toBe(2)
+    expect(metrics.shortageOrderCount).toBe(2)
     expect(metrics.todayOrderCount).toBe(3)
     expect(metrics.todayAmount).toBe(60)
   })
@@ -460,12 +705,17 @@ describe('supplier fulfillment helpers', () => {
     expect(shipSupplierCourier(order, '', 'sup')).toBeNull()
     order = shipSupplierCourier(order, 'SF001', 'sup')!
     expect(order.supplierFulfillment).toMatchObject({ status: 'shipped', shipType: 'courier', trackingNo: 'SF001' })
+    expect(new Date(order.supplierFulfillment!.updatedAt).toISOString()).toBe(order.supplierFulfillment!.updatedAt)
+    expect(new Date(order.flow!.at(-1)!.time).toISOString()).toBe(order.flow!.at(-1)!.time)
     expect(order.trackingNo).toBe('SF001')
+    expect(order.logistics?.some((event) => event.title === '商品已发货' && event.detail.includes('SF001'))).toBe(true)
     order = handoverSupplierOut(order, {}, { id: 'sup', name: 'sup', role: 'supplier' })!
     expect(order.supplierFulfillment?.status).toBe('delivering')
+    expect(order.logistics?.some((event) => event.title === '运输中')).toBe(true)
     order = confirmCourierDelivered(order, { id: 'sup', name: 'sup', role: 'supplier' })!
     expect(order.status).toBe('delivered')
     expect(order.supplierFulfillment?.status).toBe('received')
+    expect(order.logistics?.some((event) => event.title === '已签收')).toBe(true)
   })
 
   it('manages driver storage and active-task counts', () => {
@@ -524,5 +774,235 @@ describe('supplier date dimension and shortage handling', () => {
     expect(handled.flow?.some((event) => event.action.includes('已标记补发'))).toBe(true)
     expect(markShortageHandled(handled, 'S', 'sup')).toBeNull()
     expect(markShortageHandled(order, 'NO-SKU', 'sup')).toBeNull()
+  })
+})
+
+
+describe('商品渠道标签与分佣辅助函数', () => {
+  it('解析渠道标签：门店商品与直播平台商品', () => {
+    const storeProduct = { id: 'P1', source: 'platform' as const }
+    const liveProduct: CProduct = { id: 'C1', name: '测试商品', category: '土特产', supplierId: 'S1', supplierName: '供应商', image: '', tags: [], status: 'active', shippingType: 'courier', skus: [] }
+    const both = { id: 'P2', source: 'platform' as const, channels: { store: true, live: true } }
+    expect(resolveProductChannels(storeProduct)).toEqual({ store: true, live: false })
+    expect(resolveProductChannels(liveProduct)).toEqual({ store: false, live: true })
+    expect(resolveProductChannels(both)).toEqual({ store: true, live: true })
+    expect(productChannelTags(both)).toEqual([CHANNEL_TAG_STORE, CHANNEL_TAG_LIVE])
+  })
+
+  it('展示标签：渠道标签 + 自由标签 + 快递直发', () => {
+    const product = { id: 'P1', source: 'platform' as const, tags: ['柴火慢熏'], expressDelivery: true, productType: 'goods' as const }
+    expect(displayProductTags(product, 'store')).toEqual(['门店商品', '柴火慢熏', '快递直发'])
+    expect(displayProductTags(product, 'live')).toEqual(['柴火慢熏', '快递直发'])
+    expect(displayProductTags({ ...product, productType: 'package' as const }, 'store')).toEqual(['门店商品', '柴火慢熏'])
+    expect(isExpressDeliverable({ expressDelivery: true, productType: 'package' })).toBe(false)
+    expect(isExpressDeliverable({ expressDelivery: false, productType: 'goods' })).toBe(false)
+  })
+
+  it('门店分佣按零售价比例计算并保留毛利', () => {
+    expect(storeCommissionAmount(100, 18)).toBe(18)
+    expect(storeCommissionAmount(100, 5.5)).toBe(5.5)
+    expect(storeCommissionAmount(0, 18)).toBe(0)
+    expect(storeGrossMargin(88, 38)).toBe(50)
+    expect(storeGrossMargin(30, 42)).toBe(-12)
+  })
+
+  it('用户端价格按等级叠加固定加价', () => {
+    const sku = { id: 'S', name: '500g', image: 'i', stock: 5, basePrice: 20, level1Commission: 10, level2Commission: 15 }
+    expect(cPriceForSku(sku, 'level1')).toBe(20)
+    expect(cPriceForSku(sku, 'level2')).toBe(30)
+    expect(cPriceForSku(sku, 'normal')).toBe(45)
+    expect(EXPRESS_DELIVERY_TAG).toBe('快递直发')
+  })
+})
+
+describe('统一商品目录', () => {
+  beforeEach(() => localStorage.clear())
+
+  const catalogProduct: CatalogProduct = {
+    id: 'U001', name: '统一腊肉', category: '土特产', supplierId: 'S002', supplierName: '湘西腊味合作社', source: 'platform', status: 'active', image: '/static/images/bacon.webp', images: [], tags: ['精选'], productType: 'goods', expressDelivery: true, channel: 'all', farmIds: ['F001'], promoterCommissionRate: 5, storeCommissionRate: 3,
+    skus: [{ id: 'U001-500', name: '500g', image: '/static/images/bacon.webp', retailPrice: 45, cost: 20, stock: 8, level1Amount: 10, level2Amount: 15 }]
+  }
+
+  it('按零售价和两级固定金额计算三种身份价格', () => {
+    const sku = catalogProduct.skus[0]
+    expect(catalogPriceForSku(sku, 'normal')).toBe(45)
+    expect(catalogPriceForSku(sku, 'level2')).toBe(30)
+    expect(catalogPriceForSku(sku, 'level1')).toBe(20)
+  })
+
+  it('按直推二级和可选一级分配对应佣金', () => {
+    const items = [{ quantity: 2, level1Amount: 10, level2Amount: 15 }]
+    expect(allocateCatalogCommissions(items, { level1Id: 'L1', level2Id: 'L2' }, 'normal')).toEqual([
+      { beneficiaryId: 'L1', beneficiaryLevel: 'level1', amount: 20 },
+      { beneficiaryId: 'L2', beneficiaryLevel: 'level2', amount: 30 }
+    ])
+    expect(allocateCatalogCommissions(items, { level2Id: 'L2' }, 'normal')).toEqual([
+      { beneficiaryId: 'L2', beneficiaryLevel: 'level2', amount: 30 }
+    ])
+    expect(allocateCatalogCommissions(items, { level1Id: 'L1', level2Id: 'SELF' }, 'level2')).toEqual([
+      { beneficiaryId: 'L1', beneficiaryLevel: 'level1', amount: 20 }
+    ])
+    expect(allocateCatalogCommissions(items, { level2Id: 'SELF' }, 'level1')).toEqual([])
+  })
+
+  it('迁移旧目录时保留渠道且不按名称合并', () => {
+    const storeProduct = { ...products[0], id: 'P-KEEP', name: '同名商品', channels: { store: true } }
+    const liveProduct = { ...cProducts[0], id: 'C-KEEP', name: '同名商品', channels: { live: true } }
+    const migrated = migrateLegacyCatalog([storeProduct], [liveProduct], DEFAULT_PRICING_DEFAULTS)
+    expect(migrated.map((item) => [item.id, item.channel])).toEqual([['P-KEEP', 'store'], ['C-KEEP', 'live']])
+    expect(migrated[1].skus[0].retailPrice).toBe(liveProduct.skus[0].basePrice + liveProduct.skus[0].level1Commission + liveProduct.skus[0].level2Commission)
+  })
+
+  it('迁移历史套餐券分类时补齐套餐商品类型', () => {
+    const legacyPackage = { ...products.find((item) => item.id === 'P053')!, productType: undefined }
+    const [migrated] = migrateLegacyCatalog([legacyPackage], [], DEFAULT_PRICING_DEFAULTS)
+    expect(migrated).toMatchObject({ id: 'P053', productType: 'package', channel: 'store', expressDelivery: false })
+  })
+
+  it('迁移低价历史商品时不会因为默认分销金额而丢失', () => {
+    const legacy = { ...products[0], id: 'P-LOW', price: 18, skus: [{ ...products[0].skus[0], price: 18, stock: 7 }] }
+    const [migrated] = migrateLegacyCatalog([legacy], [], DEFAULT_PRICING_DEFAULTS)
+    expect(migrated).toMatchObject({ id: 'P-LOW', skus: [{ retailPrice: 18, stock: 7 }] })
+    expect(migrated.skus[0].level1Amount + migrated.skus[0].level2Amount).toBeLessThanOrEqual(18)
+  })
+
+  it('向旧三端模型投影相同商品和SKU标识', () => {
+    const storeView = catalogProductToProduct(catalogProduct)
+    const userView = catalogProductToCProduct(catalogProduct)
+    expect(storeView).toMatchObject({ id: 'U001', channels: { store: true, live: true }, price: 45, cost: 20, stock: 8 })
+    expect(userView).toMatchObject({ id: 'U001', channels: { store: true, live: true }, skus: [{ id: 'U001-500', basePrice: 20, level1Commission: 10, level2Commission: 15, stock: 8 }] })
+  })
+
+  it('使用revision阻止过期库存写入', () => {
+    const initial: CatalogState = { schemaVersion: 1, revision: 0, products: [catalogProduct] }
+    expect(writeCatalogState(initial)).toBe(true)
+    expect(updateCatalogStock([{ productId: 'U001', skuId: 'U001-500', quantity: -2 }], 0)?.revision).toBe(1)
+    expect(updateCatalogStock([{ productId: 'U001', skuId: 'U001-500', quantity: -1 }], 0)).toBeNull()
+    expect(updateCatalogStock([{ productId: 'U001', skuId: 'U001-500', quantity: -99 }], 1)).toBeNull()
+  })
+
+  it('提供新增商品使用的默认价格配置', () => {
+    expect(DEFAULT_PRICING_DEFAULTS).toEqual({ promoterCommissionRate: 5, storeCommissionRate: 3, level1Amount: 10, level2Amount: 15 })
+  })
+
+  it('持久化价格默认值并从旧店员比例迁移门店佣金', () => {
+    localStorage.setItem(PLATFORM_CONFIG_STORAGE_KEY, JSON.stringify({ promoterRate: 8, staffRate: 4 }))
+    expect(readPricingDefaults()).toEqual({ promoterCommissionRate: 8, storeCommissionRate: 4, level1Amount: 10, level2Amount: 15 })
+    expect(writePricingDefaults({ promoterCommissionRate: 6, storeCommissionRate: 2, level1Amount: 12, level2Amount: 18 })).toBe(true)
+    expect(readPricingDefaults()).toEqual({ promoterCommissionRate: 6, storeCommissionRate: 2, level1Amount: 12, level2Amount: 18 })
+    expect(writePricingDefaults({ promoterCommissionRate: 101, storeCommissionRate: 2, level1Amount: 12, level2Amount: 18 })).toBe(false)
+  })
+
+  it('价格默认值和消费分成使用独立存储且互不覆盖', () => {
+    localStorage.setItem(PLATFORM_CONFIG_STORAGE_KEY, JSON.stringify({ promoterRate: 8, staffRate: 4 }))
+    expect(writePricingDefaults({ promoterCommissionRate: 6, storeCommissionRate: 2, level1Amount: 12, level2Amount: 18 })).toBe(true)
+    writeShareConfig({ promoterRate: 9, staffRate: 7 })
+
+    expect(readPricingDefaults()).toEqual({ promoterCommissionRate: 6, storeCommissionRate: 2, level1Amount: 12, level2Amount: 18 })
+    expect(readShareConfig()).toEqual({ promoterRate: 9, staffRate: 7 })
+    expect(localStorage.getItem(PLATFORM_PRICING_DEFAULTS_STORAGE_KEY)).not.toBeNull()
+    expect(localStorage.getItem(PLATFORM_SHARE_CONFIG_STORAGE_KEY)).not.toBeNull()
+  })
+
+  it('读取旧 schema v1 目录时原地迁移为 v2 并补齐 SKU 状态', () => {
+    localStorage.setItem('agritainment-platform-catalog', JSON.stringify({ schemaVersion: 1, revision: 7, products: [catalogProduct] }))
+
+    const migrated = readCatalogState()
+
+    expect(migrated).toMatchObject({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 7, products: [{ id: 'U001', skus: [{ id: 'U001-500', status: 'active' }] }], appliedOperations: {} })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}').schemaVersion).toBe(CATALOG_SCHEMA_VERSION)
+  })
+
+  it('首次读取时从旧商品初始化统一目录且不会重复迁移', () => {
+    const first = ensureCatalogState([products[0]], [cProducts[0]])
+    expect(first).toMatchObject({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, appliedOperations: {} })
+    expect(first.products.map((item) => item.id)).toEqual([products[0].id, cProducts[0].id])
+
+    const second = ensureCatalogState([], [])
+    expect(second).toEqual(first)
+    expect(readCatalogState()).toEqual(first)
+  })
+
+  it('按销售端投影渠道并限制用户商城只能读取可快递实物', () => {
+    const storeOnly = { ...catalogProduct, id: 'STORE', channel: 'store' as const }
+    const liveOnly = { ...catalogProduct, id: 'LIVE', channel: 'live' as const }
+    const all = { ...catalogProduct, id: 'ALL', channel: 'all' as const }
+    const voucher = { ...catalogProduct, id: 'VOUCHER', channel: 'all' as const, productType: 'package' as const, expressDelivery: false }
+    const state = { schemaVersion: 1, revision: 0, products: [storeOnly, liveOnly, all, voucher] }
+
+    expect(catalogProductsForAudience(state, 'user').map((item) => item.id)).toEqual(['LIVE', 'ALL'])
+    expect(catalogProductsForAudience(state, 'ordering').map((item) => item.id)).toEqual(['STORE', 'ALL', 'VOUCHER'])
+    expect(catalogProductsForAudience(state, 'farmhouse-selection').map((item) => item.id)).toEqual(['STORE', 'ALL', 'VOUCHER'])
+  })
+
+  it('新增编辑商品递增revision并拒绝过期写入和非法发布', () => {
+    expect(writeCatalogState({ schemaVersion: 1, revision: 0, products: [] })).toBe(true)
+    const created = saveCatalogProduct(catalogProduct, 0)
+    expect(created?.revision).toBe(1)
+    expect(created?.products).toHaveLength(1)
+    expect(saveCatalogProduct({ ...catalogProduct, name: '过期编辑' }, 0)).toBeNull()
+    expect(saveCatalogProduct({ ...catalogProduct, id: 'BAD', channel: 'live', expressDelivery: false }, 1)).toBeNull()
+    expect(saveCatalogProduct({ ...catalogProduct, id: 'BAD-VOUCHER', channel: 'all', productType: 'package', expressDelivery: true }, 1)).toBeNull()
+  })
+
+  it('门店选品独立保存本店零售价和上下架状态', () => {
+    expect(writeCatalogState({ schemaVersion: 1, revision: 0, products: [catalogProduct] })).toBe(true)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'U001', listed: true, retailPrice: 52 })).toBe(true)
+    expect(readStoreCatalogSelections('F001')).toEqual([
+      expect.objectContaining({ storeId: 'F001', productId: 'U001', listed: true, skuRetailPrices: { 'U001-500': 52 } })
+    ])
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'U001', listed: false, retailPrice: 52 })).toBe(true)
+    expect(readStoreCatalogSelections('F001')[0].listed).toBe(false)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'missing', listed: true, retailPrice: 52 })).toBe(false)
+  })
+
+  it('迁移旧门店商品级价格为逐 SKU 价格并用 revision 阻止覆盖', () => {
+    const multiSku = { ...catalogProduct, skus: [catalogProduct.skus[0], { ...catalogProduct.skus[0], id: 'U001-1000', name: '1000g', retailPrice: 70 }] }
+    expect(writeCatalogState({ schemaVersion: 1, revision: 0, products: [multiSku] })).toBe(true)
+    localStorage.setItem(PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, JSON.stringify([{ storeId: 'F001', productId: 'U001', listed: true, retailPrice: 52, updatedAt: '2026-08-01T00:00:00.000Z' }]))
+
+    const migrated = readStoreCatalogSelectionState()
+    expect(migrated).toMatchObject({ revision: 0, selections: [{ productId: 'U001', skuRetailPrices: { 'U001-500': 52, 'U001-1000': 77 } }] })
+    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: 'U001', listed: true, skuRetailPrices: { 'U001-500': 55, 'U001-1000': 82 } }, 0)?.revision).toBe(1)
+    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: 'U001', listed: false, skuRetailPrices: { 'U001-500': 56, 'U001-1000': 83 } }, 0)).toBeNull()
+  })
+
+  it('退役 SKU 不进入销售投影但仍可通过幂等操作释放库存', () => {
+    const retired = { ...catalogProduct, skus: [{ ...catalogProduct.skus[0], status: 'retired' as const }] }
+    expect(writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [retired], appliedOperations: {} })).toBe(true)
+    expect(catalogProductToProduct(readCatalogState()!.products[0]).skus).toHaveLength(0)
+
+    const released = applyCatalogStockOperation('ORDER-1:release', [{ productId: 'U001', skuId: 'U001-500', quantity: 2 }], 0)
+    expect(released?.state.products[0].skus[0].stock).toBe(10)
+    const replayed = applyCatalogStockOperation('ORDER-1:release', [{ productId: 'U001', skuId: 'U001-500', quantity: 2 }], released!.state.revision)
+    expect(replayed?.applied).toBe(false)
+    expect(replayed?.state.products[0].skus[0].stock).toBe(10)
+    expect(applyCatalogStockOperation('ORDER-2:reserve', [{ productId: 'U001', skuId: 'U001-500', quantity: -1 }], released!.state.revision)).toBeNull()
+  })
+
+  it('持久化交易日志状态并只返回需要恢复的操作', () => {
+    const entry = {
+      id: 'ORDER-3:reserve', channel: 'user' as const, action: 'reserve' as const,
+      inventoryChanges: [{ productId: 'U001', skuId: 'U001-500', quantity: -1 }],
+      payload: { orderId: 'ORDER-3' }
+    }
+    expect(prepareCatalogTransaction(entry)).toBe(true)
+    expect(prepareCatalogTransaction(entry)).toBe(true)
+    expect(readPendingCatalogTransactions('user')).toEqual([expect.objectContaining({ id: entry.id, status: 'prepared' })])
+    expect(markCatalogTransactionStockApplied(entry.id)).toBe(true)
+    expect(readCatalogTransactionJournal()[entry.id]).toMatchObject({ status: 'stock-applied' })
+    expect(commitCatalogTransaction(entry.id)).toBe(true)
+    expect(readPendingCatalogTransactions('user')).toEqual([])
+    expect(readCatalogTransactionJournal()[entry.id]).toMatchObject({ status: 'committed' })
+  })
+
+  it('门店订单逐行按商品比例汇总并路由到对应角色', () => {
+    const lines = [
+      { unitPrice: 100, quantity: 2, promoterCommissionRate: 5, storeCommissionRate: 3 },
+      { unitPrice: 49.9, quantity: 1, promoterCommissionRate: 8, storeCommissionRate: 4 }
+    ]
+    expect(allocateStoreCatalogCommission(lines, { type: 'promoter', beneficiaryId: 'T001' }, 'OWNER')).toEqual({ beneficiaryId: 'T001', beneficiaryType: 'promoter', amount: 13.99 })
+    expect(allocateStoreCatalogCommission(lines, { type: 'staff', beneficiaryId: 'STAFF' }, 'OWNER')).toEqual({ beneficiaryId: 'STAFF', beneficiaryType: 'staff', amount: 8 })
+    expect(allocateStoreCatalogCommission(lines, null, 'OWNER')).toEqual({ beneficiaryId: 'OWNER', beneficiaryType: 'owner', amount: 8 })
   })
 })

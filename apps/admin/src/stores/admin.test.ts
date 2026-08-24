@@ -1,6 +1,7 @@
 ﻿import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { afterSales, categories, cloneSeed, farms, mergePlatformOrders, orders, pendingShareAmount, products, promoters, readPlatformCommissionSettlement, readPlatformOrders, suppliers, writePlatformOrder, writeShareRecords } from '@agritainment/shared'
+import type { CatalogProduct } from '@agritainment/shared'
+import { afterSales, categories, cloneSeed, farms, mergePlatformOrders, orders, pendingShareAmount, products, promoters, readCatalogState, readPlatformCommissionSettlement, readPlatformOrders, readPricingDefaults, suppliers, writeCatalogState, writePlatformOrder, writePricingDefaults, writeShareRecords } from '@agritainment/shared'
 import { useAdminStore } from './admin'
 
 if (!globalThis.localStorage) {
@@ -18,6 +19,71 @@ if (!globalThis.localStorage) {
 
 describe('admin store interactions', () => {
   beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
+
+  it('initializes the unified catalog revision and projects all-channel products to both lists', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+
+    const catalog = readCatalogState()!
+    expect(store.catalogRevision).toBe(catalog.revision)
+    expect(store.catalogProducts).toEqual(catalog.products)
+    for (const product of catalog.products.filter((item) => item.channel === 'all')) {
+      expect(store.products.some((item) => item.id === product.id)).toBe(true)
+      expect(store.cProducts.some((item) => item.id === product.id)).toBe(true)
+    }
+  })
+
+  it('saves one catalog product and keeps its SKU price fields in both projections', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const product: CatalogProduct = {
+      id: 'CAT-ADMIN-1', name: '统一商品', category: '土特产', supplierId: store.suppliers[0].id, supplierName: store.suppliers[0].name,
+      source: 'platform', status: 'active', image: '', images: [], tags: ['演示'], productType: 'goods', expressDelivery: true,
+      channel: 'all', farmIds: [], promoterCommissionRate: 5, storeCommissionRate: 3,
+      skus: [{ id: 'CAT-ADMIN-1-SKU', name: '默认规格', image: '', retailPrice: 60, cost: 30, stock: 10, level1Amount: 10, level2Amount: 15 }]
+    }
+
+    expect(store.saveCatalogProduct(product)).toEqual({ ok: true })
+    expect(store.catalogProducts[0]).toEqual(product)
+    expect(store.products.find((item) => item.id === product.id)?.skus[0]).toMatchObject({ price: 60, cost: 30, stock: 10, level1Amount: 10, level2Amount: 15 })
+    expect(store.cProducts.find((item) => item.id === product.id)?.skus[0]).toMatchObject({ basePrice: 35, level1Commission: 10, level2Commission: 15 })
+  })
+
+  it('rejects invalid catalog products without changing the catalog', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const before = readCatalogState()!
+    const invalid: CatalogProduct = {
+      ...before.products[0], id: 'CAT-INVALID', channel: 'live', productType: 'goods', expressDelivery: false,
+      skus: [{ ...before.products[0].skus[0], retailPrice: 20, level1Amount: 10, level2Amount: 15 }]
+    }
+
+    expect(store.saveCatalogProduct(invalid)).toEqual({ ok: false, error: '商品配置非法，请检查渠道、快递、佣金和 SKU 价格' })
+    expect(readCatalogState()).toEqual(before)
+  })
+
+  it('refreshes catalog state when a save hits a revision conflict', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const current = readCatalogState()!
+    const externallyUpdated = { ...current, revision: current.revision + 1, products: current.products.map((item, index) => index === 0 ? { ...item, name: `${item.name} 外部更新` } : item) }
+    expect(writeCatalogState(externallyUpdated, current.revision)).toBe(true)
+
+    const localEdit = { ...current.products[0], name: `${current.products[0].name} 本地更新` }
+    expect(store.saveCatalogProduct(localEdit)).toEqual({ ok: false, error: '商品数据已更新，请刷新后重试' })
+    expect(store.catalogRevision).toBe(externallyUpdated.revision)
+    expect(store.catalogProducts[0].name).toBe(externallyUpdated.products[0].name)
+  })
+
+  it('loads and persists pricing defaults for subsequent products', async () => {
+    expect(writePricingDefaults({ promoterCommissionRate: 6, storeCommissionRate: 4, level1Amount: 12, level2Amount: 18 })).toBe(true)
+    const store = useAdminStore()
+    await store.initialize()
+    expect(store.pricingDefaults).toEqual({ promoterCommissionRate: 6, storeCommissionRate: 4, level1Amount: 12, level2Amount: 18 })
+
+    expect(store.updatePricingDefaults({ promoterCommissionRate: 7, storeCommissionRate: 5, level1Amount: 8, level2Amount: 11 })).toBe(true)
+    expect(readPricingDefaults()).toEqual({ promoterCommissionRate: 7, storeCommissionRate: 5, level1Amount: 8, level2Amount: 11 })
+  })
 
   it('ships directly with driver dispatch and confirms receipt', () => {
     const store = useAdminStore()
@@ -69,8 +135,8 @@ describe('admin store interactions', () => {
     expect(store.approveAfterSaleRefund(processing[0].id)).toBe(false)
     expect(store.approveAfterSaleReturn(processing[1].id)).toBe(true)
     expect(processing[1].status).toBe('return-pending')
-    expect(store.refundAfterSale(processing[1].id, false)).toBe(true)
-    expect(processing[1].status).toBe('refund-failed')
+    expect(store.refundAfterSale(processing[1].id, false)).toBe(false)
+    expect(processing[1].status).toBe('return-pending')
     expect(store.refundAfterSale(processing[0].id, true)).toBe(false)
   })
 
@@ -86,26 +152,13 @@ describe('admin store interactions', () => {
     expect(store.afterSales[0].status).toBe('processing')
   })
 
-  it('derives KPIs and supports product editing and batch shipping', () => {
+  it('derives KPIs and supports batch shipping', () => {
     const store = useAdminStore()
     store.$patch({ orders: cloneSeed(orders), products: cloneSeed(products), farms: cloneSeed(farms), suppliers: cloneSeed(suppliers) })
     expect(store.totalGmv).toBeCloseTo(20029.7, 1)
     expect(store.hotProducts[0].id).toBe('P001')
-    expect(store.updateProduct('P001', { price: 66, stock: 99 })).toBe(true)
-    expect(store.products[0].skus[0]).toMatchObject({ price: 66, stock: 99 })
     expect(store.batchShipOrders(store.orders.filter((item) => item.status === 'pending').map((item) => item.id))).toBe(18)
     expect(store.pendingOrders).toBe(0)
-  })
-
-  it('updates only the selected SKU and recalculates product totals', () => {
-    const store = useAdminStore()
-    store.products = cloneSeed(products.slice(0, 1))
-    const untouched = { ...store.products[0].skus[1] }
-    expect(store.updateProduct('P001', { price: 55, stock: 7, skuId: 'P001-500' })).toBe(true)
-    expect(store.products[0].skus[0]).toMatchObject({ price: 55, stock: 7 })
-    expect(store.products[0].skus[1]).toEqual(untouched)
-    expect(store.products[0].price).toBe(Math.min(...store.products[0].skus.map((item) => item.price)))
-    expect(store.products[0].stock).toBe(store.products[0].skus.reduce((sum, item) => sum + item.stock, 0))
   })
 
   it('settles supplier orders and commissions only once', () => {
@@ -120,6 +173,19 @@ describe('admin store interactions', () => {
     expect(store.settleCommissions()).toBe(false)
     expect(store.commissionSettlementRecords[0].amount).toBe(10)
     expect(store.commissionSettlementRecords[0].items[0]).toMatchObject({ promoterId: 'T1', promoterName: '推客', amount: 10 })
+  })
+
+  it('excludes reversed commissions and settles pending negative corrections', () => {
+    const store = useAdminStore()
+    store.promoters = [{ id: 'T1', name: '推客', level: 'V1', fans: 1, orders: 1, gmv: 100, commission: 10, status: 'active' }]
+    writeShareRecords([
+      { id: 'SR-REVERSED', userId: 'u', orderId: 'cancelled', orderAmount: 100, role: 'promoter', promoterId: 'T1', rate: 5, amount: 5, status: 'reversed', createdAt: 'x' },
+      { id: 'SR-EARNED', userId: 'u', orderId: 'paid', orderAmount: 200, role: 'promoter', promoterId: 'T1', rate: 5, amount: 10, status: 'pending', createdAt: 'x' },
+      { id: 'SR-CORRECTION', userId: 'u', orderId: 'returned', orderAmount: 100, role: 'promoter', promoterId: 'T1', rate: 5, amount: -5, status: 'pending', createdAt: 'x' }
+    ])
+
+    expect(store.settleCommissions()).toBe(true)
+    expect(store.commissionSettlementRecords[0].amount).toBe(5)
   })
 
   it('groups dashboard trend by actual order date', () => {
@@ -158,35 +224,6 @@ describe('admin auth', () => {
     store.logout()
     expect(store.auth).toEqual({ isLoggedIn: false, account: '' })
   })
-
-  it('creates a product with spec, main image and detail images', () => {
-    const store = useAdminStore()
-    store.products = cloneSeed(products)
-    expect(store.createProduct({
-      name: '测试商品', category: '农产品', price: 10, cost: 5, stock: 100, source: 'platform', supplier: '平台自营',
-      spec: '500g/袋', image: '/static/images/rice.webp', images: ['/static/images/rice.webp', '/static/images/field.webp']
-    })).toBe(true)
-    const item = store.products.find((p) => p.name === '测试商品')
-    expect(item).toMatchObject({ spec: '500g/袋', image: '/static/images/rice.webp', images: ['/static/images/rice.webp', '/static/images/field.webp'] })
-  })
-
-  it('falls back to default main image when none uploaded', () => {
-    const store = useAdminStore()
-    store.products = []
-    store.createProduct({ name: '无图商品', category: '农产品', price: 10, cost: 5, stock: 1, source: 'platform', supplier: '平台自营' })
-    expect(store.products[0].image).toBe('/static/images/rice.webp')
-  })
-
-  it('updates product spec and images', () => {
-    const store = useAdminStore()
-    store.products = cloneSeed(products)
-    const target = store.products[0]
-    expect(store.updateProduct(target.id, {
-      price: target.price, stock: target.stock, spec: '1kg/袋', image: '/static/images/tea.webp', images: ['/static/images/tea.webp']
-    })).toBe(true)
-    expect(store.products[0]).toMatchObject({ spec: '1kg/袋', image: '/static/images/tea.webp', images: ['/static/images/tea.webp'] })
-  })
-
 
   it('manages dictionary items with code uniqueness', () => {
     const store = useAdminStore()

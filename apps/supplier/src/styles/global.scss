@@ -51,10 +51,22 @@ button:focus-visible, input:focus-visible { outline: 2px solid rgba(20, 83, 45, 
 // ============ 布局 ============
 .app-shell { min-height: 100vh; }
 .page-pad { padding: 14px 16px calc(76px + env(safe-area-inset-bottom)); }
-.page-state { padding: calc(80px + env(safe-area-inset-top)) 20px 80px; text-align: center; color: $sup-muted; }
+.page-state { padding: 0 20px 80px; text-align: center; color: $sup-muted; }
+/* #ifdef MP-WEIXIN */
+.page-state { padding-top: calc(80px + var(--status-bar-height)); }
+/* #endif */
+/* #ifndef MP-WEIXIN */
+.page-state { padding-top: calc(80px + env(safe-area-inset-top)); }
+/* #endif */
 
 // ============ 头部 hero ============
-.hero { background: linear-gradient(160deg, $sup-green-deep 0%, $sup-green 70%, #1e6b41 100%); color: #fff; padding: calc(18px + env(safe-area-inset-top)) 16px 16px; }
+.hero { background: linear-gradient(160deg, $sup-green-deep 0%, $sup-green 70%, #1e6b41 100%); color: #fff; padding: 0 16px 16px; }
+/* #ifdef MP-WEIXIN */
+.hero { padding-top: calc(18px + var(--status-bar-height)); }
+/* #endif */
+/* #ifndef MP-WEIXIN */
+.hero { padding-top: calc(18px + env(safe-area-inset-top)); }
+/* #endif */
 .hero-top { display: flex; align-items: center; gap: 10px; }
 .hero-avatar { width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, .16); display: flex; align-items: center; justify-content: center; font-size: 22px; color: #fff; flex: none; }
 .hero-title { display: block; font-size: 17px; font-weight: 700; }

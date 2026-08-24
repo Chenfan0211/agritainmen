@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import type { Booking, Product, Role, StoreAccount, StoreRole, StorefrontOrder } from '@agritainment/shared'
-import { calcMargin, formatNumber, installKeyboardButtonSupport, money, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrderStatus } from '@agritainment/shared'
+import { calcMargin, displayProductTags, formatNumber, installKeyboardButtonSupport, isExpressDeliverable, money, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrderStatus } from '@agritainment/shared'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
 import qrcode from 'qrcode-generator'
@@ -30,6 +30,11 @@ const orderKeyword = ref('')
 const bookingKeyword = ref('')
 const ledgerKeyword = ref('')
 const deliveryAddressDraft = ref('')
+const deliveryMode = ref<'pickup' | 'courier'>('pickup')
+const cartHasExpress = computed(() => store.cart.some((line) => {
+  const product = store.products.find((item) => item.id === line.productId)
+  return !!product && isExpressDeliverable(product)
+}))
 const sheet = ref<SheetKey>(null)
 const category = ref('全部')
 const shopKeyword = ref('')
@@ -168,7 +173,8 @@ function submitBooking() {
 
 function checkout() {
   if (!requireLogin(() => checkout())) return
-  if (!store.checkout()) return toast(store.checkoutError)
+  const address = deliveryMode.value === 'courier' ? deliveryAddressDraft.value.trim() : ''
+  if (!store.checkout({ deliveryMode: deliveryMode.value, address })) return toast(store.checkoutError)
   sheet.value = null
   workView.value = 'orders'
   toast('订单提交成功')
@@ -186,31 +192,41 @@ function confirmRecharge() {
   toast(`已充值 ${money(rechargeAmount.value)}`)
 }
 
-function getRetail(product: Product) {
-  return retailPrices[product.id] ?? product.price
+function retailKey(productId: string, skuId: string) { return `${productId}:${skuId}` }
+function getRetail(product: Product, skuId: string) {
+  const key = retailKey(product.id, skuId)
+  return retailPrices[key] ?? store.products.find((item) => item.id === product.id)?.skus.find((sku) => sku.id === skuId)?.price ?? product.skus.find((sku) => sku.id === skuId)?.price ?? 0
 }
 
 function listProduct(product: Product) {
-  const retail = Number(getRetail(product))
   const listed = isListed(product)
-  if (!store.listProduct(product.id, retail)) return toast('零售价必须高于供货价')
+  const prices = Object.fromEntries(product.skus.map((sku) => [sku.id, Number(retailDraft[retailKey(product.id, sku.id)] ?? getRetail(product, sku.id))]))
+  if (!store.listProduct(product.id, prices)) return toast(store.checkoutError || '各规格零售价必须高于对应供货价')
+  Object.entries(prices).forEach(([skuId, price]) => {
+    retailPrices[retailKey(product.id, skuId)] = price
+    retailDraft[retailKey(product.id, skuId)] = price
+  })
+  ensureStockDrafts()
   toast(listed ? '本店价格已更新' : '已上架到本店商城')
 }
 
 function isListed(product: Product) {
   return store.isListed(product.id)
 }
-function retailPreview(product: Product) {
-  const draft = Number(retailDraft[product.id] ?? getRetail(product))
-  return Number.isFinite(draft) && draft > 0 ? draft : getRetail(product)
+function retailPreview(product: Product, skuId: string) {
+  const key = retailKey(product.id, skuId)
+  const draft = Number(retailDraft[key] ?? getRetail(product, skuId))
+  return Number.isFinite(draft) && draft > 0 ? draft : getRetail(product, skuId)
 }
 
-function commitRetail(product: Product) {
-  const draft = Number(retailDraft[product.id] ?? getRetail(product))
-  if (!draft || draft <= 0) { toast('请输入有效的零售价'); retailDraft[product.id] = getRetail(product); return }
-  if (draft <= product.cost) { toast('零售价需高于供货价，不允许负毛利销售'); retailDraft[product.id] = getRetail(product); return }
-  if (draft === getRetail(product)) return
-  retailPrices[product.id] = draft
+function commitRetail(product: Product, skuId: string) {
+  const key = retailKey(product.id, skuId)
+  const sku = product.skus.find((item) => item.id === skuId)
+  const draft = Number(retailDraft[key] ?? getRetail(product, skuId))
+  if (!sku || !draft || draft <= 0) { toast('请输入有效的零售价'); retailDraft[key] = getRetail(product, skuId); return }
+  if (draft <= sku.cost) { toast('零售价需高于供货价，不允许负毛利销售'); retailDraft[key] = getRetail(product, skuId); return }
+  if (draft === getRetail(product, skuId)) return
+  retailPrices[key] = draft
   toast('本店零售价已更新')
 }
 
@@ -526,13 +542,18 @@ const platformOrderStatus = (orderId: string) => readPlatformOrderStatus(orderId
 const afterSaleStatusOf = (orderId: string) => readPlatformAfterSaleStatus(orderId)
 const stockDrafts = reactive<Record<string, Record<string, number>>>({})
 function ensureStockDrafts() {
-  store.products.forEach((p) => {
+  store.selectableProducts.forEach((p) => {
     if (!stockDrafts[p.id]) stockDrafts[p.id] = {}
-    p.skus.forEach((s) => { if (stockDrafts[p.id][s.id] === undefined) stockDrafts[p.id][s.id] = s.stock })
+    p.skus.forEach((s) => { stockDrafts[p.id][s.id] = s.stock })
   })
 }
 function commitStock(product: Product) {
-  product.skus.forEach((s) => { const v = stockDrafts[product.id]?.[s.id]; if (v !== undefined) store.setSkuStock(product.id, s.id, v) })
+  const saved = product.skus.every((s) => {
+    const value = stockDrafts[product.id]?.[s.id]
+    return value === undefined || store.setSkuStock(product.id, s.id, value)
+  })
+  ensureStockDrafts()
+  if (!saved) return toast(store.checkoutError || '商品库存已更新，请重试')
   toast('本店库存已更新')
 }
 function toggleListed(productId: string) {
@@ -549,14 +570,32 @@ function repeatOrder(id: string) {
   toast('订单商品已加入购物车')
 }
 
+function cancelStorefrontOrder(id: string) {
+  if (!store.cancelStorefrontOrder(id)) return toast(store.checkoutError || '当前订单不能取消')
+  toast('订单已取消，余额和库存已恢复')
+}
+
+function requestStorefrontAfterSale(id: string, type: 'refund' | 'return') {
+  if (!store.requestStorefrontAfterSale(id, type)) return toast('当前订单不能申请售后')
+  toast(type === 'refund' ? '退款申请已提交' : '退货申请已提交')
+}
+
+function completeStorefrontAfterSale(id: string) {
+  if (!store.completeStorefrontAfterSale(id)) return toast(store.checkoutError || '售后暂不能完成')
+  toast('售后已完成')
+}
+
 onMounted(async () => {
   disposeKeyboardButtons = installKeyboardButtonSupport()
   const query = uni.getLaunchOptionsSync().query || {}
   const scenario = query.mock
   if (scenario === 'empty' || scenario === 'failure') store.setMockScenario(scenario)
-  await store.initialize()
+  let runtimeFarm: unknown
+  // #ifdef H5
+  runtimeFarm = query.farm
+  // #endif
+  await store.initialize(false, runtimeFarm)
   ensureStockDrafts()
-  if (typeof query.userId === 'string' && query.userId) store.setCurrentUser(query.userId)
   if (typeof query.promoter === 'string' && query.promoter) store.setReferrer({ type: 'promoter', promoterId: query.promoter, name: String(query.promoterName || ''), liveId: typeof query.live === 'string' ? query.live : undefined })
   if (typeof query.staff === 'string' && query.staff) store.setReferrer({ type: 'staff', staffAccountId: query.staff, name: String(query.staffName || '') })
   // 直达结算：URL 带 productId/skuId/qty → 自动加购并打开购物车结算弹层
@@ -585,7 +624,14 @@ onMounted(async () => {
     document.documentElement.style.setProperty('--farm-green', store.tenant?.theme || '#17633f')
     document.title = store.tenant?.name || '农家乐门店'
   }
-  store.selectableProducts.forEach((item) => { if (!retailPrices[item.id]) retailPrices[item.id] = item.price; if (!retailDraft[item.id]) retailDraft[item.id] = item.price })
+  store.selectableProducts.forEach((item) => {
+    item.skus.forEach((sku) => {
+      const key = retailKey(item.id, sku.id)
+      const selectedPrice = store.products.find((product) => product.id === item.id)?.skus.find((candidate) => candidate.id === sku.id)?.price ?? sku.price
+      if (!retailPrices[key]) retailPrices[key] = selectedPrice
+      if (!retailDraft[key]) retailDraft[key] = selectedPrice
+    })
+  })
 })
 
 onBeforeUnmount(() => disposeKeyboardButtons())
@@ -600,11 +646,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
     <view v-else-if="store.error" class="state-page"><UiIcon name="radio" :size="28" /><text>{{ store.error }}</text><button class="primary-button" @click="retryLoad">重新加载</button></view>
     <template v-else>
       <view v-if="workView === 'select'" class="work-page page-pad">
-        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">选品上架</text><text class="page-sub">从供应链中台甄选商品 · 自主加价 · 一键上架到本店商城</text></view></view>
-        <view class="work-metric-band"><view><small>中台可选</small><strong>{{ store.selectableProducts.length }} SKU</strong></view><view><small>本店已上架</small><strong>{{ store.products.filter(item => item.source === 'farmhouse' || item.status === 'active').length }}</strong></view><view><small>建议毛利率</small><strong>30%+</strong></view></view>
-        <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店长专属：从甄选好物供应链中台选品，设置零售价后上架，零售价与供货价的差额即本店利润。上架后顾客即可在「商城」购买。</text></view>
-        <view class="section-head compact"><view><span></span><text>中台可选商品</text></view><small>供货价 → 你的零售价</small></view>
-        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="selectKeyword" placeholder="搜索中台商品名称 / 品类" /></view>
+        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">选品上架</text><text class="page-sub">从统一商品目录选品 · 设置本店价格与上下架状态</text></view></view>
+        <view class="work-metric-band"><view><small>目录可选</small><strong>{{ store.selectableProducts.length }} 款</strong></view><view><small>本店已上架</small><strong>{{ store.products.length }} 款</strong></view><view><small>建议毛利率</small><strong>30%+</strong></view></view>
+        <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店长专属：设置本店零售价并上架后，商品才会出现在本店商城。</text></view>
+        <view class="section-head compact"><view><span></span><text>统一目录商品</text></view><small>供货价 → 本店零售价</small></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="selectKeyword" placeholder="搜索商品名称 / 品类" /></view>
         <view class="select-list">
           <view v-for="product in filteredSelectable" :key="product.id" class="select-item">
             <view class="si-head">
@@ -612,11 +658,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
               <view class="si-title"><text class="item-title">{{ product.name }}</text><small class="si-sub">中台供货价 <b>{{ money(product.cost) }}</b> · 建议零售 {{ money(product.price) }}</small></view>
               <span class="si-status" :class="isListed(product) ? 'listed' : ''">{{ isListed(product) ? '已上架' : '未上架' }}</span>
             </view>
-            <view class="si-pricing">
-              <label class="si-field"><text>本店零售价 <span>¥</span></text><view class="si-price-row"><input v-model.number="retailDraft[product.id]" type="digit" /><button class="si-confirm" @click="commitRetail(product)">确认</button></view></label>
-              <view class="si-margin"><text>毛利</text><strong :class="{ neg: calcMargin(product.cost, retailPreview(product)).amount < 0 }">{{ money(calcMargin(product.cost, retailPreview(product)).amount) }} · <span>{{ calcMargin(product.cost, retailPreview(product)).rate }}%</span></strong></view>
+            <view v-for="sku in product.skus" :key="sku.id" class="si-pricing">
+              <label class="si-field"><text>{{ sku.name }} · 本店零售价 <span>¥</span></text><view class="si-price-row"><input v-model.number="retailDraft[retailKey(product.id, sku.id)]" type="digit" /><button class="si-confirm" @click="commitRetail(product, sku.id)">确认</button></view></label>
+              <view class="si-margin"><text>供货 {{ money(sku.cost) }} · 毛利</text><strong :class="{ neg: calcMargin(sku.cost, retailPreview(product, sku.id)).amount < 0 }">{{ money(calcMargin(sku.cost, retailPreview(product, sku.id)).amount) }} · <span>{{ calcMargin(sku.cost, retailPreview(product, sku.id)).rate }}%</span></strong></view>
             </view>
-            <button class="si-btn" :class="{ listed: isListed(product) }" :disabled="isListed(product) && getRetail(product) === store.products.find(item => item.id === product.id)?.price" @click="listProduct(product)">{{ isListed(product) ? '✓ 已上架本店' : '上架到本店商城' }}</button>
+            <button class="si-btn" :class="{ listed: isListed(product) }" @click="listProduct(product)">{{ isListed(product) ? '保存各规格价格' : '上架到本店商城' }}</button>
             <view v-if="isListed(product)" class="si-local"><view class="si-stock"><label v-for="sku in product.skus" :key="sku.id" class="si-stock-sku"><text>{{ sku.name }}</text><input v-model.number="stockDrafts[product.id][sku.id]" type="number" /></label></view><view class="si-local-actions"><button class="si-confirm" @click="commitStock(product)">保存库存</button><button class="si-confirm danger" @click="toggleListed(product.id)">下架</button></view></view>
           </view>
         </view>
@@ -685,7 +731,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></view>
         <view v-if="!filteredOrders.length" class="empty-page"><UiIcon name="package-check" :size="28" /><text>还没有订单，去商城逛逛吧～</text></view>
         <view class="records order-records">
-          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><image v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">📦</view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
+          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><image v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">📦</view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><small v-if="item.delivery?.mode === 'courier'" class="rec-s">{{ item.courier || '快递直发' }}{{ item.trackingNo ? ' ' + item.trackingNo : '' }} · {{ item.delivery?.address }}</small><view class="record-actions"><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button><button v-if="item.status === '待发货'" class="rebuy-button" @click="cancelStorefrontOrder(item.id)">取消订单</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'refund')">申请退款</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'return')">申请退货</button><button v-if="item.status === '退款中' || item.status === '退货中'" class="rebuy-button" @click="completeStorefrontAfterSale(item.id)">完成售后</button></view></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
         </view>
       </view>
 
@@ -767,7 +813,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>甄选好物供应链中台</b>，统一品控、统一履约、价格更优。</text></view>
           <view v-if="activePolicies.length" class="policy-hint">🎯 中台价格策略：<b>{{ activePolicies.map((p) => p.name).join('、') }}</b> 已生效</view>
           <view v-if="visibleProducts.length" class="product-grid">
-             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><image class="product-emoji" :src="product.image" mode="aspectFit" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><text class="source-tag">{{ product.tags[0] }}</text><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
+             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><image class="product-emoji" :src="product.image" mode="aspectFit" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><view class="product-tag-row"><span class="source-tag">{{ displayProductTags(product, 'store')[0] || '门店商品' }}</span><span v-if="isExpressDeliverable(product)" class="express-tag">快递直发</span></view><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
           </view><view v-else class="empty-page"><UiIcon name="search" :size="28" /><text>没有找到相关商品</text><small>试试其他关键词或分类</small></view>
         </view>
 
@@ -825,7 +871,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </template>
         </view>
 
-           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }"><image :src="item.image" mode="aspectFit" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" @click="checkout">提交订单</button></view></view>
+           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }"><image :src="item.image" mode="aspectFit" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="cartHasExpress" class="delivery-picker"><text class="delivery-label">配送方式</text><view class="ui-chips"><button :class="{ sel: deliveryMode === 'pickup' }" @click="deliveryMode = 'pickup'">到店自提</button><button :class="{ sel: deliveryMode === 'courier' }" @click="deliveryMode = 'courier'">快递配送</button></view><label v-if="deliveryMode === 'courier'" class="form-field"><text>收货地址</text><input v-model="deliveryAddressDraft" placeholder="省市区 + 详细地址" /></label></view><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" @click="checkout">提交订单</button></view></view>
 
            <view v-else-if="sheet === 'room-form'" class="design-form">
             <label class="form-field"><text>包厢名称</text><input v-model="roomForm.name" placeholder="如：观溪雅间" /></label>
@@ -867,7 +913,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 
 
 
-           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><image :src="selectedProduct.image" mode="aspectFit" /><text>{{ selectedProduct.name }}</text><small>{{ selectedProduct.tags.join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!sku.stock" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!selectedSkuId" @click="addSelectedProduct">加入购物车</button></view></view>
+           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><image :src="selectedProduct.image" mode="aspectFit" /><text>{{ selectedProduct.name }}</text><small>{{ displayProductTags(selectedProduct, 'store').join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!sku.stock" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!selectedSkuId" @click="addSelectedProduct">加入购物车</button></view></view>
            <view v-else-if="sheet === 'booking-form'" class="booking-sheet"><small class="booking-sub">选择日期 / 场次 / 人数，确认后将发送到店提醒</small><view class="booking-section"><text>📅 选择日期</text><view class="ui-chips"><button v-for="item in bookingDates.slice(0, 3)" :key="item" :class="{ sel: booking.date === item }" @click="booking.date = item">{{ item }}</button></view></view><view class="booking-section"><text>🕐 选择场次</text><view class="ui-chips"><button v-for="item in ['午市 11:00','晚市 17:30']" :key="item" :class="{ sel: booking.session === item }" @click="booking.session = item">{{ item }}</button></view></view><view class="booking-section"><text>👥 用餐人数</text><view class="ui-chips"><button v-for="item in [4,6,8,10,20]" :key="item" :class="{ sel: booking.people === item }" @click="booking.people = item">{{ item }} 人</button></view></view><button class="primary-button" @click="submitBooking">确认预订</button></view>
 <view v-else-if="sheet === 'contact'" class="contact-sheet"><small class="contact-sub">营业 {{ store.tenant?.hours }} · {{ store.tenant?.slogan }}</small><view class="ui-opt sel" @click="copyPhone"><text>门店电话</text><span>{{ store.tenant?.phone }}</span></view><button class="primary-button" @click="makePhoneCall">📞 拨打电话</button><button class="outline-button" @click="sheet = null">取消</button></view>
           <view v-else-if="sheet === 'foods'" class="food-detail-list"><view v-if="!store.foods.length" class="empty">暂无招牌菜品</view><view v-for="food in store.foods" :key="food.id"><image :src="food.image" mode="aspectFit" /><view><text>{{ food.name }}</text><small>{{ food.description }}</small></view><strong>{{ money(food.price) }}</strong><button @click="sheet = null; openReservation('package', food.name)">预订</button></view></view><view v-else-if="sheet === 'service' && selectedService" class="service-detail"><image class="s-emoji" :src="selectedService.image" mode="aspectFit" /><text class="s-name">{{ selectedService.name }}</text><small class="s-desc">{{ selectedService.desc }}</small><view class="s-rows"><view><text>适合人群</text><strong>{{ selectedService.suitable }}</strong></view><view><text>体验时长</text><strong>{{ selectedService.duration }}</strong></view><view><text>参与方式</text><strong>{{ selectedService.fee }}</strong></view></view><view class="s-order"><text>📅 选择日期</text><view class="ui-chips"><button v-for="d in bookingDates.slice(0, 3)" :key="d" :class="{ sel: serviceBooking.date === d }" @click="serviceBooking.date = d">{{ d }}</button></view></view><view class="s-order"><text>👥 人数</text><view class="ui-chips"><button v-for="p in [2, 4, 6, 8]" :key="p" :class="{ sel: serviceBooking.people === p }" @click="serviceBooking.people = p">{{ p }} 人</button></view></view><view class="s-fee"><text>费用</text><strong>¥{{ selectedService.price }}/人 × {{ serviceBooking.people }} 人 = ¥{{ serviceFee }}</strong></view><button class="primary-button" @click="submitServiceOrder">确认下单</button><button class="outline-button" @click="makePhoneCall">📞 电话咨询</button></view>
@@ -1234,4 +1280,9 @@ button, uni-button { text-align: center; }
 .address-edit-row .help-edit input{width:100%;height:36px;margin-top:6px;padding:0 10px;border:1px solid var(--farm-line);border-radius:7px;font-size:12px;background:#fff}
 .address-save{min-height:32px;padding:0 12px;border-radius:7px;background:var(--farm-green);color:#fff;font-size:11px;font-weight:700;flex:none;display:inline-flex;align-items:center;justify-content:center;margin:0}
 .address-save::after{border:none;background:none}
+
+.product-tag-row{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.express-tag{font-size:10px;padding:1px 7px;border-radius:9px;background:#eaf3ff;color:#35658f}
+.delivery-picker{padding:12px 16px;border-bottom:1px solid #e9eeea}
+.delivery-label{display:block;font-size:12px;font-weight:800;margin-bottom:8px}
 </style>

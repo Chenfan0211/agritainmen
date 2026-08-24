@@ -9,7 +9,8 @@ const roots = [
   [8794, 'apps/farmhouse/dist/tenants/yunshang/h5'],
   [8795, 'apps/store/dist/build/h5'],
   [8796, 'apps/promoter/dist/build/h5'],
-  [8797, 'apps/user/dist/build/h5']
+  [8797, 'apps/user/dist/build/h5'],
+  [8798, 'apps/supplier/dist/build/h5']
 ]
 
 const mimeTypes = {
@@ -45,4 +46,4 @@ for (const [port, relativeRoot] of roots) {
   }).listen(port, process.env.HOST || '127.0.0.1')
 }
 
-console.log('H5 previews ready on ports 8791-8797')
+console.log('H5 previews ready on ports 8791-8798')

@@ -15,6 +15,9 @@ export interface Sku {
   price: number
   cost: number
   stock: number
+  image?: string
+  level1Amount?: number
+  level2Amount?: number
 }
 
 export interface Member {
@@ -47,7 +50,7 @@ export interface LogisticsEvent {
 
 export interface BalanceEntry {
   id: string
-  type: 'recharge' | 'consume'
+  type: 'recharge' | 'consume' | 'refund'
   amount: number
   balance: number
   description: string
@@ -126,6 +129,165 @@ export interface Product {
   commissionEarn?: number
   spec?: string
   images?: string[]
+  channels?: { store?: boolean; live?: boolean }
+  expressDelivery?: boolean
+  productType?: ProductType
+  staffCommissionRate?: number
+  supplierId?: string
+  supplierName?: string
+  channel?: CatalogChannel
+  promoterCommissionRate?: number
+  storeCommissionRate?: number
+}
+
+export type ProductChannel = 'store' | 'live'
+export type ProductType = 'goods' | 'package'
+export type CatalogChannel = 'store' | 'live' | 'all'
+
+export interface PricingDefaults {
+  promoterCommissionRate: number
+  storeCommissionRate: number
+  level1Amount: number
+  level2Amount: number
+}
+
+export interface CatalogSku {
+  id: string
+  name: string
+  image: string
+  retailPrice: number
+  cost: number
+  stock: number
+  level1Amount: number
+  level2Amount: number
+  status?: 'active' | 'retired'
+}
+
+export interface CatalogProduct {
+  id: string
+  name: string
+  category: string
+  supplierId: string
+  supplierName: string
+  source: ProductSource
+  status: ProductStatus
+  image: string
+  images: string[]
+  tags: string[]
+  productType: ProductType
+  expressDelivery: boolean
+  channel: CatalogChannel
+  farmIds: string[]
+  promoterCommissionRate: number
+  storeCommissionRate: number
+  skus: CatalogSku[]
+}
+
+export interface CatalogState {
+  schemaVersion: number
+  revision: number
+  products: CatalogProduct[]
+  appliedOperations?: Record<string, CatalogStockOperation>
+}
+
+export interface StoreCatalogSelection {
+  storeId: string
+  productId: string
+  listed: boolean
+  skuRetailPrices?: Record<string, number>
+  /** @deprecated v0 compatibility; migrated to skuRetailPrices on read. */
+  retailPrice?: number
+  updatedAt: string
+}
+
+export interface StoreCatalogSelectionState {
+  schemaVersion: number
+  revision: number
+  selections: StoreCatalogSelection[]
+}
+
+export interface CatalogStockChange {
+  productId: string
+  skuId: string
+  quantity: number
+}
+
+export interface CatalogStockOperation {
+  id: string
+  changes: CatalogStockChange[]
+  appliedAt: string
+}
+
+export type CatalogTransactionChannel = 'user' | 'farmhouse' | 'store'
+export type CatalogTransactionStatus = 'prepared' | 'stock-applied' | 'committed' | 'aborted'
+
+export interface CatalogTransactionJournalEntry<T = unknown> {
+  id: string
+  channel: CatalogTransactionChannel
+  action: 'reserve' | 'release'
+  status: CatalogTransactionStatus
+  inventoryChanges: CatalogStockChange[]
+  payload: T
+  createdAt: string
+  updatedAt: string
+}
+
+export const DEFAULT_PRICING_DEFAULTS: PricingDefaults = {
+  promoterCommissionRate: 5,
+  storeCommissionRate: 3,
+  level1Amount: 10,
+  level2Amount: 15
+}
+
+export const PLATFORM_CATALOG_STORAGE_KEY = 'agritainment-platform-catalog'
+export const PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY = 'agritainment-platform-store-catalog-selections'
+export const PLATFORM_PRICING_DEFAULTS_STORAGE_KEY = 'agritainment-platform-pricing-defaults'
+export const PLATFORM_SHARE_CONFIG_STORAGE_KEY = 'agritainment-platform-share-config'
+export const PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY = 'agritainment-platform-catalog-transaction-journal'
+export const CATALOG_SCHEMA_VERSION = 2
+export const STORE_CATALOG_SELECTION_SCHEMA_VERSION = 1
+
+export const CHANNEL_TAG_STORE = '门店商品'
+export const CHANNEL_TAG_LIVE = '直播平台商品'
+export const EXPRESS_DELIVERY_TAG = '快递直发'
+
+export function resolveProductChannels(input: { channels?: { store?: boolean; live?: boolean }; source?: ProductSource }): { store: boolean; live: boolean } {
+  const declared = input.channels
+  if (declared && (declared.store || declared.live)) return { store: !!declared.store, live: !!declared.live }
+  if ('source' in input && input.source !== undefined) return { store: true, live: false }
+  return { store: false, live: true }
+}
+
+export function productChannelTags(input: { channels?: { store?: boolean; live?: boolean }; source?: ProductSource }): string[] {
+  const { store, live } = resolveProductChannels(input)
+  const tags: string[] = []
+  if (store) tags.push(CHANNEL_TAG_STORE)
+  if (live) tags.push(CHANNEL_TAG_LIVE)
+  return tags
+}
+
+export function isExpressDeliverable(input: { expressDelivery?: boolean; productType?: ProductType }): boolean {
+  return !!input.expressDelivery && (input.productType ?? 'goods') === 'goods'
+}
+
+export function displayProductTags(
+  input: { channels?: { store?: boolean; live?: boolean }; source?: ProductSource; expressDelivery?: boolean; productType?: ProductType; tags?: string[] },
+  channel?: ProductChannel
+): string[] {
+  const tags = [...productChannelTags(input), ...(Array.isArray(input.tags) ? input.tags : [])]
+  if (isExpressDeliverable(input)) tags.push(EXPRESS_DELIVERY_TAG)
+  if (channel === 'store') return tags.filter((tag) => tag !== CHANNEL_TAG_LIVE)
+  if (channel === 'live') return tags.filter((tag) => tag !== CHANNEL_TAG_STORE)
+  return tags
+}
+
+export function storeCommissionAmount(retail: number, rate = 0): number {
+  const validRate = Number.isFinite(Number(rate)) ? Number(rate) : 0
+  return round2(Math.max(0, Number(retail) || 0) * validRate / 100)
+}
+
+export function storeGrossMargin(retail: number, cost: number): number {
+  return round2((Number(retail) || 0) - (Number(cost) || 0))
 }
 
 export interface SupplierQualification {
@@ -260,6 +422,16 @@ export interface SupplierFulfillment {
   updatedAt: string
 }
 
+export type OrderSource = 'store' | 'farmhouse' | 'c-mall' | 'farmhouse-courier'
+
+export interface SupplierOrderLink {
+  source: OrderSource
+  sourceOrderId?: string
+  sourceSubOrderId?: string
+  customerUserId?: string
+  deliveryAddress?: CAddress
+}
+
 export interface Order {
   id: string
   productName: string
@@ -276,6 +448,7 @@ export interface Order {
   settlementId?: string
   items?: OrderItem[]
   supplierFulfillment?: SupplierFulfillment
+  supplierOrderLink?: SupplierOrderLink
 }
 
 export interface Booking {
@@ -313,7 +486,7 @@ export interface AfterSale {
   orderId: string
   productName: string
   applicant: string
-  type: 'reship' | 'refund' | 'claim'
+  type: 'reship' | 'refund' | 'return' | 'claim'
   amount: number
   status: AfterSaleStatus
   issue?: string
@@ -365,6 +538,7 @@ export interface OrderItem {
   image: string
   quantity: number
   price: number
+  deliveryMode?: 'pickup' | 'courier'
 }
 
 export interface StorefrontOrder {
@@ -372,8 +546,17 @@ export interface StorefrontOrder {
   amount: number
   itemCount: number
   items: OrderItem[]
-  status: '待发货' | '待收货' | '已发货' | '已完成'
+  status: '待发货' | '待收货' | '已发货' | '已完成' | '已取消' | '退款中' | '已退款' | '退货中' | '已退货'
   createdAt: string
+  delivery?: { mode: 'pickup' | 'courier'; address?: string }
+  platformOrderId?: string
+  trackingNo?: string
+  courier?: string
+  logistics?: LogisticsEvent[]
+  inventoryReleased?: boolean
+  balanceRefunded?: boolean
+  pointsAwarded?: number
+  afterSaleType?: 'refund' | 'return'
 }
 
 export interface SupplierSettlementRecord {
@@ -427,13 +610,13 @@ export const tenant: TenantConfig = {
 }
 
 export const products: Product[] = [
-  { id: 'P001', emoji: '🥓', name: '湘西烟熏柴火腊肉 500g', category: '土特产', spec: '500g/袋', price: 59.9, cost: 38, stock: 2400, sales: 2860, source: 'platform', status: 'active', image: '/static/images/bacon.webp', supplier: '湘西腊味合作社', tags: ['中台甄选', '柴火慢熏'], farmIds: ['F001', 'F002'], promoName: '湘西烟熏柴火腊肉 500g', commissionRate: 18, commissionSold: 158, commissionEarn: 10.8, images: ['/static/images/bacon.webp', '/static/images/chili.webp'], skus: [{ id: 'P001-500', name: '500g', price: 59.9, cost: 38, stock: 2000 }, { id: 'P001-1000', name: '1kg家庭装', price: 109, cost: 78, stock: 400 }] },
+  { id: 'P001', emoji: '🥓', name: '湘西烟熏柴火腊肉 500g', category: '土特产', spec: '500g/袋', price: 59.9, cost: 38, stock: 2400, sales: 2860, source: 'platform', status: 'active', image: '/static/images/bacon.webp', supplier: '湘西腊味合作社', tags: ['中台甄选', '柴火慢熏'], channels: { store: true }, expressDelivery: true, productType: 'goods', farmIds: ['F001', 'F002'], promoName: '湘西烟熏柴火腊肉 500g', commissionRate: 18, commissionSold: 158, commissionEarn: 10.8, images: ['/static/images/bacon.webp', '/static/images/chili.webp'], skus: [{ id: 'P001-500', name: '500g', price: 59.9, cost: 38, stock: 2000 }, { id: 'P001-1000', name: '1kg家庭装', price: 109, cost: 78, stock: 400 }] },
   { id: 'P002', emoji: '🍑', name: '炎陵黄桃 5斤礼盒', category: '生鲜农产', spec: '5斤/盒', price: 68, cost: 42, stock: 1860, sales: 2090, source: 'platform', status: 'active', image: '/static/images/peach.webp', supplier: '炎陵果业有限公司', tags: ['产地直发', '当季鲜果'], farmIds: ['F001', 'F002', 'F003'], promoName: '炎陵黄桃 5斤礼盒', commissionRate: 15, commissionSold: 230, commissionEarn: 10.2, images: ['/static/images/peach.webp', '/static/images/farmhouse.webp'], skus: [{ id: 'P002-5J', name: '5斤礼盒', price: 68, cost: 42, stock: 1500 }, { id: 'P002-10J', name: '10斤家庭装', price: 128, cost: 92, stock: 360 }] },
   { id: 'P003', emoji: '🍵', name: '安化黑茶礼盒装', category: '伴手礼', spec: '礼盒装', price: 128, cost: 86, stock: 640, sales: 770, source: 'platform', status: 'active', image: '/static/images/tea.webp', supplier: '安化茶业集团', tags: ['中台甄选', '礼盒装'], farmIds: ['F002', 'F005'], images: ['/static/images/tea.webp', '/static/images/mountain.webp'], skus: [{ id: 'P003-GIFT', name: '雅藏礼盒', price: 128, cost: 86, stock: 640 }] },
   { id: 'P004', emoji: '🫙', name: '农家自制剁辣椒 2瓶', category: '食材调料', spec: '2瓶/组', price: 39.9, cost: 20, stock: 120, sales: 386, source: 'farmhouse', status: 'pending', image: '/static/images/chili.webp', supplier: '石板溪农家乐', tags: ['农家手作', '下饭'], farmIds: ['F001'], skus: [{ id: 'P004-2', name: '2瓶装', price: 39.9, cost: 20, stock: 120 }] },
   { id: 'P005', emoji: '🍯', name: '武陵山野生土蜂蜜 500g', category: '生鲜农产', spec: '500g/瓶', price: 88, cost: 56, stock: 980, sales: 868, source: 'platform', status: 'active', image: '/static/images/honey.webp', supplier: '武陵蜂业合作社', tags: ['自然成熟', '产地直发'], farmIds: ['F002', 'F004'], images: ['/static/images/honey.webp', '/static/images/field.webp'], skus: [{ id: 'P005-500', name: '500g', price: 88, cost: 56, stock: 980 }] },
   { id: 'P006', emoji: '🌾', name: '石板溪生态富硒米 5kg', category: '农产品', spec: '5kg/袋', price: 49.9, cost: 32, stock: 300, sales: 672, source: 'farmhouse', status: 'pending', image: '/static/images/rice.webp', supplier: '石板溪农家乐', tags: ['生态种植', '本店自有'], farmIds: ['F001', 'F003'], skus: [{ id: 'P006-5K', name: '5kg', price: 49.9, cost: 32, stock: 300 }] },
-  { id: 'P007', emoji: '🎟', name: '农家四人欢聚套餐券', category: '套餐券', spec: '4人/份', price: 288, cost: 120, stock: 500, sales: 86, source: 'farmhouse', status: 'active', image: '/static/images/farmhouse.webp', supplier: '石板溪农家乐', tags: ['到店核销', '含锁定食材'], farmIds: ['F001'], promoName: '石板溪农家乐 · 四人套餐券', commissionRate: 12, commissionSold: 86, commissionEarn: 34.5, skus: [{ id: 'P007-4P', name: '四人套餐券', price: 288, cost: 120, stock: 500 }] },
+  { id: 'P007', emoji: '🎟', name: '农家四人欢聚套餐券', category: '套餐券', spec: '4人/份', price: 288, cost: 120, stock: 500, sales: 86, source: 'farmhouse', status: 'active', image: '/static/images/farmhouse.webp', supplier: '石板溪农家乐', tags: ['到店核销', '含锁定食材'], channels: { store: true }, productType: 'package', farmIds: ['F001'], promoName: '石板溪农家乐 · 四人套餐券', commissionRate: 12, commissionSold: 86, commissionEarn: 34.5, skus: [{ id: 'P007-4P', name: '四人套餐券', price: 288, cost: 120, stock: 500 }] },
   { id: 'P008', emoji: '🐟', name: '东江鱼仔香辣味 200g', category: '土特产', spec: '200g/袋', price: 32.8, cost: 21, stock: 1652, sales: 1652, source: 'platform', status: 'active', image: '/static/images/field.webp', supplier: '东江湖食品', tags: ['中台甄选', '香辣下饭'], farmIds: ['F001', 'F003'], images: ['/static/images/field.webp', '/static/images/rice.webp'], skus: [{ id: 'P008-200', name: '200g', price: 32.8, cost: 21, stock: 1652 }] },
   { id: 'P009', emoji: '🦆', name: '招牌酱板鸭 整只装', category: '土特产', spec: '整只装', price: 49, cost: 30, stock: 800, sales: 320, source: 'platform', status: 'active', image: '/static/images/bacon.webp', supplier: '湘西腊味合作社', tags: ['中台甄选', '酱香'], farmIds: ['F002', 'F005'], skus: [{ id: 'P009-1', name: '整只装', price: 49, cost: 30, stock: 800 }] },
   { id: 'P010', emoji: '🍵', name: '安化黑茶 · 农家自藏', category: '伴手礼', spec: '礼盒装', price: 128, cost: 60, stock: 80, sales: 260, source: 'farmhouse', status: 'active', image: '/static/images/tea.webp', supplier: '石板溪农家乐', tags: ['自有商品', '农家自藏'], farmIds: ['F001'], promoName: '安化黑茶 · 礼盒装', commissionRate: 20, commissionSold: 64, commissionEarn: 25.6, skus: [{ id: 'P010-1', name: '礼盒装', price: 128, cost: 60, stock: 80 }] },
@@ -1585,6 +1768,7 @@ export interface ShareRecord {
   amount: number
   createdAt: string
   settled?: boolean
+  status?: 'pending' | 'settled' | 'reversed'
 }
 
 interface PlatformJsonStorage {
@@ -1626,13 +1810,14 @@ function readPlatformJson<T>(key: string, fallback: T | null = null): T | null {
   }
 }
 
-function writePlatformJson(key: string, value: unknown): void {
+function writePlatformJson(key: string, value: unknown): boolean {
   const storage = platformJsonStorage()
-  if (!storage) return
+  if (!storage) return false
   try {
     storage.write(key, JSON.stringify(value))
+    return true
   } catch {
-    // 忽略
+    return false
   }
 }
 
@@ -1654,14 +1839,36 @@ export function clearPlatformJson(key: string): void {
   }
 }
 
+export interface VersionedStorageRecord<T> {
+  revision: number
+  updatedAt: string
+  data: T
+}
+
+export function readVersionedRecord<T>(key: string): VersionedStorageRecord<T> | null {
+  const saved = readPlatformJson<VersionedStorageRecord<T>>(key)
+  if (!saved || !Number.isInteger(saved.revision) || saved.revision < 0 || typeof saved.updatedAt !== 'string' || !('data' in saved)) return null
+  return saved
+}
+
+export function writeVersionedRecord<T>(key: string, next: VersionedStorageRecord<T>, expectedRevision: number): boolean {
+  const current = readVersionedRecord<T>(key)
+  const currentRevision = current?.revision ?? 0
+  const nextUpdatedAt = Date.parse(next.updatedAt)
+  const currentUpdatedAt = current ? Date.parse(current.updatedAt) : Number.NEGATIVE_INFINITY
+  if (currentRevision !== expectedRevision || next.revision !== expectedRevision + 1 || !Number.isFinite(nextUpdatedAt)) return false
+  if (current && (!Number.isFinite(currentUpdatedAt) || nextUpdatedAt <= currentUpdatedAt)) return false
+  return writePlatformJson(key, cloneSeed(next))
+}
+
 /** 推客直播：创建/更新即发布，用户端合并读取；下架写 null 删除标记，防止种子直播复活 */
 export function readPlatformLives(): Record<string, LiveRoom | null> | null {
   const lives = readPlatformJson<Record<string, LiveRoom | null>>(PLATFORM_LIVES_STORAGE_KEY)
   return lives && typeof lives === 'object' ? lives : null
 }
-export function writePlatformLive(room: LiveRoom): void {
+export function writePlatformLive(room: LiveRoom): boolean {
   const lives = readPlatformLives() ?? {}
-  writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, { ...lives, [room.id]: room })
+  return writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, { ...lives, [room.id]: room })
 }
 export function removePlatformLive(id: string): void {
   const lives = readPlatformLives() ?? {}
@@ -1690,22 +1897,47 @@ export function readUserBindings(): Record<string, UserBinding> | null {
   const bindings = readPlatformJson<Record<string, UserBinding>>(PLATFORM_BINDINGS_STORAGE_KEY)
   return bindings && typeof bindings === 'object' ? bindings : null
 }
-export function upsertUserBinding(binding: UserBinding): void {
+export function upsertUserBinding(binding: UserBinding): boolean {
   const bindings = readUserBindings() ?? {}
-  writePlatformJson(PLATFORM_BINDINGS_STORAGE_KEY, { ...bindings, [binding.userId]: binding })
+  return writePlatformJson(PLATFORM_BINDINGS_STORAGE_KEY, { ...bindings, [binding.userId]: binding })
 }
 
 /** 分成比例配置：中控台设置，各端读取 */
 export const DEFAULT_SHARE_CONFIG: ShareConfig = { promoterRate: 5, staffRate: 3 }
 export function readShareConfig(): ShareConfig {
-  const saved = readPlatformJson<Partial<ShareConfig>>(PLATFORM_CONFIG_STORAGE_KEY)
+  const saved = readPlatformJson<Partial<ShareConfig>>(PLATFORM_SHARE_CONFIG_STORAGE_KEY)
+    || readPlatformJson<Partial<ShareConfig>>(PLATFORM_CONFIG_STORAGE_KEY)
   return {
     promoterRate: typeof saved?.promoterRate === 'number' ? saved.promoterRate : DEFAULT_SHARE_CONFIG.promoterRate,
     staffRate: typeof saved?.staffRate === 'number' ? saved.staffRate : DEFAULT_SHARE_CONFIG.staffRate
   }
 }
-export function writeShareConfig(config: ShareConfig): void {
-  writePlatformJson(PLATFORM_CONFIG_STORAGE_KEY, { promoterRate: config.promoterRate, staffRate: config.staffRate })
+export function writeShareConfig(config: ShareConfig): boolean {
+  if (![config.promoterRate, config.staffRate].every((value) => Number.isFinite(value) && value >= 0 && value <= 100)) return false
+  return writePlatformJson(PLATFORM_SHARE_CONFIG_STORAGE_KEY, { promoterRate: round2(config.promoterRate), staffRate: round2(config.staffRate) })
+}
+
+export function readPricingDefaults(): PricingDefaults {
+  const saved = readPlatformJson<Partial<PricingDefaults> & Partial<ShareConfig>>(PLATFORM_PRICING_DEFAULTS_STORAGE_KEY)
+    || readPlatformJson<Partial<PricingDefaults> & Partial<ShareConfig>>(PLATFORM_CONFIG_STORAGE_KEY)
+  const numberOr = (value: unknown, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  return {
+    promoterCommissionRate: numberOr(saved?.promoterCommissionRate ?? saved?.promoterRate, DEFAULT_PRICING_DEFAULTS.promoterCommissionRate),
+    storeCommissionRate: numberOr(saved?.storeCommissionRate ?? saved?.staffRate, DEFAULT_PRICING_DEFAULTS.storeCommissionRate),
+    level1Amount: numberOr(saved?.level1Amount, DEFAULT_PRICING_DEFAULTS.level1Amount),
+    level2Amount: numberOr(saved?.level2Amount, DEFAULT_PRICING_DEFAULTS.level2Amount)
+  }
+}
+
+export function writePricingDefaults(defaults: PricingDefaults): boolean {
+  const values = [defaults.promoterCommissionRate, defaults.storeCommissionRate, defaults.level1Amount, defaults.level2Amount]
+  if (!values.every((value) => Number.isFinite(value) && value >= 0) || defaults.promoterCommissionRate > 100 || defaults.storeCommissionRate > 100) return false
+  return writePlatformJson(PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, {
+    promoterCommissionRate: round2(defaults.promoterCommissionRate),
+    storeCommissionRate: round2(defaults.storeCommissionRate),
+    level1Amount: round2(defaults.level1Amount),
+    level2Amount: round2(defaults.level2Amount)
+  })
 }
 
 /** 分成记录 */
@@ -1713,14 +1945,17 @@ export function readShareRecords(): ShareRecord[] | null {
   const records = readPlatformJson<ShareRecord[]>(PLATFORM_SHARES_STORAGE_KEY)
   return Array.isArray(records) ? records : null
 }
-export function writeShareRecord(record: ShareRecord): void {
+export function writeShareRecord(record: ShareRecord): boolean {
   const records = readShareRecords() ?? []
-  writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, [record, ...records])
+  const existing = records.findIndex((item) => item.id === record.id)
+  if (existing >= 0) records[existing] = record
+  else records.unshift(record)
+  return writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, records)
 }
 
 /** 整表覆盖写入分成记录（结算标记等） */
-export function writeShareRecords(records: ShareRecord[]): void {
-  writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, records)
+export function writeShareRecords(records: ShareRecord[]): boolean {
+  return writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, records)
 }
 
 /** 按 id 批量标记分成已结算 */
@@ -1728,7 +1963,7 @@ export function markShareSettled(ids: string[]): void {
   const records = readShareRecords() ?? []
   const idSet = new Set(ids)
   let changed = false
-  records.forEach((item) => { if (idSet.has(item.id) && !item.settled) { item.settled = true; changed = true } })
+  records.forEach((item) => { if (idSet.has(item.id) && !item.settled) { item.settled = true; item.status = 'settled'; changed = true } })
   if (changed) writeShareRecords(records)
 }
 
@@ -1736,7 +1971,7 @@ export function markShareSettled(ids: string[]): void {
 export function pendingShareAmount(promoterId: string): number {
   const records = readShareRecords() ?? []
   const sum = records
-    .filter((item) => item.role === 'promoter' && item.promoterId === promoterId && !item.settled)
+    .filter((item) => item.role === 'promoter' && item.promoterId === promoterId && !item.settled && item.status !== 'reversed')
     .reduce((acc, item) => acc + item.amount, 0)
   return Math.round(sum * 100) / 100
 }
@@ -1744,7 +1979,7 @@ export function pendingShareAmount(promoterId: string): number {
 /** 所有推客未结算分成总额 */
 export function pendingShareTotal(): number {
   const records = readShareRecords() ?? []
-  const sum = records.filter((item) => item.role === 'promoter' && !item.settled).reduce((acc, item) => acc + item.amount, 0)
+  const sum = records.filter((item) => item.role === 'promoter' && !item.settled && item.status !== 'reversed').reduce((acc, item) => acc + item.amount, 0)
   return Math.round(sum * 100) / 100
 }
 
@@ -1839,9 +2074,9 @@ export function readPlatformOrders(): Record<string, Order> | null {
   const orders = readPlatformJson<Record<string, Order>>(PLATFORM_ORDERS_STORAGE_KEY)
   return orders && typeof orders === 'object' ? orders : null
 }
-export function writePlatformOrder(order: Order): void {
+export function writePlatformOrder(order: Order): boolean {
   const orders = readPlatformOrders() ?? {}
-  writePlatformJson(PLATFORM_ORDERS_STORAGE_KEY, { ...orders, [order.id]: order })
+  return writePlatformJson(PLATFORM_ORDERS_STORAGE_KEY, { ...orders, [order.id]: order })
 }
 export function mergePlatformOrders(defaults: Order[], published: Record<string, Order> | null): Order[] {
   if (!published) return defaults
@@ -1856,9 +2091,9 @@ export function readPlatformAfterSales(): Record<string, AfterSale> | null {
   const works = readPlatformJson<Record<string, AfterSale>>(PLATFORM_AFTERSALES_STORAGE_KEY)
   return works && typeof works === 'object' ? works : null
 }
-export function writePlatformAfterSale(work: AfterSale): void {
+export function writePlatformAfterSale(work: AfterSale): boolean {
   const works = readPlatformAfterSales() ?? {}
-  writePlatformJson(PLATFORM_AFTERSALES_STORAGE_KEY, { ...works, [work.id]: work })
+  return writePlatformJson(PLATFORM_AFTERSALES_STORAGE_KEY, { ...works, [work.id]: work })
 }
 export function mergePlatformAfterSales(defaults: AfterSale[], published: Record<string, AfterSale> | null): AfterSale[] {
   if (!published) return defaults
@@ -2013,7 +2248,8 @@ export function resolveUserIdentity(openid: string): string {
   if (!openid) return getOrCreateUserId()
   const linked = resolveUserIdByOpenid(openid)
   if (linked) return linked
-  const userId = getOrCreateUserId()
+  // 每个授权主体独立生成用户 ID；设备级匿名 ID 只服务于未授权旧流程。
+  const userId = createId('U')
   writeUserLink(openid, userId)
   return userId
 }
@@ -2083,13 +2319,17 @@ export function deriveSupplierMetrics(orders: Order[]): SupplierMetrics {
   const now = new Date()
   const todayPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const isToday = (value: string) => value.startsWith(todayPrefix)
+  const isTodayInTransit = (order: Order) => {
+    const fulfillment = order.supplierFulfillment
+    return fulfillment?.deliverDate === todayString() && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
+  }
   const todayOrders = orders.filter((order) => isToday(order.createdAt))
   return {
     toAcceptCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'submitted').length,
     toDispatchCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'accepted').length,
     toHandoverCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'shipped').length,
     deliveringCount: orders.filter((order) => ensureSupplierFulfillment(order).status === 'delivering').length,
-    shortageOrderCount: orders.filter((order) => (order.supplierFulfillment?.shortages.length || 0) > 0).length,
+    shortageOrderCount: orders.filter((order) => isTodayInTransit(order) && (order.supplierFulfillment?.shortages.length || 0) > 0).length,
     todayOrderCount: todayOrders.length,
     todayAmount: round2(todayOrders.reduce((sum, order) => sum + order.amount, 0))
   }
@@ -2118,15 +2358,19 @@ export function findActiveDriver(drivers: DriverAccount[], account: string, pass
 }
 
 function flowEvent(action: string, operator: string, note?: string): OrderFlowEvent {
-  const event: OrderFlowEvent = { time: new Date().toLocaleString('zh-CN'), action, operator }
+  const event: OrderFlowEvent = { time: new Date().toISOString(), action, operator }
   if (note) event.note = note
   return event
+}
+
+function logisticsEvent(title: string, detail: string): LogisticsEvent {
+  return { time: new Date().toISOString(), title, detail }
 }
 
 export function acceptSupplierOrder(order: Order, operator: string): Order | null {
   const fulfillment = ensureSupplierFulfillment(order)
   if (fulfillment.status !== 'submitted') return null
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   return {
     ...order,
     status: 'pending',
@@ -2140,7 +2384,7 @@ export function assignSupplierDriver(order: Order, driver: DriverAccount, operat
   if (fulfillment.status !== 'accepted') return null
   if (!driver || driver.status !== 'active') return null
   if (driver.supplierId !== (order.supplierId || SUPPLIER_DEMO_ID)) return null
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   return {
     ...order,
     status: 'shipping',
@@ -2155,7 +2399,7 @@ export function reassignSupplierDriver(order: Order, driver: DriverAccount, oper
   if (fulfillment.status !== 'shipped' && fulfillment.status !== 'delivering') return null
   if (!driver || driver.status !== 'active' || driver.id === fulfillment.driverId) return null
   if (driver.supplierId !== (order.supplierId || SUPPLIER_DEMO_ID)) return null
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   return {
     ...order,
     status: 'shipping',
@@ -2168,12 +2412,13 @@ export function shipSupplierCourier(order: Order, trackingNo: string, operator: 
   const fulfillment = ensureSupplierFulfillment(order)
   if (fulfillment.status !== 'accepted') return null
   if (!trackingNo || !trackingNo.trim()) return null
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   return {
     ...order,
     status: 'shipping',
     trackingNo: trackingNo.trim(),
     flow: [...(order.flow || []), flowEvent(`已发货 · 快递直发，运单 ${trackingNo.trim()}`, operator)],
+    logistics: [...(order.logistics || []), logisticsEvent('商品已发货', `快递已揽收，运单号 ${trackingNo.trim()}`)],
     supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'courier', trackingNo: trackingNo.trim(), deliverDate: todayString(), updatedAt: now }
   }
 }
@@ -2182,7 +2427,7 @@ export function handoverSupplierOut(order: Order, actuals: Record<string, number
   const fulfillment = ensureSupplierFulfillment(order)
   if (fulfillment.status !== 'shipped') return null
   const shortages = computeShortage(order.items || [], actuals)
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   const handover: HandoverLog = { id: createId('H'), type: 'out', orderId: order.id, time: now, operatorId: operator.id, operatorName: operator.name, operatorRole: operator.role, shortageCount: shortages.length }
   if (note) handover.note = note
   const flow = [...(order.flow || []), flowEvent(fulfillment.shipType === 'courier' ? '出库交接完成 · 快递揽收' : `出库交接完成 · 司机 ${fulfillment.driverName || ''} 领货`, operator.name)]
@@ -2193,6 +2438,7 @@ export function handoverSupplierOut(order: Order, actuals: Record<string, number
     ...order,
     status: 'shipping',
     flow,
+    logistics: fulfillment.shipType === 'courier' ? [...(order.logistics || []), logisticsEvent('运输中', '包裹已进入模拟运输流程')] : order.logistics,
     supplierFulfillment: { ...fulfillment, status: 'delivering', shortages, handovers: [...fulfillment.handovers, handover], updatedAt: now }
   }
 }
@@ -2201,7 +2447,7 @@ export function handoverSupplierIn(order: Order, operator: { id: string; name: s
   const fulfillment = ensureSupplierFulfillment(order)
   if (fulfillment.status !== 'delivering' || fulfillment.shipType !== 'driver') return null
   if (fulfillment.driverId !== operator.id) return null
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   const handover: HandoverLog = { id: createId('H'), type: 'in', orderId: order.id, time: now, operatorId: operator.id, operatorName: operator.name, operatorRole: operator.role }
   if (note) handover.note = note
   return {
@@ -2215,11 +2461,12 @@ export function handoverSupplierIn(order: Order, operator: { id: string; name: s
 export function confirmCourierDelivered(order: Order, operator: { id: string; name: string; role: 'supplier' | 'driver' }): Order | null {
   const fulfillment = ensureSupplierFulfillment(order)
   if (fulfillment.status !== 'delivering' || fulfillment.shipType !== 'courier') return null
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   return {
     ...order,
     status: 'delivered',
     flow: [...(order.flow || []), flowEvent('已签收 · 快递送达门店', operator.name)],
+    logistics: [...(order.logistics || []), logisticsEvent('已签收', '包裹已由收货方签收')],
     supplierFulfillment: { ...fulfillment, status: 'received', updatedAt: now }
   }
 }
@@ -2233,13 +2480,994 @@ export function markShortageHandled(order: Order, skuId: string, operatorName: s
   const fulfillment = ensureSupplierFulfillment(order)
   const target = fulfillment.shortages.find((item) => item.skuId === skuId)
   if (!target || target.handled) return null
-  const now = new Date().toLocaleString('zh-CN')
+  const now = new Date().toISOString()
   const shortages = fulfillment.shortages.map((item) => item.skuId === skuId ? { ...item, handled: true, handledAt: now } : item)
   return {
     ...order,
     flow: [...(order.flow || []), flowEvent(`已标记补发 · ${target.name} 缺 ${target.shortage}`, operatorName)],
     supplierFulfillment: { ...fulfillment, shortages, updatedAt: now }
   }
+}
+
+// ===== C端分销商城 =====
+export type CUserLevel = 'normal' | 'level1' | 'level2'
+export type CProductStatus = 'active' | 'offline'
+export type COrderStatus = 'pending_payment' | 'paid' | 'shipped' | 'received' | 'cancelled' | 'after_sale' | 'partially_shipped' | 'partially_received' | 'partially_after_sale'
+export type CCommissionStatus = 'pending' | 'available' | 'withdrawn' | 'reversed'
+
+export interface CProductSku {
+  id: string
+  name: string
+  image: string
+  stock: number
+  basePrice: number
+  level1Commission: number
+  level2Commission: number
+}
+
+export interface CProduct {
+  id: string
+  name: string
+  category: string
+  supplierId: string
+  supplierName: string
+  image: string
+  images?: string[]
+  tags: string[]
+  status: CProductStatus
+  shippingType: 'courier'
+  skus: CProductSku[]
+  channels?: { store?: boolean; live?: boolean }
+  expressDelivery?: boolean
+  productType?: ProductType
+}
+
+export function catalogChannelFlags(channel: CatalogChannel): { store: boolean; live: boolean } {
+  return { store: channel === 'store' || channel === 'all', live: channel === 'live' || channel === 'all' }
+}
+
+export function catalogPriceForSku(sku: CatalogSku, level: CUserLevel): number {
+  if (level === 'level1') return round2(sku.retailPrice - sku.level1Amount - sku.level2Amount)
+  if (level === 'level2') return round2(sku.retailPrice - sku.level2Amount)
+  return round2(sku.retailPrice)
+}
+
+export function allocateCatalogCommissions(
+  items: Array<{ quantity: number; level1Amount: number; level2Amount: number }>,
+  chain: CCommissionChain,
+  buyerLevel: CUserLevel
+): Array<{ beneficiaryId: string; beneficiaryLevel: 'level1' | 'level2'; amount: number }> {
+  const level1Amount = round2(items.reduce((sum, item) => sum + item.level1Amount * item.quantity, 0))
+  const level2Amount = round2(items.reduce((sum, item) => sum + item.level2Amount * item.quantity, 0))
+  if (buyerLevel === 'level1') return []
+  if (buyerLevel === 'level2') {
+    return chain.level1Id && level1Amount > 0
+      ? [{ beneficiaryId: chain.level1Id, beneficiaryLevel: 'level1', amount: level1Amount }]
+      : []
+  }
+  const result: Array<{ beneficiaryId: string; beneficiaryLevel: 'level1' | 'level2'; amount: number }> = []
+  if (chain.level1Id && level1Amount > 0) result.push({ beneficiaryId: chain.level1Id, beneficiaryLevel: 'level1', amount: level1Amount })
+  if (chain.level2Id && level2Amount > 0) result.push({ beneficiaryId: chain.level2Id, beneficiaryLevel: 'level2', amount: level2Amount })
+  return result
+}
+
+export interface StoreCatalogCommissionLine {
+  unitPrice: number
+  quantity: number
+  promoterCommissionRate: number
+  storeCommissionRate: number
+}
+
+export interface StoreCatalogReferral {
+  type: 'promoter' | 'staff'
+  beneficiaryId: string
+}
+
+export function allocateStoreCatalogCommission(
+  lines: StoreCatalogCommissionLine[],
+  referral: StoreCatalogReferral | null,
+  storeOwnerId: string
+): { beneficiaryId: string; beneficiaryType: 'promoter' | 'staff' | 'owner'; amount: number } | null {
+  const beneficiaryId = referral?.beneficiaryId || storeOwnerId
+  if (!beneficiaryId || !lines.length) return null
+  const usePromoterRate = referral?.type === 'promoter'
+  const amount = round2(lines.reduce((sum, line) => {
+    if (!Number.isFinite(line.unitPrice) || line.unitPrice < 0 || !Number.isInteger(line.quantity) || line.quantity <= 0) return sum
+    const rate = usePromoterRate ? line.promoterCommissionRate : line.storeCommissionRate
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) return sum
+    return sum + round2(line.unitPrice * line.quantity * rate / 100)
+  }, 0))
+  return {
+    beneficiaryId,
+    beneficiaryType: referral?.type || 'owner',
+    amount
+  }
+}
+
+function channelFromLegacy(input: { channels?: { store?: boolean; live?: boolean }; source?: ProductSource }): CatalogChannel {
+  const channels = resolveProductChannels(input)
+  return channels.store && channels.live ? 'all' : channels.live ? 'live' : 'store'
+}
+
+function catalogSkuIsValid(sku: CatalogSku): boolean {
+  return !!sku.id && !!sku.name && (!sku.status || sku.status === 'active' || sku.status === 'retired') && [sku.retailPrice, sku.cost, sku.stock, sku.level1Amount, sku.level2Amount].every((value) => Number.isFinite(value) && value >= 0) && sku.retailPrice >= sku.level1Amount + sku.level2Amount
+}
+
+function catalogProductIsValid(product: CatalogProduct): boolean {
+  if (!product.id || !product.name || !product.skus.length || !product.skus.every(catalogSkuIsValid)) return false
+  if (![product.promoterCommissionRate, product.storeCommissionRate].every((value) => Number.isFinite(value) && value >= 0 && value <= 100)) return false
+  if (product.productType === 'package') return product.channel === 'store' && !product.expressDelivery
+  if ((product.channel === 'live' || product.channel === 'all') && !product.expressDelivery) return false
+  return true
+}
+
+function legacyDistributionAmounts(retailPrice: number, level1Amount: number, level2Amount: number): { level1Amount: number; level2Amount: number } {
+  const normalizedRetail = Math.max(0, round2(retailPrice))
+  const normalizedLevel2 = Math.min(normalizedRetail, Math.max(0, round2(level2Amount)))
+  return {
+    level1Amount: Math.min(round2(normalizedRetail - normalizedLevel2), Math.max(0, round2(level1Amount))),
+    level2Amount: normalizedLevel2
+  }
+}
+
+export function catalogProductToProduct(product: CatalogProduct): Product {
+  const channels = catalogChannelFlags(product.channel)
+  const skus: Sku[] = product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({ id: sku.id, name: sku.name, image: sku.image, price: sku.retailPrice, cost: sku.cost, stock: sku.stock, level1Amount: sku.level1Amount, level2Amount: sku.level2Amount }))
+  return {
+    id: product.id, name: product.name, category: product.category,
+    price: skus.length ? Math.min(...skus.map((sku) => sku.price)) : 0,
+    cost: skus.length ? Math.min(...skus.map((sku) => sku.cost)) : 0,
+    stock: skus.reduce((sum, sku) => sum + sku.stock, 0), sales: 0,
+    source: product.source, status: product.status, image: product.image,
+    images: [...product.images], supplier: product.supplierName, supplierId: product.supplierId,
+    supplierName: product.supplierName, tags: [...product.tags], skus,
+    farmIds: [...product.farmIds], channels, channel: product.channel,
+    expressDelivery: product.expressDelivery, productType: product.productType,
+    commissionRate: product.promoterCommissionRate,
+    staffCommissionRate: product.storeCommissionRate,
+    promoterCommissionRate: product.promoterCommissionRate,
+    storeCommissionRate: product.storeCommissionRate
+  }
+}
+
+export function catalogProductToStoreProduct(product: CatalogProduct, selection?: StoreCatalogSelection): Product {
+  const projected = catalogProductToProduct(product)
+  if (!selection?.skuRetailPrices) return projected
+  projected.skus.forEach((sku) => {
+    const price = selection.skuRetailPrices?.[sku.id]
+    if (Number.isFinite(price) && Number(price) >= 0) sku.price = round2(Number(price))
+  })
+  projected.price = projected.skus.length ? Math.min(...projected.skus.map((sku) => sku.price)) : 0
+  return projected
+}
+
+export function catalogProductToCProduct(product: CatalogProduct): CProduct {
+  const channels = catalogChannelFlags(product.channel)
+  return {
+    id: product.id, name: product.name, category: product.category,
+    supplierId: product.supplierId, supplierName: product.supplierName,
+    image: product.image, images: [...product.images], tags: [...product.tags],
+    status: product.status === 'active' ? 'active' : 'offline', shippingType: 'courier',
+    channels, expressDelivery: product.expressDelivery, productType: product.productType,
+    skus: product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({
+      id: sku.id, name: sku.name, image: sku.image, stock: sku.stock,
+      basePrice: round2(sku.retailPrice - sku.level1Amount - sku.level2Amount),
+      level1Commission: sku.level1Amount, level2Commission: sku.level2Amount
+    }))
+  }
+}
+
+export function migrateLegacyCatalog(storeProducts: Product[], liveProducts: CProduct[], defaults: PricingDefaults = DEFAULT_PRICING_DEFAULTS): CatalogProduct[] {
+  const migratedStore = storeProducts.map((product): CatalogProduct => ({
+    id: product.id, name: product.name, category: product.category,
+    supplierId: product.supplierId || '', supplierName: product.supplierName || product.supplier,
+    source: product.source, status: product.status, image: product.image,
+    images: [...(product.images || [])], tags: [...product.tags],
+    productType: product.productType || (product.category === '套餐券' ? 'package' : 'goods'), expressDelivery: !!product.expressDelivery,
+    channel: product.channel || channelFromLegacy(product), farmIds: [...product.farmIds],
+    promoterCommissionRate: product.promoterCommissionRate ?? product.commissionRate ?? defaults.promoterCommissionRate,
+    storeCommissionRate: product.storeCommissionRate ?? product.staffCommissionRate ?? defaults.storeCommissionRate,
+    skus: (product.skus.length ? product.skus : [{ id: `${product.id}-DEFAULT`, name: product.spec || '默认规格', price: product.price, cost: product.cost, stock: product.stock }]).map((sku) => ({
+      id: sku.id, name: sku.name, image: sku.image || product.image,
+      retailPrice: round2(sku.price), cost: round2(sku.cost), stock: Math.max(0, Math.floor(sku.stock)),
+      status: 'active',
+      ...legacyDistributionAmounts(sku.price, sku.level1Amount ?? defaults.level1Amount, sku.level2Amount ?? defaults.level2Amount)
+    }))
+  }))
+  const migratedLive = liveProducts.map((product): CatalogProduct => ({
+    id: product.id, name: product.name, category: product.category,
+    supplierId: product.supplierId, supplierName: product.supplierName,
+    source: 'platform', status: product.status, image: product.image,
+    images: [...(product.images || [])], tags: [...product.tags],
+    productType: product.productType || 'goods', expressDelivery: product.expressDelivery ?? true,
+    channel: channelFromLegacy(product), farmIds: [],
+    promoterCommissionRate: defaults.promoterCommissionRate,
+    storeCommissionRate: defaults.storeCommissionRate,
+    skus: product.skus.map((sku) => ({
+      id: sku.id, name: sku.name, image: sku.image || product.image,
+      retailPrice: round2(sku.basePrice + sku.level1Commission + sku.level2Commission),
+      cost: round2(sku.basePrice), stock: Math.max(0, Math.floor(sku.stock)),
+      status: 'active',
+      level1Amount: round2(sku.level1Commission), level2Amount: round2(sku.level2Commission)
+    }))
+  }))
+  return [...migratedStore, ...migratedLive].filter((product) => product.id && product.name && product.skus.length > 0 && product.skus.every(catalogSkuIsValid))
+}
+
+function normalizeCatalogState(value: unknown): CatalogState | null {
+  const state = value as Partial<CatalogState> | null
+  if (!state || (state.schemaVersion !== 1 && state.schemaVersion !== CATALOG_SCHEMA_VERSION) || !Number.isInteger(state.revision) || Number(state.revision) < 0 || !Array.isArray(state.products)) return null
+  return {
+    schemaVersion: CATALOG_SCHEMA_VERSION,
+    revision: Number(state.revision),
+    products: cloneSeed(state.products).map((product) => ({
+      ...product,
+      skus: product.skus.map((sku) => ({ ...sku, status: sku.status === 'retired' ? 'retired' : 'active' }))
+    })),
+    appliedOperations: state.appliedOperations && typeof state.appliedOperations === 'object' ? cloneSeed(state.appliedOperations) : {}
+  }
+}
+
+export function readCatalogState(): CatalogState | null {
+  const raw = readPlatformJson<CatalogState>(PLATFORM_CATALOG_STORAGE_KEY)
+  const state = normalizeCatalogState(raw)
+  if (!state || state.products.some((product) => !catalogProductIsValid(product))) return null
+  if (raw?.schemaVersion !== CATALOG_SCHEMA_VERSION || !raw.appliedOperations || raw.products.some((product) => product.skus.some((sku) => !sku.status))) writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, state)
+  return cloneSeed(state)
+}
+
+export function ensureCatalogState(storeProducts: Product[], liveProducts: CProduct[], defaults: PricingDefaults = readPricingDefaults()): CatalogState {
+  const existing = readCatalogState()
+  if (existing) return existing
+  const state: CatalogState = {
+    schemaVersion: CATALOG_SCHEMA_VERSION,
+    revision: 0,
+    products: migrateLegacyCatalog(storeProducts, liveProducts, defaults),
+    appliedOperations: {}
+  }
+  writeCatalogState(state)
+  return state
+}
+
+export type CatalogAudience = 'user' | 'ordering' | 'farmhouse-selection'
+
+export function catalogProductsForAudience(state: CatalogState, audience: CatalogAudience): CatalogProduct[] {
+  return state.products.filter((product) => {
+    if (product.status !== 'active' || !product.skus.some((sku) => sku.status !== 'retired')) return false
+    const channels = catalogChannelFlags(product.channel)
+    if (audience === 'user') return channels.live && product.productType === 'goods' && product.expressDelivery
+    return channels.store
+  })
+}
+
+export function writeCatalogState(state: CatalogState, expectedRevision?: number): boolean {
+  const current = readCatalogState()
+  if (expectedRevision !== undefined && current?.revision !== expectedRevision) return false
+  const normalized = normalizeCatalogState(state)
+  if (!normalized || normalized.products.some((product) => !catalogProductIsValid(product))) return false
+  return writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, normalized)
+}
+
+export function saveCatalogProduct(product: CatalogProduct, expectedRevision: number): CatalogState | null {
+  const current = readCatalogState()
+  if (!current || current.revision !== expectedRevision || !catalogProductIsValid(product)) return null
+  const next = cloneSeed(current)
+  const index = next.products.findIndex((item) => item.id === product.id)
+  if (index >= 0) next.products[index] = cloneSeed(product)
+  else next.products.unshift(cloneSeed(product))
+  next.revision += 1
+  return writeCatalogState(next, expectedRevision) ? next : null
+}
+
+function sameStockChanges(left: CatalogStockChange[], right: CatalogStockChange[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+export function applyCatalogStockOperation(operationId: string, changes: CatalogStockChange[], expectedRevision: number): { state: CatalogState; applied: boolean } | null {
+  const current = readCatalogState()
+  if (!current || !operationId || !changes.length) return null
+  const existing = current.appliedOperations?.[operationId]
+  if (existing) return sameStockChanges(existing.changes, changes) ? { state: current, applied: false } : null
+  if (current.revision !== expectedRevision) return null
+  const next = cloneSeed(current)
+  for (const change of changes) {
+    if (!Number.isInteger(change.quantity) || change.quantity === 0) return null
+    const sku = next.products.find((product) => product.id === change.productId)?.skus.find((candidate) => candidate.id === change.skuId)
+    if (!sku || (change.quantity < 0 && sku.status === 'retired') || sku.stock + change.quantity < 0) return null
+    sku.stock += change.quantity
+  }
+  next.appliedOperations ||= {}
+  next.appliedOperations[operationId] = { id: operationId, changes: cloneSeed(changes), appliedAt: new Date().toISOString() }
+  next.revision += 1
+  return writeCatalogState(next, expectedRevision) ? { state: next, applied: true } : null
+}
+
+export function updateCatalogStock(changes: CatalogStockChange[], expectedRevision: number): CatalogState | null {
+  return applyCatalogStockOperation(createId('STOCK'), changes, expectedRevision)?.state || null
+}
+
+function selectionPrices(product: CatalogProduct, input: Pick<StoreCatalogSelection, 'skuRetailPrices' | 'retailPrice'>): Record<string, number> | null {
+  if (input.skuRetailPrices && typeof input.skuRetailPrices === 'object') {
+    const prices = Object.fromEntries(Object.entries(input.skuRetailPrices).map(([id, price]) => [id, round2(Number(price))]))
+    if (product.skus.some((sku) => sku.status !== 'retired' && (!Number.isFinite(prices[sku.id]) || prices[sku.id] < 0))) return null
+    return prices
+  }
+  if (!Number.isFinite(input.retailPrice) || Number(input.retailPrice) < 0) return null
+  const active = product.skus.filter((sku) => sku.status !== 'retired')
+  const base = active.length ? Math.min(...active.map((sku) => sku.retailPrice)) : 0
+  const delta = round2(Number(input.retailPrice) - base)
+  return Object.fromEntries(product.skus.map((sku) => [sku.id, Math.max(0, round2(sku.retailPrice + delta))]))
+}
+
+export function readStoreCatalogSelectionState(): StoreCatalogSelectionState {
+  const saved = readPlatformJson<StoreCatalogSelectionState | StoreCatalogSelection[]>(PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY)
+  const legacy = Array.isArray(saved)
+  const revision = legacy ? 0 : Number.isInteger(saved?.revision) && Number(saved?.revision) >= 0 ? Number(saved?.revision) : 0
+  const source = legacy ? saved : Array.isArray(saved?.selections) ? saved.selections : []
+  const catalog = readCatalogState()
+  const selections = source.flatMap((item) => {
+    const product = catalog?.products.find((candidate) => candidate.id === item?.productId)
+    if (!item?.storeId || !product || !catalogChannelFlags(product.channel).store || typeof item.listed !== 'boolean') return []
+    const skuRetailPrices = selectionPrices(product, item)
+    if (!skuRetailPrices) return []
+    return [{ storeId: item.storeId, productId: item.productId, listed: item.listed, skuRetailPrices, updatedAt: item.updatedAt || new Date(0).toISOString() }]
+  })
+  const state = { schemaVersion: STORE_CATALOG_SELECTION_SCHEMA_VERSION, revision, selections }
+  if (legacy || (saved && !Array.isArray(saved) && saved.schemaVersion !== STORE_CATALOG_SELECTION_SCHEMA_VERSION)) writePlatformJson(PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, state)
+  return cloneSeed(state)
+}
+
+export function readStoreCatalogSelections(storeId?: string): StoreCatalogSelection[] {
+  const selections = readStoreCatalogSelectionState().selections
+  return cloneSeed(storeId ? selections.filter((item) => item.storeId === storeId) : selections)
+}
+
+export function saveStoreCatalogSelection(input: Omit<StoreCatalogSelection, 'updatedAt' | 'retailPrice'> & { updatedAt?: string }, expectedRevision: number): StoreCatalogSelectionState | null {
+  const current = readStoreCatalogSelectionState()
+  const product = readCatalogState()?.products.find((item) => item.id === input.productId)
+  if (current.revision !== expectedRevision || !input.storeId || !product || !catalogChannelFlags(product.channel).store) return null
+  const skuRetailPrices = selectionPrices(product, input)
+  if (!skuRetailPrices) return null
+  const next = cloneSeed(current)
+  const selection: StoreCatalogSelection = { storeId: input.storeId, productId: input.productId, listed: input.listed, skuRetailPrices, updatedAt: input.updatedAt || new Date().toISOString() }
+  const index = next.selections.findIndex((item) => item.storeId === input.storeId && item.productId === input.productId)
+  if (index >= 0) next.selections[index] = selection
+  else next.selections.push(selection)
+  next.revision += 1
+  return writePlatformJson(PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, next) ? next : null
+}
+
+export function upsertStoreCatalogSelection(input: Omit<StoreCatalogSelection, 'updatedAt'> & { updatedAt?: string }): boolean {
+  const current = readStoreCatalogSelectionState()
+  const product = readCatalogState()?.products.find((item) => item.id === input.productId)
+  if (!product) return false
+  const skuRetailPrices = selectionPrices(product, input)
+  if (!skuRetailPrices) return false
+  return !!saveStoreCatalogSelection({ storeId: input.storeId, productId: input.productId, listed: input.listed, skuRetailPrices, updatedAt: input.updatedAt }, current.revision)
+}
+
+export function readCatalogTransactionJournal(): Record<string, CatalogTransactionJournalEntry> {
+  const saved = readPlatformJson<Record<string, CatalogTransactionJournalEntry>>(PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY)
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {}
+  return cloneSeed(saved)
+}
+
+export function readPendingCatalogTransactions(channel?: CatalogTransactionChannel): CatalogTransactionJournalEntry[] {
+  return Object.values(readCatalogTransactionJournal())
+    .filter((entry) => (!channel || entry.channel === channel) && (entry.status === 'prepared' || entry.status === 'stock-applied'))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
+export function prepareCatalogTransaction<T>(input: Omit<CatalogTransactionJournalEntry<T>, 'status' | 'createdAt' | 'updatedAt'>): boolean {
+  if (!input.id || !input.inventoryChanges.length || input.inventoryChanges.some((change) => !change.productId || !change.skuId || !Number.isInteger(change.quantity) || change.quantity === 0)) return false
+  const journal = readCatalogTransactionJournal()
+  const existing = journal[input.id]
+  if (existing) {
+    return existing.channel === input.channel && existing.action === input.action
+      && JSON.stringify(existing.inventoryChanges) === JSON.stringify(input.inventoryChanges)
+      && JSON.stringify(existing.payload) === JSON.stringify(input.payload)
+  }
+  const now = new Date().toISOString()
+  journal[input.id] = { ...cloneSeed(input), status: 'prepared', createdAt: now, updatedAt: now }
+  return writePlatformJson(PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, journal)
+}
+
+function setCatalogTransactionStatus(id: string, status: CatalogTransactionStatus): boolean {
+  const journal = readCatalogTransactionJournal()
+  const entry = journal[id]
+  if (!entry) return false
+  if (entry.status === status) return true
+  if (status === 'stock-applied' && entry.status !== 'prepared') return false
+  if (status === 'committed' && entry.status !== 'stock-applied') return false
+  if (status === 'aborted' && entry.status !== 'prepared') return false
+  entry.status = status
+  entry.updatedAt = new Date().toISOString()
+  return writePlatformJson(PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, journal)
+}
+
+export function markCatalogTransactionStockApplied(id: string): boolean {
+  return setCatalogTransactionStatus(id, 'stock-applied')
+}
+
+export function commitCatalogTransaction(id: string): boolean {
+  return setCatalogTransactionStatus(id, 'committed')
+}
+
+export function abortCatalogTransaction(id: string): boolean {
+  return setCatalogTransactionStatus(id, 'aborted')
+}
+
+export interface CDistributorProfile {
+  userId: string
+  promoterId: string
+  level: 'level1' | 'level2'
+  parentPromoterId?: string
+  status: 'active' | 'paused'
+}
+
+export interface CAddress {
+  id: string
+  userId: string
+  receiver: string
+  phone: string
+  region: string
+  detail: string
+  isDefault: boolean
+  updatedAt?: string
+}
+
+export interface COrderItem {
+  productId: string
+  skuId: string
+  name: string
+  skuName: string
+  image: string
+  quantity: number
+  unitPrice: number
+  basePrice: number
+  level1Commission: number
+  level2Commission: number
+  supplierId: string
+}
+
+export interface CSubOrder {
+  id: string
+  supplierId: string
+  supplierName: string
+  items: COrderItem[]
+  amount: number
+  status: COrderStatus
+  trackingNo?: string
+  courier?: string
+  logistics: LogisticsEvent[]
+  afterSale?: CAfterSaleRequest
+  inventoryReleased?: boolean
+}
+
+export interface CAfterSaleRequest {
+  id: string
+  reason: string
+  status: 'processing' | 'reversed' | 'completed'
+  createdAt: string
+}
+
+export interface CCommissionAllocation {
+  id: string
+  orderId: string
+  subOrderId: string
+  beneficiaryId: string
+  beneficiaryLevel: 'level1' | 'level2'
+  amount: number
+  status: CCommissionStatus
+  createdAt: string
+}
+
+export interface COrder {
+  id: string
+  userId: string
+  level: CUserLevel
+  address: CAddress
+  amount: number
+  items: COrderItem[]
+  subOrders: CSubOrder[]
+  distributorChain?: string[]
+  commissionAllocations: CCommissionAllocation[]
+  status: COrderStatus
+  createdAt: string
+  paidAt?: string
+  remark?: string
+  inventoryReleased?: boolean
+}
+
+export interface CPriceBreakdown {
+  level1: number
+  level2: number
+  normal: number
+}
+
+export interface COrderItemGroup {
+  supplierId: string
+  items: COrderItem[]
+}
+
+export interface CCartItem extends COrderItem {
+  lockedLevel: CUserLevel
+}
+
+export interface CUserSessionState {
+  cart: CCartItem[]
+  referralPromoterId: string
+}
+
+export interface CInventoryState {
+  revision: number
+  products: CProduct[]
+}
+
+export interface CCommissionChain {
+  level1Id?: string
+  level2Id?: string
+}
+
+export const PLATFORM_C_PRODUCTS_STORAGE_KEY = 'agritainment-platform-c-products'
+export const PLATFORM_C_INVENTORY_STORAGE_KEY = 'agritainment-platform-c-inventory'
+export const PLATFORM_C_DISTRIBUTORS_STORAGE_KEY = 'agritainment-platform-c-distributors'
+export const PLATFORM_C_ADDRESSES_STORAGE_KEY = 'agritainment-platform-c-addresses'
+export const PLATFORM_C_ORDERS_STORAGE_KEY = 'agritainment-platform-c-orders'
+export const PLATFORM_C_COMMISSIONS_STORAGE_KEY = 'agritainment-platform-c-commissions'
+export const PLATFORM_C_USER_SESSIONS_STORAGE_KEY = 'agritainment-platform-c-user-sessions'
+export const PLATFORM_C_SCHEMA_VERSION_STORAGE_KEY = 'agritainment-platform-c-schema-version'
+export const PLATFORM_C_INVALID_RECORDS_STORAGE_KEY = 'agritainment-platform-c-invalid-records'
+export const C_COMMERCE_SCHEMA_VERSION = 1
+
+export interface CInvalidRecord {
+  kind: 'commission'
+  recordId: string
+  reason: string
+  recordedAt: string
+}
+
+export function readCCommerceSchemaVersion(): number {
+  const saved = readPlatformJson<number>(PLATFORM_C_SCHEMA_VERSION_STORAGE_KEY)
+  return typeof saved === 'number' && Number.isInteger(saved) && saved >= 0 ? saved : 0
+}
+
+export function ensureCCommerceSchemaVersion(): void {
+  if (readCCommerceSchemaVersion() !== C_COMMERCE_SCHEMA_VERSION) writePlatformJson(PLATFORM_C_SCHEMA_VERSION_STORAGE_KEY, C_COMMERCE_SCHEMA_VERSION)
+}
+
+export function readCInvalidRecords(): CInvalidRecord[] {
+  const saved = readPlatformJson<CInvalidRecord[]>(PLATFORM_C_INVALID_RECORDS_STORAGE_KEY)
+  return Array.isArray(saved) ? saved : []
+}
+
+function recordInvalidCommissionIds(records: readonly CCommissionAllocation[]): void {
+  const invalid = records.filter((record) => !record || !record.id || !record.orderId || !record.subOrderId || !record.beneficiaryId || !Number.isFinite(Number(record.amount)))
+  if (!invalid.length) return
+  const existing = readCInvalidRecords()
+  const known = new Set(existing.map((item) => item.recordId))
+  const next = invalid.filter((record) => !known.has(String(record?.id || ''))).map((record) => ({ kind: 'commission' as const, recordId: String(record?.id || 'unknown'), reason: '缺少订单、子订单、受益人或有效金额', recordedAt: new Date().toISOString() }))
+  if (next.length) writePlatformJson(PLATFORM_C_INVALID_RECORDS_STORAGE_KEY, [...existing, ...next])
+}
+
+export const cProducts: CProduct[] = [
+  {
+    id: 'C001', name: '湘西烟熏柴火腊肉', category: '土特产', supplierId: 'S002', supplierName: '湘西腊味合作社', image: '/static/images/bacon.webp',
+    tags: ['柴火慢熏', '产地直发'], status: 'active', shippingType: 'courier', channels: { live: true }, expressDelivery: true, productType: 'goods',
+    skus: [{ id: 'C001-500', name: '500g/袋', image: '/static/images/bacon.webp', stock: 120, basePrice: 20, level1Commission: 10, level2Commission: 15 }, { id: 'C001-1000', name: '1kg家庭装', image: '/static/images/bacon.webp', stock: 60, basePrice: 38, level1Commission: 16, level2Commission: 21 }]
+  },
+  {
+    id: 'C002', name: '炎陵黄桃鲜果礼盒', category: '生鲜水果', supplierId: 'S004', supplierName: '炎陵果业有限公司', image: '/static/images/peach.webp',
+    tags: ['当季鲜果', '顺丰冷链'], status: 'active', shippingType: 'courier', channels: { live: true }, expressDelivery: true, productType: 'goods',
+    skus: [{ id: 'C002-5J', name: '5斤礼盒', image: '/static/images/peach.webp', stock: 80, basePrice: 32, level1Commission: 8, level2Commission: 12 }, { id: 'C002-10J', name: '10斤家庭装', image: '/static/images/peach.webp', stock: 40, basePrice: 58, level1Commission: 14, level2Commission: 18 }]
+  },
+  {
+    id: 'C003', name: '安化黑茶礼盒装', category: '茶饮伴手礼', supplierId: 'S003', supplierName: '安化茶业集团', image: '/static/images/tea.webp',
+    tags: ['礼盒装', '节日送礼'], status: 'active', shippingType: 'courier', channels: { live: true }, expressDelivery: true, productType: 'goods',
+    skus: [{ id: 'C003-GIFT', name: '雅藏礼盒', image: '/static/images/tea.webp', stock: 50, basePrice: 48, level1Commission: 16, level2Commission: 24 }]
+  },
+  {
+    id: 'C004', name: '武陵山野生土蜂蜜', category: '土特产', supplierId: 'S006', supplierName: '武陵蜂业专业合作社', image: '/static/images/honey.webp',
+    tags: ['自然成熟', '产地直发'], status: 'active', shippingType: 'courier', channels: { live: true }, expressDelivery: true, productType: 'goods',
+    skus: [{ id: 'C004-500', name: '500g/瓶', image: '/static/images/honey.webp', stock: 90, basePrice: 56, level1Commission: 20, level2Commission: 24 }]
+  }
+]
+
+export const demoCDistributorProfiles: Record<string, CDistributorProfile> = {
+  'U-DEMO-L1': { userId: 'U-DEMO-L1', promoterId: 'T001', level: 'level1', status: 'active' },
+  'U-DEMO-L2': { userId: 'U-DEMO-L2', promoterId: 'T002', level: 'level2', parentPromoterId: 'T001', status: 'active' }
+}
+
+export function cPriceBreakdown(sku: CProductSku): CPriceBreakdown {
+  return { level1: round2(sku.basePrice), level2: round2(sku.basePrice + sku.level1Commission), normal: round2(sku.basePrice + sku.level1Commission + sku.level2Commission) }
+}
+
+export function cPriceForSku(sku: CProductSku, level: CUserLevel): number {
+  const prices = cPriceBreakdown(sku)
+  return prices[level]
+}
+
+export function resolveCReferralChain(promoterId: string, promoterList: readonly Promoter[], profiles: Record<string, CDistributorProfile>): CCommissionChain | null {
+  const promoter = promoterList.find((item) => item.id === promoterId)
+  if (!promoter || promoter.status !== 'active') return null
+  const profile = Object.values(profiles).find((item) => item.promoterId === promoterId)
+  if (profile && profile.status !== 'active') return null
+  const parent = profile?.parentPromoterId
+    ? promoterList.find((item) => item.id === profile.parentPromoterId && item.status === 'active')
+    : undefined
+  return parent ? { level1Id: parent.id, level2Id: promoterId } : { level2Id: promoterId }
+}
+
+export function allocateCCommissions(items: COrderItem[], chain: CCommissionChain, buyerLevel: CUserLevel, orderId = '', subOrderId = ''): CCommissionAllocation[] {
+  const now = new Date().toISOString()
+  return allocateCatalogCommissions(
+    items.map((item) => ({ quantity: item.quantity, level1Amount: item.level1Commission, level2Amount: item.level2Commission })),
+    chain,
+    buyerLevel
+  ).map((allocation) => ({
+    id: createId('CC'), orderId, subOrderId,
+    beneficiaryId: allocation.beneficiaryId,
+    beneficiaryLevel: allocation.beneficiaryLevel,
+    amount: allocation.amount, status: 'pending', createdAt: now
+  }))
+}
+
+export function splitCOrderItems(items: COrderItem[]): COrderItemGroup[] {
+  const groups = new Map<string, COrderItem[]>()
+  items.forEach((item) => groups.set(item.supplierId, [...(groups.get(item.supplierId) || []), item]))
+  return [...groups.entries()].map(([supplierId, groupedItems]) => ({ supplierId, items: groupedItems }))
+}
+
+export function nextCOrderStatus(status: COrderStatus): COrderStatus {
+  const next: Partial<Record<COrderStatus, COrderStatus>> = { pending_payment: 'paid', paid: 'shipped', shipped: 'received', received: 'received', partially_shipped: 'partially_received', partially_received: 'partially_received', partially_after_sale: 'partially_after_sale', cancelled: 'cancelled', after_sale: 'after_sale' }
+  return next[status] || status
+}
+
+export function deriveCOrderStatus(subOrders: readonly Pick<CSubOrder, 'status'>[]): COrderStatus {
+  if (!subOrders.length) return 'pending_payment'
+  const statuses = subOrders.map((item) => item.status)
+  if (statuses.every((status) => status === 'cancelled')) return 'cancelled'
+  if (statuses.every((status) => status === 'after_sale')) return 'after_sale'
+  if (statuses.some((status) => status === 'after_sale')) return 'partially_after_sale'
+  if (statuses.every((status) => status === 'received')) return 'received'
+  if (statuses.some((status) => status === 'received')) return 'partially_received'
+  if (statuses.every((status) => status === 'shipped')) return 'shipped'
+  if (statuses.some((status) => status === 'shipped')) return 'partially_shipped'
+  if (statuses.every((status) => status === 'paid')) return 'paid'
+  if (statuses.some((status) => status === 'paid')) return 'paid'
+  return 'pending_payment'
+}
+
+export type PortalTarget = 'admin' | 'farmhouse' | 'alliance' | 'store' | 'promoter' | 'user' | 'supplier'
+
+const PORTAL_QUERY_KEYS = new Set(['promoter', 'promoterName', 'live', 'staff', 'farm', 'activity', 'store'])
+
+export function buildPortalUrl(target: PortalTarget, path: string, params: Record<string, string | undefined> = {}, origin = ''): string {
+  const prefix = `/${target}/`
+  const normalizedPath = path.replace(/^\/+/, '')
+  const query = Object.entries(params)
+    .filter(([key, value]) => PORTAL_QUERY_KEYS.has(key) && typeof value === 'string' && value.length > 0)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value as string)}`)
+    .join('&')
+  return `${origin.replace(/\/$/, '')}${prefix}#/${normalizedPath}${query ? `?${query}` : ''}`
+}
+
+export interface SupplierFulfillmentSnapshot {
+  status?: PurchaseStatus
+  shipType?: 'driver' | 'courier'
+  trackingNo?: string
+  courier?: string
+  logistics?: LogisticsEvent[]
+}
+
+function cStatusFromSupplierSnapshot(snapshot: SupplierFulfillmentSnapshot): COrderStatus | null {
+  if (snapshot.status === 'received' || snapshot.status === 'completed') return 'received'
+  if (snapshot.status === 'shipped' || snapshot.status === 'delivering') return 'shipped'
+  if (snapshot.status === 'cancelled') return 'after_sale'
+  if (snapshot.status === 'submitted' || snapshot.status === 'accepted') return 'paid'
+  return null
+}
+
+const C_FULFILLMENT_STATUS_RANK: Partial<Record<COrderStatus, number>> = {
+  pending_payment: 0,
+  paid: 1,
+  partially_shipped: 2,
+  shipped: 2,
+  partially_received: 3,
+  received: 3,
+  partially_after_sale: 4
+}
+
+function mergeCSubOrderStatus(current: COrderStatus, incoming: COrderStatus | null): COrderStatus {
+  if (!incoming || current === 'received' || current === 'cancelled' || current === 'after_sale') return current
+  if (incoming === 'after_sale') return incoming
+  const currentRank = C_FULFILLMENT_STATUS_RANK[current]
+  const incomingRank = C_FULFILLMENT_STATUS_RANK[incoming]
+  return currentRank === undefined || incomingRank === undefined || incomingRank < currentRank ? current : incoming
+}
+
+function mergeLogisticsEvents(current: readonly LogisticsEvent[], incoming: readonly LogisticsEvent[]): LogisticsEvent[] {
+  const events = new Map<string, LogisticsEvent>()
+  ;[...current, ...incoming].forEach((event) => {
+    const key = JSON.stringify([event.time, event.title, event.detail])
+    if (!events.has(key)) events.set(key, cloneSeed(event))
+  })
+  return [...events.values()].sort((a, b) => {
+    const left = Date.parse(a.time)
+    const right = Date.parse(b.time)
+    return Number.isNaN(left) || Number.isNaN(right) ? 0 : left - right
+  })
+}
+
+export function mergeCSubOrderFulfillment(current: CSubOrder, incoming: SupplierFulfillmentSnapshot): CSubOrder {
+  const incomingStatus = cStatusFromSupplierSnapshot(incoming)
+  const terminal = current.status === 'received' || current.status === 'cancelled' || current.status === 'after_sale'
+  const status = mergeCSubOrderStatus(current.status, incomingStatus)
+  const logistics = terminal || !Array.isArray(incoming.logistics)
+    ? current.logistics
+    : mergeLogisticsEvents(current.logistics, incoming.logistics)
+  const trackingNo = incoming.trackingNo?.trim() || current.trackingNo
+  const courier = incoming.courier?.trim() || current.courier || (incoming.shipType === 'courier' ? '快递配送' : undefined)
+  return {
+    ...current,
+    status,
+    trackingNo,
+    courier,
+    logistics
+  }
+}
+
+export function publishCSubOrderToSupplier(order: COrder, subOrder: CSubOrder): Order {
+  const fulfillment: SupplierFulfillment = {
+    status: 'submitted', shipType: 'courier', shortages: [], handovers: [], updatedAt: new Date().toISOString()
+  }
+  return {
+    id: `C-MALL-${subOrder.id}`,
+    productName: subOrder.items[0]?.name || 'C端商城商品',
+    quantity: subOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+    amount: round2(subOrder.amount),
+    customer: `${order.address.receiver} · C端商城`,
+    channel: 'purchase',
+    status: 'pending',
+    createdAt: order.createdAt,
+    items: subOrder.items.map((item) => ({ productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: item.image, quantity: item.quantity, price: item.unitPrice })),
+    supplierId: subOrder.supplierId,
+    supplierFulfillment: fulfillment,
+    supplierOrderLink: {
+      source: 'c-mall', sourceOrderId: order.id, sourceSubOrderId: subOrder.id,
+      customerUserId: order.userId, deliveryAddress: cloneSeed(order.address)
+    },
+    logistics: cloneSeed(subOrder.logistics)
+  }
+}
+
+export function syncCSubOrderFromSupplier(order: COrder, subOrder: CSubOrder, supplierOrder: Order): COrder {
+  const next = cloneSeed(order)
+  const target = next.subOrders.find((item) => item.id === subOrder.id)
+  if (!target) return next
+  const fulfillment = supplierOrder.supplierFulfillment
+  const supplierStatus = fulfillment?.status || (supplierOrder.status === 'delivered' ? 'received' : supplierOrder.status === 'shipping' ? 'shipped' : undefined)
+  next.subOrders[next.subOrders.findIndex((item) => item.id === subOrder.id)] = mergeCSubOrderFulfillment(target, {
+    status: supplierStatus,
+    shipType: fulfillment?.shipType,
+    trackingNo: supplierOrder.trackingNo || fulfillment?.trackingNo,
+    logistics: supplierOrder.logistics
+  })
+  next.status = deriveCOrderStatus(next.subOrders)
+  return next
+}
+
+export function markCSubOrderAfterSaleAtSupplier(supplierOrder: Order, operator = '用户'): Order | null {
+  if (supplierOrder.supplierOrderLink?.source !== 'c-mall') return null
+  const fulfillment = ensureSupplierFulfillment(supplierOrder)
+  if (fulfillment.status === 'cancelled' || supplierOrder.status === 'after-sale') return supplierOrder
+  const now = new Date().toISOString()
+  return {
+    ...supplierOrder,
+    status: 'after-sale',
+    flow: [...(supplierOrder.flow || []), flowEvent('售后处理中 · C 端用户发起售后', operator)],
+    logistics: [...(supplierOrder.logistics || []), logisticsEvent('售后处理中', 'C 端用户已发起售后')],
+    supplierFulfillment: { ...fulfillment, status: 'cancelled', updatedAt: now }
+  }
+}
+
+export function confirmCSubOrderReceiptAtSupplier(supplierOrder: Order, operator = '用户'): Order | null {
+  if (supplierOrder.supplierOrderLink?.source !== 'c-mall') return null
+  const fulfillment = ensureSupplierFulfillment(supplierOrder)
+  if (fulfillment.status !== 'shipped' && fulfillment.status !== 'delivering') return null
+  return {
+    ...supplierOrder,
+    status: 'delivered',
+    flow: [...(supplierOrder.flow || []), flowEvent('已签收 · C 端用户确认收货', operator)],
+    logistics: [...(supplierOrder.logistics || []), logisticsEvent('已签收', 'C 端用户已确认收货')],
+    supplierFulfillment: { ...fulfillment, status: 'received', updatedAt: new Date().toISOString() }
+  }
+}
+
+function normalizeIso(value: unknown): string {
+  const date = typeof value === 'string' ? new Date(value) : new Date(NaN)
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString()
+}
+
+export function normalizeCProducts(products: readonly CProduct[]): CProduct[] {
+  if (!Array.isArray(products)) return []
+  return products.map((product) => {
+    if (!product || !product.id || !product.name || !Array.isArray(product.skus) || (product.status !== 'active' && product.status !== 'offline') || product.shippingType !== 'courier') return null
+    const skus: CProductSku[] = product.skus.map((sku: CProductSku): CProductSku | null => {
+      if (!sku || !sku.id || !sku.name) return null
+      const stock = Number(sku.stock)
+      const basePrice = Number(sku.basePrice)
+      const level1Commission = Number(sku.level1Commission)
+      const level2Commission = Number(sku.level2Commission)
+      if (!Number.isFinite(stock) || stock < 0 || !Number.isFinite(basePrice) || basePrice < 0 || !Number.isFinite(level1Commission) || level1Commission < 0 || !Number.isFinite(level2Commission) || level2Commission < 0) return null
+      return { ...sku, stock: Math.floor(stock), basePrice: round2(basePrice), level1Commission: round2(level1Commission), level2Commission: round2(level2Commission) }
+    }).filter((sku: CProductSku | null): sku is CProductSku => sku !== null)
+    return skus.length ? { ...product, tags: Array.isArray(product.tags) ? product.tags : [], skus } : null
+  }).filter((product): product is CProduct => !!product)
+}
+
+export function normalizeCAddresses(addresses: Record<string, CAddress>): Record<string, CAddress> {
+  const valid: CAddress[] = Object.entries(addresses || {}).map(([id, address], index): CAddress | null => {
+    if (!address || !address.userId || !address.receiver?.trim() || !/^1[3-9]\d{9}$/.test(address.phone?.trim() || '') || !address.region?.trim() || !address.detail?.trim()) return null
+    return { id: address.id || id, userId: address.userId, receiver: address.receiver.trim(), phone: address.phone.trim(), region: address.region.trim(), detail: address.detail.trim(), isDefault: !!address.isDefault, updatedAt: address.updatedAt ? normalizeIso(address.updatedAt) : new Date(index).toISOString() }
+  }).filter((address): address is CAddress => address !== null)
+  const grouped = new Map<string, CAddress[]>()
+  valid.forEach((address) => grouped.set(address.userId, [...(grouped.get(address.userId) || []), address]))
+  const normalized: Record<string, CAddress> = {}
+  grouped.forEach((items) => {
+    const defaults = items.filter((item) => item.isDefault)
+    const selected = (defaults.length ? defaults : items).slice().sort((a, b) => (a.updatedAt || '').localeCompare(b.updatedAt || '')).at(-1)
+    items.forEach((item) => { normalized[item.id] = { ...item, isDefault: item.id === selected?.id } })
+  })
+  return normalized
+}
+
+export function normalizeCCommissionRecords(records: readonly CCommissionAllocation[]): CCommissionAllocation[] {
+  if (!Array.isArray(records)) return []
+  return records.filter((record) => record && record.id && record.orderId && record.subOrderId && record.beneficiaryId && Number.isFinite(Number(record.amount))).map((record) => ({
+    ...record,
+    amount: round2(Number(record.amount)),
+    status: record.status === 'available' || record.status === 'withdrawn' || record.status === 'reversed' ? record.status : 'pending',
+    createdAt: normalizeIso(record.createdAt)
+  }))
+}
+
+export function normalizeCOrders(orders: Record<string, COrder>): Record<string, COrder> {
+  const normalized: Record<string, COrder> = {}
+  const statuses: COrderStatus[] = ['pending_payment', 'paid', 'shipped', 'received', 'cancelled', 'after_sale', 'partially_shipped', 'partially_received', 'partially_after_sale']
+  Object.entries(orders || {}).forEach(([id, order]) => {
+    if (!order || !order.id || !order.userId || !order.address || order.address.userId !== order.userId || !order.address.receiver?.trim() || !/^1[3-9]\d{9}$/.test(order.address.phone?.trim() || '') || !order.address.region?.trim() || !order.address.detail?.trim() || !Array.isArray(order.subOrders)) return
+    const subOrderIds = new Set<string>()
+    for (const sub of order.subOrders) {
+      if (!sub?.id || subOrderIds.has(sub.id)) return
+      subOrderIds.add(sub.id)
+      if (!sub.supplierId || !Array.isArray(sub.items) || sub.items.some((item) => !item || !item.productId || !item.skuId || !item.supplierId || item.supplierId !== sub.supplierId || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) <= 0 || !Number.isFinite(Number(item.unitPrice)) || Number(item.unitPrice) < 0 || !Number.isFinite(Number(item.basePrice)) || Number(item.basePrice) < 0 || !Number.isFinite(Number(item.level1Commission)) || Number(item.level1Commission) < 0 || !Number.isFinite(Number(item.level2Commission)) || Number(item.level2Commission) < 0)) return
+    }
+    const subOrders = order.subOrders.filter((sub) => sub && sub.id && sub.supplierId && Array.isArray(sub.items)).map((sub): CSubOrder => {
+      const items = sub.items.map((item) => ({
+        ...item,
+        quantity: Math.floor(Number(item.quantity)),
+        unitPrice: round2(Number(item.unitPrice) || 0),
+        basePrice: round2(Number(item.basePrice) || 0),
+        level1Commission: round2(Number(item.level1Commission) || 0),
+        level2Commission: round2(Number(item.level2Commission) || 0)
+      }))
+      const logistics = Array.isArray(sub.logistics) ? sub.logistics.filter((event) => event && event.title).map((event) => ({
+        time: normalizeIso(event.time), title: String(event.title), detail: String(event.detail || '')
+      })) : []
+      const afterSale: CAfterSaleRequest | undefined = sub.afterSale ? { ...sub.afterSale, status: sub.afterSale.status === 'reversed' || sub.afterSale.status === 'completed' ? sub.afterSale.status : 'processing', createdAt: normalizeIso(sub.afterSale.createdAt) } : undefined
+      return {
+        ...sub,
+        items,
+        amount: round2(Number(sub.amount) || 0),
+        status: statuses.includes(sub.status) ? sub.status : 'pending_payment',
+        logistics,
+        afterSale,
+        inventoryReleased: !!sub.inventoryReleased
+      }
+    }).filter((sub) => sub.items.length > 0)
+    const subIds = new Set(subOrders.map((sub) => sub.id))
+    const commissionAllocations = normalizeCCommissionRecords(order.commissionAllocations || []).filter((record) => record.orderId === order.id && subIds.has(record.subOrderId))
+    if (!subOrders.length) return
+    normalized[id] = { ...order, id: order.id, items: subOrders.flatMap((sub) => sub.items), amount: round2(Number(order.amount) || 0), subOrders, commissionAllocations, status: deriveCOrderStatus(subOrders), createdAt: normalizeIso(order.createdAt), paidAt: order.paidAt ? normalizeIso(order.paidAt) : undefined }
+  })
+  return normalized
+}
+
+function readRawCInventoryState(): CInventoryState | null {
+  const saved = readPlatformJson<CInventoryState>(PLATFORM_C_INVENTORY_STORAGE_KEY)
+  if (!saved || !Number.isInteger(saved.revision) || saved.revision < 0 || !Array.isArray(saved.products)) return null
+  const products = normalizeCProducts(saved.products)
+  return products.length ? { revision: saved.revision, products } : null
+}
+
+export function readCInventoryState(): CInventoryState | null {
+  const saved = readRawCInventoryState()
+  if (saved) return saved
+  const legacy = readPlatformJson<CProduct[]>(PLATFORM_C_PRODUCTS_STORAGE_KEY)
+  if (!Array.isArray(legacy)) return null
+  const migrated = { revision: 0, products: normalizeCProducts(legacy) }
+  if (!migrated.products.length) return null
+  writePlatformJson(PLATFORM_C_INVENTORY_STORAGE_KEY, migrated)
+  return migrated
+}
+
+export function writeCInventoryState(next: CInventoryState, expectedRevision: number): boolean {
+  const current = readCInventoryState()
+  const currentRevision = current?.revision ?? 0
+  if (currentRevision !== expectedRevision || next.revision !== expectedRevision + 1) return false
+  const products = normalizeCProducts(next.products)
+  if (!products.length) return false
+  return writePlatformJson(PLATFORM_C_INVENTORY_STORAGE_KEY, { revision: next.revision, products })
+}
+
+export function readCProducts(): CProduct[] | null { return readCInventoryState()?.products || null }
+export function writeCProducts(value: CProduct[]): void {
+  const current = readCInventoryState()
+  const expectedRevision = current?.revision ?? 0
+  writeCInventoryState({ revision: expectedRevision + 1, products: value }, expectedRevision)
+}
+
+export function readCUserSession(userId: string): CUserSessionState {
+  const sessions = readPlatformJson<Record<string, CUserSessionState>>(PLATFORM_C_USER_SESSIONS_STORAGE_KEY) || {}
+  const saved = sessions[userId]
+  return {
+    cart: Array.isArray(saved?.cart) ? cloneSeed(saved.cart) : [],
+    referralPromoterId: typeof saved?.referralPromoterId === 'string' ? saved.referralPromoterId : ''
+  }
+}
+
+export function writeCUserSession(userId: string, value: CUserSessionState): boolean {
+  if (!userId) return false
+  const sessions = readPlatformJson<Record<string, CUserSessionState>>(PLATFORM_C_USER_SESSIONS_STORAGE_KEY) || {}
+  sessions[userId] = cloneSeed(value)
+  return writePlatformJson(PLATFORM_C_USER_SESSIONS_STORAGE_KEY, sessions)
+}
+export function readCDistributorProfiles(): Record<string, CDistributorProfile> | null {
+  const saved = readPlatformJson<Record<string, CDistributorProfile>>(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY)
+  return saved && typeof saved === 'object' ? saved : null
+}
+export function writeCDistributorProfiles(value: Record<string, CDistributorProfile>): void { writePlatformJson(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, value) }
+export function readCAddresses(): Record<string, CAddress> | null {
+  const saved = readPlatformJson<Record<string, CAddress>>(PLATFORM_C_ADDRESSES_STORAGE_KEY)
+  return saved && typeof saved === 'object' ? normalizeCAddresses(saved) : null
+}
+export function writeCAddresses(value: Record<string, CAddress>): void { writePlatformJson(PLATFORM_C_ADDRESSES_STORAGE_KEY, normalizeCAddresses(value)) }
+export function writeCAddress(value: CAddress): void { writeCAddresses({ ...(readCAddresses() || {}), [value.id]: value }) }
+export function removeCAddress(id: string): void {
+  const addresses = readCAddresses() || {}
+  const removed = addresses[id]
+  delete addresses[id]
+  if (removed?.isDefault) {
+    const remaining = Object.values(addresses)
+    if (remaining.length && !remaining.some((address) => address.isDefault)) remaining[0].isDefault = true
+  }
+  writeCAddresses(addresses)
+}
+export function readCOrders(): Record<string, COrder> | null {
+  const saved = readPlatformJson<Record<string, COrder>>(PLATFORM_C_ORDERS_STORAGE_KEY)
+  return saved && typeof saved === 'object' ? normalizeCOrders(saved) : null
+}
+export function writeCOrder(value: COrder): boolean { return writePlatformJson(PLATFORM_C_ORDERS_STORAGE_KEY, { ...(readCOrders() || {}), [value.id]: normalizeCOrders({ [value.id]: value })[value.id] || value }) }
+export function writeCOrders(value: Record<string, COrder>): boolean { return writePlatformJson(PLATFORM_C_ORDERS_STORAGE_KEY, normalizeCOrders(value)) }
+export function readCCommissionRecords(): CCommissionAllocation[] | null {
+  const saved = readPlatformJson<CCommissionAllocation[]>(PLATFORM_C_COMMISSIONS_STORAGE_KEY)
+  if (!Array.isArray(saved)) return null
+  recordInvalidCommissionIds(saved)
+  const normalized = normalizeCCommissionRecords(saved)
+  writePlatformJson(PLATFORM_C_COMMISSIONS_STORAGE_KEY, normalized)
+  return normalized
+}
+export function writeCCommissionRecords(value: CCommissionAllocation[]): boolean {
+  recordInvalidCommissionIds(value)
+  return writePlatformJson(PLATFORM_C_COMMISSIONS_STORAGE_KEY, normalizeCCommissionRecords(value))
+}
+
+export function seedCCommerceData(): void {
+  ensureCCommerceSchemaVersion()
+  if (!readCProducts()) writeCProducts(cloneSeed(cProducts))
+  if (!readCDistributorProfiles()) writeCDistributorProfiles(cloneSeed(demoCDistributorProfiles))
+  if (!readCCommissionRecords()) writeCCommissionRecords([])
 }
 
 

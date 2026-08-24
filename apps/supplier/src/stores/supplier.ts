@@ -3,13 +3,18 @@ import type { DriverAccount, MockScenario, Order, ShortageItem } from '@agritain
 import {
   PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, SUPPLIER_DEMO_ID, acceptSupplierOrder, assignSupplierDriver, clearPlatformJson, cloneSeed, confirmCourierDelivered, createId,
   deriveSupplierMetrics, demoDrivers, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount,
-  handoverSupplierIn, handoverSupplierOut, markShortageHandled, mergePlatformDrivers, readPlatformDrivers, readPlatformOrders,
-  reassignSupplierDriver, shipSupplierCourier, todayString, validateSupplierAccount, writePlatformDrivers, writePlatformOrder
+  handoverSupplierIn, handoverSupplierOut, markShortageHandled, mergePlatformDrivers, readCOrders, readPlatformDrivers, readPlatformOrders,
+  reassignSupplierDriver, shipSupplierCourier, syncCSubOrderFromSupplier, todayString, validateSupplierAccount, writeCOrder, writePlatformDrivers, writePlatformOrder
 } from '@agritainment/shared'
 import { seedSupplierDataOnce, supplierInfo } from '../services/repository'
 
 const FULFILLMENT_STATUS_TEXT: Record<string, string> = {
   submitted: '待接单', accepted: '待发货', shipped: '待出库', delivering: '配送中', received: '已收货', cancelled: '已取消', completed: '已完成'
+}
+
+const C_SUPPLIER_ACCOUNTS: Record<string, { password: string; supplierId: string; name: string }> = {
+  supplier: { password: '123456', supplierId: 'S002', name: '湘西腊味合作社' },
+  supplier04: { password: '123456', supplierId: 'S004', name: '炎陵果业有限公司' }
 }
 
 export type SupplierRole = 'supplier' | 'driver'
@@ -38,35 +43,36 @@ export const useSupplierStore = defineStore('supplier', {
   }),
   getters: {
     metrics: (state) => deriveSupplierMetrics(state.orders),
-    todayDeliveryOrders: (state) => state.orders.filter((order) => {
+    todayDeliveryOrders: (state) => state.orders.filter((order) => order.supplierId === state.auth.supplierId && order.channel === 'purchase' && (() => {
       const fulfillment = order.supplierFulfillment
       if (!fulfillment) return false
       if (fulfillment.status === 'submitted' || fulfillment.status === 'accepted') return true
       return fulfillment.deliverDate === todayString() && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
-    }),
-    activeDrivers: (state) => state.drivers.filter((driver) => driver.status === 'active'),
-    driverTaskCounts: (state) => driverActiveTaskCounts(state.orders),
-    supplierOrders: (state) => state.orders.filter((order) => order.channel === 'purchase' && order.supplierId === SUPPLIER_DEMO_ID),
+    })()),
+    visibleDrivers: (state) => state.drivers.filter((driver) => driver.supplierId === state.auth.supplierId),
+    activeDrivers: (state) => state.drivers.filter((driver) => driver.supplierId === state.auth.supplierId && driver.status === 'active'),
+    driverTaskCounts: (state) => driverActiveTaskCounts(state.orders.filter((order) => order.supplierId === state.auth.supplierId)),
+    supplierOrders: (state) => state.orders.filter((order) => order.channel === 'purchase' && order.supplierId === state.auth.supplierId),
     myTasks: (state) => {
       if (state.auth.role !== 'driver' || !state.auth.driverId) return []
       return state.orders.filter((order) => {
         const fulfillment = order.supplierFulfillment
-        return fulfillment?.shipType === 'driver' && fulfillment.driverId === state.auth.driverId && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering') && fulfillment.deliverDate === todayString()
+        return order.supplierId === state.auth.supplierId && fulfillment?.shipType === 'driver' && fulfillment.driverId === state.auth.driverId && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering') && fulfillment.deliverDate === todayString()
       })
     },
     myHistory: (state) => {
       if (state.auth.role !== 'driver' || !state.auth.driverId) return []
       return state.orders.filter((order) => {
         const fulfillment = order.supplierFulfillment
-        return fulfillment?.shipType === 'driver' && fulfillment.driverId === state.auth.driverId && fulfillment.status === 'received'
+        return order.supplierId === state.auth.supplierId && fulfillment?.shipType === 'driver' && fulfillment.driverId === state.auth.driverId && fulfillment.status === 'received'
       })
     },
     myHandovers: (state) => {
       const mine = (operatorId?: string) => operatorId === (state.auth.driverId || state.auth.supplierId)
-      return state.orders.flatMap((order) => (order.supplierFulfillment?.handovers || []).filter((item) => mine(item.operatorId)))
+      return state.orders.filter((order) => order.supplierId === state.auth.supplierId).flatMap((order) => (order.supplierFulfillment?.handovers || []).filter((item) => mine(item.operatorId)).map((item) => ({ ...item, customer: order.customer })))
         .sort((a, b) => b.time.localeCompare(a.time))
     },
-    allHandovers: (state) => state.orders.flatMap((order) => (order.supplierFulfillment?.handovers || []).map((item) => ({ ...item, customer: order.customer })))
+    allHandovers: (state) => state.orders.filter((order) => order.supplierId === state.auth.supplierId).flatMap((order) => (order.supplierFulfillment?.handovers || []).map((item) => ({ ...item, customer: order.customer })))
       .sort((a, b) => b.time.localeCompare(a.time)),
     statusText: () => (status: string) => FULFILLMENT_STATUS_TEXT[status] || status
   },
@@ -80,9 +86,16 @@ export const useSupplierStore = defineStore('supplier', {
         const drivers = mergePlatformDrivers(cloneSeed(demoDrivers), readPlatformDrivers())
         const platformOrders = readPlatformOrders()
         const orders = platformOrders
-          ? Object.values(platformOrders).filter((order) => order.channel === 'purchase' && order.supplierId === SUPPLIER_DEMO_ID)
+          ? Object.values(platformOrders).filter((order) => order.channel === 'purchase')
           : []
-        orders.forEach((order) => { if (!order.supplierFulfillment) order.supplierFulfillment = ensureSupplierFulfillment(order) })
+        orders.forEach((order) => {
+          if (!order.supplierFulfillment) order.supplierFulfillment = ensureSupplierFulfillment(order)
+          const fulfillment = order.supplierFulfillment
+          if (fulfillment.shipType === 'driver' && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering') && !fulfillment.deliverDate) {
+            fulfillment.deliverDate = todayString()
+            writePlatformOrder(order)
+          }
+        })
         orders.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         this.$patch({ drivers, orders, initialized: true })
       } catch (error) {
@@ -91,12 +104,16 @@ export const useSupplierStore = defineStore('supplier', {
         this.loading = false
       }
     },
+    async refreshSharedState() {
+      await this.initialize(true)
+    },
     loginSupplier(account: string, password: string) {
-      if (!validateSupplierAccount(account, password)) {
+      const credential = C_SUPPLIER_ACCOUNTS[account.trim()]
+      if ((!credential || credential.password !== password) && !validateSupplierAccount(account, password)) {
         this.loginError = '账号或密码错误'
         return false
       }
-      this.auth = { isLoggedIn: true, role: 'supplier', account: account.trim(), name: supplierInfo.name, supplierId: SUPPLIER_DEMO_ID }
+      this.auth = { isLoggedIn: true, role: 'supplier', account: account.trim(), name: credential?.name || supplierInfo.name, supplierId: credential?.supplierId || SUPPLIER_DEMO_ID }
       this.loginError = ''
       return true
     },
@@ -131,34 +148,47 @@ export const useSupplierStore = defineStore('supplier', {
     },
     commitOrder(next: Order | null) {
       if (!next) return false
+      if (next.supplierId && next.supplierId !== this.auth.supplierId) return false
       const index = this.orders.findIndex((order) => order.id === next.id)
       if (index >= 0) this.orders[index] = next
       else this.orders.unshift(next)
       writePlatformOrder(next)
+      const link = next.supplierOrderLink
+      if (link?.source === 'c-mall' && link.sourceOrderId && link.sourceSubOrderId) {
+        const cOrder = readCOrders()?.[link.sourceOrderId]
+        const subOrder = cOrder?.subOrders.find((item) => item.id === link.sourceSubOrderId)
+        if (cOrder && subOrder) writeCOrder(syncCSubOrderFromSupplier(cOrder, subOrder, next))
+      }
       return true
     },
     acceptOrder(id: string) {
+      if (this.auth.role !== 'supplier') return false
       const order = this.orders.find((item) => item.id === id)
       return order ? this.commitOrder(acceptSupplierOrder(order, this.auth.name || supplierInfo.name)) : false
     },
     batchAcceptOrders(ids: string[]) {
+      if (this.auth.role !== 'supplier') return 0
       return ids.reduce((count, id) => count + (this.acceptOrder(id) ? 1 : 0), 0)
     },
     assignDriver(orderId: string, driverId: string) {
+      if (this.auth.role !== 'supplier') return false
       const order = this.orders.find((item) => item.id === orderId)
-      const driver = this.drivers.find((item) => item.id === driverId)
+      const driver = this.drivers.find((item) => item.id === driverId && item.supplierId === this.auth.supplierId)
       return order && driver ? this.commitOrder(assignSupplierDriver(order, driver, this.auth.name || supplierInfo.name)) : false
     },
     reassignDriver(orderId: string, driverId: string) {
+      if (this.auth.role !== 'supplier') return false
       const order = this.orders.find((item) => item.id === orderId)
-      const driver = this.drivers.find((item) => item.id === driverId)
+      const driver = this.drivers.find((item) => item.id === driverId && item.supplierId === this.auth.supplierId)
       return order && driver ? this.commitOrder(reassignSupplierDriver(order, driver, this.auth.name || supplierInfo.name)) : false
     },
     shipCourier(orderId: string, trackingNo: string) {
+      if (this.auth.role !== 'supplier') return false
       const order = this.orders.find((item) => item.id === orderId)
       return order ? this.commitOrder(shipSupplierCourier(order, trackingNo, this.auth.name || supplierInfo.name)) : false
     },
     handoverOut(orderId: string, actuals: Record<string, number>, note?: string): { ok: boolean; shortages: ShortageItem[] } {
+      if (this.auth.role !== 'supplier') return { ok: false, shortages: [] }
       const order = this.orders.find((item) => item.id === orderId)
       if (!order) return { ok: false, shortages: [] }
       const next = handoverSupplierOut(order, actuals, { id: this.auth.supplierId || SUPPLIER_DEMO_ID, name: this.auth.name || supplierInfo.name, role: 'supplier' }, note)
@@ -172,11 +202,13 @@ export const useSupplierStore = defineStore('supplier', {
       return this.commitOrder(handoverSupplierIn(order, { id: this.auth.driverId, name: this.auth.name, role: 'driver' }, note))
     },
     markCourierDelivered(orderId: string) {
+      if (this.auth.role !== 'supplier') return false
       const order = this.orders.find((item) => item.id === orderId)
       if (!order) return false
       return this.commitOrder(confirmCourierDelivered(order, { id: this.auth.supplierId || SUPPLIER_DEMO_ID, name: this.auth.name || supplierInfo.name, role: 'supplier' }))
     },
     addDriver(input: { name: string; phone: string; account: string; password: string }): { ok: boolean; error?: string } {
+      if (this.auth.role !== 'supplier') return { ok: false, error: '无权管理司机' }
       const name = input.name.trim()
       const account = input.account.trim()
       const phone = input.phone.trim()
@@ -186,15 +218,16 @@ export const useSupplierStore = defineStore('supplier', {
       if (input.password.length < 6 || input.password.length > 20) return { ok: false, error: '密码需 6-20 位' }
       if (this.drivers.some((driver) => driver.account === account)) return { ok: false, error: '账号已存在' }
       const driver: DriverAccount = {
-        id: createId('D'), supplierId: SUPPLIER_DEMO_ID, name, account, password: input.password, phone,
-        status: 'active', createdAt: new Date().toLocaleString('zh-CN')
+        id: createId('D'), supplierId: this.auth.supplierId, name, account, password: input.password, phone,
+        status: 'active', createdAt: new Date().toISOString()
       }
       this.drivers.push(driver)
       writePlatformDrivers(this.drivers)
       return { ok: true }
     },
     updateDriver(id: string, patch: { name?: string; phone?: string }) {
-      const driver = this.drivers.find((item) => item.id === id)
+      if (this.auth.role !== 'supplier') return false
+      const driver = this.drivers.find((item) => item.id === id && item.supplierId === this.auth.supplierId)
       if (!driver) return false
       if (patch.name !== undefined && (!patch.name.trim() || patch.name.trim().length > 20)) return false
       if (patch.phone !== undefined && !/^1[3-9]\d{9}$/.test(patch.phone.trim())) return false
@@ -204,15 +237,17 @@ export const useSupplierStore = defineStore('supplier', {
       return true
     },
     resetDriverPassword(id: string, password: string) {
+      if (this.auth.role !== 'supplier') return false
       if (password.length < 6 || password.length > 20) return false
-      const driver = this.drivers.find((item) => item.id === id)
+      const driver = this.drivers.find((item) => item.id === id && item.supplierId === this.auth.supplierId)
       if (!driver) return false
       driver.password = password
       writePlatformDrivers(this.drivers)
       return true
     },
     toggleDriverStatus(id: string) {
-      const driver = this.drivers.find((item) => item.id === id)
+      if (this.auth.role !== 'supplier') return false
+      const driver = this.drivers.find((item) => item.id === id && item.supplierId === this.auth.supplierId)
       if (!driver) return false
       driver.status = driver.status === 'active' ? 'disabled' : 'active'
       writePlatformDrivers(this.drivers)

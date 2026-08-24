@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { AfterSale, Category, CommissionRule, CommissionSettlementRecord, DictGroup, DictItem, FarmStore, MockScenario, Order, PricePolicy, PriceTier, Product, Promoter, StoreAccount, Supplier, SupplierSettlementRecord } from '@agritainment/shared'
-import { DEMO_ACCOUNT, createId, markShareSettled, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformOrders, mergePlatformStoreAccounts, pendingShareTotal, readPlatformAfterSales, readPlatformMedia, readPlatformOrders, readPlatformStoreAccounts, readShareConfig, readShareRecords, round2, upsertPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, validateAccountPassword, writePlatformAfterSale, writePlatformCommissionSettlement, writePlatformMedia, writePlatformOrder, writePlatformStoreAccounts, writeShareConfig } from '@agritainment/shared'
+import type { AfterSale, CProduct, CatalogProduct, CatalogState, Category, CommissionRule, CommissionSettlementRecord, DictGroup, DictItem, FarmStore, MockScenario, Order, PricePolicy, PriceTier, PricingDefaults, Product, Promoter, StoreAccount, Supplier, SupplierSettlementRecord } from '@agritainment/shared'
+import { DEFAULT_PRICING_DEFAULTS, DEMO_ACCOUNT, catalogChannelFlags, catalogProductToCProduct, catalogProductToProduct, createId, ensureCatalogState, markShareSettled, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformOrders, mergePlatformStoreAccounts, normalizeCProducts, pendingShareTotal, readCInventoryState, readCatalogState, readPlatformAfterSales, readPlatformMedia, readPlatformOrders, readPlatformStoreAccounts, readPricingDefaults, readShareRecords, round2, saveCatalogProduct as persistCatalogProduct, seedCCommerceData, upsertPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, validateAccountPassword, writePlatformAfterSale, writePlatformCommissionSettlement, writePlatformMedia, writePlatformOrder, writePlatformStoreAccounts, writePricingDefaults } from '@agritainment/shared'
 import { adminRepository } from '../services/repository'
 
 interface AdminState {
@@ -10,6 +10,10 @@ interface AdminState {
   mockScenario: MockScenario
   suppliers: Supplier[]
   products: Product[]
+  cProducts: CProduct[]
+  catalogProducts: CatalogProduct[]
+  catalogRevision: number
+  pricingDefaults: PricingDefaults
   categories: Category[]
   orders: Order[]
   afterSales: AfterSale[]
@@ -36,6 +40,10 @@ export const useAdminStore = defineStore('operations', {
     mockScenario: 'normal',
     suppliers: [],
     products: [],
+    cProducts: [],
+    catalogProducts: [],
+    catalogRevision: 0,
+    pricingDefaults: { ...DEFAULT_PRICING_DEFAULTS },
     categories: [],
     orders: [],
     afterSales: [],
@@ -82,10 +90,20 @@ export const useAdminStore = defineStore('operations', {
       this.loading = true
       this.error = ''
       try {
+        seedCCommerceData()
         const data = await adminRepository.loadDashboard(this.mockScenario)
+        const legacyProducts = hasPersistedData ? mergeEntitySeeds(data.products, this.products) : data.products
+        const cInventory = readCInventoryState()
+        const catalog = readCatalogState() ?? ensureCatalogState(legacyProducts, normalizeCProducts(cInventory?.products || []))
+        const storeProducts = catalog.products.filter((product) => catalogChannelFlags(product.channel).store).map(catalogProductToProduct)
+        const liveProducts = catalog.products.filter((product) => catalogChannelFlags(product.channel).live).map(catalogProductToCProduct)
         this.$patch({
           suppliers: hasPersistedData ? mergeEntitySeeds(data.suppliers, this.suppliers) : data.suppliers,
-          products: hasPersistedData ? mergeEntitySeeds(data.products, this.products) : data.products,
+          products: storeProducts,
+          cProducts: liveProducts,
+          catalogProducts: catalog.products,
+          catalogRevision: catalog.revision,
+          pricingDefaults: readPricingDefaults(),
           categories: hasPersistedData ? mergeEntitySeeds(data.categories, this.categories) : data.categories,
           orders: hasPersistedData ? mergeEntitySeeds(data.orders, this.orders) : data.orders,
           afterSales: hasPersistedData ? mergeEntitySeeds(data.afterSales, this.afterSales) : data.afterSales,
@@ -108,9 +126,47 @@ export const useAdminStore = defineStore('operations', {
         this.loading = false
       }
     },
+    async refreshSharedState() {
+      await this.initialize(true)
+    },
     setMockScenario(scenario: MockScenario) {
       this.mockScenario = scenario
       this.initialized = false
+    },
+    applyCatalogState(catalog: CatalogState) {
+      this.catalogProducts = catalog.products
+      this.catalogRevision = catalog.revision
+      this.products = catalog.products.filter((product) => catalogChannelFlags(product.channel).store).map(catalogProductToProduct)
+      this.cProducts = catalog.products.filter((product) => catalogChannelFlags(product.channel).live).map(catalogProductToCProduct)
+    },
+    saveCatalogProduct(payload: CatalogProduct): { ok: true } | { ok: false; error: string } {
+      const current = readCatalogState()
+      if (!current || current.revision !== this.catalogRevision) {
+        if (current) this.applyCatalogState(current)
+        return { ok: false, error: '商品数据已更新，请刷新后重试' }
+      }
+      const expectedRevision = this.catalogRevision
+      const next = persistCatalogProduct(payload, expectedRevision)
+      if (!next) {
+        const latest = readCatalogState()
+        const revisionConflict = !latest || latest.revision !== expectedRevision
+        if (latest) this.applyCatalogState(latest)
+        return revisionConflict
+          ? { ok: false, error: '商品数据已更新，请刷新后重试' }
+          : { ok: false, error: '商品配置非法，请检查渠道、快递、佣金和 SKU 价格' }
+      }
+      this.applyCatalogState(next)
+      return { ok: true }
+    },
+    toggleCatalogProduct(id: string) {
+      const item = this.catalogProducts.find((product) => product.id === id)
+      if (!item) return false
+      return this.saveCatalogProduct({ ...item, status: item.status === 'active' ? 'offline' : 'active' }).ok
+    },
+    updatePricingDefaults(defaults: PricingDefaults) {
+      if (!writePricingDefaults(defaults)) return false
+      this.pricingDefaults = readPricingDefaults()
+      return true
     },
     addCategory(name: string, type: Category['type']) {
       const trimmed = name.trim()
@@ -273,58 +329,6 @@ export const useAdminStore = defineStore('operations', {
       if (item.status === 'cooperating') item.certified = true
       upsertPlatformEntity('suppliers', item.id, item)
     },
-    auditProduct(id: string, approved: boolean) {
-      const item = this.products.find((product) => product.id === id)
-      if (item) {
-        item.status = approved ? 'active' : 'rejected'
-        upsertPlatformEntity('products', item.id, item)
-      }
-    },
-    createProduct(payload: Pick<Product, 'name' | 'category' | 'price' | 'cost' | 'stock' | 'source' | 'supplier' | 'spec' | 'images'> & { image?: string }) {
-      const price = round2(payload.price)
-      const cost = round2(payload.cost)
-      if (!payload.name || price <= 0 || cost < 0 || price <= cost || payload.stock < 0) return false
-      const id = createId('P')
-      this.products.unshift({
-        ...payload, id, price, cost, sales: 0, status: payload.source === 'farmhouse' ? 'pending' : 'active',
-        image: payload.image || '/static/images/rice.webp', tags: ['运营新增'], farmIds: [],
-        skus: [{ id: `${id}-DEFAULT`, name: '默认规格', price, cost, stock: payload.stock }]
-      })
-      const createdProduct = this.products[0]
-      writePlatformMedia(upsertPlatformProduct(readPlatformMedia(), createdProduct.id, createdProduct.image, createdProduct.images))
-      upsertPlatformEntity('products', createdProduct.id, createdProduct)
-      return true
-    },
-    updateProduct(id: string, payload: { name?: string; category?: string; supplier?: string; cost?: number; price: number; stock: number; skuId?: string; spec?: string; image?: string; images?: string[] }) {
-      const item = this.products.find((product) => product.id === id)
-      if (!item || payload.price <= 0 || payload.stock < 0 || (payload.cost !== undefined && (payload.cost < 0 || payload.price <= payload.cost))) return false
-      const sku = item.skus.find((candidate) => candidate.id === payload.skuId) || item.skus[0]
-      if (!sku) return false
-      const price = round2(payload.price)
-      const cost = payload.cost !== undefined ? round2(payload.cost) : sku.cost
-      if (price <= 0 || cost < 0 || price <= cost) return false
-      if (payload.name?.trim()) item.name = payload.name.trim()
-      if (payload.category?.trim()) item.category = payload.category.trim()
-      if (payload.supplier?.trim()) item.supplier = payload.supplier.trim()
-      if (payload.spec !== undefined) item.spec = payload.spec.trim()
-      if (payload.image !== undefined) item.image = payload.image
-      if (payload.images !== undefined) item.images = payload.images
-      sku.price = price
-      sku.stock = payload.stock
-      if (payload.cost !== undefined) sku.cost = cost
-      item.price = Math.min(...item.skus.map((candidate) => candidate.price))
-      item.stock = item.skus.reduce((sum, candidate) => sum + candidate.stock, 0)
-      item.cost = Math.min(...item.skus.map((candidate) => candidate.cost))
-      writePlatformMedia(upsertPlatformProduct(readPlatformMedia(), item.id, item.image, item.images))
-      upsertPlatformEntity('products', item.id, item)
-      return true
-    },
-    toggleProduct(id: string) {
-      const item = this.products.find((product) => product.id === id)
-      if (!item || item.status === 'pending' || item.status === 'rejected') return
-      item.status = item.status === 'active' ? 'offline' : 'active'
-      upsertPlatformEntity('products', item.id, item)
-    },
     createPolicy(name: string, type: PricePolicy['type'], scope: string, discount: number, tiers?: PriceTier[]) {
       discount = round2(discount)
       if (!name || !scope || discount <= 0 || discount > 100) return false
@@ -421,7 +425,7 @@ export const useAdminStore = defineStore('operations', {
     },
     refundAfterSale(id: string, ok: boolean) {
       const item = this.afterSales.find((afterSale) => afterSale.id === id)
-      if (!item || (item.status !== 'refund-pending' && item.status !== 'return-pending')) return false
+      if (!item || item.status !== 'refund-pending') return false
       item.status = ok ? 'refunded' : 'refund-failed'
       item.refundAmount = ok ? item.amount : undefined
       item.history ||= []
@@ -484,7 +488,7 @@ export const useAdminStore = defineStore('operations', {
       return true
     },
     settleCommissions() {
-      const unsettled = (readShareRecords() ?? []).filter((item) => item.role === 'promoter' && !item.settled)
+      const unsettled = (readShareRecords() ?? []).filter((item) => item.role === 'promoter' && !item.settled && item.status !== 'reversed')
       if (!unsettled.length) return false
       const byPromoter = new Map<string, { name: string; amount: number }>()
       unsettled.forEach((item) => {
@@ -494,7 +498,7 @@ export const useAdminStore = defineStore('operations', {
         byPromoter.set(key, entry)
       })
       const amount = Math.round(unsettled.reduce((sum, item) => sum + item.amount, 0) * 100) / 100
-      if (amount <= 0) return false
+      if (amount === 0) return false
       const createdAt = new Date().toLocaleString('zh-CN')
       this.commissionSettlementRecords.unshift({
         id: createId('CS'), promoterIds: [...byPromoter.keys()], amount, createdAt,

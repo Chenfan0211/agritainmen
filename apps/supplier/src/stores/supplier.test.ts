@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { readPlatformOrders } from '@agritainment/shared'
+import { readPlatformDrivers, readPlatformOrders, todayString, writePlatformDrivers, writePlatformOrder } from '@agritainment/shared'
 import { useSupplierStore } from './supplier'
 
 if (!globalThis.localStorage) {
@@ -17,6 +17,119 @@ if (!globalThis.localStorage) {
 
 describe('supplier store interactions', () => {
   beforeEach(async () => { setActivePinia(createPinia()); localStorage.clear() })
+
+  it('loads C-mall fulfillment orders and isolates them by supplier account', async () => {
+    writePlatformOrder({ id: 'C-MALL-CSO-A', productName: '腊肉', quantity: 1, amount: 45, customer: '甲 · C端商城', channel: 'purchase', status: 'pending', createdAt: new Date().toISOString(), supplierId: 'S002', supplierOrderLink: { source: 'c-mall', sourceOrderId: 'CO-A', sourceSubOrderId: 'CSO-A', customerUserId: 'U-A' } })
+    writePlatformOrder({ id: 'C-MALL-CSO-B', productName: '黄桃', quantity: 1, amount: 45, customer: '乙 · C端商城', channel: 'purchase', status: 'pending', createdAt: new Date().toISOString(), supplierId: 'S004', supplierOrderLink: { source: 'c-mall', sourceOrderId: 'CO-B', sourceSubOrderId: 'CSO-B', customerUserId: 'U-B' } })
+    const store = useSupplierStore()
+    await store.initialize(true)
+    expect(store.orders.some((item) => item.id === 'C-MALL-CSO-A')).toBe(true)
+    expect(store.orders.some((item) => item.id === 'C-MALL-CSO-B')).toBe(true)
+    expect(store.loginSupplier('supplier', '123456')).toBe(true)
+    expect(store.supplierOrders.every((item) => item.supplierId === 'S002')).toBe(true)
+    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+    expect(store.supplierOrders).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'C-MALL-CSO-B', supplierId: 'S004' })]))
+    expect(store.supplierOrders.some((item) => item.supplierId === 'S002')).toBe(false)
+  })
+
+  it('allows only the owning supplier role to operate and locks after-sale orders', async () => {
+    writePlatformOrder({ id: 'C-MALL-GUARD', productName: '腊肉', quantity: 1, amount: 45, customer: '甲 · C端商城', channel: 'purchase', status: 'after-sale', createdAt: new Date().toISOString(), supplierId: 'S002', supplierOrderLink: { source: 'c-mall', sourceOrderId: 'CO-GUARD', sourceSubOrderId: 'CSO-GUARD', customerUserId: 'U-A' }, supplierFulfillment: { status: 'cancelled', shipType: 'courier', shortages: [], handovers: [], updatedAt: new Date().toISOString() } })
+    const store = useSupplierStore()
+    await store.initialize(true)
+    const submitted = store.orders.find((order) => order.supplierId === 'S002' && order.supplierFulfillment?.status === 'submitted')!
+    expect(store.acceptOrder(submitted.id)).toBe(false)
+    expect(store.loginDriver('driver01', '123456')).toBe(true)
+    expect(store.acceptOrder(submitted.id)).toBe(false)
+    store.logout()
+    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+    expect(store.acceptOrder(submitted.id)).toBe(false)
+    store.logout()
+    expect(store.loginSupplier('supplier', '123456')).toBe(true)
+    expect(store.acceptOrder('C-MALL-GUARD')).toBe(false)
+    expect(store.shipCourier('C-MALL-GUARD', 'SF-GUARD')).toBe(false)
+    expect(store.markCourierDelivered('C-MALL-GUARD')).toBe(false)
+  })
+
+  it('isolates visible drivers and task counts by the current supplier', async () => {
+    writePlatformDrivers([{
+      id: 'D-S004', supplierId: 'S004', name: '炎陵司机', account: 'driver04', password: '123456',
+      phone: '13900004004', status: 'active', createdAt: new Date().toISOString()
+    }])
+    writePlatformOrder({
+      id: 'S004-DRIVER-TASK', productName: '黄桃', quantity: 1, amount: 45, customer: '乙 · C端商城',
+      channel: 'purchase', status: 'shipping', createdAt: new Date().toISOString(), supplierId: 'S004',
+      supplierFulfillment: {
+        status: 'shipped', shipType: 'driver', driverId: 'D-S004', driverName: '炎陵司机',
+        deliverDate: todayString(), shortages: [], handovers: [], updatedAt: new Date().toISOString()
+      }
+    })
+    const store = useSupplierStore()
+    await store.initialize(true)
+    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+
+    expect(store.visibleDrivers.map((driver) => driver.id)).toEqual(['D-S004'])
+    expect(store.activeDrivers.map((driver) => driver.id)).toEqual(['D-S004'])
+    expect(store.driverTaskCounts).toEqual({ 'D-S004': 1 })
+  })
+
+  it('allows suppliers to manage only their own drivers and assigns new drivers to the current supplier', async () => {
+    writePlatformDrivers([{
+      id: 'D-S004', supplierId: 'S004', name: '炎陵司机', account: 'driver04', password: '123456',
+      phone: '13900004004', status: 'active', createdAt: new Date().toISOString()
+    }])
+    writePlatformOrder({
+      id: 'S004-ASSIGN-GUARD', productName: '黄桃', quantity: 1, amount: 45, customer: '乙 · C端商城',
+      channel: 'purchase', status: 'pending', createdAt: new Date().toISOString(), supplierId: 'S004',
+      supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: new Date().toISOString() }
+    })
+    const store = useSupplierStore()
+    await store.initialize(true)
+    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+
+    expect(store.updateDriver('D001', { name: '越权修改' })).toBe(false)
+    expect(store.resetDriverPassword('D001', 'newpass')).toBe(false)
+    expect(store.toggleDriverStatus('D001')).toBe(false)
+    expect(store.assignDriver('S004-ASSIGN-GUARD', 'D001')).toBe(false)
+    expect(store.addDriver({ name: '新增司机', phone: '13900004005', account: 'driver05', password: '123456' }).ok).toBe(true)
+
+    const persisted = readPlatformDrivers() || []
+    expect(persisted.find((driver) => driver.account === 'driver05')?.supplierId).toBe('S004')
+    expect(persisted.find((driver) => driver.id === 'D001')?.name).toBe('张伟')
+
+    store.logout()
+    expect(store.updateDriver('D-S004', { name: '未登录修改' })).toBe(false)
+    expect(store.resetDriverPassword('D-S004', 'another')).toBe(false)
+    expect(store.toggleDriverStatus('D-S004')).toBe(false)
+    expect(store.addDriver({ name: '未登录司机', phone: '13900004006', account: 'driver06', password: '123456' }).ok).toBe(false)
+
+    expect(store.loginDriver('driver04', '123456')).toBe(true)
+    expect(store.updateDriver('D-S004', { name: '司机越权修改' })).toBe(false)
+    expect(store.resetDriverPassword('D-S004', 'driverpass')).toBe(false)
+    expect(store.toggleDriverStatus('D-S004')).toBe(false)
+    expect(store.addDriver({ name: '司机新增账号', phone: '13900004008', account: 'driver08', password: '123456' }).ok).toBe(false)
+  })
+
+  it('refreshes drivers and orders written by another H5 page', async () => {
+    const store = useSupplierStore()
+    await store.initialize(true)
+    expect(store.orders.some((order) => order.id === 'C-MALL-EXTERNAL')).toBe(false)
+    expect(store.drivers.some((driver) => driver.id === 'D-EXTERNAL')).toBe(false)
+
+    writePlatformDrivers([...(readPlatformDrivers() || []), {
+      id: 'D-EXTERNAL', supplierId: 'S004', name: '外部司机', account: 'external04', password: '123456',
+      phone: '13900004007', status: 'active', createdAt: new Date().toISOString()
+    }])
+    writePlatformOrder({
+      id: 'C-MALL-EXTERNAL', productName: '黄桃', quantity: 1, amount: 45, customer: '外部用户 · C端商城',
+      channel: 'purchase', status: 'pending', createdAt: new Date().toISOString(), supplierId: 'S004',
+      supplierOrderLink: { source: 'c-mall', sourceOrderId: 'CO-EXTERNAL', sourceSubOrderId: 'CSO-EXTERNAL', customerUserId: 'U-EXTERNAL' }
+    })
+
+    await store.refreshSharedState()
+
+    expect(store.orders.some((order) => order.id === 'C-MALL-EXTERNAL')).toBe(true)
+    expect(store.drivers.some((driver) => driver.id === 'D-EXTERNAL')).toBe(true)
+  })
 
   it('F1: logs in as supplier and active driver, rejects disabled driver and wrong password', async () => {
     const store = useSupplierStore()
@@ -133,6 +246,7 @@ describe('supplier store interactions', () => {
   it('filters myTasks by deliverDate, marks shortage handled, and resets demo data', async () => {
     const store = useSupplierStore()
     await store.initialize()
+    expect(store.metrics.shortageOrderCount).toBe(2)
     store.loginSupplier('supplier', '123456')
 
     // accept + assign an order -> deliverDate today
@@ -167,6 +281,62 @@ describe('supplier store interactions', () => {
     const resetShort = store.orders.find((order) => (order.supplierFulfillment?.shortages.length || 0) > 0)!
     expect(resetShort.supplierFulfillment?.shortages[0].handled).toBeFalsy()
     expect(store.drivers.length).toBe(3)
+  })
+
+  it('backfills missing driver deliverDate and includes the store on my handovers', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+
+    const legacy = store.orders.find((order) => {
+      const fulfillment = order.supplierFulfillment
+      return fulfillment?.shipType === 'driver' && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
+    })!
+    const persistedLegacy = JSON.parse(JSON.stringify(legacy)) as typeof legacy
+    delete persistedLegacy.supplierFulfillment!.deliverDate
+    writePlatformOrder(persistedLegacy)
+
+    await store.initialize(true)
+
+    expect(store.orders.find((order) => order.id === legacy.id)?.supplierFulfillment?.deliverDate).toBe(todayString())
+    expect(readPlatformOrders()?.[legacy.id]?.supplierFulfillment?.deliverDate).toBe(todayString())
+    const legacyDriver = store.drivers.find((driver) => driver.id === legacy.supplierFulfillment?.driverId)!
+    expect(store.loginDriver(legacyDriver.account, '123456')).toBe(true)
+    expect(store.myTasks.some((order) => order.id === legacy.id)).toBe(true)
+
+    store.logout()
+    expect(store.loginDriver('driver01', '123456')).toBe(true)
+    const handoverOrder = store.orders.find((order) => order.supplierFulfillment?.handovers.some((item) => item.operatorId === 'D001'))!
+    expect(store.myHandovers.find((item) => item.orderId === handoverOrder.id)).toMatchObject({ customer: handoverOrder.customer })
+  })
+
+  it('backfills only missing dates for active driver shipments and is idempotent', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+    const source = store.orders.find((order) => order.supplierFulfillment?.shipType === 'driver' && order.supplierFulfillment.status === 'shipped')!
+    const clone = (id: string, fulfillment: Partial<NonNullable<typeof source.supplierFulfillment>>) => ({
+      ...JSON.parse(JSON.stringify(source)),
+      id,
+      supplierFulfillment: { ...source.supplierFulfillment, ...fulfillment }
+    }) as typeof source
+
+    writePlatformOrder(clone('LEGACY-SHIPPED', { deliverDate: undefined }))
+    writePlatformOrder(clone('LEGACY-DELIVERING', { status: 'delivering', deliverDate: undefined }))
+    writePlatformOrder(clone('DATED-SHIPPED', { deliverDate: '2000-01-01' }))
+    writePlatformOrder(clone('COURIER-SHIPPED', { shipType: 'courier', deliverDate: undefined }))
+    writePlatformOrder(clone('RECEIVED-DRIVER', { status: 'received', deliverDate: undefined }))
+
+    await store.initialize(true)
+
+    const firstSnapshot = readPlatformOrders()!
+    expect(firstSnapshot['LEGACY-SHIPPED'].supplierFulfillment?.deliverDate).toBe(todayString())
+    expect(firstSnapshot['LEGACY-DELIVERING'].supplierFulfillment?.deliverDate).toBe(todayString())
+    expect(firstSnapshot['DATED-SHIPPED'].supplierFulfillment?.deliverDate).toBe('2000-01-01')
+    expect(firstSnapshot['COURIER-SHIPPED'].supplierFulfillment?.deliverDate).toBeUndefined()
+    expect(firstSnapshot['RECEIVED-DRIVER'].supplierFulfillment?.deliverDate).toBeUndefined()
+
+    await store.initialize(true)
+
+    expect(JSON.stringify(readPlatformOrders())).toBe(JSON.stringify(firstSnapshot))
   })
 
   it('seeds incrementally: missing demo orders/drivers merged without overwriting existing data', async () => {

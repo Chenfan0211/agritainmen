@@ -1,8 +1,36 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cloneSeed, readPlatformAfterSales, readPlatformEntities, readPlatformOrders } from '@agritainment/shared'
+import type { CatalogProduct, CatalogState } from '@agritainment/shared'
+import { applyCatalogStockOperation, catalogProductToProduct, cloneSeed, markCatalogTransactionStockApplied, prepareCatalogTransaction, readCatalogState, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformEntities, readPlatformOrders, updateCatalogStock, upsertStoreCatalogSelection, writeCatalogState } from '@agritainment/shared'
+import { promoterRepository } from '../../../promoter/src/services/repository'
 import { deriveStoreMetrics, storeCatalog } from '../services/repository'
 import { useStoreStore } from './store'
+
+const catalogProduct = (input: Partial<CatalogProduct> & Pick<CatalogProduct, 'id' | 'channel'>): CatalogProduct => ({
+  id: input.id,
+  name: input.name || input.id,
+  category: input.category || '测试分类',
+  supplierId: 'S-TEST',
+  supplierName: '测试供应商',
+  source: 'platform',
+  status: input.status || 'active',
+  image: '/static/images/field.webp',
+  images: [],
+  tags: [],
+  productType: input.productType || 'goods',
+  expressDelivery: input.expressDelivery ?? input.channel !== 'store',
+  channel: input.channel,
+  farmIds: [],
+  promoterCommissionRate: 5,
+  storeCommissionRate: 3,
+  skus: input.skus || [{ id: `${input.id}-SKU`, name: '默认规格', image: '/static/images/field.webp', retailPrice: 45, cost: 20, stock: 8, level1Amount: 10, level2Amount: 15 }]
+})
+
+const writeCatalog = (products: CatalogProduct[], revision = 0) => {
+  const state: CatalogState = { schemaVersion: 1, revision, products }
+  expect(writeCatalogState(state)).toBe(true)
+  return state
+}
 
 if (!globalThis.localStorage) {
   const storage = new Map<string, string>()
@@ -19,6 +47,91 @@ if (!globalThis.localStorage) {
 
 describe('store ordering store interactions', () => {
   beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
+
+  it('initializes ordering products from active store and all catalog channels', async () => {
+    writeCatalog([
+      catalogProduct({ id: 'STORE', channel: 'store' }),
+      catalogProduct({ id: 'ALL', channel: 'all' }),
+      catalogProduct({ id: 'LIVE', channel: 'live' }),
+      catalogProduct({ id: 'OFFLINE', channel: 'store', status: 'offline' })
+    ], 4)
+    const store = useStoreStore()
+
+    await store.initialize()
+
+    expect(store.products.map((item) => item.id)).toEqual(['STORE', 'ALL'])
+    expect(store.catalogRevision).toBe(4)
+  })
+
+  it('submits orders through the shared catalog stock transaction', async () => {
+    writeCatalog([catalogProduct({ id: 'ORDERING', channel: 'store' })])
+    const store = useStoreStore()
+    await store.initialize()
+    store.addToCart(store.products[0])
+
+    expect(store.submitOrder()).toBe(true)
+    expect(readCatalogState()).toMatchObject({ revision: 1, products: [{ id: 'ORDERING', skus: [{ id: 'ORDERING-SKU', stock: 7 }] }] })
+    expect(store.catalogRevision).toBe(1)
+  })
+
+  it('recovers an ordering order after its stock operation was applied', async () => {
+    writeCatalog([catalogProduct({ id: 'ORDER-RECOVER', channel: 'store' })])
+    const order = { id: 'SO-RECOVER', amount: 20, saved: 25, itemCount: 1, status: 'submitted' as const, createdAt: '2026-08-24 12:00', logistics: [], items: [{ productId: 'ORDER-RECOVER', skuId: 'ORDER-RECOVER-SKU', name: '恢复进货单', skuName: '默认规格', image: '', quantity: 1, price: 20 }] }
+    const inventoryChanges = [{ productId: 'ORDER-RECOVER', skuId: 'ORDER-RECOVER-SKU', quantity: -1 }]
+    expect(prepareCatalogTransaction({ id: 'SO-RECOVER:reserve', channel: 'store', action: 'reserve', inventoryChanges, payload: { order } })).toBe(true)
+    expect(applyCatalogStockOperation('SO-RECOVER:reserve', inventoryChanges, 0)).toBeTruthy()
+    expect(markCatalogTransactionStockApplied('SO-RECOVER:reserve')).toBe(true)
+    const store = useStoreStore()
+    store.orders = []
+
+    await store.initialize()
+
+    expect(store.orders).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'SO-RECOVER', status: 'submitted' })]))
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
+    expect(readPendingCatalogTransactions('store')).toEqual([])
+  })
+
+  it('replays the completed return after-sale snapshot during recovery', async () => {
+    writeCatalog([catalogProduct({ id: 'RETURN-RECOVER', channel: 'store' })])
+    const order = {
+      id: 'SO-RETURN-RECOVER', amount: 20, saved: 25, itemCount: 1, status: 'received' as const,
+      createdAt: '2026-08-24 12:00', logistics: [], inventoryReleased: true, afterSaleType: 'return' as const,
+      items: [{ productId: 'RETURN-RECOVER', skuId: 'RETURN-RECOVER-SKU', name: '恢复退货单', skuName: '默认规格', image: '', quantity: 1, price: 20 }]
+    }
+    const afterSale = {
+      id: 'AS-RETURN-RECOVER', orderId: order.id, productName: order.items[0].name, applicant: '石板溪农庄',
+      type: 'return' as const, amount: order.amount, status: 'refunded' as const,
+      history: [{ time: '2026-08-24 12:30', action: '退货确认完成，库存已回补', operator: '石板溪农庄' }]
+    }
+    localStorage.setItem('agritainment-platform-after-sales', JSON.stringify({ [afterSale.id]: { ...afterSale, status: 'return-pending' } }))
+    const inventoryChanges = [{ productId: 'RETURN-RECOVER', skuId: 'RETURN-RECOVER-SKU', quantity: 1 }]
+    expect(prepareCatalogTransaction({
+      id: `${order.id}:return-release`, channel: 'store', action: 'release', inventoryChanges, payload: { order, afterSale }
+    })).toBe(true)
+    expect(applyCatalogStockOperation(`${order.id}:return-release`, inventoryChanges, 0)).toBeTruthy()
+    expect(markCatalogTransactionStockApplied(`${order.id}:return-release`)).toBe(true)
+    const store = useStoreStore()
+    store.orders = []
+
+    await store.initialize()
+
+    expect(store.orders).toEqual(expect.arrayContaining([expect.objectContaining({ id: order.id, inventoryReleased: true })]))
+    expect(readPlatformAfterSales()?.[afterSale.id]).toMatchObject({ status: 'refunded', history: afterSale.history })
+    expect(readPendingCatalogTransactions('store')).toEqual([])
+  })
+
+  it('refreshes catalog products and asks for retry after a revision conflict', async () => {
+    writeCatalog([catalogProduct({ id: 'CONFLICT', channel: 'store' })])
+    const store = useStoreStore()
+    await store.initialize()
+    expect(updateCatalogStock([{ productId: 'CONFLICT', skuId: 'CONFLICT-SKU', quantity: -1 }], 0)?.revision).toBe(1)
+
+    expect(store.setSkuStock('CONFLICT', 'CONFLICT-SKU', 4)).toBe(false)
+
+    expect(store.catalogRevision).toBe(1)
+    expect(store.products[0].skus[0].stock).toBe(7)
+    expect(store.checkoutError).toContain('重试')
+  })
 
   it('adds single-SKU products directly and requires SKU selection for multi-SKU', () => {
     const store = useStoreStore()
@@ -45,21 +158,26 @@ describe('store ordering store interactions', () => {
 
   it('submits a multi-item order, deducts stock and computes savings', () => {
     const store = useStoreStore()
-    const seeded = cloneSeed(storeCatalog)
-    const tea = seeded.find((item) => item.id === 'P003')!
-    const box = seeded.find((item) => item.id === 'PP03')!
+    const catalog = [
+      catalogProduct({ id: 'TEA', channel: 'store' }),
+      catalogProduct({ id: 'BOX', channel: 'store', skus: [{ id: 'BOX-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 30, cost: 10, stock: 20, level1Amount: 10, level2Amount: 10 }] })
+    ]
+    writeCatalog(catalog)
+    const seeded = catalog.map(catalogProductToProduct)
+    const tea = seeded[0]
+    const box = seeded[1]
     const teaStockBefore = tea.skus[0].stock
-    store.$patch({ products: seeded, cart: [], orders: [], checkoutError: '' })
+    store.$patch({ products: seeded, catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
     store.addToCart(tea)
     store.addToCart(box)
     store.changeCart(box.id, box.skus[0].id, 1)
     expect(store.cartCount).toBe(3)
     expect(store.submitOrder('请周三前送达')).toBe(true)
-    expect(store.orders[0]).toMatchObject({ status: 'submitted', amount: 87.2, saved: 43.2, itemCount: 3, remark: '请周三前送达' })
+    expect(store.orders[0]).toMatchObject({ status: 'submitted', amount: 40, saved: 65, itemCount: 3, remark: '请周三前送达' })
     expect(store.orders[0].items).toHaveLength(2)
     expect(store.cart).toHaveLength(0)
-    expect(tea.skus[0].stock).toBe(teaStockBefore - 1)
-    expect(box.skus[0].stock).toBe(20000 - 2)
+    expect(store.products.find((item) => item.id === 'TEA')?.skus[0].stock).toBe(teaStockBefore - 1)
+    expect(store.products.find((item) => item.id === 'BOX')?.skus[0].stock).toBe(18)
     expect(store.submitOrder()).toBe(false)
     expect(store.checkoutError).toBe('进货单为空')
   })
@@ -87,14 +205,16 @@ describe('store ordering store interactions', () => {
 
   it('re-adds order items into the cart on repeat', () => {
     const store = useStoreStore()
-    store.$patch({ products: cloneSeed(storeCatalog), cart: [], orders: [], checkoutError: '' })
-    const tea = store.products.find((item) => item.id === 'P003')!
+    const catalog = catalogProduct({ id: 'REPEAT', channel: 'store' })
+    writeCatalog([catalog])
+    store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
+    const tea = store.products[0]
     store.addToCart(tea)
     store.submitOrder()
     const orderId = store.orders[0].id
     expect(store.repeatOrder(orderId)).toBe(true)
     expect(store.cartCount).toBe(1)
-    expect(store.cart[0].productId).toBe('P003')
+    expect(store.cart[0].productId).toBe('REPEAT')
   })
 
   it('computes month metrics from current month orders', () => {
@@ -110,6 +230,27 @@ describe('store ordering store interactions', () => {
     expect(store.orderMetrics.orderCount).toBe(3)
     expect(store.orderMetrics.pendingReceipt).toBe(1)
     expect(store.orderMetrics.savedAmount).toBe(60)
+  })
+})
+
+describe('promoter live package candidates', () => {
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
+
+  it('only returns listed package selections for their selected stores', async () => {
+    writeCatalog([
+      catalogProduct({ id: 'PACKAGE', channel: 'store', productType: 'package', expressDelivery: false }),
+      catalogProduct({ id: 'UNLISTED', channel: 'store', productType: 'package', expressDelivery: false }),
+      catalogProduct({ id: 'GOODS', channel: 'all', productType: 'goods', expressDelivery: true })
+    ])
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'PACKAGE', listed: true, retailPrice: 66 })).toBe(true)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'UNLISTED', listed: false, retailPrice: 77 })).toBe(true)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'GOODS', listed: true, retailPrice: 88 })).toBe(true)
+
+    const dashboard = await promoterRepository.loadDashboard()
+
+    expect(dashboard.products).toEqual([
+      expect.objectContaining({ id: 'PACKAGE', farmIds: ['F001'], price: 66, productType: 'package' })
+    ])
   })
 })
 
@@ -146,14 +287,17 @@ describe('deriveStoreMetrics', () => {
 })
   it('cancels pending orders and initiates store after-sale', () => {
     const store = useStoreStore()
-    const seeded = cloneSeed(storeCatalog)
-    store.$patch({ products: seeded, cart: [], orders: [], checkoutError: '' })
-    const tea = seeded.find((item) => item.id === 'P003')!
+    const catalog = catalogProduct({ id: 'CANCEL', channel: 'store' })
+    writeCatalog([catalog])
+    store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
+    const tea = store.products[0]
     store.addToCart(tea)
     expect(store.submitOrder('')).toBe(true)
     const orderId = store.orders[0].id
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
     expect(readPlatformOrders()?.[orderId]?.status).toBe('pending')
     expect(store.cancelOrder(orderId)).toBe(true)
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(8)
     expect(store.orders[0].status).toBe('cancelled')
     expect(readPlatformOrders()?.[orderId]?.status).toBe('unpaid-cancelled')
     expect(store.initiateAfterSale(orderId)).toBe(false)
@@ -162,16 +306,39 @@ describe('deriveStoreMetrics', () => {
     const works = readPlatformAfterSales() || {}
     expect(Object.values(works)[0]?.status).toBe('processing')
   })
-  it('manages independent local stock and listing without touching platform entities', () => {
+  it('updates shared catalog stock while keeping the existing local listing control', () => {
     const store = useStoreStore()
-    const seeded = cloneSeed(storeCatalog)
-    const tea = seeded.find((item) => item.id === 'P003')!
-    store.$patch({ products: seeded, cart: [], orders: [], checkoutError: '', overrides: {} })
+    const catalog = catalogProduct({ id: 'STOCK', channel: 'store' })
+    writeCatalog([catalog])
+    const tea = catalogProductToProduct(catalog)
+    store.$patch({ products: [tea], catalogRevision: 0, cart: [], orders: [], checkoutError: '', overrides: {} })
     expect(store.setSkuStock(tea.id, tea.skus[0].id, 3)).toBe(true)
-    const product = store.products.find((item) => item.id === 'P003')!
+    const product = store.products.find((item) => item.id === 'STOCK')!
     expect(product.skus[0].stock).toBe(3)
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(3)
     expect(store.toggleListed(tea.id)).toBe(true)
     expect(store.isListed(tea.id)).toBe(false)
     expect(readPlatformEntities()?.products?.[tea.id]).toBeUndefined()
+  })
+  it('does not restore stock for a refund and restores it once when a return completes', async () => {
+    const store = useStoreStore()
+    const catalog = catalogProduct({ id: 'RETURN', channel: 'store' })
+    writeCatalog([catalog])
+    store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
+    store.addToCart(store.products[0])
+    expect(store.submitOrder()).toBe(true)
+    const refundOrder = store.orders[0]
+    refundOrder.status = 'received'
+    expect(store.initiateAfterSale(refundOrder.id, 'refund')).toBe(true)
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
+
+    store.addToCart(store.products[0])
+    expect(store.submitOrder()).toBe(true)
+    const returnOrder = store.orders[0]
+    returnOrder.status = 'received'
+    expect(store.initiateAfterSale(returnOrder.id, 'return')).toBe(true)
+    expect(store.completeReturn(returnOrder.id)).toBe(true)
+    expect(store.completeReturn(returnOrder.id)).toBe(false)
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
   })
 })

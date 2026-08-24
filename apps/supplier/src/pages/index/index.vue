@@ -31,7 +31,7 @@
       <view v-if="store.auth.role === 'supplier'" class="hero">
         <view class="hero-top">
           <image class="hero-avatar" src="/static/images/bacon.webp" mode="aspectFill" />
-          <view><text class="hero-title">{{ supplierInfo.name }}</text><view class="hero-sub">{{ supplierInfo.region }} · {{ supplierInfo.category }}</view></view>
+          <view><text class="hero-title">{{ store.auth.name || supplierInfo.name }}</text><view class="hero-sub">{{ supplierInfo.region }} · {{ supplierInfo.category }}</view></view>
           <button class="hero-logout" @click="logout">退出</button>
         </view>
         <view class="hero-stats">
@@ -63,8 +63,8 @@
             <view v-for="order in store.todayDeliveryOrders" :key="order.id" class="list-card" @click="openOrder(order)">
               <view class="row">
                 <view class="row-main">
-                  <view class="row-top"><text class="order-no">{{ order.id }}</text><span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status) }}</span></view>
-                  <text class="muted">{{ order.customer }} · {{ order.createdAt }}</text>
+                  <view class="row-top"><text class="order-no">{{ order.id }}</text><span v-if="isCourierOrder(order)" class="tag c-mall-tag">{{ courierSourceLabel(order) }}</span><span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status, order) }}</span></view>
+                  <text class="muted">{{ recipientLabel(order) }} · {{ order.createdAt }}</text>
                 </view>
                 <span v-if="orderShortage(order).length" class="tag danger">缺货 {{ orderShortage(order).length }}</span>
               </view>
@@ -105,9 +105,9 @@
                 <view class="row-main">
                   <view class="row-top">
                     <text class="order-no">{{ order.id }}</text>
-                    <span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status) }}</span>
+                    <span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status, order) }}</span>
                   </view>
-                  <text class="muted">{{ order.customer }} · {{ order.items?.length || 1 }} 项 · 共 {{ order.quantity }} 件</text>
+                    <text class="muted">{{ isCourierOrder(order) ? `${courierSourceLabel(order)} · ${recipientLabel(order)}` : order.customer }} · {{ order.items?.length || 1 }} 项 · 共 {{ order.quantity }} 件</text>
                   <view class="row">
                     <text class="muted">{{ order.createdAt }} · {{ orderFulfillment(order).driverName ? `司机 ${orderFulfillment(order).driverName}` : orderFulfillment(order).trackingNo ? `运单 ${orderFulfillment(order).trackingNo}` : '' }}</text>
                     <span v-if="orderShortage(order).length" class="tag danger">缺货 {{ orderShortage(order).length }}</span>
@@ -210,7 +210,7 @@
             <view v-for="log in store.myHandovers" :key="log.id" class="list-card">
               <view class="row">
                 <span class="tag" :class="log.type">{{ log.type === 'out' ? '出库交接' : '到店交接' }}</span>
-                <view class="row-main"><text class="order-no">{{ log.orderId }}</text><text class="muted">{{ log.time }}</text></view>
+                <view class="row-main"><text class="order-no">{{ log.orderId }}</text><text class="muted">{{ log.customer }}</text><text class="muted">{{ log.time }}</text></view>
               </view>
             </view>
           </view>
@@ -231,7 +231,7 @@
         <view class="sheet-panel">
           <view v-if="sheet === 'order' && selectedOrder" class="order-detail">
             <view class="sheet-head"><text class="sheet-title">{{ selectedOrder.id }}</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
-            <view class="row" style="margin-bottom:12px"><span class="badge" :class="orderFulfillment(selectedOrder).status">{{ statusText(orderFulfillment(selectedOrder).status) }}</span><text class="muted">{{ selectedOrder.createdAt }}</text></view>
+            <view class="row" style="margin-bottom:12px"><span class="badge" :class="orderFulfillment(selectedOrder).status">{{ statusText(orderFulfillment(selectedOrder).status, selectedOrder) }}</span><text class="muted">{{ selectedOrder.createdAt }}</text></view>
             <view class="steps">
               <view v-for="(step, index) in fulfillmentSteps" :key="step" class="step" :class="{ done: stepIndex(selectedOrder) >= index }"><view class="step-dot">{{ index + 1 }}</view><text class="step-label">{{ stepLabel(step) }}</text></view>
             </view>
@@ -240,7 +240,7 @@
               <image :src="item.image" mode="aspectFit" /><view class="row-main"><text>{{ item.name }}</text><text class="muted">{{ item.skuName }} ×{{ item.quantity }}</text></view><text class="order-item-price">{{ money(item.price * item.quantity) }}</text>
             </view>
             <view class="section-title">收货门店</view>
-            <view class="store-line"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ selectedOrder.customer }}</text><text class="muted">{{ storeInfoOf(selectedOrder.customer).address }} · {{ storeInfoOf(selectedOrder.customer).contact }} {{ storeInfoOf(selectedOrder.customer).phone }}</text></view></view>
+            <view class="store-line"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ isCourierOrder(selectedOrder) ? '收货地址' : selectedOrder.customer }}</text><text class="muted">{{ addressLabel(selectedOrder) }}</text></view></view>
             <view v-if="orderShortage(selectedOrder).length" class="section-title">缺货清单 <span class="tag danger">缺货 {{ orderShortage(selectedOrder).length }} 项</span></view>
             <view v-if="orderShortage(selectedOrder).length">
               <view v-for="item in orderShortage(selectedOrder)" :key="item.skuId" class="shortage-line">
@@ -283,7 +283,7 @@
 
           <view v-else-if="sheet === 'courier' && selectedOrder" class="courier-sheet">
             <view class="sheet-head"><text class="sheet-title">快递直发</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
-            <text class="muted">订单 {{ selectedOrder.id }} · {{ selectedOrder.customer }}，录入运单号后直接发货</text>
+            <text class="muted">订单 {{ selectedOrder.id }} · {{ recipientLabel(selectedOrder) }}，录入运单号后直接发货</text>
             <label class="form-field" style="margin-top:12px"><text>运单号</text><input v-model="courierTracking" placeholder="如 SF888800002" confirm-type="done" @confirm="confirmCourier" /></label>
             <view class="sheet-actions">
               <button class="primary-button" :disabled="!courierTracking.trim()" @click="confirmCourier">确认发货</button>
@@ -363,7 +363,7 @@
 
           <view v-else-if="sheet === 'driver-toggle-confirm' && driverStatusTarget" class="driver-form-sheet">
             <view class="sheet-head"><text class="sheet-title">{{ driverStatusTarget.status === 'active' ? '停用司机' : '启用司机' }}</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
-            <text class="muted">{{ driverStatusTarget.status === 'active' ? `停用后「${driverStatusTarget.name}」将无法登录，已派任务不受影响。` : `启用后「${driverStatusTarget.name}」可重新登录。` }}</text>
+            <text class="muted">{{ driverToggleMessage(driverStatusTarget) }}</text>
             <view class="sheet-actions">
               <button class="primary-button" @click="confirmToggle">{{ driverStatusTarget.status === 'active' ? '确认停用' : '确认启用' }}</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
@@ -379,13 +379,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { DriverAccount, Order, ShortageItem } from '@agritainment/shared'
-import { installKeyboardButtonSupport, money } from '@agritainment/shared'
+import { PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, installKeyboardButtonSupport, money } from '@agritainment/shared'
 import UiIcon from '../../components/UiIcon.vue'
 import { storeInfoOf, supplierInfo } from '../../services/repository'
 import { useSupplierStore } from '../../stores/supplier'
 
 const store = useSupplierStore()
 let disposeKeyboardButtons: () => void = () => undefined
+let disposeStorageSync: (() => void) | null = null
 const busy = ref(false)
 const toastMsg = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -483,7 +484,22 @@ function orderShortage(order: Order): ShortageItem[] {
 function handoversOf(order: Order) {
   return order.supplierFulfillment?.handovers || []
 }
-function statusText(status: string) {
+function isCourierOrder(order: Order) {
+  const source = order.supplierOrderLink?.source
+  return source === 'c-mall' || source === 'farmhouse-courier'
+}
+function courierSourceLabel(order: Order) {
+  return order.supplierOrderLink?.source === 'farmhouse-courier' ? '门店快递' : 'C端商城'
+}
+function recipientLabel(order: Order) {
+  return isCourierOrder(order) ? order.supplierOrderLink?.deliveryAddress?.receiver || order.customer.replace(/ · C端商城$/, '') : order.customer
+}
+function addressLabel(order: Order) {
+  const address = order.supplierOrderLink?.deliveryAddress
+  return address ? `${address.region}${address.detail} · ${address.receiver} ${address.phone}` : `${storeInfoOf(order.customer).address} · ${storeInfoOf(order.customer).contact} ${storeInfoOf(order.customer).phone}`
+}
+function statusText(status: string, order?: Order) {
+  if (order && isCourierOrder(order) && status === 'cancelled' && order.status === 'after-sale') return '售后处理中'
   return store.statusText(status)
 }
 const fulfillmentSteps = ['submitted', 'accepted', 'shipped', 'delivering', 'received']
@@ -499,7 +515,7 @@ function orderActions(order: Order): Array<{ key: string; label: string; primary
   const shipType = order.supplierFulfillment?.shipType
   if (status === 'submitted') return [{ key: 'accept', label: '接单', primary: true }]
   if (status === 'accepted') return [
-    { key: 'assign', label: '指派司机' },
+    ...(isCourierOrder(order) ? [] : [{ key: 'assign', label: '指派司机' }]),
     { key: 'courier', label: '快递直发' }
   ]
   if (status === 'shipped') return [
@@ -655,7 +671,7 @@ function openDriverHandover(order: Order) {
 const driverSearch = ref('')
 const driverStatusFilter = ref('全部')
 const driverStatusFilters = ['全部', '启用', '停用']
-const filteredDrivers = computed(() => store.drivers.filter((driver) => {
+const filteredDrivers = computed(() => store.visibleDrivers.filter((driver) => {
   const matchesStatus = driverStatusFilter.value === '全部' || (driverStatusFilter.value === '启用' ? driver.status === 'active' : driver.status === 'disabled')
   const keyword = driverSearch.value.trim().toLowerCase()
   const matchesKeyword = !keyword || `${driver.name}${driver.account}${driver.phone || ''}`.toLowerCase().includes(keyword)
@@ -713,6 +729,13 @@ function askToggle(driver: DriverAccount) {
   driverStatusTarget.value = driver
   sheet.value = 'driver-toggle-confirm'
 }
+function driverToggleMessage(driver: DriverAccount) {
+  if (driver.status !== 'active') return `启用后「${driver.name}」可重新登录。`
+  const taskCount = store.driverTaskCounts[driver.id] || 0
+  return taskCount > 0
+    ? `停用后「${driver.name}」将无法登录，已派任务不受影响。该司机当前有 ${taskCount} 个进行中任务，建议先改派。`
+    : `停用后「${driver.name}」将无法登录，已派任务不受影响。`
+}
 function confirmToggle() {
   if (!driverStatusTarget.value) return
   store.toggleDriverStatus(driverStatusTarget.value.id)
@@ -724,7 +747,7 @@ function confirmToggle() {
 const handoverFilter = ref('全部')
 const handoverDriverFilter = ref('全部')
 const handoverTypeFilters = ['全部', '出库交接', '到店交接']
-const handoverDriverFilters = computed(() => ['全部', ...store.drivers.map((driver) => driver.name)])
+const handoverDriverFilters = computed(() => ['全部', ...store.visibleDrivers.map((driver) => driver.name)])
 const filteredHandovers = computed(() => store.allHandovers.filter((log) => {
   const matchesType = handoverFilter.value === '全部' || (handoverFilter.value === '出库交接' ? log.type === 'out' : log.type === 'in')
   const matchesDriver = handoverDriverFilter.value === '全部' || log.operatorName === handoverDriverFilter.value
@@ -741,8 +764,18 @@ const driverDoneToday = computed(() => {
 onMounted(() => {
   store.initialize()
   disposeKeyboardButtons = installKeyboardButtonSupport()
+  if (typeof window !== 'undefined') {
+    const keys = new Set([PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY])
+    const onStorage = (event: StorageEvent) => { if (!event.key || keys.has(event.key)) void store.refreshSharedState() }
+    window.addEventListener('storage', onStorage)
+    disposeStorageSync = () => window.removeEventListener('storage', onStorage)
+  }
 })
-onBeforeUnmount(() => disposeKeyboardButtons())
+onBeforeUnmount(() => {
+  disposeStorageSync?.()
+  disposeStorageSync = null
+  disposeKeyboardButtons()
+})
 </script>
 <style scoped lang="scss">
 $green: #14532d;
@@ -756,7 +789,13 @@ $muted: #6b756d;
 $line: #dfe3dc;
 
 // ===== 登录页 =====
-.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: calc(24px + env(safe-area-inset-top)) 24px 24px; background: linear-gradient(160deg, $green-deep 0%, $green 60%, #1e6b41 100%); }
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 0 24px 24px; background: linear-gradient(160deg, $green-deep 0%, $green 60%, #1e6b41 100%); }
+/* #ifdef MP-WEIXIN */
+.login-page { padding-top: calc(18px + var(--status-bar-height)); }
+/* #endif */
+/* #ifndef MP-WEIXIN */
+.login-page { padding-top: calc(18px + env(safe-area-inset-top)); }
+/* #endif */
 .login-card { width: 100%; max-width: 380px; background: $panel; border-radius: 16px; overflow: hidden; box-shadow: 0 18px 48px rgba(13, 58, 31, .28); }
 .login-banner { width: 100%; height: 150px; display: block; }
 .login-body { padding: 22px 24px 26px; }
@@ -823,4 +862,13 @@ $line: #dfe3dc;
 .handover-result text { font-size: 14px; font-weight: 700; color: $green; }
 .handover-result-sub { font-size: 12px; color: $green; }
 .order-amount { margin-left: auto; font-size: 15px; font-weight: 700; flex: none; }
+/* Cross-device fulfillment layout guards. */
+.c-mall-tag { background: #eaf3ff; color: #35658f; }
+.order-no, .muted, .row-main, .store-line, .task-store, .courier-sheet { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.order-actions, .sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.order-actions button, .sheet-actions button { min-height: 36px; }
+.store-line .row-main, .task-store .row-main { flex: 1; }
+/* #ifdef MP-WEIXIN */
+.app-shell { padding-bottom: var(--safe-area-inset-bottom, 0px); }
+/* #endif */
 </style>

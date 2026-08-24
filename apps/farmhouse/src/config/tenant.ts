@@ -28,6 +28,38 @@ const configs: Record<string, TenantConfig> = {
   }
 }
 
-const tenantCode = import.meta.env.VITE_TENANT_CODE || 'shibanxi'
+interface RuntimeLocation {
+  search?: string
+  hash?: string
+}
 
-export const activeTenant = configs[tenantCode] ?? configs.shibanxi
+const compiledTenantCode = import.meta.env.VITE_TENANT_CODE || 'shibanxi'
+const tenantAliases: Record<string, string> = {
+  F001: 'shibanxi',
+  F002: 'yunshang',
+  shibanxi: 'shibanxi',
+  yunshang: 'yunshang'
+}
+
+function queryValue(query: string | undefined, key: string) {
+  if (!query) return ''
+  const start = query.indexOf('?')
+  if (start < 0) return ''
+  return new URLSearchParams(query.slice(start + 1)).get(key) || ''
+}
+
+export function resolveRuntimeTenant(
+  farm?: unknown,
+  location: RuntimeLocation | undefined = typeof window !== 'undefined' ? window.location : undefined
+) {
+  const candidates = [
+    typeof farm === 'string' ? farm : '',
+    queryValue(location?.search, 'farm'),
+    queryValue(location?.hash, 'farm'),
+    compiledTenantCode
+  ]
+  const tenantCode = candidates.map((item) => tenantAliases[item]).find(Boolean) || 'shibanxi'
+  return configs[tenantCode] || configs.shibanxi
+}
+
+export const activeTenant = resolveRuntimeTenant()

@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import { migratePersistedState, persistedEnvelope } from '@agritainment/shared'
 import App from './App.vue'
 
-const persistedKeys = ['farms', 'liveRooms', 'products', 'auth'] as const
+const persistedKeys = ['farms', 'liveRooms', 'products', 'cProducts', 'auth'] as const
 
 export function createApp() {
   const app = createSSRApp(App)

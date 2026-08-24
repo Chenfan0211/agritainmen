@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
-import type { BalanceEntry, Booking, FarmStore, Member, MockScenario, Product, PromotionRecord, Role, StoreAccount, StorefrontOrder, TenantConfig } from '@agritainment/shared'
-import { applyPlatformMedia, calcCartTotal, cloneSeed, createId, getOrCreateUserId, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, readPlatformEntities, readPlatformStoreAccounts, readShareConfig, readUserBindings, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, simulateWechatLogin, storeAccounts, suppliers, upsertUserBinding, writePlatformOrder, writePlatformStoreAccounts, writeShareRecord, writeUserLink } from '@agritainment/shared'
+import type { BalanceEntry, Booking, CAddress, CatalogProduct, CatalogState, FarmStore, Member, MockScenario, Order, Product, PromotionRecord, Role, ShareRecord, StoreAccount, StoreCatalogSelection, StorefrontOrder, TenantConfig, UserBinding } from '@agritainment/shared'
+import { abortCatalogTransaction, allocateStoreCatalogCommission, applyCatalogStockOperation, applyPlatformMedia, buildPortalUrl, calcCartTotal, catalogProductToProduct, catalogProductToStoreProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, createId, isExpressDeliverable, markCatalogTransactionStockApplied, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformStoreAccounts, prepareCatalogTransaction, readCatalogState, readPendingCatalogTransactions, readPlatformOrders, readPlatformStoreAccounts, readShareConfig, readShareRecords, readStoreCatalogSelectionState, readUserBindings, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, saveStoreCatalogSelection, simulateWechatLogin, storeAccounts, suppliers, updateCatalogStock, upsertUserBinding, writePlatformOrder, writePlatformStoreAccounts, writeShareRecord } from '@agritainment/shared'
+import { resolveRuntimeTenant } from '../config/tenant'
 import { farmhouseRepository } from '../services/repository'
 
 interface CartLine {
@@ -12,6 +13,47 @@ interface CartLine {
   price: number
   stock: number
   quantity: number
+}
+
+interface FarmhouseTransactionPayload {
+  order?: StorefrontOrder
+  memberBalance?: number
+  memberPoints?: number
+  balanceEntry?: BalanceEntry
+  platformOrder?: Order
+  shareRecords?: ShareRecord[]
+  userBinding?: UserBinding
+}
+
+function buildOrderShareReversals(orderId: string): ShareRecord[] {
+  const records = readShareRecords() || []
+  const reversals: ShareRecord[] = []
+  records.filter((record) => record.orderId === orderId && record.status !== 'reversed').forEach((record) => {
+    if (record.settled) {
+      const correctionId = `${record.id}:reverse`
+      if (!records.some((candidate) => candidate.id === correctionId)) {
+        reversals.push({ ...record, id: correctionId, amount: -record.amount, status: 'pending', settled: false, createdAt: new Date().toLocaleString('zh-CN') })
+      }
+    } else {
+      reversals.push({ ...record, status: 'reversed' })
+    }
+  })
+  return reversals
+}
+
+function applyFarmhouseTransactionSideEffects(payload: FarmhouseTransactionPayload): boolean {
+  if (payload.platformOrder && !writePlatformOrder(payload.platformOrder)) return false
+  if (payload.userBinding && !upsertUserBinding(payload.userBinding)) return false
+  if (payload.shareRecords && !payload.shareRecords.every((record) => writeShareRecord(record))) return false
+  return true
+}
+
+function reverseOrderShares(orderId: string): boolean {
+  return buildOrderShareReversals(orderId).every((record) => writeShareRecord(record))
+}
+
+function selectedProduct(product: CatalogProduct, selection?: StoreCatalogSelection): Product {
+  return selection ? catalogProductToStoreProduct(product, selection) : catalogProductToProduct(product)
 }
 
 export interface Room {
@@ -52,7 +94,9 @@ interface FarmhouseState {
   role: Role
   products: Product[]
   selectableProducts: Product[]
-  overrides: Record<string, { stock?: Record<string, number>; listed?: boolean }>
+  catalogRevision: number
+  selectionRevision: number
+  catalogSelections: StoreCatalogSelection[]
   cart: CartLine[]
   bookings: Booking[]
   orders: StorefrontOrder[]
@@ -83,7 +127,9 @@ export const useFarmhouseStore = defineStore('storefront', {
     role: 'customer',
     products: [],
     selectableProducts: [],
-    overrides: {},
+    catalogRevision: 0,
+    selectionRevision: 0,
+    catalogSelections: [],
     cart: [],
     rooms: seedRooms(),
     bookings: [
@@ -118,7 +164,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     referrer: {}
   }),
   getters: {
-    isListed: (state) => (productId: string) => state.products.some((item) => item.id === productId) && state.overrides[productId]?.listed !== false,
+    isListed: (state) => (productId: string) => state.catalogSelections.some((item) => item.productId === productId && item.listed),
     cartCount: (state) => state.cart.reduce((sum, item) => sum + item.quantity, 0),
     cartTotal: (state) => calcCartTotal(state.cart.map(({ price, quantity }) => ({ price, quantity }))),
     balance: (state) => state.member.balance,
@@ -127,45 +173,106 @@ export const useFarmhouseStore = defineStore('storefront', {
     canSelect: (state) => state.role === 'manager'
   },
   actions: {
-    async initialize(force = false) {
+    async initialize(force = false, farm?: unknown) {
       if ((!force && this.initialized) || this.loading) return
-      const hasPersistedData = !force && this.mockScenario === 'normal' && !!this.tenant && this.products.length > 0
+      const runtimeTenant = resolveRuntimeTenant(farm)
+      const hasPersistedData = !force && this.mockScenario === 'normal' && this.tenant?.farmId === runtimeTenant.farmId && !!this.farm
       this.loading = true
       this.error = ''
       try {
-        const [storefront, selectableProducts] = await Promise.all([
-          farmhouseRepository.loadStorefront(this.mockScenario),
-          farmhouseRepository.loadSelectableProducts(this.mockScenario)
+        const [storefront, catalogState] = await Promise.all([
+          farmhouseRepository.loadStorefront(this.mockScenario, runtimeTenant),
+          farmhouseRepository.loadCatalogState(this.mockScenario)
         ])
         this.$patch({
           tenant: hasPersistedData ? mergePersistedDefaults(storefront.tenant, this.tenant) : storefront.tenant,
           farm: hasPersistedData ? mergePersistedDefaults(storefront.farm, this.farm) : storefront.farm,
           member: hasPersistedData ? mergePersistedDefaults(storefront.member, this.member) : storefront.member,
-          products: hasPersistedData ? mergeEntitySeeds(storefront.products, this.products) : storefront.products,
           foods: hasPersistedData ? mergeEntitySeeds(storefront.foods, this.foods) : storefront.foods,
-          selectableProducts: hasPersistedData ? mergeEntitySeeds(selectableProducts, this.selectableProducts) : selectableProducts,
           initialized: true
         })
+        this.applyCatalogState(catalogState)
         if (this.farm) applyPlatformMedia([this.farm], this.products)
-        const entities = readPlatformEntities()
-        if (entities?.products) this.products = mergePlatformEntities(this.products, entities.products)
-        this.applyLocalOverrides()
-        applyPlatformMedia(null, this.selectableProducts)
         this.storeAccounts = mergePlatformStoreAccounts(storeAccounts, readPlatformStoreAccounts())
+        this.recoverCatalogTransactions()
         if (!this.deliveryAddress) this.deliveryAddress = this.tenant?.address || ''
-        if (!this.currentUserId) {
-          this.currentUserId = getOrCreateUserId()
-        }
+        if (this.auth.isLoggedIn && this.auth.openid) this.setAuthorizedIdentity(this.auth.openid)
         this.cart.forEach((line) => {
           const product = this.products.find((item) => item.id === line.productId)
           const sku = product?.skus.find((item) => item.id === line.skuId) || product?.skus[0]
           if (sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, price: sku.price, stock: sku.stock })
         })
+        this.syncCourierOrders()
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {
         this.loading = false
       }
+    },
+    applyCatalogState(state: CatalogState) {
+      const storeId = this.tenant?.farmId || this.farm?.id || 'F001'
+      const selectionState = readStoreCatalogSelectionState()
+      const selections = selectionState.selections.filter((item) => item.storeId === storeId)
+      const selectionByProduct = new Map(selections.map((item) => [item.productId, item]))
+      const candidates = catalogProductsForAudience(state, 'farmhouse-selection')
+      this.catalogRevision = state.revision
+      this.selectionRevision = selectionState.revision
+      this.catalogSelections = selections
+      this.selectableProducts = candidates.map((product) => selectedProduct(product))
+      this.products = candidates
+        .filter((product) => selectionByProduct.get(product.id)?.listed)
+        .map((product) => selectedProduct(product, selectionByProduct.get(product.id)))
+      applyPlatformMedia(null, this.selectableProducts)
+      applyPlatformMedia(null, this.products)
+      this.cart.forEach((line) => {
+        const sku = this.products.find((product) => product.id === line.productId)?.skus.find((item) => item.id === line.skuId)
+        if (sku) line.stock = sku.stock
+      })
+    },
+    refreshCatalog() {
+      const state = readCatalogState()
+      if (!state) return false
+      this.applyCatalogState(state)
+      return true
+    },
+    recoverCatalogTransactions() {
+      for (const entry of readPendingCatalogTransactions('farmhouse')) {
+        const payload = entry.payload as FarmhouseTransactionPayload
+        if (!payload.order || !Number.isFinite(payload.memberBalance) || !Number.isFinite(payload.memberPoints)) continue
+        if (entry.status === 'prepared') {
+          const catalog = readCatalogState()
+          if (!catalog) continue
+          const result = applyCatalogStockOperation(entry.id, entry.inventoryChanges, catalog.revision)
+          if (!result || !markCatalogTransactionStockApplied(entry.id)) continue
+          this.applyCatalogState(result.state)
+        }
+        if (!applyFarmhouseTransactionSideEffects(payload)) continue
+        const existing = this.orders.find((order) => order.id === payload.order!.id)
+        if (existing) Object.assign(existing, cloneSeed(payload.order))
+        else this.orders.unshift(cloneSeed(payload.order))
+        this.member.balance = Number(payload.memberBalance)
+        this.member.points = Number(payload.memberPoints)
+        if (payload.balanceEntry && !this.balanceEntries.some((item) => item.id === payload.balanceEntry!.id)) this.balanceEntries.unshift(cloneSeed(payload.balanceEntry))
+        commitCatalogTransaction(entry.id)
+      }
+      const latest = readCatalogState()
+      if (latest && latest.revision !== this.catalogRevision) this.applyCatalogState(latest)
+    },
+    syncCourierOrders() {
+      const platformOrders = readPlatformOrders()
+      if (!platformOrders) return
+      this.orders.forEach((order) => {
+        if (!order.platformOrderId) return
+        const platformOrder = platformOrders[order.platformOrderId]
+        const fulfillment = platformOrder?.supplierFulfillment
+        if (!fulfillment) return
+        if (fulfillment.status === 'received' || fulfillment.status === 'completed') order.status = '已完成'
+        else if (fulfillment.status === 'shipped' || fulfillment.status === 'delivering') order.status = '已发货'
+        else order.status = '待发货'
+        order.trackingNo = fulfillment.trackingNo
+        order.courier = fulfillment.shipType === 'driver' ? '司机配送' : '快递直发'
+        order.logistics = platformOrder?.logistics?.length ? platformOrder.logistics : order.logistics
+      })
     },
     setMockScenario(scenario: MockScenario) {
       this.mockScenario = scenario
@@ -210,7 +317,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.checkoutError = ''
       return true
     },
-    checkout() {
+    checkout(payload: { deliveryMode?: 'pickup' | 'courier'; address?: string } = {}) {
       this.checkoutError = ''
       if (!this.cart.length) {
         this.checkoutError = '购物车为空'
@@ -225,34 +332,153 @@ export const useFarmhouseStore = defineStore('storefront', {
         this.checkoutError = `${insufficient.name}库存不足`
         return false
       }
+      const expressCart = this.cart.filter((line) => {
+        const product = this.products.find((item) => item.id === line.productId)
+        return !!product && isExpressDeliverable(product)
+      })
+      const wantsCourier = payload.deliveryMode === 'courier' && expressCart.length > 0
+      if (wantsCourier && !payload.address?.trim()) {
+        this.checkoutError = '请填写收货地址'
+        return false
+      }
+      if (readStoreCatalogSelectionState().revision !== this.selectionRevision) {
+        this.refreshCatalog()
+        this.checkoutError = '门店价格已更新，请确认后重试'
+        return false
+      }
       const total = this.cartTotal
       if (this.member.balance < total) {
         this.checkoutError = '会员余额不足'
         return false
       }
-      this.cart.forEach((line) => {
-        const product = this.products.find((item) => item.id === line.productId)!
-        const sku = product.skus.find((item) => item.id === line.skuId)!
-        sku.stock -= line.quantity
-        product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
-        product.sales += line.quantity
-      })
+      const expectedRevision = this.catalogRevision
       const itemCount = this.cartCount
-      this.member.balance = Math.round((this.member.balance - total) * 100) / 100
-      this.member.points += Math.floor(total)
       const orderId = createId('SO')
-      const cartItems = this.cart.map((item) => ({ productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: item.image, quantity: item.quantity, price: item.price }))
-      this.orders.unshift({ id: orderId, amount: total, itemCount, status: '待发货', createdAt: new Date().toLocaleString('zh-CN'), items: cartItems })
-      const firstProduct = this.cart[0] ? this.products.find((p) => p.id === this.cart[0].productId) : undefined
-      writePlatformOrder({
-        id: orderId, productName: cartItems[0]?.name || '特产商品', quantity: itemCount, amount: total,
-        customer: `游客 · ${this.member.name}`, channel: 'shop', status: 'pending', createdAt: new Date().toLocaleString('zh-CN'),
-        items: cartItems, supplierId: suppliers.find((s) => s.name === firstProduct?.supplier)?.id
+      const pointsAwarded = Math.floor(total)
+      const cartItems = this.cart.map((item) => {
+        const product = this.products.find((p) => p.id === item.productId)
+        const courier = wantsCourier && !!product && isExpressDeliverable(product)
+        return { productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: item.image, quantity: item.quantity, price: item.price, deliveryMode: courier ? 'courier' as const : 'pickup' as const }
       })
-      this.resolveOrderShare(orderId, total)
-      this.balanceEntries.unshift({ id: createId('BL'), type: 'consume', amount: -total, balance: this.member.balance, description: `商城订单消费 · ${itemCount} 件商品`, createdAt: new Date().toLocaleString('zh-CN') })
+      const order: StorefrontOrder = {
+        id: orderId, amount: total, itemCount, status: '待发货', createdAt: new Date().toLocaleString('zh-CN'),
+        items: cartItems, pointsAwarded,
+        delivery: wantsCourier ? { mode: 'courier', address: payload.address?.trim() } : { mode: 'pickup' },
+        platformOrderId: wantsCourier ? `FH-${orderId}` : undefined
+      }
+      const balanceEntry: BalanceEntry = { id: `${orderId}:consume`, type: 'consume', amount: -total, balance: round2(this.member.balance - total), description: `商城订单消费 · ${itemCount} 件商品`, createdAt: new Date().toLocaleString('zh-CN') }
+      const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
+      const operationId = `${orderId}:reserve`
+      const courierItems = cartItems.filter((item) => item.deliveryMode === 'courier')
+      const courierAmount = round2(courierItems.reduce((sum, item) => sum + item.price * item.quantity, 0))
+      const firstCourierProduct = courierItems.length ? this.products.find((product) => product.id === courierItems[0]?.productId) : undefined
+      const address: CAddress | undefined = courierItems.length
+        ? { id: `${orderId}-ADDR`, userId: this.auth.openid || '', receiver: this.member.name, phone: this.member.phone || '', region: payload.address?.trim() || '', detail: '', isDefault: false, updatedAt: new Date().toISOString() }
+        : undefined
+      const platformOrder: Order | undefined = courierItems.length
+        ? {
+            id: `FH-${orderId}`, productName: courierItems[0]?.name || '特产商品', quantity: courierItems.reduce((sum, item) => sum + item.quantity, 0), amount: courierAmount,
+            customer: `游客 · ${this.member.name}`, channel: 'shop', status: 'pending', createdAt: new Date().toLocaleString('zh-CN'),
+            items: courierItems, supplierId: suppliers.find((supplier) => supplier.name === firstCourierProduct?.supplier)?.id,
+            supplierOrderLink: { source: 'farmhouse-courier', sourceOrderId: orderId, deliveryAddress: address! }
+          }
+        : undefined
+      const shareSideEffects = this.buildOrderShareSideEffects(orderId, cartItems)
+      const transactionPayload: FarmhouseTransactionPayload & { order: StorefrontOrder; memberBalance: number; memberPoints: number; balanceEntry: BalanceEntry; cartItems: typeof cartItems } = {
+        order, memberBalance: balanceEntry.balance, memberPoints: this.member.points + pointsAwarded, balanceEntry, cartItems,
+        platformOrder, shareRecords: shareSideEffects.shareRecord ? [shareSideEffects.shareRecord] : undefined, userBinding: shareSideEffects.userBinding
+      }
+      if (!prepareCatalogTransaction({ id: operationId, channel: 'farmhouse', action: 'reserve', inventoryChanges, payload: transactionPayload })) {
+        this.checkoutError = '订单准备失败，请稍后重试'
+        return false
+      }
+      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, expectedRevision)
+      if (!stockResult) {
+        abortCatalogTransaction(operationId)
+        const latest = readCatalogState()
+        if (latest) this.applyCatalogState(latest)
+        this.checkoutError = latest?.revision !== expectedRevision ? '商品库存已更新，请重试' : '商品库存不足，请调整后重试'
+        return false
+      }
+      if (!markCatalogTransactionStockApplied(operationId)) {
+        this.applyCatalogState(stockResult.state)
+        this.checkoutError = '订单处理中，请刷新后重试'
+        return false
+      }
+      const soldQuantities = new Map(this.cart.map((line) => [line.productId, line.quantity]))
+      this.applyCatalogState(stockResult.state)
+      this.products.forEach((product) => { product.sales += soldQuantities.get(product.id) || 0 })
+      this.member.balance = transactionPayload.memberBalance
+      this.member.points = transactionPayload.memberPoints
+      this.orders.unshift(order)
+      if (!applyFarmhouseTransactionSideEffects(transactionPayload)) { this.checkoutError = '订单处理中，请刷新后重试'; return false }
+      this.balanceEntries.unshift(balanceEntry)
+      if (!commitCatalogTransaction(operationId)) { this.checkoutError = '订单处理中，请刷新后重试'; return false }
       this.cart = []
       return true
+    },
+    cancelStorefrontOrder(id: string) {
+      const order = this.orders.find((item) => item.id === id)
+      if (!order || order.status !== '待发货' || order.inventoryReleased || order.balanceRefunded) return false
+      const catalog = readCatalogState()
+      if (!catalog || catalog.revision !== this.catalogRevision) { this.refreshCatalog(); this.checkoutError = '商品库存已更新，请重试'; return false }
+      const nextOrder = cloneSeed(order)
+      nextOrder.status = '已取消'; nextOrder.inventoryReleased = true; nextOrder.balanceRefunded = true
+      const inventoryChanges = order.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
+      const operationId = `${order.id}:release`
+      const nextBalance = round2(this.member.balance + order.amount)
+      const nextPoints = Math.max(0, this.member.points - (order.pointsAwarded || 0))
+      const balanceEntry: BalanceEntry = { id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: `商城订单取消退款 · ${order.itemCount} 件商品`, createdAt: new Date().toLocaleString('zh-CN') }
+      const platformOrder = order.platformOrderId ? readPlatformOrders()?.[order.platformOrderId] : undefined
+      const transactionPayload: FarmhouseTransactionPayload = {
+        order: nextOrder, memberBalance: nextBalance, memberPoints: nextPoints, balanceEntry,
+        platformOrder: platformOrder ? { ...platformOrder, status: 'unpaid-cancelled' } : undefined,
+        shareRecords: buildOrderShareReversals(order.id)
+      }
+      if (!prepareCatalogTransaction({ id: operationId, channel: 'farmhouse', action: 'release', inventoryChanges, payload: transactionPayload })) return false
+      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, catalog.revision)
+      if (!stockResult) { this.refreshCatalog(); this.checkoutError = '商品库存已更新，请重试'; return false }
+      if (!markCatalogTransactionStockApplied(operationId) || !applyFarmhouseTransactionSideEffects(transactionPayload)) return false
+      this.applyCatalogState(stockResult.state)
+      Object.assign(order, nextOrder)
+      this.member.balance = nextBalance; this.member.points = nextPoints
+      this.balanceEntries.unshift(balanceEntry)
+      return commitCatalogTransaction(operationId)
+    },
+    requestStorefrontAfterSale(id: string, type: 'refund' | 'return') {
+      const order = this.orders.find((item) => item.id === id)
+      if (!order || order.status !== '已完成' || order.afterSaleType) return false
+      order.afterSaleType = type
+      order.status = type === 'refund' ? '退款中' : '退货中'
+      return true
+    },
+    completeStorefrontAfterSale(id: string) {
+      const order = this.orders.find((item) => item.id === id)
+      if (!order || (order.status !== '退款中' && order.status !== '退货中') || order.balanceRefunded) return false
+      const nextBalance = round2(this.member.balance + order.amount)
+      const nextPoints = Math.max(0, this.member.points - (order.pointsAwarded || 0))
+      if (order.afterSaleType === 'refund') {
+        if (!reverseOrderShares(order.id)) return false
+        order.status = '已退款'; order.balanceRefunded = true
+        this.member.balance = nextBalance; this.member.points = nextPoints
+        this.balanceEntries.unshift({ id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: '商城订单退款', createdAt: new Date().toLocaleString('zh-CN') })
+        return true
+      }
+      if (order.afterSaleType !== 'return' || order.inventoryReleased) return false
+      const catalog = readCatalogState()
+      if (!catalog || catalog.revision !== this.catalogRevision) { this.refreshCatalog(); return false }
+      const inventoryChanges = order.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
+      const operationId = `${order.id}:release`
+      const nextOrder = { ...cloneSeed(order), status: '已退货' as const, inventoryReleased: true, balanceRefunded: true }
+      const balanceEntry: BalanceEntry = { id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: '商城退货退款', createdAt: new Date().toLocaleString('zh-CN') }
+      const transactionPayload: FarmhouseTransactionPayload = { order: nextOrder, memberBalance: nextBalance, memberPoints: nextPoints, balanceEntry, shareRecords: buildOrderShareReversals(order.id) }
+      if (!prepareCatalogTransaction({ id: operationId, channel: 'farmhouse', action: 'release', inventoryChanges, payload: transactionPayload })) return false
+      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, catalog.revision)
+      if (!stockResult || !markCatalogTransactionStockApplied(operationId) || !applyFarmhouseTransactionSideEffects(transactionPayload)) return false
+      this.applyCatalogState(stockResult.state); Object.assign(order, nextOrder)
+      this.member.balance = nextBalance; this.member.points = nextPoints
+      this.balanceEntries.unshift(balanceEntry)
+      return commitCatalogTransaction(operationId)
     },
     submitBooking(payload: Omit<Booking, 'id' | 'status'>) {
       const duplicated = this.bookings.some((item) => item.status === 'reserved' && item.type === payload.type && item.name === payload.name && item.date === payload.date && item.session === payload.session)
@@ -273,48 +499,48 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.balanceEntries.unshift({ id: createId('BL'), type: 'recharge', amount, balance: this.member.balance, description: '会员储值充值', createdAt: new Date().toLocaleString('zh-CN') })
       return true
     },
-    applyLocalOverrides() {
-      Object.entries(this.overrides).forEach(([productId, ov]) => {
-        const product = this.products.find((item) => item.id === productId)
-        if (!product || !ov.stock) return
-        product.skus.forEach((sku) => {
-          if (ov.stock![sku.id] !== undefined) sku.stock = Math.max(0, Math.round(ov.stock![sku.id]))
-        })
-        product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
-      })
-    },
     setSkuStock(productId: string, skuId: string, stock: number) {
-      const product = this.products.find((item) => item.id === productId)
+      const product = this.selectableProducts.find((item) => item.id === productId) || this.products.find((item) => item.id === productId)
       const sku = product?.skus.find((item) => item.id === skuId)
+      const nextStock = Math.max(0, Math.round(Number(stock) || 0))
       if (!product || !sku) return false
-      const ov = this.overrides[productId] || (this.overrides[productId] = {})
-      ov.stock = ov.stock || {}
-      ov.stock[skuId] = Math.max(0, Math.round(Number(stock) || 0))
-      sku.stock = ov.stock[skuId]
-      product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
+      const delta = nextStock - sku.stock
+      if (!delta) return true
+      const next = updateCatalogStock([{ productId, skuId, quantity: delta }], this.catalogRevision)
+      if (!next) {
+        this.refreshCatalog()
+        this.checkoutError = '商品库存已更新，请重试'
+        return false
+      }
+      this.applyCatalogState(next)
       return true
     },
     toggleListed(productId: string) {
-      if (!this.products.some((item) => item.id === productId)) return false
-      const ov = this.overrides[productId] || (this.overrides[productId] = {})
-      ov.listed = ov.listed === false ? true : false
-      return true
+      const product = this.selectableProducts.find((item) => item.id === productId)
+      const selection = this.catalogSelections.find((item) => item.productId === productId)
+      if (!product || !selection) return false
+      const saved = saveStoreCatalogSelection({ ...selection, listed: !selection.listed }, this.selectionRevision)
+      if (!saved) {
+        this.refreshCatalog()
+        this.checkoutError = '门店选品已更新，请重新提交'
+        return false
+      }
+      return this.refreshCatalog()
     },
-    listProduct(productId: string, retailPrice: number) {
+    listProduct(productId: string, retailPrice: number | Record<string, number>) {
       const source = this.selectableProducts.find((item) => item.id === productId)
       if (!source) return false
-      const retail = round2(retailPrice)
-      if (retail <= source.cost) return false
-      const existing = this.products.find((item) => item.id === source.id)
-      const target = existing || cloneSeed(source)
-      const delta = retail - target.price
-      target.price = retail
-      target.skus.forEach((sku) => { sku.price = round2(sku.price + delta) })
-      if (existing) existing.stock = existing.skus.reduce((sum, sku) => sum + sku.stock, 0)
-      else this.products.unshift({ ...target, status: 'active', farmIds: [...new Set([...target.farmIds, this.farm?.id || this.tenant?.farmId || 'F001'])] })
-      const ov = this.overrides[source.id] || (this.overrides[source.id] = {})
-      ov.listed = true
-      return true
+      const skuRetailPrices = typeof retailPrice === 'number'
+        ? Object.fromEntries(source.skus.map((sku) => [sku.id, round2(sku.price + (retailPrice - source.price))]))
+        : Object.fromEntries(Object.entries(retailPrice).map(([skuId, price]) => [skuId, round2(Number(price))]))
+      if (source.skus.some((sku) => !Number.isFinite(skuRetailPrices[sku.id]) || skuRetailPrices[sku.id] <= sku.cost)) return false
+      const storeId = this.tenant?.farmId || this.farm?.id || 'F001'
+      if (!saveStoreCatalogSelection({ storeId, productId, listed: true, skuRetailPrices }, this.selectionRevision)) {
+        this.refreshCatalog()
+        this.checkoutError = '门店选品已更新，请重新提交'
+        return false
+      }
+      return this.refreshCatalog()
     },
     addRoom(payload: Omit<Room, 'id'>) {
       if (!payload.name.trim()) return false
@@ -382,7 +608,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       }
       const record: PromotionRecord = {
         id: createId('PR'), targetType: 'farm', targetId: this.tenant?.code || 'store', targetName: this.tenant?.name || '农家乐',
-        link: `https://demo.local/farm/${this.tenant?.code || 'store'}?promoter=member`, shareCount: 1, lockedFans: 0,
+        link: buildPortalUrl('user', 'pages/index/index', { promoter: 'member', activity: `farm:${this.tenant?.code || 'store'}` }, import.meta.env.VITE_PORTAL_ORIGIN || ''), shareCount: 1, lockedFans: 0,
         estimatedCommission: 0, createdAt: new Date().toLocaleString('zh-CN')
       }
       this.promotionRecords.unshift(record)
@@ -400,7 +626,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       }
       const record: PromotionRecord = {
         id: createId('PR'), targetType: 'product', targetId: product.id, targetName: product.name,
-        link: `https://demo.local/product/${product.id}?farm=${this.tenant?.code || 'store'}`, shareCount: 1, lockedFans: 0,
+        link: buildPortalUrl('user', 'pages/index/index', { activity: `product:${product.id}`, store: this.tenant?.code || 'store' }, import.meta.env.VITE_PORTAL_ORIGIN || ''), shareCount: 1, lockedFans: 0,
         estimatedCommission: 0, createdAt: new Date().toLocaleString('zh-CN')
       }
       this.promotionRecords.unshift(record)
@@ -409,18 +635,17 @@ export const useFarmhouseStore = defineStore('storefront', {
     async wechatLogin() {
       const { openid } = await simulateWechatLogin()
       this.auth = { isLoggedIn: true, openid }
-      const linked = resolveUserIdByOpenid(openid)
-      if (linked) {
-        this.currentUserId = linked
-      } else if (this.pendingUserId) {
-        // 把用户端带过来的 ID 与当前 openid 关联，实现 openid 和 ID 绑定
-        this.currentUserId = this.pendingUserId
-        writeUserLink(openid, this.pendingUserId)
-      } else {
-        this.currentUserId = resolveUserIdentity(openid)
-      }
-      if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', this.currentUserId)
+      this.setAuthorizedIdentity(openid)
       return true
+    },
+    setAuthorizedIdentity(openid: string) {
+      if (!openid.trim()) return null
+      const linked = resolveUserIdByOpenid(openid)
+      this.currentUserId = linked || resolveUserIdentity(openid)
+      this.pendingUserId = ''
+      if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', this.currentUserId)
+      this.applyReferrerBinding()
+      return this.currentUserId
     },
     loginWithAccount(account: string, password: string) {
       const match = this.storeAccounts.find((item) => item.farmId === this.tenant?.farmId && item.account === account && item.password === password && item.enabled)
@@ -430,34 +655,57 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.loggedAccountId = match.id
       return true
     },
-    resolveOrderShare(orderId: string, amount: number) {
+    buildOrderShareSideEffects(orderId: string, itemsOrAmount: number | Array<{ productId: string; quantity: number; price: number }>): { userBinding?: UserBinding; shareRecord?: ShareRecord } {
       const bindings = readUserBindings() ?? {}
       const binding = bindings[this.currentUserId]
-      if (binding && binding.status === 'pending') {
-        upsertUserBinding({ ...binding, status: 'bound', boundAt: new Date().toLocaleString('zh-CN') })
+      const boundBinding = binding ? { ...binding, status: 'bound' as const, boundAt: binding.boundAt || new Date().toLocaleString('zh-CN') } : null
+      if (typeof itemsOrAmount === 'number') {
+        const share = resolveShare(boundBinding, readShareConfig(), itemsOrAmount)
+        if (!share) return { userBinding: boundBinding || undefined }
+        const beneficiary = boundBinding?.promoterId ? { promoterId: boundBinding.promoterId } : boundBinding?.staffAccountId ? { staffAccountId: boundBinding.staffAccountId } : {}
+        return { userBinding: boundBinding || undefined, shareRecord: { id: `SR-${orderId}`, userId: this.currentUserId, orderId, orderAmount: itemsOrAmount, role: share.role, ...beneficiary, rate: share.rate, amount: share.amount, status: 'pending', createdAt: new Date().toLocaleString('zh-CN') } }
       }
-      const boundBinding = bindings[this.currentUserId] ? { ...bindings[this.currentUserId], status: 'bound' as const, boundAt: bindings[this.currentUserId].boundAt || new Date().toLocaleString('zh-CN') } : null
-      const share = resolveShare(boundBinding, readShareConfig(), amount)
-      if (share) {
-        const owner = boundBinding?.promoterId ? { promoterId: boundBinding.promoterId } : boundBinding?.staffAccountId ? { staffAccountId: boundBinding.staffAccountId } : {}
-        writeShareRecord({ id: createId('SR'), userId: this.currentUserId, orderId, orderAmount: amount, role: share.role, ...owner, rate: share.rate, amount: share.amount, createdAt: new Date().toLocaleString('zh-CN') })
-      }
+      const orderAmount = round2(itemsOrAmount.reduce((sum, item) => sum + item.price * item.quantity, 0))
+      if (orderAmount <= 0) return { userBinding: boundBinding || undefined }
+      const promoterId = boundBinding?.promoterId
+      const staffAccountId = boundBinding?.staffAccountId || (!promoterId
+        ? this.storeAccounts.find((account) => account.farmId === (this.tenant?.farmId || this.farm?.id || 'F001') && account.role === 'owner' && account.enabled)?.id
+        : undefined)
+      const allocation = allocateStoreCatalogCommission(itemsOrAmount.map((item) => {
+        const product = this.products.find((candidate) => candidate.id === item.productId)
+        return {
+          unitPrice: item.price,
+          quantity: item.quantity,
+          promoterCommissionRate: product?.promoterCommissionRate ?? product?.commissionRate ?? 0,
+          storeCommissionRate: product?.storeCommissionRate ?? product?.staffCommissionRate ?? 0
+        }
+      }), promoterId ? { type: 'promoter', beneficiaryId: promoterId } : staffAccountId && boundBinding?.staffAccountId ? { type: 'staff', beneficiaryId: staffAccountId } : null, staffAccountId || '')
+      if (!allocation || allocation.amount <= 0) return { userBinding: boundBinding || undefined }
+      return { userBinding: boundBinding || undefined, shareRecord: {
+        id: `SR-${orderId}`, userId: this.currentUserId, orderId, orderAmount,
+        role: allocation.beneficiaryType === 'promoter' ? 'promoter' : 'staff',
+        ...(allocation.beneficiaryType === 'promoter' ? { promoterId: allocation.beneficiaryId } : { staffAccountId: allocation.beneficiaryId }),
+        rate: round2(allocation.amount / orderAmount * 100), amount: allocation.amount, status: 'pending',
+        createdAt: new Date().toLocaleString('zh-CN')
+      } }
     },
-    setCurrentUser(userId: string) {
-      if (!userId) return
-      this.currentUserId = userId
-      this.pendingUserId = userId
-      if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', userId)
+    resolveOrderShare(orderId: string, itemsOrAmount: number | Array<{ productId: string; quantity: number; price: number }>): boolean {
+      const sideEffects = this.buildOrderShareSideEffects(orderId, itemsOrAmount)
+      return applyFarmhouseTransactionSideEffects({ userBinding: sideEffects.userBinding, shareRecords: sideEffects.shareRecord ? [sideEffects.shareRecord] : undefined })
     },
     setReferrer(referrer: { type?: 'promoter' | 'staff'; name?: string; promoterId?: string; staffAccountId?: string; liveId?: string }) {
       this.referrer = referrer || {}
+      this.applyReferrerBinding()
+    },
+    applyReferrerBinding() {
+      if (!this.currentUserId) return
       const bindings = readUserBindings() ?? {}
       const existing = bindings[this.currentUserId]
       if (existing && existing.status === 'bound') return
-      if (referrer?.promoterId) {
-        upsertUserBinding({ userId: this.currentUserId, promoterId: referrer.promoterId, status: 'pending' })
-      } else if (referrer?.staffAccountId) {
-        upsertUserBinding({ userId: this.currentUserId, staffAccountId: referrer.staffAccountId, status: 'pending' })
+      if (this.referrer.promoterId) {
+        upsertUserBinding({ userId: this.currentUserId, promoterId: this.referrer.promoterId, status: 'pending' })
+      } else if (this.referrer.staffAccountId) {
+        upsertUserBinding({ userId: this.currentUserId, staffAccountId: this.referrer.staffAccountId, status: 'pending' })
       }
     },
     addStoreAccount(payload: { name: string; account: string; password: string; role: StoreAccount['role']; promoEnabled?: boolean }) {
@@ -493,6 +741,8 @@ export const useFarmhouseStore = defineStore('storefront', {
     },
     logout() {
       this.auth = { isLoggedIn: false, openid: '' }
+      this.currentUserId = ''
+      this.pendingUserId = ''
       this.role = 'customer'
     }
   }

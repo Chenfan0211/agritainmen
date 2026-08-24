@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev:h5": "uni -p h5 --host 127.0.0.1",
+    "dev:h5:e2e": "uni -p h5 --host 127.0.0.1 --port 5179",
     "build:h5": "uni build -p h5",
     "build:mp-weixin": "uni build -p mp-weixin",
     "typecheck": "vue-tsc --noEmit"

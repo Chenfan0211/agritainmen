@@ -1,3 +1,7 @@
+import { buildPortalUrl } from '@agritainment/shared'
+
+const portalOrigin = import.meta.env.VITE_PORTAL_ORIGIN || ''
+
 interface StorefrontTarget {
   h5Url: string
   miniProgramAppId?: string
@@ -5,8 +9,8 @@ interface StorefrontTarget {
 }
 
 const storefronts: Record<string, StorefrontTarget> = {
-  F001: { h5Url: import.meta.env.VITE_STOREFRONT_SHIBANXI_URL || 'http://127.0.0.1:8792/' },
-  F002: { h5Url: import.meta.env.VITE_STOREFRONT_YUNSHANG_URL || 'http://127.0.0.1:8794/' }
+  F001: { h5Url: import.meta.env.VITE_STOREFRONT_SHIBANXI_URL || buildPortalUrl('farmhouse', 'pages/index/index', { farm: 'F001' }, portalOrigin) },
+  F002: { h5Url: import.meta.env.VITE_STOREFRONT_YUNSHANG_URL || buildPortalUrl('farmhouse', 'pages/index/index', { farm: 'F002' }, portalOrigin) }
 }
 
 export function getStorefrontTarget(farmId: string) {

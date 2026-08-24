@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { AfterSale, MockScenario, Order, OrderItem, OrderStatus, Product, PurchaseStatus } from '@agritainment/shared'
-import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, calcCartTotal, cloneSeed, createId, mergeEntitySeeds, mergePlatformEntities, mergePersistedDefaults, nextPurchaseStatus, purchaseSteps, readPlatformAfterSales, readPlatformEntities, readPlatformMedia, suppliers, validatePhone, validateSmsCode, writePlatformAfterSale, writePlatformOrder } from '@agritainment/shared'
+import type { AfterSale, CatalogState, MockScenario, Order, OrderItem, OrderStatus, Product, PurchaseStatus } from '@agritainment/shared'
+import { DEMO_PASSWORD, DEMO_SMS_CODE, applyCatalogStockOperation, applyPlatformMedia, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, ensureCatalogState, markCatalogTransactionStockApplied, mergeEntitySeeds, mergePersistedDefaults, nextPurchaseStatus, prepareCatalogTransaction, purchaseSteps, readCatalogState, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformMedia, suppliers, updateCatalogStock, validatePhone, validateSmsCode, writePlatformAfterSale, writePlatformOrder } from '@agritainment/shared'
 import { storeInfo, storeRepository } from '../services/repository'
 
 interface CartLine {
@@ -32,6 +32,8 @@ export interface StoreOrder {
   trackingNo?: string
   logistics: LogisticsEvent[]
   remark?: string
+  inventoryReleased?: boolean
+  afterSaleType?: 'refund' | 'return'
 }
 
 interface StoreState {
@@ -41,6 +43,7 @@ interface StoreState {
   mockScenario: MockScenario
   info: typeof storeInfo
   products: Product[]
+  catalogRevision: number
   cart: CartLine[]
   orders: StoreOrder[]
   checkoutError: string
@@ -257,6 +260,7 @@ export const useStoreStore = defineStore('store', {
     mockScenario: 'normal',
     info: cloneSeed(storeInfo),
     products: [],
+    catalogRevision: 0,
     cart: [],
     orders: seedOrders(),
     checkoutError: '',
@@ -291,16 +295,15 @@ export const useStoreStore = defineStore('store', {
       this.error = ''
       try {
         const data = await storeRepository.loadStore(this.mockScenario)
+        const catalog = ensureCatalogState(data.products, cProducts)
         this.$patch({
           info: hasPersistedData ? mergePersistedDefaults(data.info, this.info) : data.info,
-          products: hasPersistedData ? mergeEntitySeeds(data.products, this.products) : data.products,
+          products: catalogProductsForAudience(catalog, 'ordering').map(catalogProductToProduct),
+          catalogRevision: catalog.revision,
           orders: hasPersistedData ? mergeEntitySeeds(seedOrders(), this.orders) : seedOrders(),
           initialized: true
         })
         applyPlatformMedia(null, this.products)
-        const entities = readPlatformEntities()
-        if (entities?.products) this.products = mergePlatformEntities(this.products, entities.products)
-        this.applyLocalOverrides()
         const storeMedia = readPlatformMedia()
         if (storeMedia?.farms['F001']) this.info.image = storeMedia.farms['F001']
         this.cart.forEach((line) => {
@@ -313,6 +316,7 @@ export const useStoreStore = defineStore('store', {
           const sku = product?.skus.find((item) => item.id === line.skuId) || product?.skus[0]
           if (product && sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, image: product.image })
         }))
+        this.recoverCatalogTransactions()
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {
@@ -363,6 +367,45 @@ export const useStoreStore = defineStore('store', {
       this.cart = this.cart.filter((item) => !(item.productId === productId && item.skuId === skuId))
       this.checkoutError = ''
     },
+    applyCatalogState(state: CatalogState) {
+      this.catalogRevision = state.revision
+      this.products = catalogProductsForAudience(state, 'ordering').map(catalogProductToProduct)
+      this.cart = this.cart.filter((line) => {
+        const product = this.products.find((item) => item.id === line.productId)
+        const sku = product?.skus.find((item) => item.id === line.skuId)
+        if (!product || !sku) return false
+        Object.assign(line, { name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock })
+        return true
+      })
+    },
+    refreshCatalog(message = '') {
+      const state = readCatalogState()
+      if (!state) return false
+      this.applyCatalogState(state)
+      if (message) this.checkoutError = message
+      return true
+    },
+    recoverCatalogTransactions() {
+      for (const entry of readPendingCatalogTransactions('store')) {
+        const payload = entry.payload as { order?: StoreOrder; afterSale?: AfterSale }
+        if (!payload.order?.id) continue
+        if (entry.status === 'prepared') {
+          const catalog = readCatalogState()
+          if (!catalog) continue
+          const result = applyCatalogStockOperation(entry.id, entry.inventoryChanges, catalog.revision)
+          if (!result || !markCatalogTransactionStockApplied(entry.id)) continue
+          this.applyCatalogState(result.state)
+        }
+        if (!writePlatformOrder(toPlatformOrder(payload.order, this.products))) continue
+        if (payload.afterSale && !writePlatformAfterSale(payload.afterSale)) continue
+        const existing = this.orders.find((order) => order.id === payload.order!.id)
+        if (existing) Object.assign(existing, cloneSeed(payload.order))
+        else this.orders.unshift(cloneSeed(payload.order))
+        commitCatalogTransaction(entry.id)
+      }
+      const latest = readCatalogState()
+      if (latest && latest.revision !== this.catalogRevision) this.applyCatalogState(latest)
+    },
     applyLocalOverrides() {
       Object.entries(this.overrides).forEach(([productId, ov]) => {
         const product = this.products.find((item) => item.id === productId)
@@ -377,11 +420,16 @@ export const useStoreStore = defineStore('store', {
       const product = this.products.find((item) => item.id === productId)
       const sku = product?.skus.find((item) => item.id === skuId)
       if (!product || !sku) return false
-      const ov = this.overrides[productId] || (this.overrides[productId] = {})
-      ov.stock = ov.stock || {}
-      ov.stock[skuId] = Math.max(0, Math.round(Number(stock) || 0))
-      sku.stock = ov.stock[skuId]
-      product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
+      const nextStock = Math.max(0, Math.round(Number(stock) || 0))
+      const quantity = nextStock - sku.stock
+      if (!quantity) return true
+      const next = updateCatalogStock([{ productId, skuId, quantity }], this.catalogRevision)
+      if (!next) {
+        this.refreshCatalog('商品库存已更新，请刷新后重试')
+        return false
+      }
+      this.applyCatalogState(next)
+      this.checkoutError = ''
       return true
     },
     toggleListed(productId: string) {
@@ -405,30 +453,29 @@ export const useStoreStore = defineStore('store', {
         this.checkoutError = `${insufficient.name}（${insufficient.skuName}）库存不足`
         return false
       }
-      this.cart.forEach((line) => {
-        const product = this.products.find((item) => item.id === line.productId)!
-        const sku = product.skus.find((item) => item.id === line.skuId)!
-        sku.stock -= line.quantity
-        product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
-        product.sales += line.quantity
-      })
       const amount = this.cartTotal
       const saved = Math.round(this.cart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100
       const itemCount = this.cartCount
+      const orderItems = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, skuName: line.skuName, name: line.name, image: line.image, quantity: line.quantity, price: line.price }))
       const now = new Date().toLocaleString('zh-CN')
-      this.orders.unshift({
-        id: createId('SO'),
-        amount,
-        saved,
-        itemCount,
-        items: this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, skuName: line.skuName, name: line.name, image: line.image, quantity: line.quantity, price: line.price })),
-        status: 'submitted',
-        createdAt: now,
-        trackingNo: `SF${String(Date.now()).slice(-10)}`,
-        logistics: [{ time: now, title: '订单已提交', detail: '已提交至甄选好物供应链中台，等待接单' }],
-        remark: remark.trim() || undefined
-      })
-      writePlatformOrder(toPlatformOrder(this.orders[0], this.products))
+      const order: StoreOrder = {
+        id: createId('SO'), amount, saved, itemCount, items: orderItems, status: 'submitted', createdAt: now,
+        trackingNo: `SF${String(Date.now()).slice(-10)}`, logistics: [{ time: now, title: '订单已提交', detail: '已提交至甄选好物供应链中台，等待接单' }], remark: remark.trim() || undefined
+      }
+      const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
+      const operationId = `${order.id}:reserve`
+      if (!prepareCatalogTransaction({ id: operationId, channel: 'store', action: 'reserve', inventoryChanges, payload: { order } })) return false
+      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, this.catalogRevision)
+      if (!stockResult) {
+        this.refreshCatalog('商品库存已更新，请刷新后重试')
+        return false
+      }
+      this.applyCatalogState(stockResult.state)
+      if (!markCatalogTransactionStockApplied(operationId) || !writePlatformOrder(toPlatformOrder(order, this.products)) || !commitCatalogTransaction(operationId)) {
+        this.checkoutError = '订单处理中，请刷新后重试'
+        return false
+      }
+      this.orders.unshift(order)
       this.cart = []
       return true
     },
@@ -451,22 +498,51 @@ export const useStoreStore = defineStore('store', {
     cancelOrder(id: string) {
       const order = this.orders.find((item) => item.id === id)
       if (!order || (order.status !== 'submitted' && order.status !== 'accepted')) return false
-      order.status = 'cancelled'
-      order.logistics.push({ time: new Date().toLocaleString('zh-CN'), title: '订单已取消', detail: '门店取消进货单' })
-      writePlatformOrder(toPlatformOrder(order, this.products))
+      if (order.inventoryReleased) return false
+      const nextOrder = cloneSeed(order)
+      nextOrder.status = 'cancelled'; nextOrder.inventoryReleased = true
+      nextOrder.logistics.push({ time: new Date().toLocaleString('zh-CN'), title: '订单已取消', detail: '门店取消进货单' })
+      const inventoryChanges = order.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
+      const operationId = `${order.id}:release`
+      if (!prepareCatalogTransaction({ id: operationId, channel: 'store', action: 'release', inventoryChanges, payload: { order: nextOrder } })) return false
+      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, this.catalogRevision)
+      if (!stockResult) {
+        this.refreshCatalog('商品库存已更新，请刷新后重试')
+        return false
+      }
+      if (!markCatalogTransactionStockApplied(operationId) || !writePlatformOrder(toPlatformOrder(nextOrder, this.products)) || !commitCatalogTransaction(operationId)) return false
+      this.applyCatalogState(stockResult.state)
+      Object.assign(order, nextOrder)
       return true
     },
-    initiateAfterSale(orderId: string) {
+    initiateAfterSale(orderId: string, type: 'refund' | 'return' = 'refund') {
       const order = this.orders.find((item) => item.id === orderId)
       if (!order || (order.status !== 'received' && order.status !== 'completed')) return false
       if (Object.values(readPlatformAfterSales() || {}).some((work) => work.orderId === orderId)) return false
       const first = order.items[0]
-      writePlatformAfterSale({
+      if (!writePlatformAfterSale({
         id: createId('AS'), orderId, productName: first?.name || '进货商品', applicant: storeInfo.name,
-        type: 'refund', amount: order.amount, status: 'processing', issue: '进货商品质量问题，门店申请售后',
+        type, amount: order.amount, status: type === 'return' ? 'return-pending' : 'processing', issue: '进货商品质量问题，门店申请售后',
         quantity: first?.quantity || order.itemCount, image: first?.image,
         history: [{ time: new Date().toLocaleString('zh-CN'), action: '门店发起售后，平台受理中', operator: storeInfo.name }]
-      } as AfterSale)
+      } as AfterSale)) return false
+      order.afterSaleType = type
+      return true
+    },
+    completeReturn(orderId: string) {
+      const order = this.orders.find((item) => item.id === orderId)
+      const work = Object.values(readPlatformAfterSales() || {}).find((item) => item.orderId === orderId && item.type === 'return')
+      if (!order || !work || order.inventoryReleased || work.status !== 'return-pending') return false
+      const inventoryChanges = order.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
+      const operationId = `${order.id}:return-release`
+      const nextOrder = { ...cloneSeed(order), inventoryReleased: true }
+      const nextAfterSale: AfterSale = { ...work, status: 'refunded', history: [...(work.history || []), { time: new Date().toLocaleString('zh-CN'), action: '退货确认完成，库存已回补', operator: storeInfo.name }] }
+      if (!prepareCatalogTransaction({ id: operationId, channel: 'store', action: 'release', inventoryChanges, payload: { order: nextOrder, afterSale: nextAfterSale } })) return false
+      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, this.catalogRevision)
+      if (!stockResult || !markCatalogTransactionStockApplied(operationId)) return false
+      if (!writePlatformAfterSale(nextAfterSale)) return false
+      if (!commitCatalogTransaction(operationId)) return false
+      this.applyCatalogState(stockResult.state); Object.assign(order, nextOrder)
       return true
     },
     repeatOrder(id: string) {

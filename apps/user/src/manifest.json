@@ -1,7 +1,7 @@
 {
   "name": "湖南农家乐用户端",
   "appid": "__UNI__AGRITAINMENT_USER",
-  "description": "农家乐用户端：扫码进入推客直播间，查看门店套餐并跳转预订",
+  "description": "山水乡集 C 端分销商城：快递直发商品、分销身份价格、订单和佣金演示",
   "versionName": "0.1.0",
   "versionCode": 100,
   "transformPx": false,
