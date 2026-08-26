@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import type { FarmStore, LiveRoom, Product } from '@agritainment/shared'
-import { buildPortalUrl, createId, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount } from '@agritainment/shared'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import type { BusinessMediaValue, FarmStore, LiveRoom, Product } from '@agritainment/shared'
+import { buildPortalUrl, createId, createPlatformDictionaryCache, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount, subscribePlatformChanges } from '@agritainment/shared'
+import { BusinessImage, ImageUploader, getMediaRuntime } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
 import qrcode from 'qrcode-generator'
@@ -11,6 +12,7 @@ import { userPortalBase } from '../../config/portal'
 
 type SheetKey = 'login' | 'create-live' | 'share' | 'shares' | 'bound-users' | null
 
+let disposePlatformChanges: (() => void) | null = null
 const store = usePromoterStore()
 const sheet = ref<SheetKey>(null)
 const loginPhone = ref('13800000000')
@@ -18,12 +20,21 @@ const loginPassword = ref('123456')
 const selectedLive = ref<LiveRoom | null>(null)
 const qrDataUrl = ref('')
 const coverOptions = ['/static/images/farmhouse.webp', '/static/images/field.webp', '/static/images/mountain.webp', '/static/images/tea.webp', '/static/images/rice.webp']
-const liveForm = reactive<{ id: string; title: string; image: string; status: LiveRoom['status']; selectedFarms: string[] }>({ id: '', title: '', image: '/static/images/farmhouse.webp', status: 'preview', selectedFarms: [] })
+const liveForm = reactive<{ id: string; title: string; image: BusinessMediaValue; status: LiveRoom['status']; selectedFarms: string[]; hostRole: string }>({ id: '', title: '', image: '/static/images/farmhouse.webp', status: 'preview', selectedFarms: [], hostRole: '' })
 const selectedPackages = reactive<Record<string, string[]>>({})
+const dictCache = createPlatformDictionaryCache()
+const liveHostRoleOptions = ref(dictCache.getOptions('liveHostRole'))
+const promoterTypeLabel = ref(dictCache.label('promoterType', store.promoter?.type || ''))
+const promoterLevelLabel = ref(dictCache.label('promoterLevel', store.promoter?.level || ''))
+dictCache.subscribe(() => {
+  liveHostRoleOptions.value = dictCache.getOptions('liveHostRole')
+  promoterTypeLabel.value = dictCache.label('promoterType', store.promoter?.type || '')
+  promoterLevelLabel.value = dictCache.label('promoterLevel', store.promoter?.level || '')
+})
 
 const myLives = computed(() => store.myLives)
 const totalShare = computed(() => store.myShares.reduce((sum, item) => sum + item.amount, 0))
-const pendingShare = computed(() => pendingShareAmount(store.promoter?.id || ''))
+const pendingShare = computed(() => store.pendingLedgerCommission)
 const farmName = (id: string) => store.farms.find((item) => item.id === id)?.name || id
 const packagesOfFarm = (farmId: string) => store.products.filter((item) => (item.farmIds || []).includes(farmId))
 const liveFarmCount = (room: LiveRoom) => room.linkedFarms?.length || 0
@@ -43,14 +54,14 @@ function submitLogin() {
 
 function openCreateLive(room?: LiveRoom) {
   if (room) {
-    Object.assign(liveForm, { id: room.id, title: room.title, image: room.image || '/static/images/farmhouse.webp', status: room.status, selectedFarms: (room.linkedFarms || []).map((item) => item.farmId) })
+    Object.assign(liveForm, { id: room.id, title: room.title, image: room.image || '/static/images/farmhouse.webp', status: room.status, selectedFarms: (room.linkedFarms || []).map((item) => item.farmId), hostRole: room.hostRole || '' })
     Object.keys(selectedPackages).forEach((key) => delete selectedPackages[key])
     ;(room.linkedFarms || []).forEach((item) => {
       const candidateIds = new Set(packagesOfFarm(item.farmId).map((product) => product.id))
       selectedPackages[item.farmId] = item.packageIds.filter((id) => candidateIds.has(id))
     })
   } else {
-    Object.assign(liveForm, { id: '', title: '', image: '/static/images/farmhouse.webp', status: 'preview', selectedFarms: [] })
+    Object.assign(liveForm, { id: '', title: '', image: '/static/images/farmhouse.webp', status: 'preview', selectedFarms: [], hostRole: '' })
     Object.keys(selectedPackages).forEach((key) => delete selectedPackages[key])
   }
   sheet.value = 'create-live'
@@ -74,7 +85,11 @@ function togglePackage(farmId: string, packageId: string) {
   else list.push(packageId)
 }
 
-function saveLive() {
+function coverActive(value: BusinessMediaValue, cover: string): boolean {
+  return typeof value === 'string' ? value === cover : value?.source === 'builtin' && value.path === cover
+}
+
+async function saveLive() {
   const linkedFarms = liveForm.selectedFarms
     .map((farmId) => {
       const candidateIds = new Set(packagesOfFarm(farmId).map((product) => product.id))
@@ -83,8 +98,10 @@ function saveLive() {
     .filter((item) => item.packageIds.length)
   if (!liveForm.title.trim()) return toast('请填写直播标题')
   if (!linkedFarms.length) return toast('请至少选择一个门店套餐')
-  const payload = { title: liveForm.title.trim(), image: liveForm.image, status: liveForm.status, linkedFarms }
-  const ok = liveForm.id ? store.updateLive(liveForm.id, payload) : store.createLive(payload)
+  const payload = { title: liveForm.title.trim(), image: liveForm.image, status: liveForm.status, linkedFarms, hostRole: liveForm.hostRole }
+  const ok = liveForm.id
+    ? await store.updateLive(liveForm.id, payload, getMediaRuntime().storage)
+    : await store.createLive(payload, getMediaRuntime().storage)
   if (!ok) return toast('保存失败，请检查所选套餐')
   sheet.value = null
   toast(liveForm.id ? '直播已更新并发布' : '直播已创建并发布')
@@ -126,53 +143,6 @@ function copyShareLink(room: LiveRoom) {
   uni.setClipboardData({ data: liveLink(room), success: () => toast('直播间链接已复制') })
 }
 
-function fileToImageDataUrl(path: string) {
-  return new Promise<string>((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      try {
-        const max = 800
-        const scale = Math.min(1, max / Math.max(img.width, img.height))
-        const canvas = document.createElement('canvas')
-        canvas.width = Math.max(1, Math.round(img.width * scale))
-        canvas.height = Math.max(1, Math.round(img.height * scale))
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return reject(new Error('canvas'))
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL('image/jpeg', 0.8))
-      } catch (error) {
-        reject(error)
-      }
-    }
-    img.onerror = () => reject(new Error('image'))
-    img.src = path
-  })
-}
-
-function chooseLiveCover() {
-  // #ifdef H5
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const path = res.tempFilePaths[0]
-      if (!path) return
-      try {
-        liveForm.image = await fileToImageDataUrl(path)
-        toast('封面已上传')
-      } catch (error) {
-        console.error('cover upload failed', error)
-        toast('图片读取失败，请重试')
-      }
-    },
-    fail: (err) => console.error('chooseImage fail', err)
-  })
-  // #endif
-  // #ifndef H5
-  toast('小程序端请使用默认封面')
-  // #endif
-}
-
 function confirmRemoveLive(room: LiveRoom) {
   uni.showModal({
     title: '下架直播',
@@ -188,6 +158,16 @@ function confirmRemoveLive(room: LiveRoom) {
 onMounted(async () => {
   installKeyboardButtonSupport()
   await store.initialize()
+  if (typeof window !== 'undefined') {
+    const onStorage = () => void store.refreshSharedState()
+    window.addEventListener('storage', onStorage)
+    disposePlatformChanges = () => window.removeEventListener('storage', onStorage)
+  }
+})
+
+onBeforeUnmount(() => {
+  disposePlatformChanges?.(); disposePlatformChanges = null
+  dictCache.dispose()
 })
 </script>
 
@@ -196,7 +176,7 @@ onMounted(async () => {
     <view v-if="!store.auth.isLoggedIn" class="login-page">
       <view class="login-card">
         <view class="login-icon emoji-thumb">🧑‍💼</view>
-        <text class="login-title">湖南农家乐推客端</text>
+        <text class="login-title">中选科技推客端</text>
         <text class="login-sub">创建直播 · 推广门店套餐 · 用户消费分成</text>
         <label class="login-field"><text>手机号</text><input v-model="loginPhone" type="number" maxlength="11" placeholder="请输入手机号" /></label>
         <label class="login-field"><text>密码</text><input v-model="loginPassword" type="password" placeholder="请输入密码" confirm-type="done" @confirm="submitLogin" /></label>
@@ -206,7 +186,7 @@ onMounted(async () => {
     </view>
 
     <template v-else>
-      <view class="promoter-head"><view class="head-row"><view class="profile"><view class="pav emoji-thumb">🧑‍💼</view><view><text class="pname">推客 · {{ store.promoter?.name }}</text><small class="plv">联盟推客<text class="vip">{{ store.promoter?.level }}</text></small></view></view><button class="head-share-btn" @click="sheet = 'shares'"><UiIcon name="badge-dollar-sign" :size="14" />分成明细</button></view></view>
+      <view class="promoter-head"><view class="head-row"><view class="profile"><view class="pav emoji-thumb">🧑‍💼</view><view><text class="pname">推客 · {{ store.promoter?.name }}</text><small class="plv">{{ promoterTypeLabel || '联盟推客' }}<text class="vip">{{ promoterLevelLabel }}</text></small></view></view><button class="head-share-btn" @click="sheet = 'shares'"><UiIcon name="badge-dollar-sign" :size="14" />分成明细</button></view></view>
       <view class="wallet-card">
         <view class="wallet-top"><view><small>消费分成累计（元）</small><strong>{{ money(totalShare) }}</strong></view></view>
         <view class="wallet-stats"><view><text>{{ money(pendingShare) }}</text><small>推广佣金<text v-if="store.promoter?.settled" class="settled-tag">已结算</text></small></view><view><text>{{ store.promoter?.fans ?? 0 }}</text><small>绑定用户</small></view><view><text>{{ store.myBoundUsers.filter((item) => item.status === 'bound').length }}</text><small>正式绑定</small></view></view>
@@ -222,7 +202,7 @@ onMounted(async () => {
       <view v-if="!myLives.length" class="empty">还没有直播，点击「创建直播」开始推广门店套餐</view>
       <view class="live-list">
         <view v-for="room in myLives" :key="room.id" class="live-card">
-          <image class="live-cover" :src="room.image" mode="aspectFit" />
+          <BusinessImage class="live-cover" :src="room.image" mode="aspectFit" />
           <view class="live-body">
             <view class="live-title-row"><text class="live-title">{{ room.title }}</text><span :class="room.status">{{ room.status === 'live' ? '直播中' : '预告' }}</span></view>
             <small class="live-meta">绑定 {{ liveFarmCount(room) }} 家门店 · {{ room.viewers.toLocaleString('zh-CN') }} 人观看</small>
@@ -242,11 +222,12 @@ onMounted(async () => {
 
       <view v-if="sheet === 'create-live'" class="create-live">
         <label class="field"><text>直播标题</text><input v-model="liveForm.title" placeholder="如 石板溪土鸡宴专场" /></label>
-        <view class="field"><text>封面</text><view class="cover-row"><image v-for="cover in coverOptions" :key="cover" :src="cover" mode="aspectFit" :class="{ active: liveForm.image === cover }" @click="liveForm.image = cover" /><image v-if="liveForm.image && !coverOptions.includes(liveForm.image)" :src="liveForm.image" mode="aspectFit" class="active uploaded" @click="liveForm.image = '/static/images/farmhouse.webp'" /></view><button class="upload-btn" @click="chooseLiveCover">＋ 上传封面</button></view>
+        <view class="field"><text>封面</text><view class="cover-row"><BusinessImage v-for="cover in coverOptions" :key="cover" :src="cover" mode="aspectFit" :class="{ active: coverActive(liveForm.image, cover) }" @click="liveForm.image = cover" /></view><ImageUploader v-model="liveForm.image" purpose="live-cover" profile="normal" /></view>
         <view class="field"><text>开播状态</text><view class="chips"><button :class="{ active: liveForm.status === 'preview' }" @click="liveForm.status = 'preview'">预告</button><button :class="{ active: liveForm.status === 'live' }" @click="liveForm.status = 'live'">直播中</button></view></view>
-        <view class="field"><text>选择门店（可多选）</text><view class="farm-grid"><view v-for="farm in store.farms" :key="farm.id" class="farm-option" :class="{ active: liveForm.selectedFarms.includes(farm.id) }" @click="toggleFarm(farm.id)"><image :src="farm.image" mode="aspectFit" /><text>{{ farm.name }}</text></view></view></view>
+        <view v-if="liveHostRoleOptions.length" class="field"><text>主播身份</text><view class="chips"><button v-for="role in liveHostRoleOptions" :key="role.code" :class="{ active: liveForm.hostRole === role.code }" @click="liveForm.hostRole = role.code">{{ role.label }}</button></view></view>
+        <view class="field"><text>选择门店（可多选）</text><view class="farm-grid"><view v-for="farm in store.farms" :key="farm.id" class="farm-option" :class="{ active: liveForm.selectedFarms.includes(farm.id) }" @click="toggleFarm(farm.id)"><BusinessImage :src="farm.image" mode="aspectFit" /><text>{{ farm.name }}</text></view></view></view>
         <template v-for="farmId in liveForm.selectedFarms" :key="farmId">
-          <view class="field"><text>{{ farmName(farmId) }} · 选择套餐（可多选）</text><view class="pkg-grid"><view v-for="pkg in packagesOfFarm(farmId)" :key="pkg.id" class="pkg-option" :class="{ active: (selectedPackages[farmId] || []).includes(pkg.id) }" @click="togglePackage(farmId, pkg.id)"><image :src="pkg.image" mode="aspectFit" /><view><text>{{ pkg.name }}</text><small>{{ money(pkg.price) }}</small></view></view><view v-if="!packagesOfFarm(farmId).length" class="pkg-empty">该门店暂无套餐券商品</view></view></view>
+          <view class="field"><text>{{ farmName(farmId) }} · 选择套餐（可多选）</text><view class="pkg-grid"><view v-for="pkg in packagesOfFarm(farmId)" :key="pkg.id" class="pkg-option" :class="{ active: (selectedPackages[farmId] || []).includes(pkg.id) }" @click="togglePackage(farmId, pkg.id)"><BusinessImage :src="pkg.image" mode="aspectFit" /><view><text>{{ pkg.name }}</text><small>{{ money(pkg.price) }}</small></view></view><view v-if="!packagesOfFarm(farmId).length" class="pkg-empty">该门店暂无套餐券商品</view></view></view>
         </template>
         <button class="primary-button" @click="saveLive">{{ liveForm.id ? '保存修改并发布' : '创建并发布直播' }}</button>
       </view>
@@ -381,4 +362,5 @@ onMounted(async () => {
 .sheet-head uni-button { display: grid; place-items: center; line-height: 1; }
 .chips uni-button { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
 .sheet-head uni-button::after, .chips uni-button::after, .quick-tools uni-button::after, .live-actions uni-button::after, .wallet-top uni-button::after, .primary-button::after, .upload-btn::after { border: none; background: none; }
+.cover-row .business-image{width:64px;height:64px;border-radius:10px;border:2px solid transparent;flex:none}.cover-row .business-image.active{border-color:#c83245}.cover-row .business-image.uploaded{border-color:#17633f;background:#f0f6f0}.farm-option .business-image{width:100%;height:52px}.pkg-option .business-image{width:44px;height:44px;border-radius:8px;flex:none}
 </style>

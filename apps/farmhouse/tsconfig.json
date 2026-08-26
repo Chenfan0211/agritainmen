@@ -4,5 +4,5 @@
     "types": ["@dcloudio/types", "vite/client"],
     "baseUrl": "."
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "../../packages/shared/src/**/*.ts", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "../../packages/shared/src/**/*.ts", "../../packages/ui/src/**/*.ts", "../../packages/ui/src/**/*.vue", "vite.config.ts"]
 }

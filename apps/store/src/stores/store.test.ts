@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { CatalogProduct, CatalogState } from '@agritainment/shared'
-import { applyCatalogStockOperation, catalogProductToProduct, cloneSeed, markCatalogTransactionStockApplied, prepareCatalogTransaction, readCatalogState, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformEntities, readPlatformOrders, updateCatalogStock, upsertStoreCatalogSelection, writeCatalogState } from '@agritainment/shared'
+import { applyCatalogStockOperation, catalogProductToProduct, cloneSeed, markCatalogTransactionStockApplied, prepareCatalogTransaction, readCatalogState, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformEntities, readPlatformOrders, storeAccounts, updateCatalogStock, upsertStoreCatalogSelection, writeCatalogState, writePlatformStoreAccounts } from '@agritainment/shared'
 import { promoterRepository } from '../../../promoter/src/services/repository'
 import { deriveStoreMetrics, storeCatalog } from '../services/repository'
 import { useStoreStore } from './store'
@@ -255,24 +255,75 @@ describe('promoter live package candidates', () => {
 })
 
 describe('store auth', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
 
-  it('logs in with demo phone and password', () => {
+  it('logs in only with an enabled platform store account and records its principal', () => {
     const store = useStoreStore()
     expect(store.auth.isLoggedIn).toBe(false)
-    expect(store.loginWithPassword('13800000000', 'wrong')).toBe(false)
-    expect(store.loginWithPassword('12800000000', '123456')).toBe(false)
-    expect(store.loginWithPassword('13800000000', '123456')).toBe(true)
-    expect(store.auth).toMatchObject({ isLoggedIn: true, phone: '13800000000' })
+    expect(store.loginWithPassword('13800000001', 'wrong')).toBe(false)
+    expect(store.loginWithPassword('13800000000', '123456')).toBe(false)
+    expect(store.loginWithPassword('13800000001', '123456')).toBe(true)
+    expect(store.auth).toMatchObject({
+      isLoggedIn: true,
+      phone: '13800000001',
+      accountId: 'SA001',
+      farmId: 'F001',
+      tenantId: 'F001',
+      role: 'owner',
+      principal: { actorType: 'store', actorId: 'SA001', tenantId: 'F001', status: 'active' }
+    })
+    expect(store.info.name).toContain('石板溪')
   })
 
-  it('logs in with demo phone and sms code, then logs out', () => {
+  it('rejects disabled accounts for password and sms login', () => {
+    writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA003' ? { ...item, enabled: false } : item))
     const store = useStoreStore()
-    expect(store.loginWithCode('13800000000', '000000')).toBe(false)
-    expect(store.loginWithCode('13800000000', '123456')).toBe(true)
-    expect(store.auth.isLoggedIn).toBe(true)
+    expect(store.loginWithPassword('13800000003', '123456')).toBe(false)
+    expect(store.loginWithCode('13800000003', '123456')).toBe(false)
+  })
+
+  it('resolves sms login to the same enabled account and clears the principal on logout', () => {
+    const store = useStoreStore()
+    expect(store.loginWithCode('13800000003', '000000')).toBe(false)
+    expect(store.loginWithCode('13800000000', '123456')).toBe(false)
+    expect(store.loginWithCode('13800000003', '123456')).toBe(true)
+    expect(store.auth).toMatchObject({ accountId: 'SA003', farmId: 'F002', role: 'owner' })
+    expect(store.info.name).toContain('云上人家')
     store.logout()
-    expect(store.auth).toEqual({ isLoggedIn: false, phone: '' })
+    expect(store.auth).toMatchObject({ isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null })
+  })
+
+  it('isolates cart and orders when switching between F001 and F002 accounts', async () => {
+    writeCatalog([catalogProduct({ id: 'TENANT-P', channel: 'store' })])
+    const store = useStoreStore()
+    await store.initialize()
+
+    expect(store.loginWithPassword('13800000001', '123456')).toBe(true)
+    store.addToCart(store.products[0])
+    store.orders = [{ id: 'F001-ORDER', farmId: 'F001', amount: 20, saved: 0, itemCount: 1, items: [], status: 'submitted', createdAt: '2026-08-24 10:00', logistics: [] }]
+
+    expect(store.loginWithPassword('13800000003', '123456')).toBe(true)
+    expect(store.cart).toEqual([])
+    expect(store.orders).toEqual([])
+    store.addToCart(store.products[0])
+    expect(store.submitOrder()).toBe(true)
+    const f002Order = store.orders[0]
+    expect(f002Order.farmId).toBe('F002')
+    expect(readPlatformOrders()?.[f002Order.id]).toMatchObject({ customer: expect.stringContaining('云上人家'), supplierOrderLink: { source: 'store', customerUserId: 'F002' } })
+
+    expect(store.loginWithPassword('13800000001', '123456')).toBe(true)
+    expect(store.cart).toHaveLength(1)
+    expect(store.orders.map((item) => item.id)).toEqual(['F001-ORDER'])
+  })
+
+  it('invalidates the current session when the shared store account is disabled', async () => {
+    const store = useStoreStore()
+    expect(store.loginWithPassword('13800000001', '123456')).toBe(true)
+    writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA001' ? { ...item, enabled: false } : item))
+
+    await store.refreshSharedState()
+
+    expect(store.auth.isLoggedIn).toBe(false)
   })
 
 describe('deriveStoreMetrics', () => {

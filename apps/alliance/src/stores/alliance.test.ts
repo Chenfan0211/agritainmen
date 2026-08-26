@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cloneSeed, farms, liveRooms, products, promoters, upsertUserBinding } from '@agritainment/shared'
+import { cloneSeed, farms, liveRooms, products, promoters, readPlatformCommissionLedger, readPlatformRoutes, removePlatformRoute, travelRoutes, writePlatformRoute, mergePlatformRoutes, readPlatformPromoterAccountState, upsertUserBinding, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts } from '@agritainment/shared'
 import { useAllianceStore } from './alliance'
 
 if (!globalThis.localStorage) {
@@ -38,8 +38,9 @@ describe('alliance store interactions', () => {
     store.shareProduct(store.products[0].id)
     store.shareProduct(store.products[0].id)
     expect(store.promotionRecords[0]).toMatchObject({ shareCount: 2, lockedFans: 2 })
-    expect(store.fans).toHaveLength(fanCount + 2)
-    expect(store.promoter!.fans).toBe(promoterFans + 2)
+    expect(store.fans).toHaveLength(fanCount)
+    expect(store.promoter!.fans).toBe(promoterFans)
+    writePlatformCommissionLedgerEntry({ id: 'L1', sourceOrderId: 'O1', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
     expect(store.joinRoute('RT01')).toBe(true)
     expect(store.joinRoute('RT01')).toBe(false)
     expect(store.withdraw(100, '微信钱包', 'WD-001')).toBe('success')
@@ -62,18 +63,23 @@ describe('alliance store interactions', () => {
   it('derives wallet and pending commission from entries and shared rules', () => {
     const store = useAllianceStore()
     store.$patch({ products: cloneSeed(products), promoter: cloneSeed(promoters[0]), promotionRecords: [], commissionEntries: [], sharedProductIds: [] })
-store.shareProduct('P001')
+writePlatformCommissionLedgerEntry({ id: 'L2', sourceOrderId: 'O2', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 10.78, status: 'pending', createdAt: '2026-08-24 12:00' })
+    store.shareProduct('P001')
     expect(store.pendingCommission).toBe(10.78)
     expect(store.availableCommission).toBe(0)
-    expect(store.commissionEntries[0]).toMatchObject({ status: 'pending', targetType: 'product', targetId: 'P001' })
+    expect(store.commissionEntries).toHaveLength(0)
     expect(store.withdraw(1, '微信钱包', 'WD-002')).toBe('insufficient')
   })
 
   it('deduplicates withdrawal requests without changing the wallet twice', () => {
     const store = useAllianceStore()
+    store.$patch({ promoter: cloneSeed(promoters[0]) })
+    writePlatformCommissionLedgerEntry({ id: 'L3', sourceOrderId: 'O3', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
     const before = store.availableCommission
     expect(store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('success')
     expect(store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('duplicate')
+    expect(Object.values(readPlatformCommissionLedger() || {}).some((item) => item.role === 'withdrawal')).toBe(true)
+    expect(Object.values(readPlatformCommissionLedger() || {}).find((item) => item.role === 'withdrawal')?.beneficiaryId).toBe('T001')
     expect(store.availableCommission).toBe(before - 100)
     expect(store.commissionEntries.filter((item) => item.requestKey === 'WD-SAME')).toHaveLength(1)
   })
@@ -89,7 +95,7 @@ store.shareProduct('P001')
 })
 
 describe('alliance auth', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
 
   it('logs in with demo phone and password, or sms code, then logs out', () => {
     const store = useAllianceStore()
@@ -102,12 +108,51 @@ describe('alliance auth', () => {
     expect(store.loginWithCode('13800000000', '123456')).toBe(true)
     expect(store.auth.isLoggedIn).toBe(true)
     store.logout()
-    expect(store.auth).toEqual({ isLoggedIn: false, phone: '' })
+    expect(store.auth).toMatchObject({ isLoggedIn: false, phone: '', principal: null, accountId: '', promoterId: '' })
+  })
+  it('loads T002 and isolates its promotion, commission and withdrawal session', () => {
+    const store = useAllianceStore()
+    store.products = cloneSeed(products)
+
+    expect(store.loginWithPassword('13800000020', '123456')).toBe(true)
+    expect(store.promoter?.id).toBe('T002')
+    expect(store.auth).toMatchObject({ accountId: 'PA002', promoterId: 'T002', principal: { actorType: 'alliance', actorId: 'T002', tenantId: 'T002', status: 'active' } })
+    const record = store.shareProduct('P001')!
+    expect(record).toMatchObject({ promoterId: 'T002' })
+    expect(record.link).toContain('promoter=T002')
+    expect(store.commissionEntries).toHaveLength(0)
+    writePlatformCommissionLedgerEntry({ id: 'L4', sourceOrderId: 'O4', beneficiaryType: 'promoter', beneficiaryId: 'T002', role: 'promoter', amount: 20, status: 'pending', createdAt: '2026-08-24 12:00' })
+
+    expect(store.loginWithPassword('13800000000', '123456')).toBe(true)
+    expect(store.promoter?.id).toBe('T001')
+    expect(store.promotionRecords.some((item) => item.promoterId === 'T002')).toBe(false)
+    expect(store.ledgerEntries.some((item) => item.beneficiaryId === 'T002')).toBe(false)
+
+    expect(store.loginWithPassword('13800000020', '123456')).toBe(true)
+    expect(store.promotionRecords.some((item) => item.promoterId === 'T002')).toBe(true)
+    expect(store.ledgerEntries.some((item) => item.beneficiaryId === 'T002')).toBe(true)
+  })
+  it('invalidates the current session when its shared account is disabled', async () => {
+    const store = useAllianceStore()
+    expect(store.loginWithPassword('13800000000', '123456')).toBe(true)
+    const state = readPlatformPromoterAccountState()!
+    expect(writePlatformPromoterAccounts(state.accounts.map((item) => item.id === 'PA001' ? { ...item, enabled: false } : item), state.revision)).toBe(true)
+
+    await store.refreshSharedState()
+
+    expect(store.auth.isLoggedIn).toBe(false)
   })
   it('includes platform bindings in the fan list', () => {
     const store = useAllianceStore()
     store.$patch({ promoter: cloneSeed(promoters[0]) })
     upsertUserBinding({ userId: 'BIND1', promoterId: 'T001', status: 'bound', boundAt: '2026-08-19 10:00' })
     expect(store.allFans.some((fan) => fan.id === 'B-BIND1')).toBe(true)
+  })
+  it('merges platform published travel routes and respects removal', () => {
+    const route = { id: 'ROUTE-ALLIANCE', name: '沅江花海线', description: '湿地+农家宴', price: 168, city: '益阳市', image: '/static/images/field.webp' }
+    expect(writePlatformRoute(route)).toBe(true)
+    expect(mergePlatformRoutes(cloneSeed(travelRoutes)).map((item) => item.id)).toContain('ROUTE-ALLIANCE')
+    removePlatformRoute('ROUTE-ALLIANCE')
+    expect(mergePlatformRoutes(cloneSeed(travelRoutes)).map((item) => item.id)).not.toContain('ROUTE-ALLIANCE')
   })
 })

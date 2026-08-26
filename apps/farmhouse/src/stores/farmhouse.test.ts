@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { CatalogProduct, CatalogState } from '@agritainment/shared'
-import { CATALOG_SCHEMA_VERSION, applyCatalogStockOperation, cloneSeed, markCatalogTransactionStockApplied, members, migrateLegacyCatalog, prepareCatalogTransaction, products, readCatalogState, readPendingCatalogTransactions, readPlatformOrders, readShareRecords, readStoreCatalogSelectionState, readStoreCatalogSelections, saveStoreCatalogSelection, tenant, upsertStoreCatalogSelection, writeCatalogState, writePlatformOrder, writeShareRecord, writeUserLink } from '@agritainment/shared'
+import { CATALOG_SCHEMA_VERSION, applyCatalogStockOperation, cloneSeed, markCatalogTransactionStockApplied, members, migrateLegacyCatalog, prepareCatalogTransaction, products, readCatalogState, readPlatformBookings, readPlatformCommissionLedger, readPendingCatalogTransactions, readPlatformOrders, readPlatformVoucherOrders, readShareRecords, readStoreCatalogSelectionState, readStoreCatalogSelections, saveStoreCatalogSelection, tenant, upsertStoreCatalogSelection, writeCatalogState, writePlatformBooking, writePlatformExperience, readPlatformExperiences, mergePlatformExperiences, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformStoreAccounts, writePlatformVoucherOrder, writeShareRecord, writeUserLink, storeAccounts } from '@agritainment/shared'
 import { useFarmhouseStore } from './farmhouse'
 
 if (!globalThis.localStorage) {
@@ -146,11 +146,22 @@ describe('farmhouse store interactions', () => {
       { id: 'B1', type: 'room', name: '观溪雅间', date: '明天', session: '晚市 17:30', people: 6, status: 'reserved' },
       { id: 'B2', type: 'service', name: '农事采摘', date: '明天', session: '到店体验', people: 2, status: 'cancelled' }
     ]
-    expect(store.verifyBooking('B1')).toBe(true)
+    expect(store.verifyBooking('B1', 0)).toBe(false)
+    expect(store.verifyBooking('B1', 328)).toBe(true)
     expect(store.bookings[0].status).toBe('completed')
-    expect(store.verifyBooking('B1')).toBe(false)
-    expect(store.verifyBooking('B2')).toBe(false)
-    expect(store.verifyBooking('missing')).toBe(false)
+    expect(store.bookings[0].amount).toBe(328)
+    expect(store.verifyBooking('B1', 328)).toBe(false)
+    expect(store.verifyBooking('B2', 100)).toBe(false)
+    expect(store.verifyBooking('missing', 100)).toBe(false)
+  })
+
+  it('writes the confirmed amount to the shared booking', () => {
+    const store = useFarmhouseStore()
+    expect(writePlatformBooking({ id: 'B-SHARED', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'alliance', date: '明天', session: '晚市', people: 4, status: 'submitted', createdAt: '2026-08-25T10:00:00.000Z' })).toBe(true)
+    store.bookings = [{ id: 'B-SHARED', type: 'room', name: '观溪雅间', date: '明天', session: '晚市', people: 4, status: 'reserved' }]
+
+    expect(store.verifyBooking('B-SHARED', 488)).toBe(true)
+    expect(readPlatformBookings()?.['B-SHARED']).toMatchObject({ status: 'completed', amount: 488, amountConfirmedAt: expect.any(String) })
   })
 
   it('exposes store work permissions by role', () => {
@@ -218,15 +229,50 @@ describe('user binding and consumer share', () => {
     expect(bindings['U1'].staffAccountId).toBe('SA002')
   })
 
-  it('overwrites pending binding but never a bound one', () => {
+  it('accepts only active promoters and enabled promotion staff from the current farm', async () => {
     const store = useFarmhouseStore()
-     store.currentUserId = 'U1'
+    await store.initialize(false, 'F001')
+    store.currentUserId = 'U1'
+    store.setReferrer({ type: 'promoter', promoterId: 'T013', name: '停用推客' })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')).toEqual({})
+
+    store.setReferrer({ type: 'promoter', promoterId: 'T001', name: '有效推客' })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')['U1']).toMatchObject({ promoterId: 'T001', status: 'pending' })
+
+    localStorage.removeItem('agritainment-platform-bindings')
+    store.setReferrer({ type: 'staff', staffAccountId: 'SA003', name: '跨店店长' })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')).toEqual({})
+    store.setReferrer({ type: 'staff', staffAccountId: 'SA001', name: '未开推广店长' })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')).toEqual({})
+    store.setReferrer({ type: 'staff', staffAccountId: 'SA002', name: '有效推广店员' })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')['U1']).toMatchObject({ staffAccountId: 'SA002', status: 'pending' })
+  })
+
+  it('rejects disabled promotion staff and never overwrites a bound owner', async () => {
+    writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA002' ? { ...item, enabled: false } : item))
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    store.currentUserId = 'U1'
+    store.setReferrer({ type: 'staff', staffAccountId: 'SA002', name: '停用店员' })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')).toEqual({})
+
     localStorage.setItem('agritainment-platform-bindings', JSON.stringify({ U1: { userId: 'U1', promoterId: 'T001', status: 'pending' } }))
-    store.setReferrer({ type: 'staff', staffAccountId: 'SA003', name: '李店员' })
-    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')['U1']).toMatchObject({ staffAccountId: 'SA003', status: 'pending' })
+    store.setReferrer({ type: 'staff', staffAccountId: 'SA002', name: '停用店员' })
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')['U1']).toMatchObject({ promoterId: 'T001', status: 'pending' })
     localStorage.setItem('agritainment-platform-bindings', JSON.stringify({ U1: { userId: 'U1', promoterId: 'T001', status: 'bound', boundAt: 'x' } }))
-    store.setReferrer({ type: 'staff', staffAccountId: 'SA003', name: '李店员' })
+    store.setReferrer({ type: 'staff', staffAccountId: 'SA002', name: '停用店员' })
     expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')['U1'].promoterId).toBe('T001')
+  })
+
+  it('refreshes shared store accounts without resetting the current tenant', async () => {
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA002' ? { ...item, name: '刷新后的店员' } : item))
+
+    await store.refreshSharedState()
+
+    expect(store.tenant?.farmId).toBe('F001')
+    expect(store.storeAccounts.find((item) => item.id === 'SA002')?.name).toBe('刷新后的店员')
   })
 })
 
@@ -277,18 +323,19 @@ describe('openid identity boundaries', () => {
     })
   })
 
-  it('caches staff attribution until the first authorized identity is resolved', () => {
+  it('caches staff attribution until the first authorized identity is resolved', async () => {
     const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
     writeUserLink('openid-staff', 'U-STAFF-CUSTOMER')
 
-    store.setReferrer({ type: 'staff', staffAccountId: 'SA003', name: '李店员' })
+    store.setReferrer({ type: 'staff', staffAccountId: 'SA002', name: '李店员' })
     expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')).toEqual({})
 
     expect(store.setAuthorizedIdentity('openid-staff')).toBe('U-STAFF-CUSTOMER')
     expect(JSON.parse(localStorage.getItem('agritainment-platform-bindings') || '{}')).toEqual({
       'U-STAFF-CUSTOMER': expect.objectContaining({
         userId: 'U-STAFF-CUSTOMER',
-        staffAccountId: 'SA003',
+        staffAccountId: 'SA002',
         status: 'pending'
       })
     })
@@ -652,5 +699,40 @@ describe('farmhouse per-product commission routing', () => {
     const shares = await checkoutMixedOrder()
     expect(shares).toHaveLength(1)
     expect(shares[0]).toMatchObject({ role: 'staff', staffAccountId: 'SA001', orderAmount: 200, amount: 7, rate: 3.5 })
+  })
+})
+
+describe('farmhouse voucher redemption', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+  })
+
+  it('redeems and refunds a shared voucher order with ledger side effects', async () => {
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    const voucher = { id: 'V-TEST', userId: 'U1', promoterId: 'T001', liveId: 'LIVE1', farmId: 'F001', productId: 'P007', skuId: 'P007-4P', quantity: 1, amount: 288, status: 'paid' as const, createdAt: '2026-08-24 12:00' }
+    expect(writePlatformVoucherOrder(voucher)).toBe(true)
+    expect(writePlatformCommissionLedgerEntry({ id: 'V-TEST:commission', sourceOrderId: 'V-TEST', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 14.4, status: 'pending', createdAt: '2026-08-24 12:00' })).toBe(true)
+
+    expect(store.redeemVoucher('V-TEST')).toBe(true)
+    expect(readPlatformVoucherOrders()?.['V-TEST']?.status).toBe('redeemed')
+    expect(readPlatformCommissionLedger()?.['V-TEST:commission']?.status).toBe('available')
+
+    expect(store.refundVoucher('V-TEST')).toBe(true)
+    expect(readPlatformVoucherOrders()?.['V-TEST']?.status).toBe('refunded')
+    expect(Object.values(readPlatformCommissionLedger() || {}).some((item) => item.reversalOf === 'V-TEST:commission' && item.status === 'reversed')).toBe(true)
+  })
+  it('adds, updates and removes experiences with platform publication', () => {
+    const store = useFarmhouseStore()
+    const farmId = store.tenant?.farmId || 'F001'
+    expect(store.addExperience({ farmId, name: '竹筏漂流', categoryCode: 'camp', description: '临溪漂流', price: 158, status: 'active', image: '/static/images/mountain.webp', sort: 1 })).toBe(true)
+    const exp = store.experiences[0]
+    expect(readPlatformExperiences()?.[exp.id]?.name).toBe('竹筏漂流')
+    expect(mergePlatformExperiences([]).map((item) => item.id)).toContain(exp.id)
+    expect(store.updateExperience(exp.id, { farmId, name: '竹筏漂流升级', categoryCode: 'camp', description: '临溪漂流+烧烤', price: 188, status: 'active', image: '/static/images/mountain.webp', sort: 1 })).toBe(true)
+    expect(readPlatformExperiences()?.[exp.id]?.name).toBe('竹筏漂流升级')
+    expect(store.removeExperience(exp.id)).toBe(true)
+    expect(readPlatformExperiences()?.[exp.id]).toBe(null)
   })
 })

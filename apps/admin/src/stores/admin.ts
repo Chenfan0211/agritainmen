@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import type { AfterSale, CProduct, CatalogProduct, CatalogState, Category, CommissionRule, CommissionSettlementRecord, DictGroup, DictItem, FarmStore, MockScenario, Order, PricePolicy, PriceTier, PricingDefaults, Product, Promoter, StoreAccount, Supplier, SupplierSettlementRecord } from '@agritainment/shared'
-import { DEFAULT_PRICING_DEFAULTS, DEMO_ACCOUNT, catalogChannelFlags, catalogProductToCProduct, catalogProductToProduct, createId, ensureCatalogState, markShareSettled, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformOrders, mergePlatformStoreAccounts, normalizeCProducts, pendingShareTotal, readCInventoryState, readCatalogState, readPlatformAfterSales, readPlatformMedia, readPlatformOrders, readPlatformStoreAccounts, readPricingDefaults, readShareRecords, round2, saveCatalogProduct as persistCatalogProduct, seedCCommerceData, upsertPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, validateAccountPassword, writePlatformAfterSale, writePlatformCommissionSettlement, writePlatformMedia, writePlatformOrder, writePlatformStoreAccounts, writePricingDefaults } from '@agritainment/shared'
+import type { TravelRoute, AfterSale, BusinessMediaValue, CProduct, CatalogProduct, CatalogState, Category, CommissionRule, CommissionSettlementRecord, DictGroup, DictItem, FarmAdministrativeAddress, FarmStore, GeocodeRequest, GeocodeResult, MockScenario, Order, PlatformDictionaryState, PricePolicy, PriceTier, PricingDefaults, Product, Promoter, StoreAccount, Supplier, SupplierAccount, SupplierSettlementRecord } from '@agritainment/shared'
+import { DEFAULT_PRICING_DEFAULTS, DEMO_ACCOUNT, addDictGroup as addSharedDictGroup, addDictItem as addSharedDictItem, buildFarmAdministrativeAddress, buildSupplierAccountSeeds, catalogChannelFlags, catalogProductToCProduct, catalogProductToProduct, createGeocodeProviders, createId, ensureCatalogState, formatFarmAdministrativeAddress, geocodeAddress, isResolvedFarmLocation, markShareSettled, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformOrders, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, migrateFarmAdministrativeAddress, normalizeCProducts, normalizeMediaReference, pendingShareTotal, publishPlatformDictionaries, readCInventoryState, readCatalogState, readPlatformAfterSales, readPlatformDictionaries, readPlatformMedia, readPlatformRoutes, mergePlatformRoutes, travelRoutes,  readPlatformOrders, readPlatformStoreAccounts, readPlatformSupplierAccounts, readPlatformSupplierSettlements, readPricingDefaults, readShareRecords, removeDictGroup as removeSharedDictGroup, removeDictItem as removeSharedDictItem, round2, saveCatalogProduct as persistCatalogProduct, seedCCommerceData, updateDictGroup as updateSharedDictGroup, updateDictItem as updateSharedDictItem, upsertPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, validateAccountPassword, validatePhone, writePlatformAfterSale, writePlatformRoute, removePlatformRoute, writePlatformCommissionSettlement, writePlatformMedia, writePlatformOrder, writePlatformSupplierSettlement, writePlatformStoreAccounts, writePlatformSupplierAccounts, writePricingDefaults } from '@agritainment/shared'
 import { adminRepository } from '../services/repository'
+import { buildSupplierQualification, publishAdminDictionaryMutation, readSupplierQualificationFields } from '../media-dictionary'
 
 interface AdminState {
   initialized: boolean
@@ -9,12 +10,14 @@ interface AdminState {
   error: string
   mockScenario: MockScenario
   suppliers: Supplier[]
+  supplierAccounts: SupplierAccount[]
   products: Product[]
   cProducts: CProduct[]
   catalogProducts: CatalogProduct[]
   catalogRevision: number
   pricingDefaults: PricingDefaults
   categories: Category[]
+  routes: TravelRoute[]
   orders: Order[]
   afterSales: AfterSale[]
   farms: FarmStore[]
@@ -26,10 +29,73 @@ interface AdminState {
   commissionSettlementRecords: CommissionSettlementRecord[]
   dictGroups: DictGroup[]
   dictItems: DictItem[]
+  dictionaryRevision: number
+  dictionaryUpdatedAt: string
   storeAccounts: StoreAccount[]
   exportRecords: Array<{ id: string; module: string; count: number; createdAt: string }>
   notificationsRead: boolean
   auth: { isLoggedIn: boolean; account: string }
+}
+
+type FarmSavePayload = {
+  name: string
+  region?: string
+  address?: string
+  city?: string
+  districtCode?: string
+  detail?: string
+  tags?: string[]
+  rating?: number
+  averageSpend?: number
+  status?: FarmStore['status']
+  image?: BusinessMediaValue | null
+  livePopularity?: number
+  forceGeocode?: boolean
+}
+
+type FarmGeocoder = (request: GeocodeRequest) => Promise<GeocodeResult>
+
+const geocodeEnvironment = import.meta.env as Record<string, string | undefined>
+const geocodeOrder = geocodeEnvironment.VITE_GEOCODER_ORDER?.split(',').map((name) => name.trim()).filter((name): name is 'amap' | 'tencent' => name === 'amap' || name === 'tencent')
+const defaultFarmGeocoder: FarmGeocoder = (request) => geocodeAddress(request, createGeocodeProviders({
+  amapKey: geocodeEnvironment.VITE_AMAP_KEY,
+  amapProxy: geocodeEnvironment.VITE_AMAP_PROXY,
+  tencentKey: geocodeEnvironment.VITE_TENCENT_MAP_KEY,
+  tencentProxy: geocodeEnvironment.VITE_TENCENT_MAP_PROXY,
+  order: geocodeOrder
+}))
+
+function resolveFarmAddress(payload: FarmSavePayload, current?: FarmStore): { address: string; city: string; region: string; regionCode?: string; structuredAddress?: FarmAdministrativeAddress } | null {
+  if (payload.districtCode || payload.detail) {
+    if (!payload.districtCode || !payload.detail) return null
+    try {
+      const structuredAddress = buildFarmAdministrativeAddress(payload.districtCode, payload.detail)
+      return { address: formatFarmAdministrativeAddress(structuredAddress), city: structuredAddress.city, region: structuredAddress.district, regionCode: structuredAddress.districtCode, structuredAddress }
+    } catch {
+      return null
+    }
+  }
+  const address = payload.address?.trim() || ''
+  if (!address) return null
+  return { address, city: payload.city?.trim() || current?.city || '', region: payload.region?.trim() || current?.region || '待补充', regionCode: current?.regionCode, structuredAddress: current?.structuredAddress }
+}
+
+async function updateFarmCoordinates(farm: FarmStore, geocode: FarmGeocoder): Promise<void> {
+  delete farm.location
+  delete farm.locationError
+  farm.locationStatus = 'pending'
+  const result = await geocode({ address: farm.address, city: farm.city })
+  farm.locationStatus = result.status
+  if (result.status === 'resolved') {
+    if (!/^\d{6}$/.test(result.location.adCode) || (farm.regionCode && result.location.adCode !== farm.regionCode)) {
+      farm.locationStatus = 'failed'
+      farm.locationError = 'REGION_MISMATCH'
+      return
+    }
+    farm.location = result.location
+  } else {
+    farm.locationError = result.reason || 'REQUEST_FAILED'
+  }
 }
 
 export const useAdminStore = defineStore('operations', {
@@ -39,12 +105,14 @@ export const useAdminStore = defineStore('operations', {
     error: '',
     mockScenario: 'normal',
     suppliers: [],
+    supplierAccounts: [],
     products: [],
     cProducts: [],
     catalogProducts: [],
     catalogRevision: 0,
     pricingDefaults: { ...DEFAULT_PRICING_DEFAULTS },
     categories: [],
+    routes: [],
     orders: [],
     afterSales: [],
     farms: [],
@@ -56,6 +124,8 @@ export const useAdminStore = defineStore('operations', {
     commissionSettlementRecords: [],
     dictGroups: [],
     dictItems: [],
+    dictionaryRevision: 0,
+    dictionaryUpdatedAt: new Date(0).toISOString(),
     storeAccounts: [],
     exportRecords: [],
     notificationsRead: false,
@@ -97,29 +167,36 @@ export const useAdminStore = defineStore('operations', {
         const catalog = readCatalogState() ?? ensureCatalogState(legacyProducts, normalizeCProducts(cInventory?.products || []))
         const storeProducts = catalog.products.filter((product) => catalogChannelFlags(product.channel).store).map(catalogProductToProduct)
         const liveProducts = catalog.products.filter((product) => catalogChannelFlags(product.channel).live).map(catalogProductToCProduct)
+        const resolvedSuppliers = hasPersistedData ? mergeEntitySeeds(data.suppliers, this.suppliers) : data.suppliers
+        const dictionaries = readPlatformDictionaries()
         this.$patch({
-          suppliers: hasPersistedData ? mergeEntitySeeds(data.suppliers, this.suppliers) : data.suppliers,
+          suppliers: resolvedSuppliers,
+          supplierAccounts: mergePlatformSupplierAccounts(buildSupplierAccountSeeds(resolvedSuppliers), readPlatformSupplierAccounts()),
           products: storeProducts,
           cProducts: liveProducts,
           catalogProducts: catalog.products,
           catalogRevision: catalog.revision,
           pricingDefaults: readPricingDefaults(),
           categories: hasPersistedData ? mergeEntitySeeds(data.categories, this.categories) : data.categories,
+          routes: mergePlatformRoutes(travelRoutes),
           orders: hasPersistedData ? mergeEntitySeeds(data.orders, this.orders) : data.orders,
           afterSales: hasPersistedData ? mergeEntitySeeds(data.afterSales, this.afterSales) : data.afterSales,
-          farms: hasPersistedData ? mergeEntitySeeds(data.farms, this.farms) : data.farms,
+          farms: (hasPersistedData ? mergeEntitySeeds(data.farms, this.farms) : data.farms).map(migrateFarmAdministrativeAddress),
           promoters: hasPersistedData ? mergeEntitySeeds(data.promoters, this.promoters) : data.promoters,
           policies: hasPersistedData ? mergeEntitySeeds(data.pricePolicies, this.policies) : data.pricePolicies,
           commissionRules: hasPersistedData ? mergeEntitySeeds(data.commissionRules, this.commissionRules) : data.commissionRules,
           commissionSettlementRecords: hasPersistedData ? mergeEntitySeeds(data.commissionSettlements, this.commissionSettlementRecords) : data.commissionSettlements,
           supplierSettlementRecords: hasPersistedData ? mergeEntitySeeds(data.supplierSettlements, this.supplierSettlementRecords) : data.supplierSettlements,
-          dictGroups: hasPersistedData ? mergeEntitySeeds(data.dictGroups, this.dictGroups) : data.dictGroups,
-          dictItems: hasPersistedData ? mergeEntitySeeds(data.dictItems, this.dictItems) : data.dictItems,
+          dictGroups: dictionaries.groups,
+          dictItems: dictionaries.items,
+          dictionaryRevision: dictionaries.revision,
+          dictionaryUpdatedAt: dictionaries.updatedAt,
           storeAccounts: mergePlatformStoreAccounts(data.storeAccounts, readPlatformStoreAccounts()),
           initialized: true
         })
         this.orders = mergePlatformOrders(this.orders, readPlatformOrders())
         this.afterSales = mergePlatformAfterSales(this.afterSales, readPlatformAfterSales())
+        this.supplierSettlementRecords = mergeEntitySeeds(this.supplierSettlementRecords, Object.values(readPlatformSupplierSettlements() || {}))
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {
@@ -168,6 +245,31 @@ export const useAdminStore = defineStore('operations', {
       this.pricingDefaults = readPricingDefaults()
       return true
     },
+    addRoute(payload: Omit<TravelRoute, 'id'>) {
+      const trimmed = payload.name.trim()
+      if (!trimmed) return false
+      const route: TravelRoute = { id: createId('ROUTE'), ...payload, name: trimmed }
+      this.routes.unshift(route)
+      writePlatformRoute(route)
+      return true
+    },
+    updateRoute(id: string, payload: Omit<TravelRoute, 'id'>) {
+      const trimmed = payload.name.trim()
+      const route = this.routes.find((item) => item.id === id)
+      if (!route || !trimmed) return false
+      const next: TravelRoute = { ...route, ...payload, name: trimmed }
+      const index = this.routes.findIndex((item) => item.id === id)
+      this.routes[index] = next
+      writePlatformRoute(next)
+      return true
+    },
+    removeRoute(id: string) {
+      const route = this.routes.find((item) => item.id === id)
+      if (!route) return false
+      this.routes = this.routes.filter((item) => item.id !== id)
+      removePlatformRoute(id)
+      return true
+    },
     addCategory(name: string, type: Category['type']) {
       const trimmed = name.trim()
       if (!trimmed) return false
@@ -194,60 +296,51 @@ export const useAdminStore = defineStore('operations', {
       this.categories = this.categories.filter((candidate) => candidate.id !== id)
       return true
     },
-    addDictGroup(payload: { type: string; name: string }) {
-      const type = payload.type.trim()
-      const name = payload.name.trim()
-      if (!type || !name) return false
-      if (this.dictGroups.some((item) => item.type === type || item.name === name)) return false
-      this.dictGroups.push({ id: createId('DG'), type, name })
-      return true
+    dictionaryState(): PlatformDictionaryState {
+      return {
+        schemaVersion: 1,
+        revision: this.dictionaryRevision,
+        groups: this.dictGroups.map((group) => ({ ...group })),
+        items: this.dictItems.map((item) => ({ ...item })),
+        updatedAt: this.dictionaryUpdatedAt
+      }
     },
-    updateDictGroup(id: string, payload: { type?: string; name?: string }) {
-      const item = this.dictGroups.find((candidate) => candidate.id === id)
-      if (!item) return false
-      const nextType = payload.type?.trim()
-      const nextName = payload.name?.trim()
-      if (nextType) {
-        if (this.dictGroups.some((candidate) => candidate.id !== id && candidate.type === nextType)) return false
-        const oldType = item.type
-        item.type = nextType
-        this.dictItems.forEach((dictItem) => { if (dictItem.type === oldType) dictItem.type = item.type })
-      }
-      if (nextName) {
-        if (this.dictGroups.some((candidate) => candidate.id !== id && candidate.name === nextName)) return false
-        item.name = nextName
-      }
-      return true
+    applyDictionaryState(state: PlatformDictionaryState) {
+      this.dictGroups = state.groups
+      this.dictItems = state.items
+      this.dictionaryRevision = state.revision
+      this.dictionaryUpdatedAt = state.updatedAt
+    },
+    async publishDictionaryMutation(mutate: (state: PlatformDictionaryState) => PlatformDictionaryState | null, invalidMessage = '字典操作无效') {
+      this.error = ''
+      const result = await publishAdminDictionaryMutation(this.dictionaryState(), mutate, {
+        publish: publishPlatformDictionaries,
+        read: readPlatformDictionaries
+      })
+      this.applyDictionaryState(result.state)
+      if (!result.ok && result.reason === 'conflict') this.error = '字典数据已更新，请重试'
+      if (!result.ok && result.reason === 'invalid') this.error = invalidMessage
+      return result.ok
+    },
+    addDictGroup(payload: { type: string; name: string }) {
+      return this.publishDictionaryMutation((state) => addSharedDictGroup(state, { id: createId('DG'), type: payload.type.trim(), name: payload.name.trim() }))
+    },
+    updateDictGroup(id: string, payload: { type?: string; name?: string; enabled?: boolean }) {
+      return this.publishDictionaryMutation((state) => updateSharedDictGroup(state, id, payload))
     },
     removeDictGroup(id: string) {
-      const item = this.dictGroups.find((candidate) => candidate.id === id)
-      if (!item) return false
-      if (this.dictItems.some((dictItem) => dictItem.type === item.type)) return false
-      this.dictGroups = this.dictGroups.filter((candidate) => candidate.id !== id)
-      return true
+      return this.publishDictionaryMutation((state) => removeSharedDictGroup(state, id), '该分组下还有字典项，请先清空')
     },
-    addDictItem(payload: { type: DictItem['type']; code: string; label: string; enabled?: boolean; sort?: number }) {
-      const code = payload.code.trim()
-      const label = payload.label.trim()
-      if (!code || !label) return false
-      if (this.dictItems.some((item) => item.type === payload.type && item.code === code)) return false
-      this.dictItems.unshift({ id: createId('DI'), type: payload.type, code, label, enabled: payload.enabled ?? true, sort: payload.sort ?? 0 })
-      return true
+    addDictItem(payload: { type: DictItem['type']; code: string; label: string; enabled?: boolean; sort?: number; tone?: DictItem['tone'] }) {
+      return this.publishDictionaryMutation((state) => addSharedDictItem(state, {
+        id: createId('DI'), type: payload.type, code: payload.code.trim(), label: payload.label.trim(), enabled: payload.enabled ?? true, sort: payload.sort ?? 0, tone: payload.tone
+      }))
     },
-    updateDictItem(id: string, payload: { code?: string; label?: string; enabled?: boolean; sort?: number }) {
-      const item = this.dictItems.find((candidate) => candidate.id === id)
-      if (!item) return false
-      if (payload.code !== undefined && payload.code.trim()) item.code = payload.code.trim()
-      if (payload.label !== undefined && payload.label.trim()) item.label = payload.label.trim()
-      if (payload.enabled !== undefined) item.enabled = payload.enabled
-      if (payload.sort !== undefined) item.sort = payload.sort
-      return true
+    updateDictItem(id: string, payload: { code?: string; label?: string; enabled?: boolean; sort?: number; tone?: DictItem['tone'] }) {
+      return this.publishDictionaryMutation((state) => updateSharedDictItem(state, id, payload))
     },
     removeDictItem(id: string) {
-      const item = this.dictItems.find((candidate) => candidate.id === id)
-      if (!item) return false
-      this.dictItems = this.dictItems.filter((candidate) => candidate.id !== id)
-      return true
+      return this.publishDictionaryMutation((state) => removeSharedDictItem(state, id), '系统字典项不可删除')
     },
     addStoreAccount(payload: { farmId: string; name: string; account: string; password: string; role: StoreAccount['role']; promoEnabled?: boolean }) {
       if (!payload.farmId || !payload.name.trim() || !payload.account.trim() || !payload.password.trim()) return false
@@ -275,30 +368,65 @@ export const useAdminStore = defineStore('operations', {
       writePlatformStoreAccounts(this.storeAccounts)
       return true
     },
-    inviteSupplier(payload: { name: string; category: string; region?: string; contactPhone?: string; businessLicense?: string; permit?: string; validUntil?: string; coop?: boolean }) {
-      if (!payload.name.trim()) return false
+    inviteSupplier(payload: { name: string; category: string; region?: string; contactPhone?: string; businessLicenseNumber?: string; businessLicense?: BusinessMediaValue | null; permitNumber?: string; permit?: BusinessMediaValue | null; validUntil?: string; coop?: boolean }): { ok: boolean; error?: string } {
+      if (!payload.name.trim()) return { ok: false, error: '请填写供应商名称' }
+      const phone = payload.contactPhone?.trim() || ''
+      if (!phone) return { ok: false, error: '请填写联系人手机号' }
+      if (!validatePhone(phone)) return { ok: false, error: '请输入正确的11位手机号' }
+      if (this.supplierAccounts.some((item) => item.account === phone)) return { ok: false, error: '该手机号已绑定其他供应商' }
       const coop = payload.coop === true
-      this.suppliers.unshift({
+      const supplier: Supplier = {
         id: createId('S'), name: payload.name.trim(), region: payload.region?.trim() || '待补充', category: payload.category,
         certified: coop, status: coop ? 'cooperating' : 'pending', productCount: 0, coop,
-        contactPhone: payload.contactPhone?.trim() || undefined,
-        qualification: {
-          businessLicense: payload.businessLicense?.trim() || '待上传',
-          permit: payload.permit?.trim() || '待上传',
-          validUntil: payload.validUntil?.trim() || '待补充',
+        contactPhone: phone,
+        qualification: buildSupplierQualification({
+          businessLicenseNumber: payload.businessLicenseNumber,
+          businessLicense: payload.businessLicense,
+          permitNumber: payload.permitNumber,
+          permit: payload.permit,
+          validUntil: payload.validUntil,
           reviewNote: coop ? '供销社体系渠道，自动通过' : '运营邀请入驻，等待供应商补充资质'
-        }
-      })
-      upsertPlatformEntity('suppliers', this.suppliers[0].id, this.suppliers[0])
-      return true
+        })
+      }
+      const now = new Date().toISOString()
+      const account: SupplierAccount = { id: createId('SA'), supplierId: supplier.id, supplierName: supplier.name, account: phone, password: phone, enabled: true, createdAt: now, updatedAt: now }
+      const nextAccounts = [account, ...this.supplierAccounts]
+      if (!writePlatformSupplierAccounts(nextAccounts)) return { ok: false, error: '账号保存失败，请重试' }
+      this.supplierAccounts = nextAccounts
+      this.suppliers.unshift(supplier)
+      upsertPlatformEntity('suppliers', supplier.id, supplier)
+      return { ok: true }
     },
-    updateSupplier(id: string, payload: { name: string; category: string; region?: string; contactPhone?: string; businessLicense?: string; permit?: string; validUntil?: string; coop?: boolean }) {
+    updateSupplier(id: string, payload: { name: string; category: string; region?: string; contactPhone?: string; businessLicenseNumber?: string; businessLicense?: BusinessMediaValue | null; permitNumber?: string; permit?: BusinessMediaValue | null; validUntil?: string; coop?: boolean; password?: string }): { ok: boolean; error?: string } {
       const item = this.suppliers.find((supplier) => supplier.id === id)
-      if (!item || !payload.name.trim()) return false
+      if (!item || !payload.name.trim()) return { ok: false, error: '请填写供应商名称' }
+      const phone = payload.contactPhone?.trim() || ''
+      if (!phone) return { ok: false, error: '请填写联系人手机号' }
+      if (!validatePhone(phone)) return { ok: false, error: '请输入正确的11位手机号' }
+      if (this.supplierAccounts.some((account) => account.supplierId !== id && account.account === phone)) return { ok: false, error: '该手机号已绑定其他供应商' }
+      if (payload.password !== undefined && (payload.password.length < 6 || payload.password.length > 20)) return { ok: false, error: '密码需6-20位' }
+      const existingAccount = this.supplierAccounts.find((account) => account.supplierId === id)
+      const now = new Date().toISOString()
+      const credentialsChanged = !existingAccount || existingAccount.account !== phone || payload.password !== undefined
+      const nextAccount: SupplierAccount = {
+        id: existingAccount?.id ?? createId('SA'),
+        supplierId: id,
+        supplierName: item.name,
+        account: phone,
+        password: payload.password ?? existingAccount?.password ?? phone,
+        enabled: existingAccount?.enabled ?? true,
+        createdAt: existingAccount?.createdAt ?? now,
+        updatedAt: credentialsChanged ? now : (existingAccount?.updatedAt ?? now)
+      }
+      const nextAccounts = existingAccount
+        ? this.supplierAccounts.map((account) => account.supplierId === id ? nextAccount : account)
+        : [nextAccount, ...this.supplierAccounts]
+      if (!writePlatformSupplierAccounts(nextAccounts)) return { ok: false, error: '账号保存失败，请重试' }
+      this.supplierAccounts = nextAccounts
       item.name = payload.name.trim()
       item.region = payload.region?.trim() || item.region
       item.category = payload.category
-      item.contactPhone = payload.contactPhone?.trim() || undefined
+      item.contactPhone = phone
       if (payload.coop !== undefined) {
         item.coop = payload.coop
         if (payload.coop) {
@@ -306,14 +434,19 @@ export const useAdminStore = defineStore('operations', {
           item.certified = true
         }
       }
-      item.qualification = {
-        businessLicense: payload.businessLicense?.trim() || item.qualification.businessLicense,
-        permit: payload.permit?.trim() || item.qualification.permit,
-        validUntil: payload.validUntil?.trim() || item.qualification.validUntil,
+      const currentQualification = readSupplierQualificationFields(item.qualification)
+      const hasBusinessLicense = Object.prototype.hasOwnProperty.call(payload, 'businessLicense')
+      const hasPermit = Object.prototype.hasOwnProperty.call(payload, 'permit')
+      item.qualification = buildSupplierQualification({
+        businessLicenseNumber: payload.businessLicenseNumber ?? currentQualification.businessLicenseNumber,
+        businessLicense: hasBusinessLicense ? payload.businessLicense : currentQualification.businessLicense,
+        permitNumber: payload.permitNumber ?? currentQualification.permitNumber,
+        permit: hasPermit ? payload.permit : currentQualification.permit,
+        validUntil: payload.validUntil || item.qualification.validUntil,
         reviewNote: item.qualification.reviewNote
-      }
+      })
       upsertPlatformEntity('suppliers', item.id, item)
-      return true
+      return { ok: true }
     },
     auditSupplier(id: string, approved: boolean) {
       const item = this.suppliers.find((supplier) => supplier.id === id)
@@ -433,17 +566,20 @@ export const useAdminStore = defineStore('operations', {
       writePlatformAfterSale(item)
       return true
     },
-    addFarm(payload: { name: string; region: string; city?: string; tags?: string[]; rating?: number; averageSpend?: number; status?: FarmStore['status']; image?: string; livePopularity?: number }) {
-      if (!payload.name.trim()) return false
-      this.farms.unshift({
-        id: createId('F'), name: payload.name.trim(), region: payload.region.trim() || '待补充', distance: 0,
+    async addFarm(payload: FarmSavePayload, geocode: FarmGeocoder = defaultFarmGeocoder) {
+      const address = resolveFarmAddress(payload)
+      if (!payload.name.trim() || !address) return false
+      const createdFarm: FarmStore = {
+        id: createId('F'), name: payload.name.trim(), region: address.region, distance: 0,
         rating: payload.rating ?? 5, monthlySales: 0, averageSpend: payload.averageSpend ?? 0,
-        status: payload.status ?? 'pending', selectedCount: 0, gmv: 0, image: payload.image || '/static/images/farmhouse.webp',
+        status: payload.status ?? 'pending', selectedCount: 0, gmv: 0, image: normalizeMediaReference(payload.image) ?? { source: 'builtin', path: '/static/images/farmhouse.webp' },
         tags: payload.tags?.length ? payload.tags : ['新入驻'],
-        city: payload.city?.trim() || (payload.region.includes('张家界') ? '张家界市' : '湘西州'),
-        availability: 'bookable', livePopularity: payload.livePopularity ?? 0
-      })
-      const createdFarm = this.farms[0]
+        city: address.city || '湘西州',
+        availability: 'bookable', livePopularity: payload.livePopularity ?? 0,
+        address: address.address, regionCode: address.regionCode, structuredAddress: address.structuredAddress, locationStatus: 'failed'
+      }
+      await updateFarmCoordinates(createdFarm, geocode)
+      this.farms.unshift(createdFarm)
       let farmMedia = readPlatformMedia()
       farmMedia = upsertPlatformFarm(farmMedia, createdFarm.id, createdFarm.image)
       farmMedia = upsertPlatformFarmPopularity(farmMedia, createdFarm.id, createdFarm.livePopularity)
@@ -451,18 +587,24 @@ export const useAdminStore = defineStore('operations', {
       upsertPlatformEntity('farms', createdFarm.id, createdFarm)
       return true
     },
-    updateFarm(id: string, payload: { name: string; region: string; city?: string; tags?: string[]; rating?: number; averageSpend?: number; status?: FarmStore['status']; image?: string; livePopularity?: number }) {
+    async updateFarm(id: string, payload: FarmSavePayload, geocode: FarmGeocoder = defaultFarmGeocoder) {
       const item = this.farms.find((farm) => farm.id === id)
-      if (!item || !payload.name.trim()) return false
+      const address = item ? resolveFarmAddress(payload, item) : null
+      if (!item || !payload.name.trim() || !address) return false
+      const locationInputChanged = item.address !== address.address || item.regionCode !== address.regionCode
       item.name = payload.name.trim()
-      item.region = payload.region.trim() || item.region
-      if (payload.city?.trim()) item.city = payload.city.trim()
+      item.region = address.region
+      item.city = address.city || item.city
+      item.address = address.address
+      item.regionCode = address.regionCode
+      item.structuredAddress = address.structuredAddress
       if (payload.tags?.length) item.tags = payload.tags
       if (payload.rating !== undefined) item.rating = payload.rating
       if (payload.averageSpend !== undefined) item.averageSpend = payload.averageSpend
       if (payload.status) item.status = payload.status
-      if (payload.image) item.image = payload.image
+      if (payload.image !== undefined) item.image = normalizeMediaReference(payload.image) ?? { source: 'builtin', path: '/static/images/farmhouse.webp' }
       if (payload.livePopularity !== undefined) item.livePopularity = Math.max(0, Math.round(payload.livePopularity))
+      if (payload.forceGeocode || locationInputChanged) await updateFarmCoordinates(item, geocode)
       let farmMedia = readPlatformMedia()
       farmMedia = upsertPlatformFarm(farmMedia, item.id, item.image)
       farmMedia = upsertPlatformFarmPopularity(farmMedia, item.id, item.livePopularity)
@@ -525,8 +667,10 @@ export const useAdminStore = defineStore('operations', {
         return { supplierId: supplier.id, supplierName: supplier.name, orderIds: supplierOrders.map((order) => order.id), amount: Math.round(supplierOrders.reduce((sum, order) => sum + order.amount, 0) * 100) / 100 }
       }).filter((item) => item.orderIds.length)
       const id = createId('ST')
-      this.supplierSettlementRecords.unshift({ id, period: createdAt.slice(0, 7), supplierIds: items.map((item) => item.supplierId), orderIds: orders.map((item) => item.id), amount: Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100, createdAt, items })
-      orders.forEach((item) => { item.settlementId = id })
+      const settlement: SupplierSettlementRecord = { id, period: createdAt.slice(0, 7), supplierIds: items.map((item) => item.supplierId), orderIds: orders.map((item) => item.id), amount: Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100, createdAt, items, status: 'pending' }
+      this.supplierSettlementRecords.unshift(settlement)
+      if (!writePlatformSupplierSettlement(settlement)) return false
+      orders.forEach((item) => { item.settlementId = id; writePlatformOrder(item) })
       return true
     },
     updateCommissionRule(id: string, rate: number, enabled: boolean) {

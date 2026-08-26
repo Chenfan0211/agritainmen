@@ -1,16 +1,56 @@
 import { defineStore } from 'pinia'
-import type { CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, COrderItem, CProduct, CProductSku, CUserLevel, FarmStore, LiveRoom, MockScenario, Product, UserBinding } from '@agritainment/shared'
+import type { BusinessMediaValue, CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, CProduct, CProductSku, CUserLevel, CommissionLedgerEntry, FarmStore, LiveRoom, MockScenario, Product, UserBinding, VoucherOrder } from '@agritainment/shared'
 import {
   abortCatalogTransaction, allocateCCommissions, applyCatalogStockOperation, cPriceForSku, catalogProductToCProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, createId, demoCDistributorProfiles, deriveCOrderStatus, ensureCatalogState, markCatalogTransactionStockApplied, normalizeCAddresses, normalizeCOrders, normalizeCProducts, prepareCatalogTransaction, promoters, readCAddresses, readCCommissionRecords, readCatalogState, readCOrders, readCUserSession, readCDistributorProfiles, readPendingCatalogTransactions, round2,
-  confirmCSubOrderReceiptAtSupplier, markCSubOrderAfterSaleAtSupplier, readPlatformOrders, readUserBindings, resolveCReferralChain, resolveUserIdentity, simulateWechatLogin, splitCOrderItems, syncCSubOrderFromSupplier, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCOrder, writeCOrders, writeCUserSession, publishCSubOrderToSupplier, writePlatformOrder
+  confirmCSubOrderReceiptAtSupplier, markCSubOrderAfterSaleAtSupplier, readPlatformOrders, readUserBindings, resolveCReferralChain, resolveUserIdentity, simulateWechatLogin, splitCOrderItems, syncCSubOrderFromSupplier, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCOrder, writeCOrders, writeCUserSession, publishCSubOrderToSupplier, migrateLegacyCommissionsToLedger, readPlatformVoucherOrders, writePlatformAfterSale, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformVoucherOrder
 } from '@agritainment/shared'
+import { seedDemoUserOrders } from '../data/demo-orders'
 import { readLivePackageProjection, readLiveRoomProjection, userRepository } from '../services/repository'
 
 interface CartLine extends CCartItem { stock: number; unavailable?: boolean }
 
-interface UserCatalogTransactionPayload {
+interface UserOrderCatalogTransactionPayload {
   order: COrder
   binding?: UserBinding
+}
+
+interface UserVoucherCatalogTransactionPayload {
+  voucherOrder: VoucherOrder
+  commissionEntry?: CommissionLedgerEntry
+}
+
+function saleableLiveFarms(state: Pick<UserState, 'farms' | 'liveRooms' | 'products'>, liveId: string) {
+  const live = state.liveRooms.find((item) => item.id === liveId)
+  if (live?.status !== 'live' || !live.linkedFarms?.length) return []
+  return live.linkedFarms.map((linked) => {
+    const farm = state.farms.find((item) => item.id === linked.farmId && item.status === 'active')
+    const packages = linked.packageIds
+      .map((id) => state.products.find((product) => product.id === id))
+      .filter((product): product is Product => !!product && product.status === 'active' && product.skus.some((sku) => sku.stock > 0))
+    return { farm, packages }
+  }).filter((group): group is { farm: FarmStore; packages: Product[] } => !!group.farm && group.packages.length > 0)
+}
+
+function publishUserAfterSaleCase(order: COrder, sub: COrder['subOrders'][number], evidenceImages?: BusinessMediaValue[]): boolean {
+  const amount = round2(sub.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0))
+  const quantity = sub.items.reduce((sum, item) => sum + item.quantity, 0)
+  return writePlatformAfterSale({
+    id: sub.afterSale?.id || createId('AS'),
+    orderId: order.id,
+    productName: sub.items[0]?.name || '商品',
+    applicant: order.address?.receiver || '用户',
+    type: 'refund',
+    amount,
+    status: 'processing',
+    issue: sub.afterSale?.reason || '用户申请售后',
+    quantity,
+    evidenceImages,
+    history: [{
+      time: new Date().toLocaleString('zh-CN'),
+      action: '用户发起售后，平台受理中',
+      operator: order.address?.receiver || '用户'
+    }]
+  })
 }
 
 interface UserState {
@@ -65,7 +105,7 @@ const persistCommissionChanges = (changes: CCommissionAllocation[]): CCommission
   return writeCCommissionRecords(merged) ? merged : null
 }
 
-function persistUserCatalogTransaction(payload: UserCatalogTransactionPayload): CCommissionAllocation[] | null {
+function persistUserCatalogTransaction(payload: UserOrderCatalogTransactionPayload): CCommissionAllocation[] | null {
   const commissions = persistCommissionChanges(payload.order.commissionAllocations)
   if (!commissions || !writeCOrder(payload.order)) return null
   if (payload.binding && !upsertUserBinding(payload.binding)) return null
@@ -85,15 +125,18 @@ function applyOrderSnapshot(target: COrder, snapshot: COrder): void {
 function recoverUserCatalogTransactions(initial: CatalogState): CatalogState {
   let catalog = initial
   for (const entry of readPendingCatalogTransactions('user')) {
-    const payload = entry.payload as Partial<UserCatalogTransactionPayload>
-    if (!payload.order?.id) { abortCatalogTransaction(entry.id); continue }
+    const payload = entry.payload as Partial<UserOrderCatalogTransactionPayload & UserVoucherCatalogTransactionPayload>
+    if (!payload.order?.id && !payload.voucherOrder?.id) { abortCatalogTransaction(entry.id); continue }
     if (entry.status === 'prepared') {
       const result = applyCatalogStockOperation(entry.id, entry.inventoryChanges, readCatalogState()?.revision ?? catalog.revision)
       if (!result) { abortCatalogTransaction(entry.id); continue }
       catalog = result.state
       if (!markCatalogTransactionStockApplied(entry.id)) continue
     }
-    if (!persistUserCatalogTransaction(payload as UserCatalogTransactionPayload)) continue
+    if (payload.voucherOrder) {
+      if (!writePlatformVoucherOrder(payload.voucherOrder)) continue
+      if (payload.commissionEntry && !writePlatformCommissionLedgerEntry(payload.commissionEntry)) continue
+    } else if (!persistUserCatalogTransaction(payload as UserOrderCatalogTransactionPayload)) continue
     commitCatalogTransaction(entry.id)
   }
   return readCatalogState() || catalog
@@ -118,14 +161,8 @@ export const useUserStore = defineStore('user', {
   }),
   getters: {
     currentLive: (state) => state.liveRooms.find((item) => item.id === state.liveId) || null,
-    liveFarms: (state) => {
-      const live = state.liveRooms.find((item) => item.id === state.liveId)
-      if (!live?.linkedFarms?.length) return []
-      return live.linkedFarms.map((item) => {
-        const farm = state.farms.find((f) => f.id === item.farmId)
-        return { farm, packages: item.packageIds.map((id) => state.products.find((p) => p.id === id)).filter((p): p is Product => !!p) }
-      }).filter((item) => item.farm && item.packages.length)
-    },
+    availableLives: (state) => state.liveRooms.filter((room) => saleableLiveFarms(state, room.id).length > 0),
+    liveFarms: (state) => saleableLiveFarms(state, state.liveId),
     distributorProfiles: (): Record<string, CDistributorProfile> => readCDistributorProfiles() || {},
     level: (state): CUserLevel => (readCDistributorProfiles()?.[state.userId]?.status === 'active' ? readCDistributorProfiles()?.[state.userId]?.level : 'normal') || 'normal',
     currentDistributor: (state) => {
@@ -143,6 +180,7 @@ export const useUserStore = defineStore('user', {
     cartCount: (state) => state.cart.reduce((sum, item) => sum + item.quantity, 0),
     cartTotal: (state) => Math.round(state.cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0) * 100) / 100,
     defaultAddress: (state) => state.addresses.find((item) => item.isDefault) || state.addresses[0] || null,
+    vouchers: (state): VoucherOrder[] => Object.values(readPlatformVoucherOrders() || {}).filter((item) => item.userId === state.userId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     myCommissionRecords: (state) => {
       const profile = readCDistributorProfiles()?.[state.userId]
       const beneficiaryId = profile?.status === 'active' ? profile.promoterId : undefined
@@ -201,6 +239,7 @@ export const useUserStore = defineStore('user', {
       this.loading = true; this.error = ''
       try {
         const data = await userRepository.loadDashboard(this.mockScenario)
+        migrateLegacyCommissionsToLedger()
         const catalog = recoverUserCatalogTransactions(ensureCatalogState(data.catalogStoreProducts, data.cProducts))
         const savedOrders = syncPersistedFulfillment(normalizeCOrders(readCOrders() || {}))
         const savedAddresses = normalizeCAddresses(readCAddresses() || {})
@@ -215,6 +254,9 @@ export const useUserStore = defineStore('user', {
         writeCOrders(savedOrders)
         writeCAddresses(savedAddresses)
         if (this.userId) this.restoreSession()
+        if (this.userId && this.mockScenario === 'normal' && !this.orders.length && seedDemoUserOrders(this.userId)) {
+          this.orders = Object.values(readCOrders() || {}).filter((item) => item.userId === this.userId)
+        }
       } catch (error) { this.error = error instanceof Error ? error.message : '数据加载失败' } finally { this.loading = false }
     },
     applyLaunch(query: Record<string, string | undefined>) {
@@ -345,7 +387,7 @@ export const useUserStore = defineStore('user', {
       const operationId = `${order.id}:reserve`
       const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
       const bound = readUserBindings()?.[this.userId]
-      const payload: UserCatalogTransactionPayload = {
+      const payload: UserOrderCatalogTransactionPayload = {
         order,
         binding: this.referralPromoterId && chain.level2Id && (!bound || bound.status !== 'bound')
           ? { userId: this.userId, promoterId: this.referralPromoterId, status: 'bound', boundAt: nowString() }
@@ -383,7 +425,62 @@ export const useUserStore = defineStore('user', {
         sub.logistics.push({ time: nowString(), title: '支付成功', detail: '订单已进入供应商备货流程' }, { time: nowString(), title: '等待发货', detail: '供应商准备发货，暂无运单号' })
         writePlatformOrder(publishCSubOrderToSupplier(order, sub))
       })
+      order.commissionAllocations.forEach((record) => {
+        const subOrder = order.subOrders.find((item) => item.id === record.subOrderId)
+        const sourceFarmIds = new Set(subOrder?.items.flatMap((item) => this.products.find((product) => product.id === item.productId)?.farmIds || []) || [])
+        writePlatformCommissionLedgerEntry({
+          id: 'CC-' + record.id, sourceOrderId: order.id, sourceSubOrderId: record.subOrderId,
+          beneficiaryType: 'promoter', beneficiaryId: record.beneficiaryId, role: record.beneficiaryLevel || 'promoter',
+          farmId: sourceFarmIds.size === 1 ? [...sourceFarmIds][0] : undefined,
+          amount: record.amount, status: 'pending', createdAt: record.createdAt || nowString()
+        })
+      })
       order.status = deriveCOrderStatus(order.subOrders); writeCOrder(order); return true
+    },
+    buyLivePackage(productId: string, skuId: string, quantity = 1) {
+      const product = this.products.find((item) => item.id === productId)
+      const sku = product?.skus.find((item) => item.id === skuId)
+      if (!this.userId || !product || product.productType !== 'package' || !sku) {
+        this.checkoutError = '套餐已下架或规格失效'
+        return false
+      }
+      const qty = Math.max(1, Math.round(Number(quantity) || 1))
+      if (!Number.isInteger(qty) || sku.stock < qty) {
+        this.checkoutError = '套餐库存不足'
+        return false
+      }
+      const catalog = readCatalogState()
+      if (!catalog || catalog.revision !== this.inventoryRevision) return this.failStockConflict()
+      const id = createId('VO')
+      const amount = round2(sku.price * qty)
+      const promoterId = this.referralPromoterId || readUserBindings()?.[this.userId]?.promoterId || this.promoterId || undefined
+      const voucher: VoucherOrder = {
+        id, userId: this.userId, promoterId, liveId: this.liveId || undefined, farmId: product.farmIds[0] || 'F001',
+        productId, skuId, quantity: qty, amount, status: 'paid', createdAt: nowString()
+      }
+      const rate = product.promoterCommissionRate ?? product.commissionRate ?? 0
+      const commissionEntry: CommissionLedgerEntry | undefined = promoterId && Number(rate) > 0 ? {
+        id: id + ':commission', sourceOrderId: id, beneficiaryType: 'promoter', beneficiaryId: promoterId,
+        farmId: voucher.farmId, role: 'promoter', amount: round2(amount * Number(rate) / 100), status: 'pending', createdAt: nowString()
+      } : undefined
+      const payload: UserVoucherCatalogTransactionPayload = { voucherOrder: voucher, commissionEntry }
+      const operationId = id + ':reserve'
+      const inventoryChanges = [{ productId, skuId, quantity: -qty }]
+      if (!prepareCatalogTransaction({ id: operationId, channel: 'user', action: 'reserve', inventoryChanges, payload })) {
+        this.checkoutError = '套餐订单准备失败，请稍后重试'
+        return false
+      }
+      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, catalog.revision)
+      if (!stockResult) {
+        abortCatalogTransaction(operationId)
+        return this.failStockConflict()
+      }
+      this.applyCatalogState(stockResult.state)
+      if (!markCatalogTransactionStockApplied(operationId) || !writePlatformVoucherOrder(voucher) || commissionEntry && !writePlatformCommissionLedgerEntry(commissionEntry)) {
+        this.checkoutError = '套餐订单处理中，请刷新后重试'
+        return false
+      }
+      return commitCatalogTransaction(operationId)
     },
     shipSubOrder(id: string, subOrderId: string) {
       const order = this.orders.find((item) => item.id === id)
@@ -441,7 +538,7 @@ export const useUserStore = defineStore('user', {
       nextOrder.commissionAllocations.forEach((item) => { item.status = 'reversed' }); nextOrder.status = 'cancelled'
       const operationId = `${order.id}:release`
       const inventoryChanges = nextOrder.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
-      const payload: UserCatalogTransactionPayload = { order: nextOrder }
+      const payload: UserOrderCatalogTransactionPayload = { order: nextOrder }
       if (!prepareCatalogTransaction({ id: operationId, channel: 'user', action: 'release', inventoryChanges, payload })) return false
       const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, catalog.revision)
       if (!stockResult) { abortCatalogTransaction(operationId); return this.failStockConflict() }
@@ -453,7 +550,7 @@ export const useUserStore = defineStore('user', {
       this.commissionRecords = commissions
       return true
     },
-    requestSubOrderAfterSale(id: string, subOrderId: string) {
+    requestSubOrderAfterSale(id: string, subOrderId: string, evidenceImages?: BusinessMediaValue[]) {
       const order = this.orders.find((item) => item.id === id)
       const sub = order?.subOrders.find((item) => item.id === subOrderId)
       if (!order || !sub || !['paid', 'shipped', 'received'].includes(sub.status) || sub.afterSale) return false
@@ -469,13 +566,14 @@ export const useUserStore = defineStore('user', {
         const nextOrder = cloneSeed(order)
         const nextSub = nextOrder.subOrders.find((item) => item.id === subOrderId)!
         nextSub.inventoryReleased = true
-        nextSub.status = 'after_sale'; nextSub.afterSale = { id: createId('CAS'), reason: '演示售后', status: 'processing', createdAt: nowString() }
+        nextSub.status = 'after_sale'; nextSub.afterSale = { id: createId('CAS'), reason: '演示售后', status: 'processing', createdAt: nowString(), evidenceImages }
+        if (!publishUserAfterSaleCase(nextOrder, nextSub, evidenceImages)) return false
         const negativeRecords = nextOrder.commissionAllocations.filter((item) => item.subOrderId === nextSub.id && item.status === 'withdrawn').map((item) => ({ ...item, id: createId('CC'), amount: -item.amount, status: 'reversed' as const, createdAt: nowString() }))
         nextOrder.commissionAllocations.filter((item) => item.subOrderId === nextSub.id && item.status !== 'withdrawn').forEach((item) => { item.status = 'reversed' })
         nextOrder.commissionAllocations.push(...negativeRecords); nextOrder.status = deriveCOrderStatus(nextOrder.subOrders)
         const operationId = `${nextSub.id}:release`
         const inventoryChanges = nextSub.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
-        const payload: UserCatalogTransactionPayload = { order: nextOrder }
+        const payload: UserOrderCatalogTransactionPayload = { order: nextOrder }
         if (!prepareCatalogTransaction({ id: operationId, channel: 'user', action: 'release', inventoryChanges, payload })) return false
         const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, catalog.revision)
         if (!stockResult) { abortCatalogTransaction(operationId); return this.failStockConflict() }
@@ -492,7 +590,8 @@ export const useUserStore = defineStore('user', {
       }
       const nextOrder = cloneSeed(order)
       const nextSub = nextOrder.subOrders.find((item) => item.id === subOrderId)!
-      nextSub.status = 'after_sale'; nextSub.afterSale = { id: createId('CAS'), reason: '演示售后', status: 'processing', createdAt: nowString() }
+      nextSub.status = 'after_sale'; nextSub.afterSale = { id: createId('CAS'), reason: '演示售后', status: 'processing', createdAt: nowString(), evidenceImages }
+      if (!publishUserAfterSaleCase(nextOrder, nextSub, evidenceImages)) return false
       const negativeRecords = nextOrder.commissionAllocations.filter((item) => item.subOrderId === nextSub.id && item.status === 'withdrawn').map((item) => ({ ...item, id: createId('CC'), amount: -item.amount, status: 'reversed' as const, createdAt: nowString() }))
       nextOrder.commissionAllocations.filter((item) => item.subOrderId === nextSub.id && item.status !== 'withdrawn').forEach((item) => { item.status = 'reversed' })
       nextOrder.commissionAllocations.push(...negativeRecords); nextOrder.status = deriveCOrderStatus(nextOrder.subOrders)

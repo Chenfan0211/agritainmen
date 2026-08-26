@@ -1,7 +1,7 @@
-import { applyPlatformMedia, cloneSeed, mergePlatformEntities, mockDelay, products, purchaseSupplies, readPlatformEntities, readPlatformMedia, selectableProducts } from '@agritainment/shared'
-import type { MockScenario, Product } from '@agritainment/shared'
+import { applyPlatformMedia, cloneSeed, farms, mergePlatformEntities, mockDelay, products, purchaseSupplies, readPlatformEntities, readPlatformMedia, selectableProducts } from '@agritainment/shared'
+import type { BusinessMediaValue, MockScenario, Product, StoreAccount } from '@agritainment/shared'
 
-/** 门店订货商城本地补充的中台可订货商品（补齐套餐券/预制菜等分类展示） */
+/** 中选科技门店订货商城本地补充的中台可订货商品（补齐套餐券/预制菜等分类展示） */
 const storeExtras: Product[] = [
   { id: 'SP01', emoji: '🎫', name: '中台联名·农家欢聚套餐券', category: '套餐券', price: 288, cost: 198, stock: 300, sales: 56, source: 'platform', status: 'active', image: '/static/images/farmhouse.webp', supplier: '中台供应链', tags: ['中台甄选', '到店核销'], farmIds: [], skus: [{ id: 'SP01-4P', name: '四人欢聚', price: 288, cost: 198, stock: 300 }] },
   { id: 'SP02', emoji: '🍲', name: '山泉土鸡汤礼盒 2 只装', category: '预制菜', price: 108, cost: 66, stock: 260, sales: 128, source: 'platform', status: 'active', image: '/static/images/field.webp', supplier: '中台供应链', tags: ['中台甄选', '冷链直配'], farmIds: [], skus: [{ id: 'SP02-2', name: '2 只装', price: 108, cost: 66, stock: 260 }] },
@@ -34,7 +34,7 @@ const storeExtras: Product[] = [
 
 const p014 = products.find((item) => item.id === 'P014')
 
-/** 甄选好物供应链可订货目录：平台零售商品 + 门店物料 + 本地补充 */
+/** 中选科技供应链可订货目录：平台零售商品 + 门店物料 + 本地补充 */
 export const storeCatalog: Product[] = [
   ...selectableProducts,
   ...(p014 ? [p014] : []),
@@ -42,7 +42,21 @@ export const storeCatalog: Product[] = [
   ...storeExtras
 ]
 
-export const storeInfo = {
+export interface StoreInfo {
+  name: string
+  image: BusinessMediaValue
+  shortName: string
+  region: string
+  city: string
+  address: string
+  phone: string
+  contact: string
+  hours: string
+  accountNo: string
+  account: string
+}
+
+export const storeInfo: StoreInfo = {
   name: '石板溪农家乐·门店',
   image: '/static/images/farmhouse.webp',
   shortName: '石板溪',
@@ -56,10 +70,25 @@ export const storeInfo = {
   account: '账期月结 · 授信额度 ¥20,000'
 }
 
+export function storeInfoForFarm(farmId: string, account?: StoreAccount): StoreInfo {
+  const farm = farms.find((item) => item.id === farmId) || farms[0]
+  return {
+    ...storeInfo,
+    name: `${farm.name}·门店`,
+    image: farm.image,
+    shortName: farm.name.replace(/农家乐|农庄|山景/g, '').slice(0, 6),
+    region: `湖南·${farm.city}`,
+    city: farm.city,
+    address: `湖南省${farm.region}`,
+    contact: account?.name || storeInfo.contact,
+    accountNo: `${farm.id}·门店`,
+  }
+}
+
 export interface StoreMetrics {
   activeCount: number
   savedTotal: number
-  hotOrders: Array<{ id: string; name: string; emoji: string; image: string; times: number; amount: number }>
+  hotOrders: Array<{ id: string; name: string; emoji: string; image: BusinessMediaValue; times: number; amount: number }>
 }
 
 /** 门店商城指标：从真实商品目录派生 */
@@ -74,13 +103,13 @@ export function deriveStoreMetrics(products: Product[]): StoreMetrics {
 }
 
 export const storeRepository = {
-  loadStore: (scenario: MockScenario = 'normal') => {
-    const info = { ...storeInfo }
+  loadStore: (scenario: MockScenario = 'normal', farmId = 'F001', account?: StoreAccount) => {
+    const info = storeInfoForFarm(farmId, account)
     const platformProducts = mergePlatformEntities(cloneSeed(selectableProducts), readPlatformEntities()?.products)
     const storeProducts = cloneSeed([...platformProducts, ...(p014 ? [p014] : []), ...purchaseSupplies, ...storeExtras])
     applyPlatformMedia(null, storeProducts)
     const media = readPlatformMedia()
-    if (media?.farms['F001']) info.image = media.farms['F001']
+    if (media?.farms[farmId]) info.image = media.farms[farmId]
     return mockDelay(
       { info, products: storeProducts },
       180,

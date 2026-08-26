@@ -1,20 +1,15 @@
 import { defineStore } from 'pinia'
-import type { DriverAccount, MockScenario, Order, ShortageItem } from '@agritainment/shared'
+import type { DriverAccount, MockScenario, Order, ShortageItem, Supplier, SupplierAccount, SupplierSettlementRecord } from '@agritainment/shared'
 import {
-  PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, SUPPLIER_DEMO_ID, acceptSupplierOrder, assignSupplierDriver, clearPlatformJson, cloneSeed, confirmCourierDelivered, createId,
+  PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, SUPPLIER_DEMO_ID, acceptSupplierOrder, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, clearPlatformJson, cloneSeed, confirmCourierDelivered, createId,
   deriveSupplierMetrics, demoDrivers, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount,
-  handoverSupplierIn, handoverSupplierOut, markShortageHandled, mergePlatformDrivers, readCOrders, readPlatformDrivers, readPlatformOrders,
-  reassignSupplierDriver, shipSupplierCourier, syncCSubOrderFromSupplier, todayString, validateSupplierAccount, writeCOrder, writePlatformDrivers, writePlatformOrder
+  handoverSupplierIn, handoverSupplierOut, markShortageHandled, mergePlatformDrivers, mergePlatformEntities, mergePlatformSupplierAccounts, readCOrders, readPlatformDrivers, readPlatformEntities, readPlatformOrders, readPlatformSupplierAccounts, readPlatformSupplierSettlements,
+  reassignSupplierDriver, shipSupplierCourier, suppliers as supplierSeeds, syncCSubOrderFromSupplier, todayString, writeCOrder, writePlatformDrivers, writePlatformOrder
 } from '@agritainment/shared'
 import { seedSupplierDataOnce, supplierInfo } from '../services/repository'
 
 const FULFILLMENT_STATUS_TEXT: Record<string, string> = {
   submitted: '待接单', accepted: '待发货', shipped: '待出库', delivering: '配送中', received: '已收货', cancelled: '已取消', completed: '已完成'
-}
-
-const C_SUPPLIER_ACCOUNTS: Record<string, { password: string; supplierId: string; name: string }> = {
-  supplier: { password: '123456', supplierId: 'S002', name: '湘西腊味合作社' },
-  supplier04: { password: '123456', supplierId: 'S004', name: '炎陵果业有限公司' }
 }
 
 export type SupplierRole = 'supplier' | 'driver'
@@ -25,9 +20,12 @@ interface SupplierState {
   error: string
   mockScenario: MockScenario
   loginError: string
-  auth: { isLoggedIn: boolean; role: SupplierRole | null; account: string; name: string; supplierId: string; driverId?: string }
+  auth: { isLoggedIn: boolean; role: SupplierRole | null; account: string; name: string; supplierId: string; driverId?: string; credentialUpdatedAt?: string }
+  suppliers: Supplier[]
+  supplierAccounts: SupplierAccount[]
   drivers: DriverAccount[]
   orders: Order[]
+  settlements: SupplierSettlementRecord[]
 }
 
 export const useSupplierStore = defineStore('supplier', {
@@ -38,11 +36,15 @@ export const useSupplierStore = defineStore('supplier', {
     mockScenario: 'normal',
     loginError: '',
     auth: { isLoggedIn: false, role: null, account: '', name: '', supplierId: SUPPLIER_DEMO_ID },
+    suppliers: [],
+    supplierAccounts: [],
     drivers: [],
-    orders: []
+    orders: [],
+    settlements: []
   }),
   getters: {
-    metrics: (state) => deriveSupplierMetrics(state.orders),
+    currentSupplier: (state) => state.suppliers.find((supplier) => supplier.id === state.auth.supplierId),
+    metrics: (state) => deriveSupplierMetrics(state.orders.filter((order) => order.supplierId === state.auth.supplierId)),
     todayDeliveryOrders: (state) => state.orders.filter((order) => order.supplierId === state.auth.supplierId && order.channel === 'purchase' && (() => {
       const fulfillment = order.supplierFulfillment
       if (!fulfillment) return false
@@ -53,6 +55,15 @@ export const useSupplierStore = defineStore('supplier', {
     activeDrivers: (state) => state.drivers.filter((driver) => driver.supplierId === state.auth.supplierId && driver.status === 'active'),
     driverTaskCounts: (state) => driverActiveTaskCounts(state.orders.filter((order) => order.supplierId === state.auth.supplierId)),
     supplierOrders: (state) => state.orders.filter((order) => order.channel === 'purchase' && order.supplierId === state.auth.supplierId),
+    supplierOrderCounts: (state) => state.orders
+      .filter((order) => order.channel === 'purchase' && order.supplierId === state.auth.supplierId)
+      .reduce<Record<string, number>>((counts, order) => {
+        const status = order.supplierFulfillment?.status ?? 'submitted'
+        counts['全部'] += 1
+        counts[status] = (counts[status] ?? 0) + 1
+        if (order.supplierFulfillment?.shortages.length) counts['缺货'] += 1
+        return counts
+      }, { '全部': 0, '缺货': 0 }),
     myTasks: (state) => {
       if (state.auth.role !== 'driver' || !state.auth.driverId) return []
       return state.orders.filter((order) => {
@@ -74,7 +85,8 @@ export const useSupplierStore = defineStore('supplier', {
     },
     allHandovers: (state) => state.orders.filter((order) => order.supplierId === state.auth.supplierId).flatMap((order) => (order.supplierFulfillment?.handovers || []).map((item) => ({ ...item, customer: order.customer })))
       .sort((a, b) => b.time.localeCompare(a.time)),
-    statusText: () => (status: string) => FULFILLMENT_STATUS_TEXT[status] || status
+    statusText: () => (status: string) => FULFILLMENT_STATUS_TEXT[status] || status,
+    mySettlements: (state) => state.settlements.filter((item) => item.supplierIds.includes(state.auth.supplierId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   },
   actions: {
     async initialize(force = false) {
@@ -83,6 +95,8 @@ export const useSupplierStore = defineStore('supplier', {
       this.error = ''
       try {
         seedSupplierDataOnce()
+        const supplierDirectory = mergePlatformEntities(cloneSeed(supplierSeeds), readPlatformEntities()?.suppliers)
+        const supplierAccounts = mergePlatformSupplierAccounts(buildSupplierAccountSeeds(supplierDirectory), readPlatformSupplierAccounts())
         const drivers = mergePlatformDrivers(cloneSeed(demoDrivers), readPlatformDrivers())
         const platformOrders = readPlatformOrders()
         const orders = platformOrders
@@ -97,7 +111,14 @@ export const useSupplierStore = defineStore('supplier', {
           }
         })
         orders.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        this.$patch({ drivers, orders, initialized: true })
+        const settlements = Object.values(readPlatformSupplierSettlements() || {})
+        this.$patch({ suppliers: supplierDirectory, supplierAccounts, drivers, orders, settlements, initialized: true })
+        if (this.auth.isLoggedIn && this.auth.role === 'supplier') {
+          const account = supplierAccounts.find((item) => item.supplierId === this.auth.supplierId)
+          const supplier = supplierDirectory.find((item) => item.id === this.auth.supplierId)
+          if (!account || !supplier || supplier.status !== 'cooperating' || account.account !== this.auth.account || account.updatedAt !== this.auth.credentialUpdatedAt) this.logout()
+          else this.auth.name = supplier.name
+        }
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {
@@ -108,12 +129,19 @@ export const useSupplierStore = defineStore('supplier', {
       await this.initialize(true)
     },
     loginSupplier(account: string, password: string) {
-      const credential = C_SUPPLIER_ACCOUNTS[account.trim()]
-      if ((!credential || credential.password !== password) && !validateSupplierAccount(account, password)) {
-        this.loginError = '账号或密码错误'
+      const result = authenticateSupplier(this.supplierAccounts, this.suppliers, account, password)
+      if (!result.ok) {
+        this.loginError = result.reason === 'inactive' ? '账号暂不可登录，请联系平台管理员' : '账号或密码错误'
         return false
       }
-      this.auth = { isLoggedIn: true, role: 'supplier', account: account.trim(), name: credential?.name || supplierInfo.name, supplierId: credential?.supplierId || SUPPLIER_DEMO_ID }
+      this.auth = {
+        isLoggedIn: true,
+        role: 'supplier',
+        account: result.account.account,
+        name: result.supplier.name,
+        supplierId: result.supplier.id,
+        credentialUpdatedAt: result.account.updatedAt
+      }
       this.loginError = ''
       return true
     },

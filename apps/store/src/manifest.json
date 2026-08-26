@@ -1,9 +1,9 @@
 {
-  "name": "门店订货商城",
+  "name": "中选科技门店订货商城",
   "appid": "__UNI__AGRITAINMENT_STORE",
-  "description": "门店向甄选好物供应链供货价直采的订货商城",
+  "description": "门店向中选科技供应链供货价直采的订货商城",
   "versionName": "0.1.0",
   "versionCode": 100,
   "transformPx": false,
-  "h5": { "title": "门店订货商城", "router": { "mode": "hash", "base": "/" } }
+  "h5": { "title": "中选科技门店订货商城", "router": { "mode": "hash", "base": "/" } }
 }

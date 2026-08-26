@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "name": "长沙市", "adcode": "4301" }, "geometry": { "type": "Polygon", "coordinates": [[[111.85,27.85],[113.20,27.85],[113.55,28.35],[113.05,28.85],[111.90,28.72],[111.85,27.85]]] } },
+    { "type": "Feature", "properties": { "name": "株洲市", "adcode": "4302" }, "geometry": { "type": "Polygon", "coordinates": [[[112.85,26.05],[114.10,26.00],[114.08,27.75],[113.55,28.20],[112.75,27.75],[112.85,26.05]]] } },
+    { "type": "Feature", "properties": { "name": "湘潭市", "adcode": "4303" }, "geometry": { "type": "Polygon", "coordinates": [[[111.95,27.35],[113.05,27.30],[113.10,28.15],[112.25,28.20],[111.95,27.35]]] } },
+    { "type": "Feature", "properties": { "name": "衡阳市", "adcode": "4304" }, "geometry": { "type": "Polygon", "coordinates": [[[111.45,25.85],[113.35,25.85],[113.20,27.45],[112.00,27.65],[111.40,26.70],[111.45,25.85]]] } },
+    { "type": "Feature", "properties": { "name": "邵阳市", "adcode": "4305" }, "geometry": { "type": "Polygon", "coordinates": [[[109.80,25.90],[111.75,25.85],[112.05,27.55],[110.95,27.80],[109.75,27.20],[109.80,25.90]]] } },
+    { "type": "Feature", "properties": { "name": "岳阳市", "adcode": "4306" }, "geometry": { "type": "Polygon", "coordinates": [[[112.25,28.40],[114.15,28.35],[114.10,29.90],[112.35,29.95],[112.25,28.40]]] } },
+    { "type": "Feature", "properties": { "name": "常德市", "adcode": "4307" }, "geometry": { "type": "Polygon", "coordinates": [[[110.45,28.45],[112.55,28.25],[112.65,30.05],[111.00,30.20],[110.35,29.35],[110.45,28.45]]] } },
+    { "type": "Feature", "properties": { "name": "张家界市", "adcode": "4308" }, "geometry": { "type": "Polygon", "coordinates": [[[109.65,28.85],[111.15,28.75],[111.10,30.20],[109.55,30.15],[109.65,28.85]]] } },
+    { "type": "Feature", "properties": { "name": "益阳市", "adcode": "4309" }, "geometry": { "type": "Polygon", "coordinates": [[[110.75,27.95],[112.70,27.90],[112.75,29.35],[111.10,29.30],[110.75,27.95]]] } },
+    { "type": "Feature", "properties": { "name": "郴州市", "adcode": "4310" }, "geometry": { "type": "Polygon", "coordinates": [[[112.15,24.55],[114.25,24.60],[114.15,26.25],[112.75,26.50],[112.15,24.55]]] } },
+    { "type": "Feature", "properties": { "name": "永州市", "adcode": "4311" }, "geometry": { "type": "Polygon", "coordinates": [[[110.85,24.55],[112.55,24.50],[112.65,26.40],[111.20,26.65],[110.65,25.65],[110.85,24.55]]] } },
+    { "type": "Feature", "properties": { "name": "怀化市", "adcode": "4312" }, "geometry": { "type": "Polygon", "coordinates": [[[108.75,25.95],[110.95,25.85],[111.25,28.05],[109.45,28.35],[108.65,27.15],[108.75,25.95]]] } },
+    { "type": "Feature", "properties": { "name": "娄底市", "adcode": "4313" }, "geometry": { "type": "Polygon", "coordinates": [[[110.85,27.15],[112.25,27.05],[112.30,28.35],[111.15,28.40],[110.85,27.15]]] } },
+    { "type": "Feature", "properties": { "name": "湘西州", "adcode": "4331" }, "geometry": { "type": "Polygon", "coordinates": [[[108.45,27.70],[110.35,27.55],[110.60,29.55],[109.10,29.60],[108.40,28.70],[108.45,27.70]]] } }
+  ]
+}

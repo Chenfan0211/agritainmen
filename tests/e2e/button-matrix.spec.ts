@@ -8,7 +8,7 @@ async function adminLogin(page: Page) {
 }
 
 async function storeLogin(page: Page) {
-  await page.locator('.login-field input').nth(0).fill('13800000000')
+  await page.locator('.login-field input').nth(0).fill('13800000001')
   await page.locator('.login-field input').nth(1).fill('123456')
   await page.locator('.login-button').click()
   await expect(page.locator('.app-shell')).toBeVisible()
@@ -22,6 +22,23 @@ async function farmhouseLogin(page: Page) {
   await page.locator('.tabbar uni-button').nth(0).click()
 }
 
+async function farmhouseSeedSelection(page: Page, count: number, filterText?: string) {
+  await page.evaluate(({ count, filterText }) => {
+    const catalog = JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}') as { products?: Array<{ id: string; name: string; category: string; skus: Array<{ id: string; retailPrice: number }> }> }
+    const selected = (catalog.products || []).filter((product) => !filterText || product.name.includes(filterText) || product.category.includes(filterText)).slice(0, count)
+    if (!selected.length) throw new Error('统一目录缺少可上架商品')
+    localStorage.setItem('agritainment-platform-store-catalog-selections', JSON.stringify({
+      schemaVersion: 1,
+      revision: 1,
+      selections: selected.map((product) => ({
+        storeId: 'F001', productId: product.id, listed: true,
+        skuRetailPrices: Object.fromEntries(product.skus.map((sku) => [sku.id, sku.retailPrice])), updatedAt: new Date().toISOString()
+      }))
+    }))
+  }, { count, filterText })
+  await page.reload()
+}
+
 async function allianceLogin(page: Page) {
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.promoter-login .primary-button').click()
@@ -30,6 +47,14 @@ async function allianceLogin(page: Page) {
   await page.locator('.login-sheet .login-submit').click()
   await expect(page.locator('.promoter-head')).toBeVisible()
   await page.locator('.tabbar uni-button').nth(0).click()
+}
+
+async function seedAllianceLedger(page: Page, entries: Record<string, unknown>) {
+  await page.evaluate((data) => {
+    localStorage.setItem('agritainment-platform-commission-ledger', JSON.stringify(data))
+  }, entries)
+  await page.reload()
+  if (await page.locator('.promoter-login .primary-button').count()) await allianceLogin(page)
 }
 
 test('admin buttons open data surfaces and keep overflow local', async ({ page }) => {
@@ -60,6 +85,7 @@ test('farmhouse buttons filter data and open persisted records', async ({ page }
   await page.goto('http://127.0.0.1:8792')
   await page.evaluate(() => localStorage.clear())
   await page.reload()
+  await farmhouseSeedSelection(page, 2, '套餐')
   await farmhouseLogin(page)
 
   await page.locator('.tabbar uni-button').nth(2).click()
@@ -100,10 +126,14 @@ test('admin filters, edits products and batches pending shipments', async ({ pag
 
   await page.locator('.nav-item', { hasText: '商品库管理' }).click()
   await page.locator('.row-actions uni-button', { hasText: '编辑' }).first().click()
-  await expect(page.locator('.modal select', { hasText: '500g' })).toBeVisible()
-  await page.locator('.modal input[type="number"]').first().fill('66')
+  await expect(page.locator('.catalog-product-modal .c-sku-row input').first()).toHaveValue('500g')
+  await page.locator('.catalog-product-modal .c-sku-row input[type="number"]').first().fill('66')
+  const supplierSelect = page.locator('.catalog-product-modal .field', { hasText: '供应商' }).locator('.searchable-select')
+  await supplierSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('武陵')
+  await page.locator('.searchable-select__option', { hasText: '武陵蜂业专业合作社' }).click()
   await page.locator('.modal-actions uni-button', { hasText: '保存' }).click()
-  await expect(page.locator('.product-grid').nth(1)).toContainText('¥66')
+  await expect(page.locator('.unified-product-grid').nth(1)).toContainText('¥66')
 
   await page.locator('.nav-item', { hasText: '订单履约' }).click()
   await page.locator('.order-select').first().click()
@@ -120,6 +150,7 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await page.goto('http://127.0.0.1:8792')
   await page.evaluate(() => localStorage.clear())
   await page.reload()
+  await farmhouseSeedSelection(page, 3)
   await farmhouseLogin(page)
 
   await page.locator('.quick-grid uni-button', { hasText: '套餐预订' }).click()
@@ -152,6 +183,7 @@ test('alliance city, availability, route, live share and withdrawal flows persis
   await page.evaluate(() => localStorage.clear())
   await page.reload()
   await allianceLogin(page)
+  await seedAllianceLedger(page, { L1: { id: 'L1', sourceOrderId: 'O1', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' } })
 
   await page.locator('.city-button').click()
   await page.locator('.city-chips uni-button', { hasText: '湘西州' }).click()
@@ -211,6 +243,7 @@ test('farmhouse multi-SKU order keeps details and can be repurchased', async ({ 
   await page.goto('http://127.0.0.1:8792')
   await page.evaluate(() => localStorage.clear())
   await page.reload()
+  await farmhouseSeedSelection(page, 3)
   await farmhouseLogin(page)
   await page.locator('.tabbar uni-button').nth(2).click()
   await page.locator('.product-body uni-button').first().click()
@@ -263,6 +296,8 @@ test('alliance searches across types and writes pending commission', async ({ pa
   await page.evaluate(() => localStorage.clear())
   await page.reload()
   await allianceLogin(page)
+  await seedAllianceLedger(page, { L2: { id: 'L2', sourceOrderId: 'O2', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 10.78, status: 'pending', createdAt: '2026-08-24 12:00' } })
+
   await page.locator('.search input').fill('黄桃')
   await expect(page.locator('.search-results')).toContainText('特产')
   await page.locator('.search-group').nth(1).locator('uni-button').first().click()
@@ -351,8 +386,8 @@ test('store orders supply products and tracks order status', async ({ page }) =>
   await storeLogin(page)
 
   // 商城分类数量角标
-  await expect(page.locator('.chips uni-button', { hasText: /^全部\d+$/ })).toContainText('82')
-  await expect(page.locator('.chips uni-button', { hasText: /^土特产\d+$/ })).toContainText('12')
+  await expect(page.locator('.chips uni-button', { hasText: /^全部\d+$/ })).toContainText('76')
+  await expect(page.locator('.chips uni-button', { hasText: /^土特产\d+$/ })).toContainText('11')
   await expect(page.locator('.chips uni-button', { hasText: /^生鲜农产\d+$/ })).toContainText('5')
 
   // 商城分类筛选 + 搜索

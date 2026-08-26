@@ -13,7 +13,7 @@ if (!globalThis.localStorage) {
     get length() { return storage.size }
   } as unknown as Storage
 }
-import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode , acceptSupplierOrder, assignSupplierDriver, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, validateSupplierAccount, writePlatformDrivers , todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_LIVE, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
+import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode, acceptSupplierOrder, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, mergePlatformSupplierAccounts, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, writePlatformDrivers, todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_LIVE, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
 
 describe('C端分销商城 helpers', () => {
   beforeEach(() => localStorage.clear())
@@ -489,6 +489,23 @@ describe('platform media library', () => {
     expect(media.products['P999']).toEqual({ image: 'data:image/jpeg;base64,YYY', images: ['data:image/jpeg;base64,ZZZ'] })
   })
 
+  it('PlatformMedia 往返保留 asset 引用并应用到业务实体', () => {
+    const farmAsset = { source: 'asset', assetId: 'FARM-ASSET' } as const
+    const productAsset = { source: 'asset', assetId: 'PRODUCT-ASSET' } as const
+    const galleryAsset = { source: 'asset', assetId: 'GALLERY-ASSET' } as const
+    let media = upsertPlatformFarm(emptyPlatformMedia(), 'F001', farmAsset)
+    media = upsertPlatformProduct(media, 'P001', productAsset, [galleryAsset])
+    expect(media.farms.F001).toEqual(farmAsset)
+    expect(media.products.P001).toEqual({ image: productAsset, images: [galleryAsset] })
+
+    const farm = { ...farms[0], id: 'F001' }
+    const product = { ...products[0], id: 'P001' }
+    applyPlatformMedia([farm], [product], media)
+    expect(farm.image).toEqual(farmAsset)
+    expect(product.image).toEqual(productAsset)
+    expect(product.images).toEqual([galleryAsset])
+  })
+
 
   it('applies published farm popularity over seeds', () => {
     const farm = { ...farms[0], image: '/static/images/farmhouse.webp', livePopularity: 100 }
@@ -731,11 +748,37 @@ describe('supplier fulfillment helpers', () => {
       { id: 'C', productName: 'x', quantity: 1, amount: 1, customer: 's', channel: 'purchase', status: 'delivered', createdAt: 'x', supplierFulfillment: { status: 'received', shipType: 'driver', driverId: 'D001', driverName: '张伟', shortages: [], handovers: [], updatedAt: 'x' } }
     ]
     expect(driverActiveTaskCounts(orders)).toEqual({ D001: 2 })
-    expect(validateSupplierAccount('supplier', '123456')).toBe(true)
-    expect(validateSupplierAccount('supplier', 'bad')).toBe(false)
     expect(findActiveDriver(demoDrivers, 'driver01', '123456')?.id).toBe('D001')
     expect(findActiveDriver(demoDrivers, 'driver01', 'bad')).toBeNull()
     expect(findDriverByAccount(demoDrivers, 'driver01')?.status).toBe('active')
+  })
+})
+
+describe('supplier account helpers', () => {
+  const createdAt = '2026-08-24T09:00:00.000Z'
+
+  it('builds one default phone account for each supplier with a valid phone', () => {
+    const accounts = buildSupplierAccountSeeds(suppliers.slice(0, 2), createdAt)
+
+    expect(accounts).toEqual([
+      { id: 'SA001', supplierId: 'S001', supplierName: suppliers[0].name, account: '13973015588', password: '13973015588', enabled: true, createdAt, updatedAt: createdAt },
+      { id: 'SA002', supplierId: 'S002', supplierName: suppliers[1].name, account: '13787366688', password: '13787366688', enabled: true, createdAt, updatedAt: createdAt }
+    ])
+  })
+
+  it('keeps a persisted password when merging regenerated default accounts', () => {
+    const defaults = buildSupplierAccountSeeds([suppliers[1]], createdAt)
+    const saved = [{ ...defaults[0], password: 'custom123', updatedAt: '2026-08-24T10:00:00.000Z' }]
+
+    expect(mergePlatformSupplierAccounts(defaults, saved)).toEqual(saved)
+  })
+
+  it('authenticates only cooperating suppliers with matching credentials', () => {
+    const accounts = buildSupplierAccountSeeds(suppliers.slice(0, 2), createdAt)
+
+    expect(authenticateSupplier(accounts, suppliers, '13787366688', '13787366688')).toMatchObject({ ok: true, supplier: { id: 'S002' } })
+    expect(authenticateSupplier(accounts, suppliers, '13787366688', 'wrong')).toEqual({ ok: false, reason: 'invalid-credentials' })
+    expect(authenticateSupplier(accounts, suppliers, '13973015588', '13973015588')).toEqual({ ok: false, reason: 'inactive' })
   })
 })
 
@@ -904,13 +947,13 @@ describe('统一商品目录', () => {
     expect(localStorage.getItem(PLATFORM_SHARE_CONFIG_STORAGE_KEY)).not.toBeNull()
   })
 
-  it('读取旧 schema v1 目录时原地迁移为 v2 并补齐 SKU 状态', () => {
+  it('读取旧 schema v1 目录时仅返回 v2 投影而不写回存储', () => {
     localStorage.setItem('agritainment-platform-catalog', JSON.stringify({ schemaVersion: 1, revision: 7, products: [catalogProduct] }))
 
     const migrated = readCatalogState()
 
     expect(migrated).toMatchObject({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 7, products: [{ id: 'U001', skus: [{ id: 'U001-500', status: 'active' }] }], appliedOperations: {} })
-    expect(JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}').schemaVersion).toBe(CATALOG_SCHEMA_VERSION)
+    expect(JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}').schemaVersion).toBe(1)
   })
 
   it('首次读取时从旧商品初始化统一目录且不会重复迁移', () => {
@@ -943,6 +986,23 @@ describe('统一商品目录', () => {
     expect(saveCatalogProduct({ ...catalogProduct, name: '过期编辑' }, 0)).toBeNull()
     expect(saveCatalogProduct({ ...catalogProduct, id: 'BAD', channel: 'live', expressDelivery: false }, 1)).toBeNull()
     expect(saveCatalogProduct({ ...catalogProduct, id: 'BAD-VOUCHER', channel: 'all', productType: 'package', expressDelivery: true }, 1)).toBeNull()
+  })
+
+  it('saveCatalogProduct 在持久化边界规范化所有图片引用', () => {
+    expect(writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [] })).toBe(true)
+    const asset = { source: 'asset', assetId: 'ASSET-1' } as const
+    const saved = saveCatalogProduct({
+      ...catalogProduct,
+      image: '/static/images/product.webp',
+      images: ['https://cdn.example.com/gallery.jpg', asset],
+      skus: catalogProduct.skus.map((sku) => ({ ...sku, image: 'data:image/png;base64,AAAA' }))
+    }, 0)
+    expect(saved?.products[0].image).toEqual({ source: 'builtin', path: '/static/images/product.webp' })
+    expect(saved?.products[0].images).toEqual([
+      { source: 'legacy', url: 'https://cdn.example.com/gallery.jpg' },
+      asset
+    ])
+    expect(saved?.products[0].skus[0].image).toEqual({ source: 'legacy', url: 'data:image/png;base64,AAAA' })
   })
 
   it('门店选品独立保存本店零售价和上下架状态', () => {

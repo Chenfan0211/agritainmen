@@ -1,0 +1,135 @@
+import { expect, test } from '@playwright/test'
+
+async function adminLogin(page: import('@playwright/test').Page) {
+  await page.goto('http://127.0.0.1:8791')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.locator('.login-field input').nth(0).fill('admin')
+  await page.locator('.login-field input').nth(1).fill('123456')
+  await page.locator('.login-button').click()
+  await expect(page.locator('.admin-shell')).toBeVisible()
+}
+
+test('all admin selects use the searchable dropdown and keep filter behavior', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await adminLogin(page)
+
+  await expect(page.locator('select')).toHaveCount(0)
+  const trendSelect = page.locator('.trend-panel .searchable-select')
+  const trendTrigger = trendSelect.locator('.searchable-select__trigger')
+  await trendTrigger.focus()
+  await trendTrigger.press('Enter')
+  await expect(page.locator('.searchable-select__panel')).toBeVisible()
+  await expect(page.getByRole('combobox')).toHaveCount(1)
+  await expect(page.getByRole('searchbox', { name: '时间范围搜索' })).toHaveCount(1)
+  await expect(page.locator('.searchable-select__search input')).toBeFocused()
+  await page.locator('.searchable-select__search input').press('Tab')
+  await expect(page.locator('.searchable-select__panel')).toHaveCount(0)
+  await expect(page.locator('.todo-row').first()).toBeFocused()
+
+  await trendTrigger.click()
+  await page.locator('.searchable-select__search input').press('Shift+Tab')
+  await expect(page.locator('.searchable-select__panel')).toHaveCount(0)
+  await expect(page.locator('.button.secondary', { hasText: '导出报表' })).toBeFocused()
+
+  await trendTrigger.focus()
+  await trendTrigger.press(' ')
+  await expect(page.locator('.searchable-select__panel')).toBeVisible()
+  await page.locator('.searchable-select__search input').press('Escape')
+  await expect(trendTrigger).toBeFocused()
+
+  await trendTrigger.click()
+  await expect(page.locator('.searchable-select__panel')).toBeVisible()
+  await trendTrigger.click()
+  await expect(page.locator('.searchable-select__panel')).toHaveCount(0)
+  await trendTrigger.click()
+  await expect(page.locator('.searchable-select__search input')).toBeFocused()
+  await page.locator('.searchable-select__search input').press('ArrowDown')
+  await page.locator('.searchable-select__search input').press('Enter')
+  await expect(trendSelect.locator('.searchable-select__value')).toHaveText('最近一个月')
+
+  await trendSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('不存在')
+  await expect(page.locator('.searchable-select__empty')).toHaveText('没有匹配选项')
+  await page.locator('.searchable-select__search input').press('Escape')
+  await expect(page.locator('.searchable-select__panel')).toHaveCount(0)
+
+  await trendSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.page-head h1').click()
+  await expect(page.locator('.searchable-select__panel')).toHaveCount(0)
+
+  await page.locator('.nav-item', { hasText: '商品库管理' }).click()
+  const channelSelect = page.locator('.goods-tools .searchable-select').first()
+  await channelSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('live')
+  await expect(page.getByRole('option', { name: '直播商品', exact: true })).toBeVisible()
+  await page.locator('.searchable-select__search input').press('Escape')
+
+  await page.locator('.nav-item', { hasText: '供应商管理' }).click()
+  const statusSelect = page.locator('.module-search .searchable-select').first()
+  await statusSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('待审')
+  await page.locator('.searchable-select__option', { hasText: '待审核' }).click()
+  await expect(statusSelect.locator('.searchable-select__value')).toHaveText('待审核')
+  await expect(page.locator('.supplier-grid').nth(1)).toContainText('待处理')
+
+  await page.locator('.nav-item', { hasText: '订单履约' }).click()
+  const controls = await page.locator('.module-toolbar .searchable-select__trigger').evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-controls')))
+  expect(new Set(controls).size).toBe(controls.length)
+  expect(pageErrors).toEqual([])
+})
+
+test('dropdown panel stays inside a small viewport', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.setViewportSize({ width: 390, height: 300 })
+  await adminLogin(page)
+
+  await page.locator('.trend-panel .searchable-select__trigger').click()
+  const constrainedPanel = await page.locator('.searchable-select__panel').boundingBox()
+  expect(constrainedPanel).not.toBeNull()
+  expect(constrainedPanel!.x).toBeGreaterThanOrEqual(0)
+  expect(constrainedPanel!.x + constrainedPanel!.width).toBeLessThanOrEqual(390)
+  expect(constrainedPanel!.y).toBeGreaterThanOrEqual(0)
+  expect(constrainedPanel!.y + constrainedPanel!.height).toBeLessThanOrEqual(300)
+  expect(pageErrors).toEqual([])
+})
+
+test('modal dropdowns search dynamic options and preserve disabled choices', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await adminLogin(page)
+  await page.locator('.nav-item', { hasText: '商品库管理' }).click()
+  await page.locator('.head-actions .button.primary', { hasText: '新增商品' }).click()
+  const modal = page.locator('.catalog-product-modal')
+
+  const supplierSelect = modal.locator('.field', { hasText: '供应商' }).locator('.searchable-select')
+  await expect(supplierSelect.locator('.searchable-select__trigger')).toHaveAttribute('aria-label', '供应商')
+  await supplierSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('武陵')
+  await expect(page.locator('.searchable-select__option')).toHaveCount(1)
+  await page.locator('.searchable-select__option').click()
+  await expect(supplierSelect.locator('.searchable-select__value')).toContainText('武陵')
+
+  const expressSelect = modal.locator('.field', { hasText: '快递直发' }).locator('.searchable-select')
+  await expressSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('支持')
+  await page.getByRole('option', { name: '支持', exact: true }).click()
+  await expect(expressSelect.locator('.searchable-select__value')).toHaveText('支持')
+
+  const typeSelect = modal.locator('.field', { hasText: '商品类型' }).locator('.searchable-select')
+  await typeSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__option', { hasText: '套餐券' }).click()
+  await expect(expressSelect.locator('.searchable-select__trigger')).toHaveAttribute('aria-disabled', 'true')
+  await expect(expressSelect.locator('.searchable-select__value')).toHaveText('不支持')
+  await expect(page.locator('.searchable-select__panel')).toHaveCount(0)
+  const channelSelect = modal.locator('.field', { hasText: '商品渠道' }).locator('.searchable-select')
+  await channelSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('直播')
+  await expect(page.locator('.searchable-select__option')).toHaveAttribute('aria-disabled', 'true')
+  await expect(channelSelect.locator('.searchable-select__value')).toHaveText('门店商品')
+  expect(pageErrors).toEqual([])
+})

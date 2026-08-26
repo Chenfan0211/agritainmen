@@ -1,11 +1,13 @@
 import { createSSRApp } from 'vue'
 import { createPinia } from 'pinia'
 import { migratePersistedState, persistedEnvelope } from '@agritainment/shared'
+import { configureMediaRuntime, createH5MediaRuntime } from '@agritainment/ui/h5'
 import App from './App.vue'
 
 const persistedKeys = ['info', 'products', 'cart', 'orders', 'overrides', 'auth'] as const
 
 export function createApp() {
+  configureMediaRuntime(createH5MediaRuntime())
   const app = createSSRApp(App)
   const pinia = createPinia()
   pinia.use(({ store }) => {

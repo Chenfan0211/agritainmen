@@ -2,14 +2,42 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import type { ECharts } from 'echarts'
-import type { AfterSale, AfterSaleStatus, CatalogProduct, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, Order, OrderFlowEvent, OrderItem, OrderStatus, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier } from '@agritainment/shared'
-import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, catalogChannelFlags, createId, derivePlatformMetrics, focusFirstInteractive, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount, readShareConfig, readShareRecords, round2, toCsv, validatePricePolicy, writeShareConfig } from '@agritainment/shared'
+import type { TravelRoute, AfterSale, AfterSaleStatus, BusinessMediaValue, CatalogProduct, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, MediaReference, Order, OrderFlowEvent, OrderItem, OrderStatus, PlatformDictionaryState, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier } from '@agritainment/shared'
+import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, pendingShareAmount, readShareConfig, readShareRecords, round2, subscribePlatformChanges, toCsv, validatePricePolicy, writeShareConfig } from '@agritainment/shared'
+import { BusinessImage, ImageUploader, getMediaRuntime } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
+import SearchableSelect from '../../components/SearchableSelect.vue'
+import type { SearchableSelectOption } from '../../components/searchable-select'
+import {
+  accountPromotionOptions,
+  accountRoleOptions,
+  afterSaleTypeOptions,
+  afterTypeFilterOptions,
+  catalogChannelFilterOptions,
+  catalogProductSourceOptions,
+  catalogProductTypeOptions,
+  categoryTypeFilterOptions,
+  categoryTypeOptions,
+  commissionStatusOptions,
+  enabledOptions,
+  expressDeliveryOptions,
+  farmStatusFilterOptions,
+  farmStatusOptions,
+  orderAfterOptions,
+  orderChannelOptions,
+  orderStatusOptions,
+  policyTypeOptions,
+  productStatusOptions,
+  supplierStatusOptions,
+  supplierTypeOptions,
+  trendRangeOptions
+} from './select-options'
 
 import { useAdminStore } from '../../stores/admin'
+import { AdminMediaFinalizeError, catalogProductMediaBindings, dictionaryOperationMessage, dictionaryUiPermissions, farmMediaBindings, inheritCatalogSkuImages, persistAndFinalizeAdminMedia, readSupplierQualificationFields, supplierMediaBindings, validateCatalogMedia } from '../../media-dictionary'
 
-type ModuleKey = 'dashboard' | 'suppliers' | 'products' | 'categories' | 'prices' | 'orders' | 'afterSales' | 'farms' | 'promoters' | 'commissions' | 'dict'
+type ModuleKey = 'dashboard' | 'suppliers' | 'products' | 'categories' | 'routes' | 'prices' | 'orders' | 'afterSales' | 'farms' | 'promoters' | 'commissions' | 'dict'
 
 const store = useAdminStore()
 const metrics = computed(() => derivePlatformMetrics({ orders: store.orders, products: store.products, farms: store.farms, suppliers: store.suppliers, afterSales: store.afterSales, promoters: store.promoters }))
@@ -17,11 +45,11 @@ const active = ref<ModuleKey>('dashboard')
 const keyword = ref('')
 const page = ref(1)
 const pageSize = 20
-const dialog = ref<'supplier' | 'supplier-edit' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
-type DetailType = 'todos' | 'supplier' | 'order' | 'afterSale' | 'farm'
+const dialog = ref<'supplier' | 'supplier-edit' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'route' | 'route-edit' | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
+type DetailType = 'todos' | 'supplier' | 'order' | 'afterSale' | 'farm' | 'route'
 type TierFormRow = { minQty: number; maxQty: number | null | ''; price: number; discountOff: number }
 const detail = ref<{ type: DetailType; id?: string } | null>(null)
-const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部农家乐', discount: 8, tiers: [] as TierFormRow[], spec: '', image: '', images: [] as string[], region: '湖南省', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', businessLicense: '', permit: '', validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true } })
+const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部农家乐', discount: 8, tiers: [] as TierFormRow[], spec: '', image: null as BusinessMediaValue | null, images: [] as BusinessMediaValue[], region: '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null as BusinessMediaValue | null, permitNumber: '', permit: null as BusinessMediaValue | null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default' as NonNullable<DictItem['tone']>, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null as BusinessMediaValue | null })
 const period = ref('本月')
 const trendRange = ref<'7d' | '1m' | '3m' | '1y'>('7d')
 const nowText = ref('')
@@ -39,8 +67,6 @@ const orderStatusFilter = ref('全部')
 const orderChannelFilter = ref('全部来源')
 const orderAfterFilter = ref('全部')
 const orderStoreFilter = ref('')
-const orderStoreSearch = ref('')
-const storeDropdownOpen = ref(false)
 const afterKeyword = ref('')
 const afterTypeFilter = ref('全部')
 const farmKeyword = ref('')
@@ -56,7 +82,7 @@ const supplierSettleKeyword = ref('')
 const ruleKeyword = ref('')
 const categoryKeyword = ref('')
 const categoryTypeFilter = ref('全部')
-const dictTypeTab = ref<string>('city')
+const dictTypeTab = ref<string>('productCategory')
 const dictKeyword = ref('')
 const farmTab = ref('门店列表')
 const farmAccountFilter = ref('全部')
@@ -66,18 +92,18 @@ const productSourceFilter = ref('全部')
 const productCategoryFilter = ref('全部')
 const productStatusFilter = ref('全部')
 const productChannelFilter = ref<'all' | 'store' | 'live'>('all')
-const productChannelSearch = ref('全部商品')
-const productChannelDropdownOpen = ref(false)
 const catalogProductDialog = ref(false)
 const persistedCatalogSkuIds = ref<Set<string>>(new Set())
-type CatalogProductDraft = Omit<CatalogProduct, 'tags' | 'skus'> & { tags: string; skus: CatalogSku[] }
-const catalogProductForm = reactive<CatalogProductDraft>({ id: '', name: '', category: '土特产', supplierId: '', supplierName: '', source: 'platform', status: 'active', image: '', images: [], tags: '', productType: 'goods', expressDelivery: false, channel: 'store', farmIds: [], promoterCommissionRate: 5, storeCommissionRate: 3, skus: [] })
+type CatalogSkuDraft = Omit<CatalogSku, 'image'> & { image: BusinessMediaValue | null }
+type CatalogProductDraft = Omit<CatalogProduct, 'tags' | 'skus' | 'image' | 'images'> & { image: BusinessMediaValue | null; images: BusinessMediaValue[]; tags: string; skus: CatalogSkuDraft[] }
+const catalogProductForm = reactive<CatalogProductDraft>({ id: '', name: '', category: '土特产', supplierId: '', supplierName: '', source: 'platform', status: 'active', image: null, images: [], tags: '', productType: 'goods', expressDelivery: false, channel: 'store', farmIds: [], promoterCommissionRate: 5, storeCommissionRate: 3, skus: [] })
 const pricingDefaultsForm = reactive({ promoterCommissionRate: 5, storeCommissionRate: 3, level1Amount: 10, level2Amount: 15 })
 const promoterRankTab = ref('推客排行')
 const afterTab = ref('售后工单')
 const selectedOrderIds = ref<string[]>([])
 const busy = ref(false)
 const operationKeys = ref<Record<string, boolean>>({})
+let pendingCreateMediaRetry: { dialog: 'supplier' | 'farm'; retryFinalize: () => Promise<void> } | null = null
 let overlayTrigger: HTMLElement | null = null
 let disposeKeyboardButtons: () => void = () => undefined
 let disposeStorageSync: (() => void) | null = null
@@ -91,6 +117,7 @@ const navItems: Array<{ key: ModuleKey; label: string; icon: string; badge?: () 
   { key: 'suppliers', label: '供应商管理', icon: 'factory', badge: () => store.pendingSuppliers },
   { key: 'products', label: '商品库管理', icon: 'package', badge: () => store.pendingProducts },
   { key: 'categories', label: '品类管理', icon: 'list-tree' },
+  { key: 'routes', label: '旅游线路', icon: 'route' },
   { key: 'prices', label: '价格体系', icon: 'tags' },
   { key: 'orders', label: '订单履约', icon: 'truck', badge: () => store.pendingOrders },
   { key: 'afterSales', label: '售后结算', icon: 'headset', badge: () => store.pendingAfterSales },
@@ -102,7 +129,7 @@ const navItems: Array<{ key: ModuleKey; label: string; icon: string; badge?: () 
 
 const navGroups = [
   { name: '数据中心', items: navItems.filter((item) => item.key === 'dashboard') },
-  { name: '供应链管理', items: navItems.filter((item) => ['suppliers','products','categories','prices','orders','afterSales','dict'].includes(item.key)) },
+  { name: '供应链管理', items: navItems.filter((item) => ['suppliers','products','categories','routes','prices','orders','afterSales','dict'].includes(item.key)) },
   { name: '经营端', items: navItems.filter((item) => ['farms','promoters','commissions'].includes(item.key)) }
 ]
 
@@ -111,6 +138,7 @@ const titles: Record<ModuleKey, { title: string; subtitle: string }> = {
   suppliers: { title: '供应商管理', subtitle: '供应商入驻、资质审核与合作状态' },
   products: { title: '商品库管理', subtitle: '统一选品 · 统一标准 · 覆盖农产品、预制菜、食材调料、酒水饮料、文旅伴手礼、民宿用品' },
   categories: { title: '品类管理', subtitle: '商品品类与供应商品类统一维护 · 支持新增、修改与删除' },
+  routes: { title: '旅游线路', subtitle: '乡村旅游线路统一维护 · 支持发布、下架与删除' },
   prices: { title: '价格体系', subtitle: '支持集采价、阶梯价、区域价、会员价等多维价格策略 · 帮助农家乐降低采购成本' },
   orders: { title: '订单履约', subtitle: '订单、库存、发货、配送统一管理 · 直播成交订单由中台统一承接履约' },
   afterSales: { title: '售后结算', subtitle: '统一售后服务与结算分账 · 减少农家乐履约压力' },
@@ -157,6 +185,14 @@ const visibleOrders = computed(() => {
   return filteredOrders.value
 })
 const filteredPolicies = computed(() => store.policies.filter((item) => `${item.name}${item.scope}${item.type}`.includes(keyword.value)))
+const dictionaryState = computed<PlatformDictionaryState>(() => ({
+  schemaVersion: 1,
+  revision: store.dictionaryRevision,
+  groups: store.dictGroups,
+  items: store.dictItems,
+  updatedAt: store.dictionaryUpdatedAt
+}))
+const dictionaryItems = (type: string) => getDictOptions(type, { state: dictionaryState.value })
 const filteredAfterSales = computed(() => store.afterSales.filter((item) => {
   const matchesGlobal = `${item.id}${item.orderId}${item.productName}${item.applicant}`.includes(keyword.value)
   const q = afterKeyword.value.trim().toLowerCase()
@@ -165,7 +201,7 @@ const filteredAfterSales = computed(() => store.afterSales.filter((item) => {
   const matchesReason = afterReasonFilter.value === '全部' || (item.issue || '').includes(afterReasonFilter.value)
   return matchesGlobal && matchesKeyword && matchesType && matchesReason
 }))
-const afterReasonOptions = computed(() => store.dictItems.filter((item) => item.type === 'afterSaleReason' && item.enabled).map((item) => item.label))
+const afterReasonOptions = computed(() => dictionaryItems('afterSaleReason').map((item) => item.label))
 const filteredFarms = computed(() => store.farms.filter((item) => {
   if (item.id === 'F004') return false
   const matchesGlobal = `${item.name}${item.region}${item.tags.join('')}`.includes(keyword.value)
@@ -175,7 +211,7 @@ const filteredFarms = computed(() => store.farms.filter((item) => {
   const matchesCity = farmCityFilter.value === '全部城市' || item.city === farmCityFilter.value
   return matchesGlobal && matchesKeyword && matchesStatus && matchesCity
 }))
-const farmCityOptions = computed(() => store.dictItems.filter((item) => item.type === 'city' && item.enabled).map((item) => item.code))
+const farmCityOptions = computed(() => dashboardRegionChildren('43').map((item) => item.name))
 const filteredPromoters = computed(() => store.promoters.filter((item) => {
   const matchesGlobal = `${item.name}${item.level}`.includes(keyword.value)
   const q = promoterKeyword.value.trim().toLowerCase()
@@ -206,15 +242,6 @@ const unifiedProductRows = computed(() => {
     const matchesStatus = status === '全部' || product.status === status
     return matchesChannel && matchesKeyword && matchesCategory && matchesStatus
   })
-})
-const productChannelOptions = [
-  { value: 'all' as const, label: '全部商品' },
-  { value: 'store' as const, label: '门店商品' },
-  { value: 'live' as const, label: '直播商品' }
-]
-const filteredProductChannelOptions = computed(() => {
-  const query = productChannelSearch.value.trim()
-  return productChannelOptions.filter((option) => !query || option.label.includes(query) || option.value.includes(query.toLowerCase()))
 })
 const pagedUnifiedProductRows = computed(() => unifiedProductRows.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const pagedOrders = computed(() => visibleOrders.value.slice((page.value - 1) * pageSize, page.value * pageSize))
@@ -271,12 +298,62 @@ function settlementLabel(record: (typeof settlementRecords.value)[number]) {
     : `佣金结算 · ${record.items.length} 位推客`
 }
 const selectedSupplier = computed<Supplier | undefined>(() => store.suppliers.find((item) => item.id === detail.value?.id))
+const selectedSupplierQualification = computed(() => selectedSupplier.value ? readSupplierQualificationFields(selectedSupplier.value.qualification) : null)
+const selectedSupplierAccount = computed(() => store.supplierAccounts.find((item) => item.supplierId === selectedSupplier.value?.id))
 const selectedOrder = computed<Order | undefined>(() => store.orders.find((item) => item.id === detail.value?.id))
 const selectedAfterSale = computed<AfterSale | undefined>(() => store.afterSales.find((item) => item.id === detail.value?.id))
 const selectedFarm = computed<FarmStore | undefined>(() => store.farms.find((item) => item.id === detail.value?.id))
+const editingFarm = computed<FarmStore | undefined>(() => store.farms.find((item) => item.id === form.value.id))
 const supplierOptions = computed(() => ['平台自营', ...Array.from(new Set([...store.suppliers.map((item) => item.name), ...store.products.map((item) => item.supplier)]))])
-const productCategories = computed(() => store.categories.filter((item) => item.type !== 'supplier'))
-const supplierCategories = computed(() => store.categories.filter((item) => item.type !== 'product'))
+const productCategories = computed(() => dictionaryItems('productCategory').map((item) => ({ id: item.code, name: item.label, type: 'product' as const })))
+const supplierCategories = computed(() => dictionaryItems('supplierCategory').map((item) => ({ id: item.code, name: item.label, type: 'supplier' as const })))
+const productCategoryFilterOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '全部', label: '全品类' },
+  ...productCategories.value.map((option) => ({ value: option.name, label: option.name }))
+])
+const productCategoryOptions = computed<SearchableSelectOption[]>(() => productCategories.value.map((option) => ({ value: option.name, label: option.name })))
+const supplierCategoryOptions = computed<SearchableSelectOption[]>(() => supplierCategories.value.map((option) => ({ value: option.name, label: option.name })))
+const promoterTypeOptions = computed<SearchableSelectOption[]>(() => [{ value: '全部', label: '全部类型' }, ...dictionaryItems('promoterType').map((item) => ({ value: item.label, label: item.label }))])
+const promoterFormTypeOptions = computed<SearchableSelectOption[]>(() => dictionaryItems('promoterType').map((item) => ({ value: item.label, label: item.label })))
+const promoterLevelOptions = computed<SearchableSelectOption[]>(() => dictionaryItems('promoterLevel').map((item) => ({ value: item.label, label: item.label })))
+const promoterStatusOptions = computed<SearchableSelectOption[]>(() => dictionaryItems('promoterStatus').map((item) => ({ value: item.code, label: item.label })))
+const dictionaryToneOptions: SearchableSelectOption[] = [
+  { value: 'default', label: '默认' }, { value: 'success', label: '成功' }, { value: 'warning', label: '提醒' }, { value: 'danger', label: '危险' }
+]
+const afterReasonFilterSelectOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '全部', label: '全部原因' },
+  ...afterReasonOptions.value.map((reason) => ({ value: reason, label: reason }))
+])
+const afterReasonSelectOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '', label: '请选择原因' },
+  ...afterReasonOptions.value.map((reason) => ({ value: reason, label: reason }))
+])
+const farmCityFilterOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '全部城市', label: '全部城市' },
+  ...farmCityOptions.value.map((city) => ({ value: city, label: city }))
+])
+const farmCitySelectOptions = computed<SearchableSelectOption[]>(() => [{ value: '', label: '请选择城市' }, ...dashboardRegionChildren('43').map((city) => ({ value: city.code, label: city.name }))])
+const farmDistrictSelectOptions = computed<SearchableSelectOption[]>(() => [{ value: '', label: '请选择县区' }, ...dashboardRegionChildren(form.value.farmCityCode).map((district) => ({ value: district.code, label: district.name }))])
+watch(() => form.value.farmCityCode, (cityCode) => {
+  if (form.value.farmDistrictCode && !dashboardRegionChildren(cityCode).some((district) => district.code === form.value.farmDistrictCode)) form.value.farmDistrictCode = ''
+})
+const farmAccountSelectOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '全部', label: '全部门店' },
+  ...store.farms.map((farm) => ({ value: farm.id, label: farm.name }))
+])
+const accountFarmSelectOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '', label: '请选择门店' },
+  ...store.farms.map((farm) => ({ value: farm.id, label: farm.name }))
+])
+const catalogSupplierOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '', label: '请选择供应商' },
+  ...store.suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))
+])
+const catalogProductChannelOptions = computed<SearchableSelectOption[]>(() => [
+  { value: 'store', label: '门店商品' },
+  { value: 'live', label: '直播商品', disabled: catalogProductForm.productType === 'package' },
+  { value: 'all', label: '全部商品', disabled: catalogProductForm.productType === 'package' }
+])
 const filteredCategories = computed(() => {
   const q = categoryKeyword.value.trim().toLowerCase()
   return store.categories.filter((item) => {
@@ -289,6 +366,7 @@ const filteredCategories = computed(() => {
 const pagedCategories = computed(() => filteredCategories.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 
 const activeDictGroup = computed(() => store.dictGroups.find((group) => group.type === dictTypeTab.value))
+const activeDictionaryPermissions = computed(() => dictionaryUiPermissions(activeDictGroup.value))
 const filteredDictItems = computed(() => {
   const q = dictKeyword.value.trim().toLowerCase()
   return store.dictItems.filter((item) => item.type === dictTypeTab.value && (!q || `${item.code}${item.label}`.toLowerCase().includes(q)))
@@ -377,7 +455,8 @@ function toggleSupplier(id: string) {
 
 function openDialog(type: 'supplier' | 'policy' | 'farm') {
   rememberOverlayTrigger()
-  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部农家乐', discount: 8, tiers: [], spec: '', image: '', images: [], region: type === 'farm' ? '' : '湖南省', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', businessLicense: '', permit: '', validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending', categoryType: 'product', level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true } }
+  pendingCreateMediaRetry = null
+  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部农家乐', discount: 8, tiers: [], spec: '', image: null, images: [], region: type === 'farm' ? '' : '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null, permitNumber: '', permit: null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending', categoryType: 'product', level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default', dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null }
   if (type === 'supplier') form.value.category = '生鲜农产'
   dialog.value = type
   focusOverlay()
@@ -396,9 +475,9 @@ function openCatalogProductDialog(product?: CatalogProduct) {
   } : {
     id: createId('P'), name: '', category: productCategories.value[0]?.name || '综合品类',
     supplierId: supplier?.id || '', supplierName: supplier?.name || '', source: 'platform', status: 'active',
-    image: '', images: [], tags: '', productType: 'goods', expressDelivery: false, channel: 'store', farmIds: [],
+    image: null, images: [], tags: '', productType: 'goods', expressDelivery: false, channel: 'store', farmIds: [],
     promoterCommissionRate: defaults.promoterCommissionRate, storeCommissionRate: defaults.storeCommissionRate,
-    skus: [{ id: createId('SKU'), name: '默认规格', image: '', retailPrice: Math.max(59.9, levelTotal), cost: 42, stock: 100, level1Amount: defaults.level1Amount, level2Amount: defaults.level2Amount, status: 'active' }]
+    skus: [{ id: createId('SKU'), name: '默认规格', image: null, retailPrice: Math.max(59.9, levelTotal), cost: 42, stock: 100, level1Amount: defaults.level1Amount, level2Amount: defaults.level2Amount, status: 'active' }]
   })
   persistedCatalogSkuIds.value = new Set(product?.skus.map((sku) => sku.id) || [])
   catalogProductDialog.value = true
@@ -406,7 +485,7 @@ function openCatalogProductDialog(product?: CatalogProduct) {
 
 function addCatalogSku() {
   const defaults = store.pricingDefaults
-  catalogProductForm.skus.push({ id: createId('SKU'), name: `规格${catalogProductForm.skus.length + 1}`, image: catalogProductForm.image, retailPrice: Math.max(59.9, defaults.level1Amount + defaults.level2Amount), cost: 42, stock: 0, level1Amount: defaults.level1Amount, level2Amount: defaults.level2Amount, status: 'active' })
+  catalogProductForm.skus.push({ id: createId('SKU'), name: `规格${catalogProductForm.skus.length + 1}`, image: null, retailPrice: Math.max(59.9, defaults.level1Amount + defaults.level2Amount), cost: 42, stock: 0, level1Amount: defaults.level1Amount, level2Amount: defaults.level2Amount, status: 'active' })
 }
 
 function removeCatalogSku(index: number) {
@@ -423,6 +502,8 @@ function restoreCatalogSku(index: number) {
 }
 
 function validateCatalogProductDraft() {
+  const mediaError = validateCatalogMedia(catalogProductForm)
+  if (mediaError) return mediaError
   if (!catalogProductForm.name.trim() || !catalogProductForm.supplierId || !catalogProductForm.skus.some((sku) => sku.status !== 'retired')) return '请完善商品、供应商和有效 SKU 配置'
   const rates = [Number(catalogProductForm.promoterCommissionRate), Number(catalogProductForm.storeCommissionRate)]
   if (rates.some((rate) => !Number.isFinite(rate) || rate < 0 || rate > 100)) return '佣金率必须在 0-100% 之间'
@@ -436,18 +517,30 @@ function validateCatalogProductDraft() {
   return ''
 }
 
-function persistCatalogProductDraft() {
+async function persistCatalogProductDraft() {
   const supplier = store.suppliers.find((item) => item.id === catalogProductForm.supplierId)
   if (supplier) catalogProductForm.supplierName = supplier.name
   const error = validateCatalogProductDraft()
   if (error) return showToast(error)
-  const result = store.saveCatalogProduct({
+  const product = inheritCatalogSkuImages({
     ...catalogProductForm,
     name: catalogProductForm.name.trim(),
     tags: splitTags(catalogProductForm.tags),
-    skus: catalogProductForm.skus.map((sku) => ({ ...sku, image: sku.image || catalogProductForm.image }))
-  })
-  if (!result.ok) return showToast(result.error)
+    skus: catalogProductForm.skus.map((sku) => ({ ...sku, image: sku.image ?? catalogProductForm.image }))
+  } as CatalogProduct)
+  const previousBindings = catalogProductMediaBindings(store.catalogProducts.find((item) => item.id === product.id))
+  try {
+    const result = await persistAndFinalizeAdminMedia(
+      getMediaRuntime().storage,
+      previousBindings,
+      () => catalogProductMediaBindings(store.catalogProducts.find((item) => item.id === product.id)),
+      () => store.saveCatalogProduct(product),
+      (saved) => saved.ok
+    )
+    if (!result.ok) return showToast(result.error)
+  } catch (error) {
+    return showToast(error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试')
+  }
   catalogProductDialog.value = false
   showToast('商品已保存')
 }
@@ -456,36 +549,17 @@ function saveCatalogProductDialog() {
   const error = validateCatalogProductDraft()
   if (error) return showToast(error)
   const negativeMargin = catalogProductForm.skus.filter((sku) => sku.status !== 'retired' && Number(sku.cost) >= Number(sku.retailPrice))
-  if (!negativeMargin.length) return persistCatalogProductDraft()
+  if (!negativeMargin.length) return void persistCatalogProductDraft()
   uni.showModal({
     title: '确认负毛利商品',
     content: `${negativeMargin.map((sku) => sku.name).join('、')} 的供货价不低于零售价，保存后可能产生负毛利。是否继续？`,
     confirmText: '继续保存',
-    success: ({ confirm }) => { if (confirm) persistCatalogProductDraft() }
+    success: ({ confirm }) => { if (confirm) void persistCatalogProductDraft() }
   })
 }
 
 function activeCatalogSkus(product: CatalogProduct) {
   return product.skus.filter((sku) => sku.status !== 'retired')
-}
-
-function selectProductChannel(option: (typeof productChannelOptions)[number]) {
-  productChannelFilter.value = option.value
-  productChannelSearch.value = option.label
-  productChannelDropdownOpen.value = false
-  page.value = 1
-}
-
-function openProductChannelDropdown() {
-  productChannelSearch.value = ''
-  productChannelDropdownOpen.value = true
-}
-
-function closeProductChannelDropdown() {
-  setTimeout(() => {
-    productChannelDropdownOpen.value = false
-    productChannelSearch.value = productChannelOptions.find((option) => option.value === productChannelFilter.value)?.label || '全部商品'
-  }, 120)
 }
 
 function savePricingDefaults() {
@@ -506,13 +580,12 @@ watch(() => catalogProductForm.productType, (productType) => {
 })
 
 const orderStoreOptions = computed(() => Array.from(new Set(store.orders.map((item) => item.customer))))
-const filteredOrderStoreOptions = computed(() => {
-  const q = orderStoreSearch.value.trim().toLowerCase()
-  if (!q) return orderStoreOptions.value
-  return orderStoreOptions.value.filter((name) => name.toLowerCase().includes(q))
-})
+const orderStoreSelectOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '', label: '全部门店' },
+  ...orderStoreOptions.value.map((name) => ({ value: name, label: name }))
+])
 
-function orderItems(order: Order): Array<{ name: string; quantity: number; image?: string }> {
+function orderItems(order: Order): Array<{ name: string; quantity: number; image?: BusinessMediaValue }> {
   if (order.items?.length) return order.items
   return [{ name: order.productName, quantity: order.quantity, image: '' }]
 }
@@ -552,16 +625,6 @@ function orderAfterStatus(order: Order) {
   return after ? afterSaleStatusText(after.status) : '未发起'
 }
 
-function selectOrderStore(name: string) {
-  orderStoreFilter.value = name
-  orderStoreSearch.value = name
-  storeDropdownOpen.value = false
-}
-
-function closeStoreDropdown() {
-  setTimeout(() => { storeDropdownOpen.value = false }, 120)
-}
-
 function openPolicyEdit(policy: PricePolicy) {
   openDialog('policy')
   Object.assign(form.value, policy, { tiers: policy.tiers ? policy.tiers.map((t) => ({ ...t })) : [] })
@@ -579,16 +642,19 @@ function removeTier(index: number) {
 function openSupplierEdit(supplier: Supplier) {
   detail.value = null
   openDialog('supplier')
+  const qualification = readSupplierQualificationFields(supplier.qualification)
   Object.assign(form.value, {
     id: supplier.id,
     name: supplier.name,
     category: supplier.category,
     region: supplier.region,
     contactPhone: supplier.contactPhone || '',
-    businessLicense: supplier.qualification.businessLicense,
-    permit: supplier.qualification.permit,
-    validUntil: supplier.qualification.validUntil,
-    reviewNote: supplier.qualification.reviewNote,
+    businessLicenseNumber: qualification.businessLicenseNumber,
+    businessLicense: qualification.businessLicense,
+    permitNumber: qualification.permitNumber,
+    permit: qualification.permit,
+    validUntil: qualification.validUntil,
+    reviewNote: qualification.reviewNote,
     coop: !!supplier.coop
   })
   dialog.value = 'supplier-edit'
@@ -597,10 +663,17 @@ function openSupplierEdit(supplier: Supplier) {
 function openFarmEdit(farm: FarmStore) {
   detail.value = null
   openDialog('farm')
+  const regionPath = dashboardRegionPath(farm.structuredAddress?.districtCode || farm.regionCode || farm.location?.adCode || '')
+  const cityCode = farm.structuredAddress?.cityCode || regionPath.find((region) => region.level === 'city')?.code || ''
+  const districtCode = farm.structuredAddress?.districtCode || regionPath.find((region) => region.level === 'district')?.code || ''
   Object.assign(form.value, {
     id: farm.id,
     name: farm.name,
     region: farm.region,
+    address: farm.address,
+    farmCityCode: cityCode,
+    farmDistrictCode: districtCode,
+    farmDetail: farm.structuredAddress?.detail || farm.address,
     city: farm.city,
     tags: (farm.tags || []).join('，'),
     rating: farm.rating,
@@ -616,10 +689,54 @@ function splitTags(text: string) {
   return text.split(/[,，、]/).map((item) => item.trim()).filter(Boolean)
 }
 
+function farmPayload(forceGeocode = false) {
+  return {
+    name: form.value.name, region: form.value.region, address: form.value.address, city: form.value.city, districtCode: form.value.farmDistrictCode || undefined, detail: form.value.farmDetail || undefined, tags: splitTags(form.value.tags),
+    rating: Number(form.value.rating), averageSpend: Number(form.value.averageSpend), livePopularity: Number(form.value.livePopularity) || 0,
+    status: form.value.farmStatus, image: form.value.image, forceGeocode
+  }
+}
+
+async function retryFarmGeocode() {
+  if (!form.value.farmDistrictCode || !form.value.farmDetail.trim()) return showToast('请先选择县区并填写详细地址')
+  if (!form.value.id || busy.value) return
+  busy.value = true
+  const previousBindings = farmMediaBindings(store.farms.find((farm) => farm.id === form.value.id))
+  let saved = false
+  let errorMessage = ''
+  try {
+    saved = await persistAndFinalizeAdminMedia(
+      getMediaRuntime().storage,
+      previousBindings,
+      () => farmMediaBindings(store.farms.find((farm) => farm.id === form.value.id)),
+      () => store.updateFarm(form.value.id, farmPayload(true)),
+      Boolean
+    )
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+  }
+  busy.value = false
+  if (!saved) return showToast(errorMessage || '重新定位失败，请检查门店信息')
+  showToast(editingFarm.value?.locationStatus === 'resolved' ? '定位已更新' : '未能定位，已保留详细地址')
+}
+
 function categoryUsage(category: Category) {
   return store.products.filter((product) => product.category === category.name).length + store.suppliers.filter((supplier) => supplier.category === category.name).length
 }
 
+
+const editingRouteId = ref('')
+const routeSearch = ref('')
+function openRouteDialog() {
+  editingRouteId.value = ''
+  Object.assign(form.value, { routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null })
+  dialog.value = 'route'
+}
+function openRouteEdit(route: TravelRoute) {
+  editingRouteId.value = route.id
+  Object.assign(form.value, { routeName: route.name, routeCity: route.city, routeDesc: route.description, routePrice: route.price, routeImage: route.image })
+  dialog.value = 'route-edit'
+}
 function openCategoryDialog() {
   openDialog('farm')
   dialog.value = 'category'
@@ -634,12 +751,13 @@ function openCategoryEdit(category: Category) {
 function openDictDialog(item?: DictItem) {
   openDialog('farm')
   if (item) {
-    Object.assign(form.value, { id: item.id, dictCode: item.code, dictLabel: item.label, dictSort: item.sort, enabled: item.enabled })
+    Object.assign(form.value, { id: item.id, dictCode: item.code, dictLabel: item.label, dictSort: item.sort, dictTone: item.tone || 'default', enabled: item.enabled })
     dialog.value = 'dict-edit'
   } else {
     form.value.dictCode = ''
     form.value.dictLabel = ''
     form.value.dictSort = 0
+    form.value.dictTone = 'default'
     form.value.enabled = true
     dialog.value = 'dict'
   }
@@ -657,14 +775,19 @@ function openDictGroupEdit(group: DictGroup) {
 }
 
 function removeDictGroup(group: DictGroup) {
-  confirmAction(`确认删除分组「${group.name}」？`, () => {
-    const removed = store.removeDictGroup(group.id)
-    showToast(removed ? '分组已删除' : '该分组下还有字典项，请先清空')
+  confirmAction(`确认删除分组「${group.name}」？`, async () => {
+    const removed = await store.removeDictGroup(group.id)
+    showToast(dictionaryOperationMessage(removed, '分组已删除', store.error, '该分组下还有字典项，请先清空'))
     if (removed && dictTypeTab.value === group.type) {
       dictTypeTab.value = store.dictGroups[0]?.type || ''
       page.value = 1
     }
   })
+}
+
+async function removeDictItem(id: string) {
+  const removed = await store.removeDictItem(id)
+  showToast(dictionaryOperationMessage(removed, '字典项已删除', store.error, '系统字典项不可删除'))
 }
 
 const shareConfig = ref(readShareConfig())
@@ -697,97 +820,15 @@ function removeCategory(category: Category) {
     runOperation(`category-${category.id}`, () => store.removeCategory(category.id), '品类已删除', '该品类正在使用，无法删除')
   })
 }
+function removeRoute(route: TravelRoute) {
+  confirmAction(`确认删除线路「${route.name}」？`, () => {
+    runOperation(`route-${route.id}`, () => store.removeRoute(route.id), '线路')
+  })
+}
 
 
 function supplierProducts(supplier: Supplier) {
   return store.products.filter((product) => product.supplier === supplier.name)
-}
-
-function isImageData(value?: string) {
-  return !!value && (value.startsWith('data:image/') || value.startsWith('blob:'))
-}
-
-function fileToImageDataUrl(path: string) {
-  return new Promise<string>((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      try {
-        const max = 800
-        const scale = Math.min(1, max / Math.max(img.width, img.height))
-        const canvas = document.createElement('canvas')
-        canvas.width = Math.max(1, Math.round(img.width * scale))
-        canvas.height = Math.max(1, Math.round(img.height * scale))
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return reject(new Error('canvas'))
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL('image/jpeg', 0.8))
-      } catch (error) {
-        reject(error)
-      }
-    }
-    img.onerror = () => reject(new Error('image'))
-    img.src = path
-  })
-}
-
-function chooseLicense() {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const path = res.tempFilePaths[0]
-      if (!path) return
-      try {
-        form.value.businessLicense = await fileToImageDataUrl(path)
-      } catch {
-        showToast('图片读取失败，请重试')
-      }
-    }
-  })
-}
-
-function choosePermit() {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const path = res.tempFilePaths[0]
-      if (!path) return
-      try {
-        form.value.permit = await fileToImageDataUrl(path)
-      } catch {
-        showToast('图片读取失败，请重试')
-      }
-    }
-  })
-}
-
-function removeLicense() {
-  form.value.businessLicense = ''
-}
-
-function removePermit() {
-  form.value.permit = ''
-}
-
-function chooseFarmImage() {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const path = res.tempFilePaths[0]
-      if (!path) return
-      try {
-        form.value.image = await fileToImageDataUrl(path)
-      } catch {
-        showToast('图片读取失败，请重试')
-      }
-    }
-  })
-}
-
-function removeFarmImage() {
-  form.value.image = ''
 }
 
 function openPromoterDialog() {
@@ -807,46 +848,6 @@ function openPromoterEdit(promoter: Promoter) {
   dialog.value = 'promoter-edit'
 }
 
-function chooseProductMain() {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const path = res.tempFilePaths[0]
-      if (!path) return
-      try {
-        form.value.image = await fileToImageDataUrl(path)
-      } catch {
-        showToast('图片读取失败，请重试')
-      }
-    }
-  })
-}
-
-function removeProductMain() {
-  form.value.image = ''
-}
-
-function chooseProductImages() {
-  uni.chooseImage({
-    count: Math.max(1, 9 - form.value.images.length),
-    sizeType: ['compressed'],
-    success: async (res) => {
-      try {
-        const paths = Array.isArray(res.tempFilePaths) ? res.tempFilePaths : [res.tempFilePaths]
-        const urls = await Promise.all(paths.map((p) => fileToImageDataUrl(p)))
-        form.value.images.push(...urls)
-      } catch {
-        showToast('图片读取失败，请重试')
-      }
-    }
-  })
-}
-
-function removeProductImage(index: number) {
-  form.value.images.splice(index, 1)
-}
-
 function onValidUntilChange(event: { detail: { value: string } }) {
   form.value.validUntil = event.detail.value
 }
@@ -854,15 +855,6 @@ function onValidUntilChange(event: { detail: { value: string } }) {
 function previewImage(src: string) {
   if (!src) return
   uni.previewImage({ current: src, urls: [src] })
-}
-
-function previewSupplierLicenses(current: 'businessLicense' | 'permit') {
-  const supplier = selectedSupplier.value
-  if (!supplier) return
-  const urls = [supplier.qualification.businessLicense, supplier.qualification.permit].filter(isImageData) as string[]
-  if (!urls.length) return
-  const currentUrl = supplier.qualification[current]
-  uni.previewImage({ current: isImageData(currentUrl) ? currentUrl : urls[0], urls })
 }
 
 function confirmShip(order: Order) {
@@ -898,25 +890,65 @@ async function saveDialog() {
   if (busy.value) return
   busy.value = true
   await new Promise((resolve) => setTimeout(resolve, 180))
+  const recovery = pendingCreateMediaRetry
+  if (recovery?.dialog === dialog.value) {
+    try {
+      await recovery.retryFinalize()
+      pendingCreateMediaRetry = null
+      busy.value = false
+      dialog.value = null
+      showToast('已保存到演示数据')
+    } catch (error) {
+      if (error instanceof AdminMediaFinalizeError) pendingCreateMediaRetry = { dialog: recovery.dialog, retryFinalize: error.retryFinalize }
+      busy.value = false
+      showToast(error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试')
+    }
+    return
+  }
   let saved = true
   let errorMessage = ''
   if (dialog.value === 'supplier') {
-    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写供应商名称' }
-    else if (form.value.contactPhone.trim() && !/^1[3-9]\d{9}$/.test(form.value.contactPhone.trim())) { saved = false; errorMessage = '请输入正确的11位手机号' }
-    else saved = store.inviteSupplier({
-      name: form.value.name, category: form.value.category, region: form.value.region, coop: form.value.coop,
-      contactPhone: form.value.contactPhone, businessLicense: form.value.businessLicense,
-      permit: form.value.permit, validUntil: form.value.validUntil
-    })
+    try {
+      const result = await persistAndFinalizeAdminMedia(
+        getMediaRuntime().storage,
+        [],
+        () => supplierMediaBindings(store.suppliers[0]),
+        () => store.inviteSupplier({
+          name: form.value.name, category: form.value.category, region: form.value.region, coop: form.value.coop,
+          contactPhone: form.value.contactPhone, businessLicenseNumber: form.value.businessLicenseNumber, businessLicense: form.value.businessLicense,
+          permitNumber: form.value.permitNumber, permit: form.value.permit, validUntil: form.value.validUntil
+        }),
+        (result) => result.ok
+      )
+      saved = result.ok
+      errorMessage = result.error || ''
+    } catch (error) {
+      saved = false
+      if (error instanceof AdminMediaFinalizeError) pendingCreateMediaRetry = { dialog: 'supplier', retryFinalize: error.retryFinalize }
+      errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+    }
   }
   if (dialog.value === 'supplier-edit') {
-    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写供应商名称' }
-    else if (form.value.contactPhone.trim() && !/^1[3-9]\d{9}$/.test(form.value.contactPhone.trim())) { saved = false; errorMessage = '请输入正确的11位手机号' }
-    else saved = store.updateSupplier(form.value.id, {
-      name: form.value.name, category: form.value.category, region: form.value.region, coop: form.value.coop,
-      contactPhone: form.value.contactPhone, businessLicense: form.value.businessLicense,
-      permit: form.value.permit, validUntil: form.value.validUntil
-    })
+    const previousBindings = supplierMediaBindings(store.suppliers.find((supplier) => supplier.id === form.value.id))
+    try {
+      const result = await persistAndFinalizeAdminMedia(
+        getMediaRuntime().storage,
+        previousBindings,
+        () => supplierMediaBindings(store.suppliers.find((supplier) => supplier.id === form.value.id)),
+        () => store.updateSupplier(form.value.id, {
+          name: form.value.name, category: form.value.category, region: form.value.region, coop: form.value.coop,
+          contactPhone: form.value.contactPhone, businessLicenseNumber: form.value.businessLicenseNumber, businessLicense: form.value.businessLicense,
+          permitNumber: form.value.permitNumber, permit: form.value.permit, validUntil: form.value.validUntil,
+          password: form.value.supplierPassword || undefined
+        }),
+        (result) => result.ok
+      )
+      saved = result.ok
+      errorMessage = result.error || ''
+    } catch (error) {
+      saved = false
+      errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+    }
   }
   if (dialog.value === 'category') {
     if (!form.value.name.trim()) { saved = false; errorMessage = '请填写品类名称' }
@@ -926,18 +958,33 @@ async function saveDialog() {
     if (!form.value.name.trim()) { saved = false; errorMessage = '请填写品类名称' }
     else saved = store.updateCategory(form.value.id, form.value.name, form.value.categoryType)
   }
+  if (dialog.value === 'route' || dialog.value === 'route-edit') {
+    if (!form.value.routeName.trim() || !form.value.routeCity.trim()) { saved = false; errorMessage = '请填写线路名称和城市' }
+    else {
+      const routePayload = { name: form.value.routeName.trim(), city: form.value.routeCity.trim(), description: form.value.routeDesc.trim(), price: Number(form.value.routePrice) || 0, image: form.value.routeImage || { source: 'builtin' as const, path: '/static/images/mountain.webp' } }
+      saved = editingRouteId.value ? store.updateRoute(editingRouteId.value, routePayload) : store.addRoute(routePayload)
+      if (!saved) errorMessage = store.error
+    }
+  }
   if (dialog.value === 'dict') {
     if (!form.value.dictCode.trim() || !form.value.dictLabel.trim()) { saved = false; errorMessage = '请填写字典编码和名称' }
-    else saved = store.addDictItem({ type: dictTypeTab.value, code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort) })
+    else {
+      saved = await store.addDictItem({ type: dictTypeTab.value, code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort), tone: form.value.dictTone })
+      if (!saved) errorMessage = store.error
+    }
   }
   if (dialog.value === 'dict-edit') {
     if (!form.value.dictCode.trim() || !form.value.dictLabel.trim()) { saved = false; errorMessage = '请填写字典编码和名称' }
-    else saved = store.updateDictItem(form.value.id, { code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort) })
+    else {
+      saved = await store.updateDictItem(form.value.id, { code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort), tone: form.value.dictTone })
+      if (!saved) errorMessage = store.error
+    }
   }
   if (dialog.value === 'dict-group') {
     if (!form.value.dictGroupName.trim() || !form.value.dictGroupType.trim()) { saved = false; errorMessage = '请填写分组名称和类型编码' }
     else {
-      saved = store.addDictGroup({ type: form.value.dictGroupType, name: form.value.dictGroupName })
+      saved = await store.addDictGroup({ type: form.value.dictGroupType, name: form.value.dictGroupName })
+      if (!saved) errorMessage = store.error
       if (saved) {
         dictTypeTab.value = form.value.dictGroupType.trim()
         page.value = 1
@@ -946,7 +993,10 @@ async function saveDialog() {
   }
   if (dialog.value === 'dict-group-edit') {
     if (!form.value.dictGroupName.trim()) { saved = false; errorMessage = '请填写分组名称' }
-    else saved = store.updateDictGroup(form.value.id, { name: form.value.dictGroupName })
+    else {
+      saved = await store.updateDictGroup(form.value.id, { name: form.value.dictGroupName })
+      if (!saved) errorMessage = store.error
+    }
   }
   if (dialog.value === 'store-account') {
     if (!form.value.accountFarmId || !form.value.accountName.trim() || !form.value.accountPhone.trim() || !form.value.accountPassword.trim()) { saved = false; errorMessage = '请填写门店、姓名、账号和密码' }
@@ -969,18 +1019,40 @@ async function saveDialog() {
     else saved = store.updatePolicy(form.value.id, form.value.name, form.value.scope, Number(form.value.discount), form.value.enabled, tiers)
   }
   if (dialog.value === 'farm') {
-    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写门店名称' }
-    else saved = store.addFarm({
-      name: form.value.name, region: form.value.region, city: form.value.city, tags: splitTags(form.value.tags),
-      rating: Number(form.value.rating), averageSpend: Number(form.value.averageSpend), livePopularity: Number(form.value.livePopularity) || 0, status: form.value.farmStatus, image: form.value.image
-    })
+    if (!form.value.name.trim() || !form.value.farmDistrictCode || !form.value.farmDetail.trim()) { saved = false; errorMessage = '请选择县区并填写门店名称和详细地址' }
+    else {
+      try {
+        saved = await persistAndFinalizeAdminMedia(
+          getMediaRuntime().storage,
+          [],
+          () => farmMediaBindings(store.farms[0]),
+          () => store.addFarm(farmPayload()),
+          Boolean
+        )
+      } catch (error) {
+        saved = false
+        if (error instanceof AdminMediaFinalizeError) pendingCreateMediaRetry = { dialog: 'farm', retryFinalize: error.retryFinalize }
+        errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+      }
+    }
   }
   if (dialog.value === 'farm-edit') {
-    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写门店名称' }
-    else saved = store.updateFarm(form.value.id, {
-      name: form.value.name, region: form.value.region, city: form.value.city, tags: splitTags(form.value.tags),
-      rating: Number(form.value.rating), averageSpend: Number(form.value.averageSpend), livePopularity: Number(form.value.livePopularity) || 0, status: form.value.farmStatus, image: form.value.image
-    })
+    if (!form.value.name.trim() || !form.value.farmDistrictCode || !form.value.farmDetail.trim()) { saved = false; errorMessage = '请选择县区并填写门店名称和详细地址' }
+    else {
+      const previousBindings = farmMediaBindings(store.farms.find((farm) => farm.id === form.value.id))
+      try {
+        saved = await persistAndFinalizeAdminMedia(
+          getMediaRuntime().storage,
+          previousBindings,
+          () => farmMediaBindings(store.farms.find((farm) => farm.id === form.value.id)),
+          () => store.updateFarm(form.value.id, farmPayload()),
+          Boolean
+        )
+      } catch (error) {
+        saved = false
+        errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+      }
+    }
   }
   if (dialog.value === 'after-sale-init') {
     if (!form.value.initIssue) { saved = false; errorMessage = '请选择售后原因' }
@@ -1045,6 +1117,7 @@ function exportCurrent() {
     farms: [['门店', '区域', '选品数', 'GMV', '状态'], ...filteredFarms.value.map((item) => [item.name, item.region, item.selectedCount, round2(item.gmv), statusText(item.status)])],
     promoters: [['推客', '等级', '锁粉', '订单', 'GMV', '佣金'], ...filteredPromoters.value.map((item) => [item.name, item.level, item.fans, item.orders, round2(item.gmv), round2(item.commission)])],
     commissions: [['类型', '单号', '金额', '时间'], ...store.commissionSettlementRecords.map((r) => ['佣金结算', r.id, round2(r.amount), r.createdAt]), ...store.supplierSettlementRecords.map((r) => ['供应商结算', r.id, round2(r.amount), r.createdAt])],
+    routes: [['线路', '城市', '参考价', '描述'], ...store.routes.map((r) => [r.name, r.city, r.price, r.description])],
     dict: [['编码', '名称', '分组', '排序', '启用'], ...store.dictItems.map((item) => [item.code, item.label, store.dictGroups.find((group) => group.type === item.type)?.name || item.type, item.sort, item.enabled ? '启用' : '停用'])]
   }
   const rows = exports[active.value]
@@ -1085,9 +1158,15 @@ function rowEmoji(name: string) {
 }
 
 function statusText(status: string) {
-  const dict = store.dictItems.find((item) => (item.type === 'status' || item.type.endsWith('Status')) && item.code === status && item.enabled)
-  if (dict) return dict.label
+  const type = ['supplierStatus', 'productStatus', 'farmStatus', 'orderStatus', 'afterSaleStatus', 'promoterStatus', 'commissionStatus']
+    .find((candidate) => getDictOptions(candidate, { state: dictionaryState.value, includeDisabled: true }).some((item) => item.code === status))
+  if (type) return dictLabel(type, status, dictionaryState.value)
   return ({ pending: '待处理', cooperating: '合作中', paused: '已暂停', active: '已上架', offline: '已下架', rejected: '已驳回', shipping: '已发货', delivered: '已完成', 'after-sale': '售后中', processing: '处理中', resolved: '已解决' } as Record<string, string>)[status] || status
+}
+
+function supplierLoginStatus(supplier: Supplier) {
+  if (supplier.status === 'cooperating') return '可登录'
+  return supplier.status === 'pending' ? '待审核' : '已停用'
 }
 
 function channelText(channel: string) {
@@ -1184,7 +1263,7 @@ watch(active, async () => { await nextTick(); renderCharts() })
 watch(trendRange, async () => { if (active.value === 'dashboard') { await nextTick(); renderCharts() } })
 watch([() => store.loading, () => store.auth.isLoggedIn], async () => { if (!store.loading && store.auth.isLoggedIn) { await nextTick(); renderCharts() } })
 watch(keyword, () => { page.value = 1 })
-watch([productKeyword, productSourceFilter, productCategoryFilter, productStatusFilter], () => { page.value = 1 })
+watch([productKeyword, productSourceFilter, productCategoryFilter, productStatusFilter, productChannelFilter], () => { page.value = 1 })
 watch([supplierKeyword, supplierStatusFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, afterTypeFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, ruleKeyword, dictKeyword, farmAccountFilter, afterReasonFilter], () => { page.value = 1; commissionHistoryPage.value = 1 })
 watch(orderStatusFilter, () => { page.value = 1; selectedOrderIds.value = [] })
 const loginAccount = ref('admin')
@@ -1212,7 +1291,7 @@ onMounted(async () => {
   setInterval(refreshNow, 30000)
   disposeKeyboardButtons = installKeyboardButtonSupport()
   window.addEventListener('resize', resizeCharts)
-  const storageKeys = new Set([PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY])
+  const storageKeys = new Set([PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY])
   const onStorage = (event: StorageEvent) => { if (!event.key || storageKeys.has(event.key)) void store.refreshSharedState() }
   window.addEventListener('storage', onStorage)
   disposeStorageSync = () => window.removeEventListener('storage', onStorage)
@@ -1233,7 +1312,7 @@ onBeforeUnmount(() => {
     <view class="login-card">
       <view class="login-brand">
         <view class="brand-mark"><UiIcon name="sprout" :size="24" /></view>
-        <view><text class="brand-title">甄选好物供应链</text><text class="brand-sub">湖南省电子商务协会 · 运营管理后台</text></view>
+        <view><text class="brand-title">中选科技供应链管理后台</text><text class="brand-sub">湖南省电子商务协会 · 运营管理后台</text></view>
       </view>
       <view class="login-fields">
         <label class="login-field"><text>账号</text><input v-model="loginAccount" placeholder="请输入账号" confirm-type="next" /></label>
@@ -1247,7 +1326,7 @@ onBeforeUnmount(() => {
     <aside class="sidebar">
       <view class="brand">
         <view class="brand-mark"><UiIcon name="sprout" :size="22" /></view>
-        <view><text class="brand-title">甄选好物供应链</text><text class="brand-sub">湖南省电子商务协会</text></view>
+        <view><text class="brand-title">中选科技供应链管理后台</text><text class="brand-sub">湖南省电子商务协会</text></view>
       </view>
       <nav class="nav-list">
         <template v-for="group in navGroups" :key="group.name">
@@ -1268,7 +1347,7 @@ onBeforeUnmount(() => {
 
     <main class="main">
       <header class="topbar">
-        <view class="crumb">供应链中台 / <strong>{{ titles[active].title }}</strong></view>
+        <view class="crumb">中选科技供应链中台 / <strong>{{ titles[active].title }}</strong></view>
         <view class="top-actions">
           <label class="search-box"><UiIcon name="search" :size="17" /><input v-model="keyword" placeholder="搜索商品 / 供应商 / 订单号" /></label>
           <button class="period-button" :class="{ on: period === '本月' }" @click="switchPeriod(period === '本月' ? '本周' : '本月')">📅 {{ period }}</button>
@@ -1284,6 +1363,7 @@ onBeforeUnmount(() => {
             <button v-if="active === 'suppliers'" class="button primary" @click="openDialog('supplier')"><UiIcon name="plus" :size="16" />邀请供应商</button>
             <button v-if="active === 'products'" class="button primary" @click="openCatalogProductDialog()"><UiIcon name="plus" :size="16" />新增商品</button>
             <button v-if="active === 'categories'" class="button primary" @click="openCategoryDialog()"><UiIcon name="plus" :size="16" />新增品类</button>
+            <button v-if="active === 'routes'" class="button primary" @click="openRouteDialog()"><UiIcon name="plus" :size="16" />新增线路</button>
             <button v-if="active === 'prices'" class="button primary" @click="openDialog('policy')"><UiIcon name="plus" :size="16" />＋ 新建价格策略</button>
             <button v-if="active === 'farms'" class="button primary" @click="openDialog('farm')"><UiIcon name="plus" :size="16" />＋ 新增农家乐门店</button>
             <button v-if="active === 'promoters'" class="button primary" @click="openPromoterDialog()"><UiIcon name="plus" :size="16" />新增推客</button>
@@ -1302,13 +1382,13 @@ onBeforeUnmount(() => {
             <view class="kpi-card"><span class="kpi-icon">📦</span><text>履约订单</text><strong>{{ metrics.orderCount.toLocaleString('zh-CN') }} 单</strong><small>待发货 {{ metrics.orderStats.pending }} 单</small></view>
           </view>
           <view class="chart-grid">
-            <section class="panel trend-panel"><view class="panel-head"><h2>交易与订单趋势</h2><select v-model="trendRange" class="trend-range-select"><option value="7d">最近7天</option><option value="1m">最近一个月</option><option value="3m">最近三个月</option><option value="1y">最近一年</option></select></view><div ref="trendEl" class="chart"></div></section>
+            <section class="panel trend-panel"><view class="panel-head"><h2>交易与订单趋势</h2><SearchableSelect v-model="trendRange" :options="trendRangeOptions" size="small" search-placeholder="搜索时间范围" /></view><div ref="trendEl" class="chart"></div></section>
             <section class="panel"><view class="panel-head"><h2>品类销售占比</h2><text>8 类商品品类</text></view><div ref="categoryEl" class="chart"></div></section>
           </view>
           <view class="lower-grid">
             <section class="panel"><view class="panel-head"><h2>热销商品 TOP 5</h2><text>本月</text></view>
               <view v-for="product in metrics.hotProducts" :key="product.name" class="rank-row">
-                <image class="hot-thumb" :src="product.image || '/static/images/rice.webp'" mode="aspectFit" /><view><strong>{{ product.name }}</strong><small>供应商：{{ product.supplier }}</small></view><view class="hot-right"><b>{{ money(product.amount) }}</b><small>{{ product.units }} 件</small></view>
+                <BusinessImage class="hot-thumb" :src="product.image" mode="aspectFit" /><view><strong>{{ product.name }}</strong><small>供应商：{{ product.supplier }}</small></view><view class="hot-right"><b>{{ money(product.amount) }}</b><small>{{ product.units }} 件</small></view>
               </view>
             </section>
             <section class="panel"><view class="panel-head"><h2>待办事项</h2><text>{{ store.pendingSuppliers + store.pendingProducts + store.pendingAfterSales + 1 }} 项待处理</text></view>
@@ -1326,7 +1406,7 @@ onBeforeUnmount(() => {
             <view><small>待审核资质</small><strong>{{ supplierStatCounts.pending }} 家</strong><span>需在 48h 内处理</span></view>
             <view><small>供销社渠道</small><strong>{{ supplierStatCounts.coop }} 家</strong></view>
           </view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierKeyword" placeholder="搜索供应商名称 / 品类 / 区域" /></label><select v-model="supplierStatusFilter"><option value="全部">全部状态</option><option value="待审核">待审核</option><option value="已合作">已合作</option><option value="已停用">已停用</option><option value="供销社">供销社</option></select></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierKeyword" placeholder="搜索供应商名称 / 品类 / 区域" /></label><SearchableSelect v-model="supplierStatusFilter" :options="supplierStatusOptions" size="medium" search-placeholder="搜索供应商状态" /></view>
           <view class="table-row table-head supplier-grid"><text>供应商</text><text>主营品类</text><text>商品数</text><text>资质与状态</text><text>操作</text></view>
           <view v-for="item in pagedSuppliers" :key="item.id" class="table-row supplier-grid">
             <view><strong>{{ item.name }}</strong><small>{{ item.region }} · {{ item.coop ? '供销社' : (item.name.includes('合作社') ? '合作社' : '供应商') }}</small></view><view><strong>{{ item.category }}</strong><small>{{ item.region }}</small></view><text>{{ supplierProducts(item).length }}</text>
@@ -1338,7 +1418,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'categories'" class="data-panel">
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="categoryKeyword" placeholder="搜索品类名称 / 类型" /></label><select v-model="categoryTypeFilter"><option value="全部">全部类型</option><option value="product">商品品类</option><option value="supplier">供应商品类</option><option value="general">通用</option></select></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="categoryKeyword" placeholder="搜索品类名称 / 类型" /></label><SearchableSelect v-model="categoryTypeFilter" :options="categoryTypeFilterOptions" size="medium" search-placeholder="搜索品类类型" /></view>
           <view class="table-row table-head category-grid"><text>品类名称</text><text>类型</text><text>使用数量</text><text>操作</text></view>
           <view v-for="item in pagedCategories" :key="item.id" class="table-row category-grid">
             <strong>{{ item.name }}</strong>
@@ -1349,12 +1429,24 @@ onBeforeUnmount(() => {
           <view v-if="!filteredCategories.length" class="empty-state">暂无品类</view>
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredCategories.length" @change="page = $event" />
         </section>
+        <section v-else-if="active === 'routes'" class="data-panel">
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="15" /><input v-model="routeSearch" placeholder="搜索线路名称 / 城市" /></label></view>
+          <view class="table-row table-head route-grid"><text>线路</text><text>城市</text><text>参考价</text><text>描述</text><text>操作</text></view>
+          <view v-for="item in store.routes.filter((r) => r.name.includes(routeSearch) || r.city.includes(routeSearch))" :key="item.id" class="table-row route-grid">
+            <view class="route-cell"><BusinessImage class="route-thumb" :src="item.image" mode="aspectFill" /><strong>{{ item.name }}</strong></view>
+            <text>{{ item.city }}</text>
+            <text>¥{{ formatNumber(item.price) }}</text>
+            <text>{{ item.description }}</text>
+            <view class="row-actions"><button @click="openRouteEdit(item)">编辑</button><button class="danger" @click="removeRoute(item)">删除</button></view>
+          </view>
+          <view v-if="!store.routes.length" class="empty-state">暂无旅游线路</view>
+        </section>
 
         <section v-else-if="active === 'products'" class="data-panel">
-          <view class="goods-tools"><view class="module-search"><view class="store-filter catalog-filter"><input v-model="productChannelSearch" placeholder="搜索商品渠道" @focus="openProductChannelDropdown" @click="productChannelDropdownOpen = true" @input="productChannelDropdownOpen = true" @blur="closeProductChannelDropdown" /><view v-if="productChannelDropdownOpen" class="store-dropdown"><view v-for="option in filteredProductChannelOptions" :key="option.value" class="store-option" @mousedown.prevent @click="selectProductChannel(option)">{{ option.label }}</view><view v-if="!filteredProductChannelOptions.length" class="store-option muted">没有匹配渠道</view></view></view><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称 / 供应商" /></label><select v-model="productCategoryFilter"><option value="全部">全品类</option><option v-for="option in productCategories" :key="option.id" :value="option.name">{{ option.name }}</option></select><select v-model="productStatusFilter"><option value="全部">全部状态</option><option value="active">已上架</option><option value="offline">已下架</option><option value="pending">待审核</option></select></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
+          <view class="goods-tools"><view class="module-search"><SearchableSelect v-model="productChannelFilter" :options="catalogChannelFilterOptions" size="medium" search-placeholder="搜索商品渠道" /><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称 / 供应商" /></label><SearchableSelect v-model="productCategoryFilter" :options="productCategoryFilterOptions" size="medium" search-placeholder="搜索商品品类" /><SearchableSelect v-model="productStatusFilter" :options="productStatusOptions" size="medium" search-placeholder="搜索商品状态" /></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
           <view class="table-row table-head unified-product-grid"><text>商品</text><text>渠道</text><text>品类</text><text>价格</text><text>库存</text><text>状态</text><text>操作</text></view>
           <view v-for="product in pagedUnifiedProductRows" :key="product.id" class="table-row unified-product-grid">
-            <view class="product-cell"><image class="product-thumb" :src="product.image || '/static/images/rice.webp'" mode="aspectFit" /><view><strong>{{ product.name }}</strong><view class="tag-row"><span v-for="tag in product.tags.slice(0, 3)" :key="tag" class="product-tag">{{ tag }}</span></view></view></view>
+            <view class="product-cell"><BusinessImage class="product-thumb" :src="product.image" mode="aspectFit" /><view><strong>{{ product.name }}</strong><view class="tag-row"><span v-for="tag in product.tags.slice(0, 3)" :key="tag" class="product-tag">{{ tag }}</span></view></view></view>
             <view class="channel-tags"><span class="channel-tag" :class="{ live: product.channel === 'live', store: product.channel === 'store' }">{{ product.channel === 'store' ? '门店商品' : product.channel === 'live' ? '直播商品' : '全部商品' }}</span></view>
             <text>{{ product.category }}</text>
             <view class="price-cell">
@@ -1399,7 +1491,7 @@ onBeforeUnmount(() => {
         </view>
 
         <section v-else-if="active === 'orders'" class="data-panel">
-           <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></label><view class="store-filter"><input v-model="orderStoreSearch" placeholder="全部门店（可搜索）" @focus="storeDropdownOpen = true" @click="storeDropdownOpen = true" @input="storeDropdownOpen = true" @blur="closeStoreDropdown" /><view v-if="storeDropdownOpen" class="store-dropdown"><view class="store-option" @mousedown.prevent @click="selectOrderStore('')">全部门店</view><view v-for="option in filteredOrderStoreOptions" :key="option" class="store-option" @mousedown.prevent @click="selectOrderStore(option)">{{ option }}</view></view></view><select v-model="orderChannelFilter"><option value="全部来源">全部来源</option><option value="商城">商城</option><option value="直播">直播</option><option value="进货">进货</option></select><select v-model="orderStatusFilter"><option value="全部">全部状态</option><option value="待发货">待发货</option><option value="已发货">已发货</option><option value="已完成">已完成</option><option value="已支付取消">已支付取消</option><option value="未支付取消">未支付取消</option></select><select v-model="orderAfterFilter"><option value="全部">全部售后</option><option value="未发起">未发起</option><option value="售后中">售后中</option><option value="售后拒绝">售后拒绝</option><option value="待退款">待退款</option><option value="待退货">待退货</option><option value="已退款">已退款</option><option value="退款失败">退款失败</option></select></view><view class="toolbar-actions"><button class="button secondary" :disabled="!selectedOrderIds.length || isOperating('batch-ship')" @click="batchShip">{{ isOperating('batch-ship') ? '发货处理中...' : '批量发货' }}</button><button class="button primary" @click="exportCurrent">⬇ 导出订单</button></view></view>
+           <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></label><SearchableSelect v-model="orderStoreFilter" :options="orderStoreSelectOptions" size="medium" search-placeholder="搜索门店" /><SearchableSelect v-model="orderChannelFilter" :options="orderChannelOptions" size="medium" search-placeholder="搜索订单来源" /><SearchableSelect v-model="orderStatusFilter" :options="orderStatusOptions" size="medium" search-placeholder="搜索订单状态" /><SearchableSelect v-model="orderAfterFilter" :options="orderAfterOptions" size="medium" search-placeholder="搜索售后状态" /></view><view class="toolbar-actions"><button class="button secondary" :disabled="!selectedOrderIds.length || isOperating('batch-ship')" @click="batchShip">{{ isOperating('batch-ship') ? '发货处理中...' : '批量发货' }}</button><button class="button primary" @click="exportCurrent">⬇ 导出订单</button></view></view>
           <view class="fulfill-strip">
             <view class="done"><b>✓</b><small>下单付款</small><strong>{{ metrics.orderStats.total }} 单</strong></view>
             <view class="done"><b>✓</b><small>中台接单</small><strong>自动分配供应商</strong></view>
@@ -1409,7 +1501,7 @@ onBeforeUnmount(() => {
             <view><b>6</b><small>结算分账</small><strong>T+1 结算</strong></view>
           </view>
                     <view class="table-row table-head order-grid"><text>订单号</text><text>商品</text><text>数量</text><text>下单门店 / 渠道</text><text>金额</text><text>实付金额</text><text>来源</text><text>状态</text><text>售后状态</text><text>操作</text></view>
-          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><button v-if="item.status === 'pending'" class="order-select" :class="{ selected: selectedOrderIds.includes(item.id) }" :title="selectedOrderIds.includes(item.id) ? '取消选择' : '选择订单'" @click="toggleOrderSelection(item.id)"><UiIcon v-if="selectedOrderIds.includes(item.id)" name="check" :size="12" /></button><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><image v-if="p.image" class="order-thumb" :src="p.image" mode="aspectFit" @click="previewImage(p.image)" /><span v-else class="row-emoji">{{ rowEmoji(p.name) }}</span><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id)" @click="openAfterSaleInit(item)">发起售后</button><button v-if="item.status === 'pending'" @click="confirmShip(item)">发货</button><button v-else @click="openDetail('order', item.id)">流转</button></view></view>
+          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><button v-if="item.status === 'pending'" class="order-select" :class="{ selected: selectedOrderIds.includes(item.id) }" :title="selectedOrderIds.includes(item.id) ? '取消选择' : '选择订单'" @click="toggleOrderSelection(item.id)"><UiIcon v-if="selectedOrderIds.includes(item.id)" name="check" :size="12" /></button><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><BusinessImage v-if="p.image" class="order-thumb" :src="p.image" mode="aspectFit" @click="previewImage" /><span v-else class="row-emoji">{{ rowEmoji(p.name) }}</span><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id)" @click="openAfterSaleInit(item)">发起售后</button><button v-if="item.status === 'pending'" @click="confirmShip(item)">发货</button><button v-else @click="openDetail('order', item.id)">流转</button></view></view>
           <view v-if="!visibleOrders.length" class="empty-state">没有符合筛选条件的订单</view><PaginationBar :page="page" :page-size="pageSize" :total="visibleOrders.length" @change="page = $event" />
         </section>
 
@@ -1423,9 +1515,9 @@ onBeforeUnmount(() => {
           <view class="summary-strip"><view><small>工单总量</small><strong>{{ store.afterSales.length }} 单</strong></view><view><small>处理中</small><strong>{{ store.pendingAfterSales }} 单</strong></view><view><small>售后金额</small><strong>{{ money(store.afterSales.reduce((sum,item) => sum + item.amount, 0)) }}</strong></view><view><small>已退款</small><strong>{{ store.afterSales.filter(item => item.status === 'refunded').length }} 单</strong></view></view>
           <view class="filter-chips"><button v-for="item in ['售后工单','结算流水']" :key="item" :class="{ active: afterTab === item }" @click="afterTab = item; page = 1">{{ item }}</button></view>
           <template v-if="afterTab === '售后工单'">
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="afterKeyword" placeholder="搜索工单号 / 订单号 / 商品 / 申请方" /></label><select v-model="afterTypeFilter"><option value="全部">全部类型</option><option value="reship">破损补寄</option><option value="refund">退货退款</option><option value="claim">质量理赔</option></select><select v-model="afterReasonFilter"><option value="全部">全部原因</option><option v-for="reason in afterReasonOptions" :key="reason" :value="reason">{{ reason }}</option></select></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="afterKeyword" placeholder="搜索工单号 / 订单号 / 商品 / 申请方" /></label><SearchableSelect v-model="afterTypeFilter" :options="afterTypeFilterOptions" size="medium" search-placeholder="搜索售后类型" /><SearchableSelect v-model="afterReasonFilter" :options="afterReasonFilterSelectOptions" size="medium" search-placeholder="搜索售后原因" /></view>
           <view class="table-row table-head after-grid"><text>工单</text><text>商品</text><text>数量</text><text>类型</text><text>申请金额</text><text>退款金额</text><text>状态</text><text>操作</text></view>
-          <view v-for="item in pagedAfterSales" :key="item.id" class="table-row after-grid"><view><strong>{{ item.id }}</strong><small>{{ item.orderId }}</small></view><view class="product-cell"><image class="after-thumb" :src="item.image || '/static/images/rice.webp'" mode="aspectFit" /><view><strong>{{ item.productName }}</strong><small>{{ item.issue || item.applicant }}</small></view></view><text>{{ item.quantity ?? '—' }}</text><text>{{ item.type === 'reship' ? '破损补寄' : item.type === 'refund' ? '退货退款' : '质量理赔' }}</text><strong>{{ money(item.amount) }}</strong><text class="refund-amount">{{ item.refundAmount != null ? money(item.refundAmount) : '—' }}</text><span class="status" :class="item.status">{{ afterSaleStatusText(item.status) }}</span><view class="row-actions"><template v-if="item.status === 'processing'"><button @click="confirmAction('确认拒绝该售后申请？', () => runOperation(`after-${item.id}`, () => store.rejectAfterSale(item.id), '已拒绝售后'))">拒绝</button><button @click="confirmAction('确认同意退款？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleRefund(item.id), '已同意退款'))">同意退款</button><button @click="confirmAction('确认同意退货？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleReturn(item.id), '已同意退货'))">同意退货</button></template><template v-else-if="item.status === 'refund-pending'"><button @click="confirmAction('确认退款已到账？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, true), '退款成功'))">确认退款</button><button class="danger" @click="confirmAction('确认退款失败？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, false), '已标记退款失败'))">退款失败</button></template><button v-else @click="openDetail('afterSale', item.id)">记录</button></view></view><view v-if="!filteredAfterSales.length" class="empty-state">没有符合条件的售后工单</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredAfterSales.length" @change="page = $event" />
+          <view v-for="item in pagedAfterSales" :key="item.id" class="table-row after-grid"><view><strong>{{ item.id }}</strong><small>{{ item.orderId }}</small></view><view class="product-cell"><BusinessImage class="after-thumb" :src="item.image" mode="aspectFit" /><view><strong>{{ item.productName }}</strong><small>{{ item.issue || item.applicant }}</small></view></view><text>{{ item.quantity ?? '—' }}</text><text>{{ item.type === 'reship' ? '破损补寄' : item.type === 'refund' ? '退货退款' : '质量理赔' }}</text><strong>{{ money(item.amount) }}</strong><text class="refund-amount">{{ item.refundAmount != null ? money(item.refundAmount) : '—' }}</text><span class="status" :class="item.status">{{ afterSaleStatusText(item.status) }}</span><view class="row-actions"><template v-if="item.status === 'processing'"><button @click="confirmAction('确认拒绝该售后申请？', () => runOperation(`after-${item.id}`, () => store.rejectAfterSale(item.id), '已拒绝售后'))">拒绝</button><button @click="confirmAction('确认同意退款？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleRefund(item.id), '已同意退款'))">同意退款</button><button @click="confirmAction('确认同意退货？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleReturn(item.id), '已同意退货'))">同意退货</button></template><template v-else-if="item.status === 'refund-pending'"><button @click="confirmAction('确认退款已到账？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, true), '退款成功'))">确认退款</button><button class="danger" @click="confirmAction('确认退款失败？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id, false), '已标记退款失败'))">退款失败</button></template><button v-else @click="openDetail('afterSale', item.id)">记录</button></view></view><view v-if="!filteredAfterSales.length" class="empty-state">没有符合条件的售后工单</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredAfterSales.length" @change="page = $event" />
           </template>
           <view v-else class="settlement-history after-flow">
             <view v-if="!store.supplierSettlementRecords.length && !store.commissionSettlementRecords.length" class="empty-state">暂无结算流水</view>
@@ -1442,12 +1534,12 @@ onBeforeUnmount(() => {
             <view><small>已开通小程序</small><strong>{{ metrics.farmStats.liveCount }} 个</strong><span>{{ metrics.farmStats.configuring }} 家配置中</span></view>
             <view><small>门店自有商品</small><strong>{{ metrics.farmStats.selfProducts }} 个</strong><span class="pending-text">待审核 {{ metrics.farmStats.pendingSelfProducts }} 个</span></view>
           </view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="搜索门店名称 / 区域" /></label><select v-model="farmCityFilter"><option value="全部城市">全部城市</option><option v-for="city in farmCityOptions" :key="city" :value="city">{{ city }}</option></select><select v-model="farmStatusFilter"><option value="全部门店">全部门店</option><option value="经营中">经营中</option><option value="筹备中">筹备中</option><option value="已停用">已停用</option><option value="试点样板">试点样板</option></select></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="搜索门店名称 / 区域" /></label><SearchableSelect v-model="farmCityFilter" :options="farmCityFilterOptions" size="medium" search-placeholder="搜索城市" /><SearchableSelect v-model="farmStatusFilter" :options="farmStatusFilterOptions" size="medium" search-placeholder="搜索门店状态" /></view>
           <view class="table-row table-head farm-grid"><text>农家乐门店</text><text>区域</text><text>小程序</text><text>已选品</text><text>本月 GMV</text><text>人气值</text><text>状态</text><text>操作</text></view>
-          <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><image class="farm-thumb" :src="item.image || '/static/images/farmhouse.webp'" mode="aspectFit" @click="previewImage(item.image || '/static/images/farmhouse.webp')" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><text>{{ item.livePopularity.toLocaleString('zh-CN') }}</text><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button @click="openFarmEdit(item)">修改</button></view></view><view v-if="!filteredFarms.length" class="empty-state">没有符合条件的门店</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredFarms.length" @change="page = $event" />
+          <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><BusinessImage class="farm-thumb" :src="item.image" mode="aspectFit" @click="previewImage" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><text>{{ item.livePopularity.toLocaleString('zh-CN') }}</text><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button @click="openFarmEdit(item)">修改</button></view></view><view v-if="!filteredFarms.length" class="empty-state">没有符合条件的门店</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredFarms.length" @change="page = $event" />
           </template>
           <template v-else>
-            <view class="module-search"><select v-model="farmAccountFilter"><option value="全部">全部门店</option><option v-for="farm in store.farms" :key="farm.id" :value="farm.id">{{ farm.name }}</option></select><button class="button primary" @click="openAccountDialog()"><UiIcon name="plus" :size="16" />新增门店账号</button></view>
+            <view class="module-search"><SearchableSelect v-model="farmAccountFilter" :options="farmAccountSelectOptions" size="medium" search-placeholder="搜索门店" /><button class="button primary" @click="openAccountDialog()"><UiIcon name="plus" :size="16" />新增门店账号</button></view>
             <view class="table-row table-head account-grid"><text>门店</text><text>姓名</text><text>登录账号</text><text>角色</text><text>推广</text><text>状态</text><text>操作</text></view>
             <view v-for="item in pagedStoreAccounts" :key="item.id" class="table-row account-grid"><text>{{ store.farms.find((farm) => farm.id === item.farmId)?.name || item.farmId }}</text><strong>{{ item.name }}</strong><text>{{ item.account }}</text><span class="status" :class="item.role === 'owner' ? 'active' : 'pending'">{{ item.role === 'owner' ? '店主' : '店员' }}</span><span class="status" :class="item.promoEnabled ? 'active' : 'rejected'">{{ item.promoEnabled ? '已开' : '关闭' }}</span><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><view class="row-actions"><button @click="openAccountDialog(item)">修改</button><button class="danger" @click="store.toggleStoreAccount(item.id)">{{ item.enabled ? '停用' : '启用' }}</button></view></view>
             <view v-if="!filteredStoreAccounts.length" class="empty-state">暂无门店账号</view>
@@ -1463,7 +1555,7 @@ onBeforeUnmount(() => {
             <view><small>累计锁粉</small><strong>{{ metrics.promoterStats.lockedFans.toLocaleString('zh-CN') }}</strong><span class="positive">带货 GMV ¥{{ formatNumber(store.promoters.reduce((sum, p) => sum + p.gmv, 0)) }}</span></view>
           </view>
           <view class="filter-chips solid"><button v-for="item in ['推客排行','主播排行']" :key="item" :class="{ active: promoterRankTab === item }" @click="promoterRankTab = item; page = 1">{{ item }}</button></view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="搜索推客名称 / 等级" /></label><select v-model="promoterTypeFilter"><option value="全部">全部类型</option><option value="推客">推客</option><option value="主播">主播</option><option value="达人">达人</option></select></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="搜索推客名称 / 等级" /></label><SearchableSelect v-model="promoterTypeFilter" :options="promoterTypeOptions" size="medium" search-placeholder="搜索推客类型" /></view>
           <view class="table-row table-head promoter-grid"><text>推客 / 主播</text><text>类型</text><text>锁粉数</text><text>订单</text><text>带货 GMV</text><text>佣金</text><text>状态</text><text>操作</text></view>
           <view v-for="item in pagedPromoters" :key="item.id" class="table-row promoter-grid"><view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view><span class="source-pill" :class="item.type === '主播' ? 'host' : item.type === '达人' ? 'expert' : 'platform'">{{ item.type || '推客' }}</span><text>{{ item.fans }}</text><text>{{ item.orders }}</text><strong>{{ money(item.gmv) }}</strong><strong class="commission">{{ money(item.commission) }}</strong><span class="status" :class="item.settled ? 'delivered' : 'pending'">{{ item.settled ? '已结算' : '待结算' }}</span><view class="row-actions"><button @click="openPromoterEdit(item)">修改</button></view></view>
           <view v-if="!visiblePromoters.length" class="empty-state">没有符合条件的推客</view><PaginationBar :page="page" :page-size="pageSize" :total="visiblePromoters.length" @change="page = $event" />
@@ -1472,7 +1564,7 @@ onBeforeUnmount(() => {
         <section v-else-if="active === 'commissions'" class="data-panel">
           <view class="filter-chips solid"><button v-for="item in ['佣金结算','供应商结算','佣金规则','消费分成']" :key="item" :class="{ active: commissionTab === item }" @click="commissionTab = item; page = 1">{{ item }}</button></view>
           <template v-if="commissionTab === '佣金结算'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><select v-model="commissionStatusFilter"><option value="全部">全部结算状态</option><option value="未结算">未结算</option><option value="已结算">已结算</option></select></view>
+            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" size="medium" search-placeholder="搜索结算状态" /></view>
             <view class="commission-status-table">
               <view class="panel-head"><h2>推客结算状态</h2><text>未结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) > 0).length }} 人 · 已结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) <= 0).length }} 人</text></view>
               <view class="table-row table-head commission-status-grid"><text>推客</text><text>类型</text><text>待结佣金</text><text>结算状态</text></view>
@@ -1521,15 +1613,15 @@ onBeforeUnmount(() => {
             </view>
             <view class="dict-tool-actions">
               <template v-if="activeDictGroup">
-                <button class="button secondary" @click="openDictGroupEdit(activeDictGroup)">编辑分组</button>
-                <button class="button danger-button" @click="removeDictGroup(activeDictGroup)">删除分组</button>
+                <button v-if="activeDictionaryPermissions.editType" class="button secondary" @click="openDictGroupEdit(activeDictGroup)">编辑分组</button>
+                <button v-if="activeDictionaryPermissions.deleteGroup" class="button danger-button" @click="removeDictGroup(activeDictGroup)">删除分组</button>
               </template>
               <button class="button secondary" @click="openDictGroupDialog()"><UiIcon name="plus" :size="16" />新增分组</button>
-              <button class="button primary" @click="openDictDialog()"><UiIcon name="plus" :size="16" />新增字典项</button>
+              <button v-if="activeDictionaryPermissions.addItem" class="button primary" @click="openDictDialog()"><UiIcon name="plus" :size="16" />新增字典项</button>
             </view>
           </view>
           <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="dictKeyword" placeholder="搜索编码 / 名称" /></label></view>
-          <view class="dict-table"><view class="table-row table-head dict-grid"><text>编码</text><text>名称</text><text>启用</text><text>排序</text><text>操作</text></view><view v-for="item in pagedDictItems" :key="item.id" class="table-row dict-grid"><strong>{{ item.code }}</strong><text>{{ item.label }}</text><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><text>{{ item.sort }}</text><view class="row-actions"><button @click="openDictDialog(item)">修改</button><button class="danger" @click="store.removeDictItem(item.id)">删除</button></view></view></view>
+          <view class="dict-table"><view class="table-row table-head dict-grid"><text>编码</text><text>名称</text><text>启用</text><text>排序</text><text>操作</text></view><view v-for="item in pagedDictItems" :key="item.id" class="table-row dict-grid"><strong>{{ item.code }}</strong><text>{{ item.label }}</text><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><text>{{ item.sort }}</text><view class="row-actions"><button @click="openDictDialog(item)">修改</button><button v-if="activeDictionaryPermissions.deleteItem" class="danger" @click="removeDictItem(item.id)">删除</button></view></view></view>
           <view v-if="!filteredDictItems.length" class="empty-state">暂无字典项</view>
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredDictItems.length" @change="page = $event" />
         </section>
@@ -1538,34 +1630,20 @@ onBeforeUnmount(() => {
 
      <view v-if="dialog" class="modal-mask" @click.self="closeOverlay">
        <view class="modal" role="dialog" aria-modal="true" @keydown="trapFocus">
-         <view class="modal-head"><view><h2>{{ dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>保存后立即写入本地演示数据</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
+         <view class="modal-head"><view><h2>{{ dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'route' ? '新增旅游线路' : dialog === 'route-edit' ? '编辑旅游线路' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>保存后立即写入本地演示数据</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
         <label v-if="['policy','policy-edit'].includes(dialog)" class="field"><text>名称</text><input v-model="form.name" placeholder="请输入名称" /></label>
         <template v-if="dialog === 'supplier' || dialog === 'supplier-edit'">
           <label class="field"><text>供应商名称</text><input v-model="form.name" placeholder="请输入供应商名称" /></label>
-          <label class="field"><text>供应商类型</text><select v-model="form.coop"><option :value="false">合作供应商</option><option :value="true">供销社渠道</option></select></label>
-          <label class="field"><text>主营品类</text><select v-model="form.category"><option v-for="option in supplierCategories" :key="option.id" :value="option.name">{{ option.name }}</option></select></label>
+          <view class="field"><text>供应商类型</text><SearchableSelect v-model="form.coop" :options="supplierTypeOptions" search-placeholder="搜索供应商类型" /></view>
+          <view class="field"><text>主营品类</text><SearchableSelect v-model="form.category" :options="supplierCategoryOptions" search-placeholder="搜索主营品类" /></view>
           <label class="field"><text>所在区域</text><input v-model="form.region" placeholder="如 怀化靖州" /></label>
           <label class="field"><text>联系人手机</text><input v-model="form.contactPhone" maxlength="11" placeholder="请输入11位手机号" /></label>
-          <view class="field"><text>营业执照</text>
-            <view class="upload-row">
-              <button v-if="!form.businessLicense" class="upload-button" @click="chooseLicense">＋ 上传图片</button>
-              <template v-else>
-                <image class="upload-preview" :src="form.businessLicense" mode="aspectFit" @click="previewImage(form.businessLicense)" />
-                <button class="upload-button" @click="chooseLicense">重新选择</button>
-                <button class="upload-button danger" @click="removeLicense">移除</button>
-              </template>
-            </view>
-          </view>
-          <view class="field"><text>生产 / 经营许可</text>
-            <view class="upload-row">
-              <button v-if="!form.permit" class="upload-button" @click="choosePermit">＋ 上传图片</button>
-              <template v-else>
-                <image class="upload-preview" :src="form.permit" mode="aspectFit" @click="previewImage(form.permit)" />
-                <button class="upload-button" @click="choosePermit">重新选择</button>
-                <button class="upload-button danger" @click="removePermit">移除</button>
-              </template>
-            </view>
-          </view>
+          <label class="field"><text>登录账号</text><input :value="form.contactPhone" disabled placeholder="保存后自动生成" /></label>
+          <label v-if="dialog === 'supplier-edit'" class="field"><text>新密码</text><input v-model="form.supplierPassword" type="password" maxlength="20" placeholder="留空则保留原密码" /></label>
+          <label class="field"><text>营业执照编号</text><input v-model="form.businessLicenseNumber" placeholder="请输入营业执照编号" /></label>
+          <view class="field"><text>营业执照图片</text><ImageUploader v-model="form.businessLicense" purpose="supplier-business-license" profile="license" @error="showToast" /></view>
+          <label class="field"><text>生产 / 经营许可编号</text><input v-model="form.permitNumber" placeholder="请输入许可编号" /></label>
+          <view class="field"><text>生产 / 经营许可图片</text><ImageUploader v-model="form.permit" purpose="supplier-permit" profile="license" @error="showToast" /></view>
           <view class="field"><text>证照有效期</text>
             <picker mode="date" :value="form.validUntil" @change="onValidUntilChange">
               <view class="picker-field" :class="{ placeholder: !form.validUntil }">{{ form.validUntil || '请选择日期' }}</view>
@@ -1574,52 +1652,62 @@ onBeforeUnmount(() => {
         </template>
         <template v-if="dialog === 'category' || dialog === 'category-edit'">
           <label class="field"><text>品类名称</text><input v-model="form.name" placeholder="请输入品类名称" /></label>
-          <label class="field"><text>品类类型</text><select v-model="form.categoryType"><option value="product">商品品类</option><option value="supplier">供应商品类</option><option value="general">通用</option></select></label>
+          <view class="field"><text>品类类型</text><SearchableSelect v-model="form.categoryType" :options="categoryTypeOptions" search-placeholder="搜索品类类型" /></view>
+        </template>
+        <template v-if="dialog === 'route' || dialog === 'route-edit'">
+          <label class="field"><text>线路名称</text><input v-model="form.routeName" placeholder="如：湘西风情两日游" /></label>
+          <label class="field"><text>所属城市</text><input v-model="form.routeCity" placeholder="如：湘西州" /></label>
+          <label class="field"><text>线路描述</text><input v-model="form.routeDesc" placeholder="如：茶园+非遗+农家宴" /></label>
+          <label class="field"><text>参考价格（元）</text><input v-model.number="form.routePrice" type="number" /></label>
+          <view class="field"><text>线路封面图</text><ImageUploader v-model="form.routeImage" purpose="route-cover" profile="normal" /></view>
         </template>
         <template v-if="dialog === 'dict' || dialog === 'dict-edit'">
-          <label class="field"><text>字典编码</text><input v-model="form.dictCode" placeholder="如 pending / 湘西州 / transport" /></label>
+          <label class="field"><text>字典编码</text><input v-model="form.dictCode" placeholder="如 pending / transport" :disabled="!activeDictionaryPermissions.editCode" /></label>
           <label class="field"><text>显示名称</text><input v-model="form.dictLabel" placeholder="如 待处理" /></label>
           <label class="field"><text>排序</text><input v-model.number="form.dictSort" type="number" min="0" /></label>
-          <label class="field"><text>启用状态</text><select v-model="form.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label>
+          <view class="field"><text>显示色调</text><SearchableSelect v-model="form.dictTone" :options="dictionaryToneOptions" search-placeholder="搜索色调" /></view>
+          <view class="field"><text>启用状态</text><SearchableSelect v-model="form.enabled" :options="enabledOptions" search-placeholder="搜索启用状态" /></view>
         </template>
         <template v-if="dialog === 'dict-group' || dialog === 'dict-group-edit'">
           <label class="field"><text>分组名称</text><input v-model="form.dictGroupName" placeholder="如 城市信息 / 数据状态" /></label>
-          <label class="field"><text>类型编码</text><input v-model="form.dictGroupType" placeholder="如 city / status（英文小写，唯一）" :disabled="dialog === 'dict-group-edit'" /></label>
+          <label class="field"><text>类型编码</text><input v-model="form.dictGroupType" placeholder="如 productTag（英文，唯一）" :disabled="dialog === 'dict-group-edit' && !activeDictionaryPermissions.editType" /></label>
         </template>
         <template v-if="dialog === 'store-account' || dialog === 'store-account-edit'">
-          <label class="field"><text>所属门店</text><select v-model="form.accountFarmId" :disabled="dialog === 'store-account-edit'"><option value="">请选择门店</option><option v-for="farm in store.farms" :key="farm.id" :value="farm.id">{{ farm.name }}</option></select></label>
+          <view class="field"><text>所属门店</text><SearchableSelect v-model="form.accountFarmId" :options="accountFarmSelectOptions" :disabled="dialog === 'store-account-edit'" search-placeholder="搜索所属门店" /></view>
           <label class="field"><text>姓名</text><input v-model="form.accountName" placeholder="如 王店长" /></label>
           <label class="field"><text>登录账号（手机号）</text><input v-model="form.accountPhone" placeholder="如 13800000001" /></label>
           <label class="field"><text>登录密码</text><input v-model="form.accountPassword" placeholder="如 123456" /></label>
-          <label class="field"><text>角色</text><select v-model="form.accountRole"><option value="owner">店主</option><option value="staff">店员</option></select></label><label v-if="form.accountRole === 'staff'" class="field"><text>店员推广权限</text><select v-model="form.accountPromo"><option :value="true">开启（可生成推广码）</option><option :value="false">关闭</option></select></label>
+          <view class="field"><text>角色</text><SearchableSelect v-model="form.accountRole" :options="accountRoleOptions" search-placeholder="搜索账号角色" /></view><view v-if="form.accountRole === 'staff'" class="field"><text>店员推广权限</text><SearchableSelect v-model="form.accountPromo" :options="accountPromotionOptions" search-placeholder="搜索推广权限" /></view>
         </template>
-        <template v-if="dialog === 'policy' || dialog === 'policy-edit'"><label class="field"><text>策略类型</text><select v-model="form.type" :disabled="dialog === 'policy-edit'"><option value="group">集采价</option><option value="ladder">阶梯价</option><option value="region">区域价</option><option value="member">会员价</option></select></label><label class="field"><text>适用范围</text><input v-model="form.scope" /></label><label class="field"><text>优惠比例（1-100%）</text><input v-model.number="form.discount" type="number" min="1" max="100" /></label><label v-if="dialog === 'policy-edit'" class="field"><text>规则状态</text><select v-model="form.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label><view v-if="form.type === 'ladder'" class="tier-editor"><view class="tier-editor-head"><text>阶梯档位</text><button class="mini-button" type="button" @click="addTier">＋ 添加档位</button></view><view v-for="(tier, ti) in form.tiers" :key="ti" class="tier-editor-row"><label class="field"><text>起始数量</text><input v-model.number="tier.minQty" type="number" min="1" placeholder="如 1" /></label><label class="field"><text>上限数量（留空=无上限）</text><input v-model.number="tier.maxQty" type="number" min="1" placeholder="留空为无上限" /></label><label class="field"><text>集采单价</text><input v-model.number="tier.price" type="number" min="0" step="0.1" placeholder="如 42" /></label><label class="field"><text>让利 %</text><input v-model.number="tier.discountOff" type="number" min="0" max="100" placeholder="如 30" /></label><button class="compact-button danger" type="button" @click="removeTier(ti)">删除</button></view></view></template>
-        <template v-if="dialog === 'after-sale-init'"><label class="field"><text>售后订单</text><input :value="form.id" disabled /></label><label class="field"><text>售后类型</text><select v-model="form.result"><option value="refund">退款</option><option value="reship">补发</option><option value="claim">理赔</option></select></label><label class="field"><text>售后原因</text><select v-model="form.initIssue"><option value="">请选择原因</option><option v-for="reason in afterReasonOptions" :key="reason" :value="reason">{{ reason }}</option></select></label></template>
+        <template v-if="dialog === 'policy' || dialog === 'policy-edit'"><view class="field"><text>策略类型</text><SearchableSelect v-model="form.type" :options="policyTypeOptions" :disabled="dialog === 'policy-edit'" search-placeholder="搜索策略类型" /></view><label class="field"><text>适用范围</text><input v-model="form.scope" /></label><label class="field"><text>优惠比例（1-100%）</text><input v-model.number="form.discount" type="number" min="1" max="100" /></label><view v-if="dialog === 'policy-edit'" class="field"><text>规则状态</text><SearchableSelect v-model="form.enabled" :options="enabledOptions" search-placeholder="搜索规则状态" /></view><view v-if="form.type === 'ladder'" class="tier-editor"><view class="tier-editor-head"><text>阶梯档位</text><button class="mini-button" type="button" @click="addTier">＋ 添加档位</button></view><view v-for="(tier, ti) in form.tiers" :key="ti" class="tier-editor-row"><label class="field"><text>起始数量</text><input v-model.number="tier.minQty" type="number" min="1" placeholder="如 1" /></label><label class="field"><text>上限数量（留空=无上限）</text><input v-model.number="tier.maxQty" type="number" min="1" placeholder="留空为无上限" /></label><label class="field"><text>集采单价</text><input v-model.number="tier.price" type="number" min="0" step="0.1" placeholder="如 42" /></label><label class="field"><text>让利 %</text><input v-model.number="tier.discountOff" type="number" min="0" max="100" placeholder="如 30" /></label><button class="compact-button danger" type="button" @click="removeTier(ti)">删除</button></view></view></template>
+        <template v-if="dialog === 'after-sale-init'"><label class="field"><text>售后订单</text><input :value="form.id" disabled /></label><view class="field"><text>售后类型</text><SearchableSelect v-model="form.result" :options="afterSaleTypeOptions" search-placeholder="搜索售后类型" /></view><view class="field"><text>售后原因</text><SearchableSelect v-model="form.initIssue" :options="afterReasonSelectOptions" search-placeholder="搜索售后原因" /></view></template>
         <template v-if="dialog === 'commission'"><label class="field"><text>佣金比例（1-100%）</text><input v-model.number="form.rate" type="number" min="1" max="100" /></label></template>
         <template v-if="dialog === 'promoter' || dialog === 'promoter-edit'">
           <label class="field"><text>推客姓名</text><input v-model="form.name" placeholder="请输入推客姓名" /></label>
-          <label class="field"><text>等级标签</text><input v-model="form.level" placeholder="如 V3 金牌推客" /></label>
-          <label class="field"><text>类型</text><select v-model="form.promoterType"><option value="推客">推客</option><option value="主播">主播</option><option value="达人">达人</option></select></label>
-          <label class="field"><text>状态</text><select v-model="form.promoterStatus"><option value="active">启用</option><option value="paused">停用</option></select></label>
+          <view class="field"><text>等级标签</text><SearchableSelect v-model="form.level" :options="promoterLevelOptions" search-placeholder="搜索推客等级" /></view>
+          <view class="field"><text>类型</text><SearchableSelect v-model="form.promoterType" :options="promoterFormTypeOptions" search-placeholder="搜索推客类型" /></view>
+          <view class="field"><text>状态</text><SearchableSelect v-model="form.promoterStatus" :options="promoterStatusOptions" search-placeholder="搜索推客状态" /></view>
         </template>
         <template v-if="dialog === 'farm' || dialog === 'farm-edit'">
           <label class="field"><text>门店名称</text><input v-model="form.name" placeholder="请输入门店名称" /></label>
-          <view class="field"><text>门店图片</text>
-            <view class="upload-row">
-              <button v-if="!form.image" class="upload-button" @click="chooseFarmImage">＋ 上传图片</button>
-              <template v-else>
-                <image class="upload-preview" :src="form.image" mode="aspectFit" @click="previewImage(form.image)" />
-                <button class="upload-button" @click="chooseFarmImage">重新选择</button>
-                <button class="upload-button danger" @click="removeFarmImage">移除</button>
-              </template>
-            </view>
+          <view class="field"><text>门店封面</text><ImageUploader v-model="form.image" purpose="farm-cover" @error="showToast" /></view>
+          <label class="field"><text>省份</text><input value="湖南省" disabled /></label>
+          <view class="field"><text>城市</text><SearchableSelect v-model="form.farmCityCode" :options="farmCitySelectOptions" search-placeholder="搜索城市" /></view>
+          <view class="field"><text>县区</text><SearchableSelect v-model="form.farmDistrictCode" :options="farmDistrictSelectOptions" :disabled="!form.farmCityCode" search-placeholder="搜索县区" /></view>
+          <label class="field"><text>详细地址</text><input v-model="form.farmDetail" placeholder="如 潇湘中路123号" /></label>
+          <view v-if="dialog === 'farm-edit'" class="location-info">
+            <view class="location-info-head"><text>定位状态</text><strong :class="editingFarm?.locationStatus || 'failed'">{{ editingFarm?.locationStatus === 'resolved' ? '已定位' : editingFarm?.locationStatus === 'pending' ? '定位中' : '定位失败' }}</strong><button class="compact-button" :disabled="busy" @click="retryFarmGeocode"><UiIcon name="map-pin" :size="14" />重新定位</button></view>
+            <template v-if="editingFarm?.location">
+              <text>标准地址：{{ editingFarm.location.formattedAddress }}</text>
+              <text>省 / 市 / 区：{{ editingFarm.location.province }} / {{ editingFarm.location.city }} / {{ editingFarm.location.district }}</text>
+              <text>GCJ-02：{{ editingFarm.location.longitude.toFixed(6) }}, {{ editingFarm.location.latitude.toFixed(6) }}</text>
+            </template>
+            <text v-else>暂无有效坐标{{ editingFarm?.locationError ? `（${editingFarm.locationError}）` : '' }}</text>
           </view>
-          <label class="field"><text>所在区域</text><input v-model="form.region" placeholder="如 湘西州永顺县" /></label>
-          <label class="field"><text>城市</text><select v-model="form.city"><option value="">请选择城市</option><option v-for="city in farmCityOptions" :key="city" :value="city">{{ city }}</option></select></label>
           <label class="field"><text>门店标签</text><input v-model="form.tags" placeholder="逗号分隔，如 柴火土菜,临溪包厢" /></label>
           <label class="field"><text>评分</text><input v-model.number="form.rating" type="number" min="0" max="5" step="0.1" /></label>
           <label class="field"><text>平均客单价</text><input v-model.number="form.averageSpend" type="number" min="0" /></label><label class="field"><text>人气值</text><input v-model.number="form.livePopularity" type="number" min="0" /></label>
-          <label class="field"><text>经营状态</text><select v-model="form.farmStatus"><option value="pending">筹备中</option><option value="active">经营中</option><option value="paused">已停用</option></select></label>
+          <view class="field"><text>经营状态</text><SearchableSelect v-model="form.farmStatus" :options="farmStatusOptions" search-placeholder="搜索经营状态" /></view>
         </template>
          <view class="modal-actions"><button class="button secondary" :disabled="busy" @click="closeOverlay">取消</button><button class="button primary" :disabled="busy" @click="saveDialog">{{ busy ? '处理中...' : dialog === 'supplier' ? '发送邀请' : dialog === 'supplier-edit' || dialog === 'farm-edit' ? '保存修改' : '保存' }}</button></view>
       </view>
@@ -1630,18 +1718,19 @@ onBeforeUnmount(() => {
         <view class="modal-head"><view><h2>{{ store.catalogProducts.some((item) => item.id === catalogProductForm.id) ? '编辑商品' : '新增商品' }}</h2><p>门店、直播与全部商品使用同一商品目录</p></view><button class="icon-button" aria-label="关闭弹窗" @click="catalogProductDialog = false"><UiIcon name="x" :size="18" /></button></view>
         <view class="catalog-form-grid">
           <label class="field"><text>商品名称</text><input v-model="catalogProductForm.name" placeholder="请输入商品名称" /></label>
-          <label class="field"><text>商品渠道</text><select v-model="catalogProductForm.channel"><option value="store">门店商品</option><option value="live" :disabled="catalogProductForm.productType === 'package'">直播商品</option><option value="all" :disabled="catalogProductForm.productType === 'package'">全部商品</option></select></label>
-          <label class="field"><text>商品类型</text><select v-model="catalogProductForm.productType"><option value="goods">实物商品</option><option value="package">套餐券</option></select></label>
-          <label class="field"><text>快递直发</text><select v-model="catalogProductForm.expressDelivery" :disabled="catalogProductForm.productType === 'package'"><option :value="true">支持</option><option :value="false">不支持</option></select></label>
-          <label class="field"><text>商品分类</text><select v-model="catalogProductForm.category"><option v-for="option in productCategories" :key="option.id" :value="option.name">{{ option.name }}</option></select></label>
-          <label class="field"><text>供应商</text><select v-model="catalogProductForm.supplierId"><option value="">请选择供应商</option><option v-for="supplier in store.suppliers" :key="supplier.id" :value="supplier.id">{{ supplier.name }}</option></select></label>
-          <label class="field"><text>商品来源</text><select v-model="catalogProductForm.source"><option value="platform">中台商品</option><option value="farmhouse">门店自有</option></select></label>
-          <label class="field"><text>主图地址</text><input v-model="catalogProductForm.image" placeholder="/static/images/xxx.webp" /></label>
+          <view class="field"><text>商品渠道</text><SearchableSelect v-model="catalogProductForm.channel" :options="catalogProductChannelOptions" search-placeholder="搜索商品渠道" /></view>
+          <view class="field"><text>商品类型</text><SearchableSelect v-model="catalogProductForm.productType" :options="catalogProductTypeOptions" search-placeholder="搜索商品类型" /></view>
+          <view class="field"><text>快递直发</text><SearchableSelect v-model="catalogProductForm.expressDelivery" :options="expressDeliveryOptions" :disabled="catalogProductForm.productType === 'package'" search-placeholder="搜索快递方式" /></view>
+          <view class="field"><text>商品分类</text><SearchableSelect v-model="catalogProductForm.category" :options="productCategoryOptions" search-placeholder="搜索商品分类" /></view>
+          <view class="field"><text>供应商</text><SearchableSelect v-model="catalogProductForm.supplierId" :options="catalogSupplierOptions" search-placeholder="搜索供应商" /></view>
+          <view class="field"><text>商品来源</text><SearchableSelect v-model="catalogProductForm.source" :options="catalogProductSourceOptions" search-placeholder="搜索商品来源" /></view>
+          <view class="field"><text>商品主图（必传）</text><ImageUploader v-model="catalogProductForm.image" purpose="catalog-main" @error="showToast" /></view>
+          <view class="field"><text>商品图库（最多 9 张）</text><ImageUploader v-model="catalogProductForm.images" purpose="catalog-gallery" multiple :max-count="9" @error="showToast" /></view>
           <label class="field"><text>标签（逗号分隔）</text><input v-model="catalogProductForm.tags" placeholder="产地直发,精选" /></label>
           <label class="field"><text>推客佣金率 %</text><input v-model.number="catalogProductForm.promoterCommissionRate" type="number" min="0" max="100" /></label>
           <label class="field"><text>门店佣金率 %</text><input v-model.number="catalogProductForm.storeCommissionRate" type="number" min="0" max="100" /></label>
         </view>
-        <view class="c-sku-editor"><view class="tier-editor-head"><text>SKU 价格与共享库存</text><button class="mini-button" type="button" @click="addCatalogSku">＋ 添加 SKU</button></view><view class="catalog-sku-labels"><text>规格名称</text><text>零售价</text><text>供货价</text><text>库存</text><text>一级金额</text><text>二级金额</text><text>操作</text></view><view v-for="(sku, index) in catalogProductForm.skus" :key="sku.id" class="c-sku-row" :class="{ retired: sku.status === 'retired' }"><input v-model="sku.name" :disabled="sku.status === 'retired'" placeholder="规格名称" /><input v-model.number="sku.retailPrice" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="零售价" /><input v-model.number="sku.cost" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="供货价" /><input v-model.number="sku.stock" :disabled="sku.status === 'retired'" type="number" min="0" placeholder="库存" /><input v-model.number="sku.level1Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="一级金额" /><input v-model.number="sku.level2Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="二级金额" /><button v-if="sku.status === 'retired'" class="compact-button" type="button" @click="restoreCatalogSku(index)">恢复</button><button v-else class="compact-button danger" type="button" @click="removeCatalogSku(index)">{{ persistedCatalogSkuIds.has(sku.id) ? '停用' : '删除' }}</button></view></view>
+        <view class="c-sku-editor"><view class="tier-editor-head"><text>SKU 价格与共享库存</text><button class="mini-button" type="button" @click="addCatalogSku">＋ 添加 SKU</button></view><view class="catalog-sku-labels"><text>规格名称</text><text>规格图片</text><text>零售价</text><text>供货价</text><text>库存</text><text>一级金额</text><text>二级金额</text><text>操作</text></view><view v-for="(sku, index) in catalogProductForm.skus" :key="sku.id" class="c-sku-row" :class="{ retired: sku.status === 'retired' }"><input v-model="sku.name" :disabled="sku.status === 'retired'" placeholder="规格名称" /><ImageUploader v-model="sku.image" :purpose="`catalog-sku-${sku.id}`" :disabled="sku.status === 'retired'" @error="showToast" /><input v-model.number="sku.retailPrice" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="零售价" /><input v-model.number="sku.cost" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="供货价" /><input v-model.number="sku.stock" :disabled="sku.status === 'retired'" type="number" min="0" placeholder="库存" /><input v-model.number="sku.level1Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="一级金额" /><input v-model.number="sku.level2Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="二级金额" /><button v-if="sku.status === 'retired'" class="compact-button" type="button" @click="restoreCatalogSku(index)">恢复</button><button v-else class="compact-button danger" type="button" @click="removeCatalogSku(index)">{{ persistedCatalogSkuIds.has(sku.id) ? '停用' : '删除' }}</button></view></view>
         <view class="modal-actions"><button class="button secondary" @click="catalogProductDialog = false">取消</button><button class="button primary" @click="saveCatalogProductDialog">保存商品</button></view>
       </view>
     </view>
@@ -1658,12 +1747,12 @@ onBeforeUnmount(() => {
         </view>
         <view v-else-if="detail.type === 'supplier' && selectedSupplier" class="drawer-list">
           <view class="detail-hero"><view class="detail-icon"><UiIcon name="factory" :size="25" /></view><view><h3>{{ selectedSupplier.name }}</h3><text>{{ selectedSupplier.region }} · {{ selectedSupplier.category }}</text></view></view>
-           <view class="detail-grid"><view><small>合作状态</small><strong>{{ statusText(selectedSupplier.status) }}</strong></view><view><small>供应商类型</small><strong>{{ selectedSupplier.coop ? '供销社渠道' : '合作供应商' }}</strong></view><view><small>供应商品</small><strong>{{ supplierProducts(selectedSupplier).length }} 款</strong></view><view><small>联系人手机</small><strong>{{ selectedSupplier.contactPhone || '—' }}</strong></view><view><small>营业执照</small><image v-if="isImageData(selectedSupplier.qualification.businessLicense)" class="license-thumb" :src="selectedSupplier.qualification.businessLicense" mode="aspectFit" @click="previewSupplierLicenses('businessLicense')" /><strong v-else>待上传</strong></view><view><small>生产 / 经营许可</small><image v-if="isImageData(selectedSupplier.qualification.permit)" class="license-thumb" :src="selectedSupplier.qualification.permit" mode="aspectFit" @click="previewSupplierLicenses('permit')" /><strong v-else>待上传</strong></view><view><small>证照有效期</small><strong>{{ selectedSupplier.qualification.validUntil }}</strong></view><view><small>审核说明</small><strong>{{ selectedSupplier.qualification.reviewNote }}</strong></view></view>
+           <view class="detail-grid"><view><small>合作状态</small><strong>{{ statusText(selectedSupplier.status) }}</strong></view><view><small>账号状态</small><strong>{{ supplierLoginStatus(selectedSupplier) }}</strong></view><view><small>供应商类型</small><strong>{{ selectedSupplier.coop ? '供销社渠道' : '合作供应商' }}</strong></view><view><small>供应商品</small><strong>{{ supplierProducts(selectedSupplier).length }} 款</strong></view><view><small>联系人手机</small><strong>{{ selectedSupplier.contactPhone || '—' }}</strong></view><view><small>登录账号</small><strong>{{ selectedSupplierAccount?.account || selectedSupplier.contactPhone || '—' }}</strong></view><view><small>营业执照编号</small><strong>{{ selectedSupplierQualification?.businessLicenseNumber || '待补充' }}</strong><BusinessImage class="license-thumb" :src="selectedSupplierQualification?.businessLicense" mode="aspectFit" @click="previewImage" /></view><view><small>生产 / 经营许可编号</small><strong>{{ selectedSupplierQualification?.permitNumber || '待补充' }}</strong><BusinessImage class="license-thumb" :src="selectedSupplierQualification?.permit" mode="aspectFit" @click="previewImage" /></view><view><small>证照有效期</small><strong>{{ selectedSupplierQualification?.validUntil }}</strong></view><view><small>审核说明</small><strong>{{ selectedSupplierQualification?.reviewNote }}</strong></view></view>
            <view class="supplier-products">
              <view class="panel-head"><h2>供应商品</h2><text>{{ supplierProducts(selectedSupplier).length }} 款</text></view>
              <view v-if="!supplierProducts(selectedSupplier).length" class="empty-state">该供应商暂无商品</view>
              <view v-for="product in supplierProducts(selectedSupplier)" :key="product.id" class="supplier-product-row">
-               <image class="supplier-thumb" :src="product.image" mode="aspectFit" @click="previewImage(product.image)" />
+               <BusinessImage class="supplier-thumb" :src="product.image" mode="aspectFit" @click="previewImage" />
                <view class="sp-name"><strong>{{ product.name }}</strong><small>{{ product.category }} · {{ product.supplier }}</small></view>
                 <strong>¥{{ formatNumber(product.price) }}</strong>
                <span class="status" :class="product.status">{{ product.status === 'pending' ? '待审核' : statusText(product.status) }}</span>
@@ -1682,9 +1771,10 @@ onBeforeUnmount(() => {
           <view class="detail-hero"><view class="detail-icon"><UiIcon name="headset" :size="25" /></view><view><h3>{{ selectedAfterSale.id }}</h3><text>{{ selectedAfterSale.productName }} · {{ money(selectedAfterSale.amount) }}</text></view></view>
           <view class="history-row"><strong>工单创建</strong><small>{{ selectedAfterSale.applicant }} 提交申请</small></view><view v-for="item in selectedAfterSale.history || []" :key="item.time" class="history-row"><strong>{{ item.action }}</strong><small>{{ item.operator }} · {{ item.time }}</small></view>
            <view v-if="selectedAfterSale.refundAmount != null" class="history-row"><strong>{{ selectedAfterSale.refundMethod === 'return' ? '退货退款' : '仅退款' }}</strong><small>退款金额 {{ money(selectedAfterSale.refundAmount) }} · {{ selectedAfterSale.refundMode === 'full' ? '全额退款' : selectedAfterSale.refundMode === 'ratio' ? '按比例退款' : '自定义退款' }}</small></view>
+          <view v-if="(selectedAfterSale.evidenceImages || []).length" class="history-row"><strong>上传凭证</strong><view class="after-evidence-grid"><BusinessImage v-for="(img, i) in selectedAfterSale.evidenceImages" :key="i" :src="img" mode="aspectFill" class="after-evidence-thumb" @click="previewImage" /></view></view>
         </view>
         <view v-else-if="detail.type === 'farm' && selectedFarm" class="drawer-list">
-          <image class="farm-cover" :src="selectedFarm.image" mode="aspectFit" @click="previewImage(selectedFarm.image)" /><h3>{{ selectedFarm.name }}</h3><text class="drawer-muted">{{ selectedFarm.region }} · {{ selectedFarm.tags.join(' · ') }}</text>
+          <BusinessImage class="farm-cover" :src="selectedFarm.image" mode="aspectFit" @click="previewImage" /><h3>{{ selectedFarm.name }}</h3><text class="drawer-muted">{{ selectedFarm.region }} · {{ selectedFarm.tags.join(' · ') }}</text>
           <view class="detail-grid"><view><small>本月 GMV</small><strong>{{ money(selectedFarm.gmv) }}</strong></view><view><small>选品数量</small><strong>{{ selectedFarm.selectedCount }} SKU</strong></view><view><small>月订单</small><strong>{{ selectedFarm.monthlySales }} 单</strong></view><view><small>门店评分</small><strong>{{ selectedFarm.rating }} 分</strong></view><view><small>人气值</small><strong>{{ selectedFarm.livePopularity.toLocaleString('zh-CN') }}</strong></view></view>
           <view class="drawer-actions"><button class="button secondary" @click="openFarmEdit(selectedFarm)">修改资料</button></view>
         </view>
@@ -1726,10 +1816,11 @@ h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .pa
 
 .policy-panels { display:flex;flex-direction:column;gap:16px; }.policy-group { padding:0;overflow:hidden; }.policy-group-head { padding:14px 16px;border-bottom:1px solid var(--admin-line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }.policy-group-head h2 { font-size:15px;margin:0; }.policy-group-head text { display:block;color:var(--admin-muted);font-size:11px;margin-top:3px; }.policy-group-count { white-space:nowrap;font-size:11px;color:var(--admin-muted); }.policy-card-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding:16px; }.policy-data-card { border:1px solid var(--admin-line);border-radius:12px;padding:14px;background:#fff; }.policy-data-top { display:flex;align-items:flex-start;justify-content:space-between;gap:10px; }.policy-data-top strong { font-size:14px; }.policy-scope { display:block;margin-top:4px;color:var(--admin-muted);font-size:11px; }.policy-data-meta { display:flex;align-items:center;gap:10px;margin-top:10px; }.policy-discount { font-size:13px;font-weight:700;color:var(--admin-green-2); }.tier-table { margin-top:12px;border:1px solid #eceee8;border-radius:8px;overflow:hidden; }.tier-table .table-row { min-height:34px;padding:0 12px;font-size:11px; }.tier-table .tier-grid { grid-template-columns:1.3fr .8fr .7fr 1.2fr; }.tier-off { color:var(--admin-green-2);font-weight:700; }.tier-empty { margin-top:12px;padding:10px;border-radius:8px;background:#fafbf8;color:var(--admin-muted);font-size:11px;text-align:center; }.switch { width:42px;height:23px;padding:3px;border-radius:12px;background:#c7ccc6;cursor:pointer; }.switch span { display:block;width:17px;height:17px;border-radius:50%;background:#fff;transition:.2s; }.switch.on { background:var(--admin-green-2); }.switch.on span { transform:translateX(19px); }
 .summary-strip { display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--admin-line);background:#fafbf8; }.summary-strip view { padding:15px 18px;border-right:1px solid var(--admin-line); }.summary-strip view:last-child { border:0; }.summary-strip small,.summary-strip strong { display:block; }.summary-strip small { color:var(--admin-muted);font-size:10px; }.summary-strip strong { margin-top:4px;font-size:16px; }.commission-banner { min-height:108px;padding:18px;display:flex;align-items:center;justify-content:space-between;background:#f7f4ea;border-bottom:1px solid #e8dfc7; }.commission-banner small,.commission-banner strong,.commission-banner text { display:block; }.commission-banner small { color:#7a725e;font-size:11px; }.commission-banner strong { margin:5px 0;font-size:26px;color:#8c6b28; }.commission-banner text { color:#8c8370;font-size:10px; }.gold { color:#957027; }
-.modal-mask { position:fixed;inset:0;background:rgba(14,25,19,.46);z-index:30;display:grid;place-items:center; }.modal { width:440px;max-width:92vw;max-height:86vh;overflow-y:auto;background:#fff;border-radius:16px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.25); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px; }.modal-head h2 { font-size:19px; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:11px; }.field { display:block;margin-bottom:14px; }.field text { display:block;margin-bottom:6px;font-size:11px;font-weight:700; }.field input,.field select { width:100%;height:40px;padding:0 11px;border:1px solid var(--admin-line);border-radius:5px;outline:0;background:#fff; }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
+.modal-mask { position:fixed;inset:0;background:rgba(14,25,19,.46);z-index:30;display:grid;place-items:center; }.modal { width:440px;max-width:92vw;max-height:86vh;overflow-y:auto;background:#fff;border-radius:16px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.25); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px; }.modal-head h2 { font-size:19px; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:11px; }.field { display:block;margin-bottom:14px; }.field text { display:block;margin-bottom:6px;font-size:11px;font-weight:700; }.field>input { width:100%;height:40px;padding:0 11px;border:1px solid var(--admin-line);border-radius:5px;outline:0;background:#fff; }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
+.location-info{display:flex;flex-direction:column;gap:6px;margin:-2px 0 14px;padding:10px;border:1px solid var(--admin-line);border-radius:6px;background:#f8f9f6;color:var(--admin-muted);font-size:11px;line-height:1.45}.location-info-head{display:flex;align-items:center;gap:8px;color:var(--admin-ink);font-weight:700}.location-info-head strong.resolved{color:var(--admin-green-2)}.location-info-head strong.failed{color:#a34339}.location-info-head .compact-button{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
 .drawer-mask{position:fixed;inset:0;background:rgba(14,25,19,.42);z-index:35;display:flex;justify-content:flex-end}.drawer{width:min(440px,92vw);height:100%;padding:22px;background:#fff;box-shadow:-18px 0 48px rgba(12,31,21,.2);overflow-y:auto}.drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--admin-line)}.drawer-head small{display:block;color:var(--admin-muted);font-size:10px;margin-bottom:4px}.drawer-head h2{font-size:20px}.drawer-list{padding-top:18px}.todo-detail>button{width:100%;min-height:52px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;background:#f8f9f6;border-bottom:1px solid var(--admin-line);color:var(--admin-ink);text-align:left}.todo-detail>button:hover{background:var(--admin-green-soft)}.todo-detail b{color:var(--admin-green-2)}.export-history{margin-top:20px;padding:14px;background:#f7f4ea;border-radius:6px}.export-history strong,.export-history text{display:block}.export-history text{margin-top:8px;color:var(--admin-muted);font-size:11px}.detail-hero{display:flex;align-items:center;gap:12px;padding:14px;background:#f7f8f4;border-radius:7px}.detail-icon{width:46px;height:46px;border-radius:7px;background:var(--admin-green-soft);display:grid;place-items:center}.detail-hero h3,.drawer-list>h3{margin:0;font-size:17px}.detail-hero text,.drawer-muted{display:block;margin-top:5px;color:var(--admin-muted);font-size:11px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.detail-grid view{padding:13px;background:#f8f9f6;border:1px solid #eceee8;border-radius:6px}.detail-grid small,.detail-grid strong{display:block}.detail-grid small{color:var(--admin-muted);font-size:10px}.detail-grid strong{margin-top:5px;font-size:14px}.tracking-number{margin:16px 0;padding:13px;border:1px dashed #c8d7cd;border-radius:6px}.tracking-number small,.tracking-number strong{display:block}.tracking-number small{color:var(--admin-muted);font-size:10px}.tracking-number strong{margin-top:5px;font-size:14px}.timeline-list>view{position:relative;display:grid;grid-template-columns:16px 1fr;gap:9px;padding-bottom:18px}.timeline-list>view>span{width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--admin-green-2);box-shadow:0 0 0 4px var(--admin-green-soft)}.timeline-list>view:not(:last-child)::after{content:"";position:absolute;left:4px;top:16px;bottom:2px;width:1px;background:#cbd8cf}.timeline-list strong,.timeline-list small,.timeline-list text{display:block}.timeline-list small,.timeline-list text{margin-top:4px;color:var(--admin-muted);font-size:10px}.history-row{padding:13px 0;border-bottom:1px solid #eceee8}.history-row strong,.history-row small{display:block}.history-row small{margin-top:5px;color:var(--admin-muted);font-size:10px}.history-items{margin-top:9px;display:grid;gap:6px}.history-items>view{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:12px;align-items:center;padding:8px 10px;border-radius:5px;background:#f7f8f4}.history-items span{font-size:12px;font-weight:700}.history-items small{margin:0;overflow-wrap:anywhere}.history-items b{color:var(--admin-green-2);font-size:12px}.farm-cover{width:100%;height:180px;border-radius:7px;margin-bottom:14px;cursor:zoom-in}
 @media(max-width:1180px){.commission-rule-grid{grid-template-columns:repeat(2,1fr)}.sidebar{width:184px}.main{width:calc(100% - 184px);margin-left:184px}.brand{padding:0 12px}.brand-title{font-size:13px}.nav-item{padding:0 9px;gap:8px}.content{padding:20px 18px 36px}.topbar{padding:0 18px}.search-box{width:210px}.kpi-grid{grid-template-columns:repeat(2,1fr)}.chart-grid,.lower-grid{grid-template-columns:1fr}.supplier-grid{min-width:760px}.product-grid,.order-grid,.after-grid,.farm-grid{min-width:860px}.promoter-grid{min-width:900px}.summary-strip{min-width:720px}}
-.search-box{height:40px}.row-actions button,.compact-button{min-height:32px}.state-panel{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--admin-muted)}.empty-state{min-height:120px;display:grid;place-items:center;color:var(--admin-muted);font-size:12px}.module-toolbar{padding:12px 16px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--admin-line);background:#fff}.module-toolbar select{height:40px;min-width:130px;padding:0 10px;border:1px solid var(--admin-line);border-radius:5px;background:#fff}.module-toolbar .button{margin-left:auto}.order-id{display:flex;align-items:center;gap:9px}.order-id input{width:16px;height:16px}.policy-actions{display:flex;align-items:center;gap:8px}.compact-button{padding:0 9px;border-radius:4px;background:var(--admin-green-soft);color:var(--admin-green-2);font-size:11px}.banner-actions,.drawer-actions{display:flex;gap:9px}.danger-button{background:#a34339!important;color:#fff!important}.share-config-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;padding:4px 0 8px}.share-config-row .field{min-width:160px}.share-config-row .button{margin:0 0 4px}.commission-rules{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:7px;background:#fafbf8}.commission-rules>button{width:100%;min-height:40px;padding:0 10px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;border-bottom:1px solid var(--admin-line);background:transparent;text-align:left}.commission-rules>button:last-child{border:0}.commission-rules small{color:var(--admin-muted)}
+.search-box{height:40px}.row-actions button,.compact-button{min-height:32px}.state-panel{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--admin-muted)}.empty-state{min-height:120px;display:grid;place-items:center;color:var(--admin-muted);font-size:12px}.module-toolbar{padding:12px 16px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--admin-line);background:#fff}.module-toolbar .searchable-select{min-width:130px}.module-toolbar .button{margin-left:auto}.order-id{display:flex;align-items:center;gap:9px}.order-id input{width:16px;height:16px}.policy-actions{display:flex;align-items:center;gap:8px}.compact-button{padding:0 9px;border-radius:4px;background:var(--admin-green-soft);color:var(--admin-green-2);font-size:11px}.banner-actions,.drawer-actions{display:flex;gap:9px}.danger-button{background:#a34339!important;color:#fff!important}.share-config-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;padding:4px 0 8px}.share-config-row .field{min-width:160px}.share-config-row .button{margin:0 0 4px}.commission-rules{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:7px;background:#fafbf8}.commission-rules>button{width:100%;min-height:40px;padding:0 10px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;border-bottom:1px solid var(--admin-line);background:transparent;text-align:left}.commission-rules>button:last-child{border:0}.commission-rules small{color:var(--admin-muted)}
 .order-select{width:24px;height:24px;border:1px solid var(--admin-line);border-radius:4px;background:#fff;display:grid;place-items:center;flex:none}.order-select.selected{background:var(--admin-green-2);border-color:var(--admin-green-2)}.order-select.selected .ui-icon{filter:brightness(0) invert(1)}
 .settlement-history{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:7px;background:#fff}.settlement-history .empty-state{min-height:72px}
 .button:focus-visible,.icon-button:focus-visible,.row-actions button:focus-visible,.nav-item:focus-visible,.switch:focus-visible{outline:3px solid rgba(36,115,77,.28);outline-offset:2px}.row-actions button:disabled,.switch:disabled{opacity:.5;cursor:default}.drawer-actions{margin-top:18px}.detail-grid strong{overflow-wrap:anywhere}
@@ -1738,7 +1829,6 @@ h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .pa
 .page-time{display:block;margin-top:4px;font-size:11px;color:var(--muted,#6f786f)}
 .kpi-icon{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--soft,#eef2e9);font-size:16px;margin-bottom:8px}
 .period-button{min-height:32px;padding:0 10px;border:1px solid var(--line,#d9ddd6);border-radius:7px;background:#fff;color:var(--ink,#23291f);font-size:12px;cursor:pointer}.period-button.on{background:var(--green,#1d6b44);color:#fff;border-color:var(--green,#1d6b44)}
-.trend-range-select{height:30px;padding:0 8px;border:1px solid var(--line,#d9ddd6);border-radius:7px;background:#fff;color:var(--ink,#23291f);font-size:12px;outline:0;cursor:pointer}
 .stat-strip{display:grid;gap:16px;margin-bottom:20px}.stat-strip.three{grid-template-columns:repeat(3,1fr)}.stat-strip.four{grid-template-columns:repeat(4,1fr)}.stat-strip>view{background:#fff;border:1px solid var(--line,#e5e1d6);border-radius:14px;padding:16px}.stat-strip small{display:block;font-size:12.5px;color:var(--muted,#6f786f)}.stat-strip strong{display:block;margin-top:6px;font-size:22px;font-weight:800}.stat-strip span{display:block;margin-top:6px;font-size:11.5px;color:var(--muted,#6f786f);line-height:1.4}.stat-strip .positive{color:var(--green,#1d6b44)}.stat-strip .pending-text{color:#a65735}
 .filter-chips{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}.filter-chips button{min-height:30px;padding:0 12px;border-radius:16px;border:1px solid var(--line,#d9ddd6);background:#fff;color:var(--ink,#23291f);font-size:12px;cursor:pointer}.filter-chips button.active{background:var(--green,#1d6b44);color:#fff;border-color:var(--green,#1d6b44)}
 .mini-button{min-height:24px;padding:0 8px;border-radius:5px;background:var(--green,#1d6b44);color:#fff;font-size:10px;border:none;cursor:pointer;margin-left:6px;vertical-align:2px}
@@ -1788,7 +1878,7 @@ button, uni-button { text-align: center; }
 .toolbar-actions{margin-left:auto;display:flex;gap:10px}
 .goods-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .goods-count{margin-left:auto;font-size:12px;color:var(--admin-muted);white-space:nowrap}
-.c-product-grid{grid-template-columns:1.7fr 1.2fr .7fr .7fr .7fr .7fr .7fr 1fr;min-width:920px}.c-sku-editor{padding:12px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8}.c-sku-row,.catalog-sku-labels{display:grid;grid-template-columns:1.2fr repeat(5,.8fr) auto;gap:7px;margin-top:8px}.catalog-sku-labels{padding:0 4px;color:var(--admin-muted);font-size:10px}.c-sku-row input{width:100%;box-sizing:border-box;height:34px;padding:0 8px;border:1px solid var(--admin-line);border-radius:4px;background:#fff;font-size:11px}.c-sku-row.retired{opacity:.65}.c-sku-row.retired input{background:#f1f3ef}
+.c-product-grid{grid-template-columns:1.7fr 1.2fr .7fr .7fr .7fr .7fr .7fr 1fr;min-width:920px}.c-sku-editor{padding:12px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8}.c-sku-row,.catalog-sku-labels{display:grid;grid-template-columns:1.2fr 110px repeat(5,.8fr) auto;gap:7px;margin-top:8px;align-items:start}.catalog-sku-labels{padding:0 4px;color:var(--admin-muted);font-size:10px}.c-sku-row input{width:100%;box-sizing:border-box;height:34px;padding:0 8px;border:1px solid var(--admin-line);border-radius:4px;background:#fff;font-size:11px}.c-sku-row.retired{opacity:.65}.c-sku-row.retired input{background:#f1f3ef}
 .sku-no{color:var(--admin-muted)!important;font-size:11px}
 .source-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
 .source-pill.platform{background:#e8eff4;color:#3b5f7a}
@@ -1878,7 +1968,7 @@ button, uni-button { text-align: center; }
 .upload-button.danger{color:#a34339}
 .module-search{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .module-search .search-box{width:240px}
-.module-search select{height:36px;min-width:120px;padding:0 8px;border:1px solid var(--admin-line);border-radius:5px;background:#fff;font-size:12px}
+.module-search .searchable-select{min-width:120px}
 .product-thumb{width:42px;height:42px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:contain}
 .product-cell .after-thumb{width:40px;height:40px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:contain}
 .refund-amount{color:#a34339;font-weight:700}
@@ -1912,11 +2002,6 @@ button, uni-button { text-align: center; }
 .supplier-thumb{width:36px;height:36px;border-radius:5px;border:1px solid var(--admin-line);background:#fafbf8;flex:none;cursor:zoom-in}
 .order-product text{font-size:12.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .order-qty{font-weight:700}
-.store-filter{position:relative;min-width:190px}
-.store-filter>input{width:100%;height:40px;padding:0 11px;border:1px solid var(--admin-line);border-radius:5px;background:#fff;outline:0;font-size:12px}
-.store-dropdown{position:absolute;top:44px;left:0;right:0;z-index:60;max-height:240px;overflow-y:auto;background:#fff;border:1px solid var(--admin-line);border-radius:6px;box-shadow:0 12px 32px rgba(0,0,0,.12)}
-.store-option{padding:9px 11px;font-size:12px;cursor:pointer;border-bottom:1px solid #f0f1ec}
-.store-option:hover{background:var(--admin-green-soft)}
 .supplier-products{margin-top:16px;padding:13px;background:#f8f9f6;border:1px solid #eceee8;border-radius:6px}
 .supplier-product-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #eceee8}
 .supplier-product-row:last-child{border-bottom:0}

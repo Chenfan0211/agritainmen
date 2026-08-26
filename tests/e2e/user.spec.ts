@@ -18,6 +18,8 @@ async function assertNoHorizontalOverflow(page: Page) {
 }
 
 async function login(page: Page) {
+  await page.evaluate(() => localStorage.setItem('agritainment-user-demo-orders-disabled', '1'))
+  await page.reload()
   await page.locator('.auth-btn').click()
   await expect(page.locator('.c-mall')).toBeVisible()
 }
@@ -133,7 +135,8 @@ test('user C mall covers pricing, checkout, fulfillment, commission and live ent
   await expect(page.locator('.c-mall')).toBeVisible()
   await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
   await page.locator('.live-entry').click()
-  await expect(page.locator('.sheet')).toContainText('直播活动')
+  await expect(page.locator('.live-room')).toBeVisible()
+  await expect(page.locator('.live-room')).toContainText('立即购买')
   await assertNoHorizontalOverflow(page)
   monitor.assertClean()
   monitor.dispose()
@@ -279,4 +282,76 @@ test('paid and shipped sub-order after-sale apply different inventory rules', as
   await assertNoHorizontalOverflow(page)
   monitor.assertClean()
   monitor.dispose()
+})
+
+
+test('homepage live room purchases a package and shows seeded demo orders', async ({ page }) => {
+  await page.goto(userUrl + '&live=L001')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.locator('.auth-btn').click()
+  await expect(page.locator('.c-mall')).toBeVisible()
+
+  await page.evaluate(() => {
+    const catalog = JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}') as { products?: Array<{ id: string; productType: string; skus: Array<{ id: string; retailPrice: number }> }> }
+    const product = catalog.products?.find((item) => item.id === 'P007' && item.productType === 'package')
+    if (!product) return
+    localStorage.setItem('agritainment-platform-store-catalog-selections', JSON.stringify({
+      schemaVersion: 1,
+      revision: 1,
+      selections: [{ storeId: 'F001', productId: 'P007', listed: true, skuRetailPrices: Object.fromEntries(product.skus.map((sku) => [sku.id, sku.retailPrice])), updatedAt: new Date().toISOString() }]
+    }))
+  })
+  await page.reload()
+  await expect(page.locator('.c-mall')).toBeVisible()
+  await expect(page.locator('.live-card')).toBeVisible()
+  await page.locator('.live-card-enter').click()
+  await expect(page.locator('.live-room')).toBeVisible()
+  await expect(page.locator('.live-room')).toContainText('立即购买')
+  await page.locator('.live-buy-btn').first().click()
+  await expect.poll(() => page.evaluate(() => {
+    const vouchers = JSON.parse(localStorage.getItem('agritainment-platform-vouchers') || '{}') as Record<string, { id: string; status: string }>
+    return Object.values(vouchers).some((voucher) => voucher.id.startsWith('VO') && voucher.status === 'paid')
+  })).toBe(true)
+  await expect.poll(() => page.evaluate(() => {
+    const ledger = JSON.parse(localStorage.getItem('agritainment-platform-commission-ledger') || '{}') as Record<string, { sourceOrderId: string; status: string }>
+    return Object.values(ledger).some((entry) => entry.sourceOrderId.startsWith('VO') && entry.status === 'pending')
+  })).toBe(true)
+  await page.locator('.live-room [aria-label="关闭直播间"]').click()
+
+  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await expect(page.locator('.order-card').first()).toContainText('DEMO-ORD')
+  await expect(page.locator('.demo-badge')).toHaveCount(4)
+  await expect(page.locator('.voucher-card')).toBeVisible()
+})
+
+test('H5 keeps fixed controls inside the 375px phone frame', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto(userUrl)
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await login(page)
+
+  const shell = await page.locator('.app-shell').boundingBox()
+  const tabs = await page.locator('.bottom-tabs').boundingBox()
+  expect(shell?.width).toBe(375)
+  expect(shell?.x).toBeCloseTo((1280 - 375) / 2, 0)
+  expect(tabs?.width).toBe(375)
+  expect(tabs?.x).toBeCloseTo(shell!.x, 0)
+
+  await page.locator('.product-card').first().click()
+  const mask = await page.locator('.sheet-mask').boundingBox()
+  expect(mask?.width).toBe(375)
+  expect(mask?.x).toBeCloseTo(shell!.x, 0)
+  await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
+  const cart = await page.locator('.cart-bar').boundingBox()
+  expect(cart?.width).toBe(375)
+  expect(cart?.x).toBeCloseTo(shell!.x, 0)
+  await assertNoHorizontalOverflow(page)
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  expect((await page.locator('.app-shell').boundingBox())?.width).toBe(375)
+  expect((await page.locator('.bottom-tabs').boundingBox())?.width).toBe(375)
+  expect((await page.locator('.cart-bar').boundingBox())?.width).toBe(375)
+  await assertNoHorizontalOverflow(page)
 })

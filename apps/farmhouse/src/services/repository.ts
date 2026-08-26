@@ -10,10 +10,10 @@ export const farmhouseRepository = {
     const storeProducts = seedAll.filter((item) => item.farmIds.includes(tenant.farmId) && (item.source === 'farmhouse' || item.status === 'active'))
     applyPlatformMedia([farm], storeProducts)
     return mockDelay(
-      { tenant, farm, member: members[0], products: storeProducts, foods: farmhouseFoods },
+      { tenant, farm, member: members[0], products: storeProducts, foods: farmhouseFoods, experiences: [] },
       180,
       scenario,
-      { tenant, farm: cloneSeed(farms.find((item) => item.id === tenant.farmId)!), member: members[0], products: [], foods: [] }
+      { tenant, farm: cloneSeed(farms.find((item) => item.id === tenant.farmId)!), member: members[0], products: [], foods: [], experiences: [] }
     )
   },
   loadCatalogState: (scenario: MockScenario = 'normal') => {

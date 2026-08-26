@@ -1,7 +1,11 @@
 import { defineStore } from 'pinia'
-import type { FarmStore, LiveRoom, MockScenario, Product, Promoter, ShareRecord, UserBinding } from '@agritainment/shared'
-import { DEMO_PASSWORD, createId, readCatalogState, readPlatformCommissionSettlement, readShareRecords, readStoreCatalogSelections, readUserBindings, removePlatformLive, seedPlatformDemoData, validatePhone, writePlatformLive } from '@agritainment/shared'
+import type { BusinessMediaValue, FarmStore, LiveRoom, MediaAssetRepository, MockScenario, PlatformPrincipal, Product, Promoter, PromoterAccount, ShareRecord, UserBinding } from '@agritainment/shared'
+import { authenticatePromoter, buildPromoterAccountSeeds, cloneSeed, createId, mergePlatformPromoterAccounts, promoters, readCatalogState, readPlatformCommissionLedger, readPlatformCommissionSettlement, readPlatformPromoterAccountState, readPlatformPromoterAccounts, readShareRecords, readStoreCatalogSelections, readUserBindings, removePlatformLive, replaceMediaReference, seedPlatformDemoData, writePlatformLive, writePlatformPromoterAccounts } from '@agritainment/shared'
 import { promoterRepository } from '../services/repository'
+
+const DEFAULT_LIVE_COVER: BusinessMediaValue = { source: 'builtin', path: '/static/images/farmhouse.webp' }
+const liveCoverBinding = (liveId: string) => `promoter:live:cover:${liveId}`
+const resolveLiveCover = (value: BusinessMediaValue | null | undefined): BusinessMediaValue => value || DEFAULT_LIVE_COVER
 
 interface PromoterState {
   initialized: boolean
@@ -9,7 +13,7 @@ interface PromoterState {
   error: string
   mockScenario: MockScenario
   promoter: Promoter | null
-  auth: { isLoggedIn: boolean; phone: string }
+  auth: { isLoggedIn: boolean; phone: string; principal: PlatformPrincipal | null; accountId: string; promoterId: string }
   farms: FarmStore[]
   products: Product[]
   liveRooms: LiveRoom[]
@@ -33,7 +37,7 @@ export const usePromoterStore = defineStore('promoter', {
     error: '',
     mockScenario: 'normal',
     promoter: null,
-    auth: { isLoggedIn: false, phone: '' },
+    auth: { isLoggedIn: false, phone: '', principal: null, accountId: '', promoterId: '' },
     farms: [],
     products: [],
     liveRooms: []
@@ -44,10 +48,13 @@ export const usePromoterStore = defineStore('promoter', {
       const records = readShareRecords() ?? []
       return records.filter((item) => item.role === 'promoter' && item.promoterId === state.promoter?.id)
     },
-    myBoundUsers: (): Array<UserBinding> => {
+    myBoundUsers: (state): Array<UserBinding> => {
       const bindings = readUserBindings() ?? {}
-      return Object.values(bindings).filter((item) => item.promoterId)
-    }
+      return Object.values(bindings).filter((item) => item.promoterId === state.promoter?.id)
+    },
+    ledgerEntries: (state) => Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    pendingLedgerCommission: (state) => Math.round(Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0) * 100) / 100,
+    availableLedgerCommission: (state) => Math.round(Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && item.status === 'available').reduce((sum, item) => sum + item.amount, 0) * 100) / 100
   },
   actions: {
     async initialize(force = false) {
@@ -60,7 +67,7 @@ export const usePromoterStore = defineStore('promoter', {
           farms: data.farms,
           products: data.products,
           liveRooms: data.liveRooms,
-          promoter: data.promoter,
+          promoter: this.auth.promoterId ? cloneSeed(promoters.find((item) => item.id === this.auth.promoterId) || null) : data.promoter,
           initialized: true
         })
         this.liveRooms.forEach((room) => {
@@ -80,42 +87,76 @@ export const usePromoterStore = defineStore('promoter', {
         this.loading = false
       }
     },
+    promoterAccounts(): PromoterAccount[] {
+      const defaults = buildPromoterAccountSeeds(promoters)
+      const saved = readPlatformPromoterAccounts()
+      if (!saved || saved.length === 0) writePlatformPromoterAccounts(defaults, readPlatformPromoterAccountState()?.revision ?? 0)
+      return mergePlatformPromoterAccounts(defaults, readPlatformPromoterAccounts())
+    },
     login(phone: string, password: string) {
-      if (!validatePhone(phone) || password !== DEMO_PASSWORD) return false
-      this.auth = { isLoggedIn: true, phone }
+      const result = authenticatePromoter(this.promoterAccounts(), promoters, phone, password)
+      if (!result.ok) return false
+      this.promoter = cloneSeed(result.promoter)
+      const principal: PlatformPrincipal = { actorType: 'promoter', actorId: result.promoter.id, tenantId: result.promoter.id, status: 'active' }
+      this.auth = { isLoggedIn: true, phone: result.account.account, principal, accountId: result.account.id, promoterId: result.promoter.id }
       return true
     },
-    logout() {
-      this.auth = { isLoggedIn: false, phone: '' }
+    async refreshSharedState() {
+      if (!this.auth.isLoggedIn || !this.auth.accountId) return
+      const account = this.promoterAccounts().find((item) => item.id === this.auth.accountId)
+      const promoter = promoters.find((item) => item.id === this.auth.promoterId)
+      if (!account?.enabled || !promoter || promoter.status !== 'active') {
+        this.logout()
+        return
+      }
+      await this.initialize(true)
     },
-    createLive(payload: { title: string; image: string; status: LiveRoom['status']; linkedFarms: NonNullable<LiveRoom['linkedFarms']> }) {
+    logout() {
+      this.auth = { isLoggedIn: false, phone: '', principal: null, accountId: '', promoterId: '' }
+    },
+    async createLive(payload: { title: string; image: BusinessMediaValue; status: LiveRoom['status']; linkedFarms: NonNullable<LiveRoom['linkedFarms']>; hostRole?: string }, storage: MediaAssetRepository) {
       if (!this.promoter || !payload.title.trim()) return false
       if (!validLiveSelection(payload.linkedFarms)) return false
       const room: LiveRoom = {
         id: createId('PL'),
         title: payload.title.trim(),
         host: this.promoter.name,
-        hostRole: '推客主播',
+        hostRole: payload.hostRole || '推客主播',
         viewers: 0,
         productName: '',
         productPrice: 0,
         status: payload.status,
         reminded: false,
-        image: payload.image || '/static/images/farmhouse.webp',
+        image: resolveLiveCover(payload.image),
         promoterId: this.promoter.id,
         linkedFarms: payload.linkedFarms,
         city: '湘西州'
       }
-      if (!writePlatformLive(room)) return false
+      try {
+        await replaceMediaReference(storage, liveCoverBinding(room.id), undefined, payload.image, async (image) => {
+          room.image = resolveLiveCover(image)
+          if (!writePlatformLive(room)) throw new Error('直播保存失败')
+          return room
+        })
+      } catch {
+        return false
+      }
       this.liveRooms.unshift(room)
       return true
     },
-    updateLive(id: string, payload: { title: string; image: string; status: LiveRoom['status']; linkedFarms: NonNullable<LiveRoom['linkedFarms']> }) {
+    async updateLive(id: string, payload: { title: string; image: BusinessMediaValue; status: LiveRoom['status']; linkedFarms: NonNullable<LiveRoom['linkedFarms']>; hostRole?: string }, storage: MediaAssetRepository) {
       const room = this.liveRooms.find((item) => item.id === id)
       if (!room || !payload.title.trim() || !validLiveSelection(payload.linkedFarms)) return false
-      const next = { ...room, title: payload.title.trim(), image: payload.image, status: payload.status, linkedFarms: payload.linkedFarms }
-      if (!writePlatformLive(next)) return false
-      Object.assign(room, next)
+      try {
+        const next = await replaceMediaReference(storage, liveCoverBinding(id), room.image, payload.image, async (image) => {
+          const saved = { ...room, title: payload.title.trim(), image: resolveLiveCover(image), status: payload.status, linkedFarms: payload.linkedFarms, hostRole: payload.hostRole || room.hostRole || '推客主播' }
+          if (!writePlatformLive(saved)) throw new Error('直播保存失败')
+          return saved
+        })
+        Object.assign(room, next)
+      } catch {
+        return false
+      }
       return true
     },
     toggleLiveStatus(id: string) {

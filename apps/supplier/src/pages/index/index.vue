@@ -4,8 +4,8 @@
     <view class="login-card">
       <image class="login-banner" src="/static/images/farmhouse.webp" mode="aspectFill" />
       <view class="login-body">
-      <text class="login-title">供应商配送工作台</text>
-      <text class="login-sub">甄选好物供应链 · 供应商与司机双角色配送履约</text>
+      <text class="login-title">中选科技供应商配送工作台</text>
+      <text class="login-sub">中选科技供应链 · 供应商与司机双角色配送履约</text>
       <view class="role-tabs">
         <button :class="{ active: loginRole === 'supplier' }" @click="switchLoginRole('supplier')">供应商</button>
         <button :class="{ active: loginRole === 'driver' }" @click="switchLoginRole('driver')">司机</button>
@@ -14,9 +14,11 @@
         <label class="form-field"><text>账号</text><input v-model="loginAccount" placeholder="请输入账号" confirm-type="done" @confirm="submitLogin" /></label>
         <label class="form-field"><text>密码</text><input v-model="loginPassword" type="password" placeholder="请输入密码" confirm-type="done" @confirm="submitLogin" /></label>
       </view>
-      <text v-if="store.loginError" class="form-error login-error">{{ store.loginError }}</text>
-      <button class="primary-button login-button" :disabled="busy" @click="submitLogin">登 录</button>
-      <text class="login-hint">{{ loginRole === 'supplier' ? '演示供应商：supplier / 123456（已自动填充）' : '演示司机：driver01 / 123456（已自动填充）' }}</text>
+      <text v-if="store.error" class="form-error login-error">{{ store.error }}</text>
+      <text v-else-if="store.loginError" class="form-error login-error">{{ store.loginError }}</text>
+      <button v-if="store.error" class="secondary-button login-button" :disabled="store.loading" @click="store.initialize(true)">重新加载</button>
+      <button v-else class="primary-button login-button" :disabled="busy || !store.initialized || store.loading" @click="submitLogin">登 录</button>
+      <text class="login-hint">{{ loginRole === 'supplier' ? '演示供应商：13787366688 / 13787366688（已自动填充）' : '演示司机：driver01 / 123456（已自动填充）' }}</text>
       </view>
     </view>
   </view>
@@ -31,7 +33,7 @@
       <view v-if="store.auth.role === 'supplier'" class="hero">
         <view class="hero-top">
           <image class="hero-avatar" src="/static/images/bacon.webp" mode="aspectFill" />
-          <view><text class="hero-title">{{ store.auth.name || supplierInfo.name }}</text><view class="hero-sub">{{ supplierInfo.region }} · {{ supplierInfo.category }}</view></view>
+          <view><text class="hero-title">{{ store.currentSupplier?.name || store.auth.name || supplierInfo.name }}</text><view class="hero-sub">{{ store.currentSupplier?.region || supplierInfo.region }} · {{ store.currentSupplier?.category || supplierInfo.category }}</view></view>
           <button class="hero-logout" @click="logout">退出</button>
         </view>
         <view class="hero-stats">
@@ -150,6 +152,22 @@
           <view v-else class="empty-state"><UiIcon name="users" :size="28" /><text>暂无司机账号，点击「新增司机」开通</text></view>
         </view>
 
+        <view v-else-if="active === 'settlements'" class="page-pad">
+          <view class="chips"><text class="section-title">结算账单</text></view>
+          <view v-if="store.mySettlements.length" style="margin-top:12px">
+            <view v-for="item in store.mySettlements" :key="item.id" class="list-card">
+              <view class="row">
+                <view class="row-main">
+                  <view class="row-top"><text class="order-no">{{ item.id }}</text><span class="badge">{{ item.status || 'pending' }}</span></view>
+                  <text class="muted">周期 {{ item.period }} · 关联订单 {{ item.orderIds.length }} 单</text>
+                  <text class="order-amount">{{ money(item.amount) }}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+          <view v-else class="empty-state"><UiIcon name="package-check" :size="28" /><text>暂无结算账单</text></view>
+        </view>
+
         <view v-else class="page-pad">
           <view class="chips">
             <button v-for="item in handoverTypeFilters" :key="item" class="chip" :class="{ active: handoverFilter === item }" @click="handoverFilter = item">{{ item }}</button>
@@ -182,7 +200,7 @@
               </view>
               <view class="task-store"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ order.customer }}</text><text class="muted">{{ storeInfoOf(order.customer).address }} · {{ storeInfoOf(order.customer).contact }} {{ storeInfoOf(order.customer).phone }}</text></view></view>
               <view class="task-items">
-                <view v-for="item in order.items" :key="`${item.productId}-${item.skuId}`" class="task-item"><image :src="item.image" mode="aspectFit" /><text>{{ item.name }}</text><text class="muted">×{{ item.quantity }}</text></view>
+                <view v-for="item in order.items" :key="`${item.productId}-${item.skuId}`" class="task-item"><BusinessImage :src="item.image" mode="aspectFit" /><text>{{ item.name }}</text><text class="muted">×{{ item.quantity }}</text></view>
               </view>
               <view v-if="orderShortage(order).length" class="task-shortage"><span class="tag" :class="hasUnhandledShortage(order) ? 'danger' : 'out'">{{ hasUnhandledShortage(order) ? `缺货 ${orderShortage(order).length} 项` : '已补发' }}</span><text class="muted">{{ orderShortage(order).map((item) => `${item.name} 缺 ${item.shortage}${item.handled ? '(已补发)' : ''}`).join('、') }}</text></view>
               <button v-if="orderFulfillment(order).status === 'shipped'" class="outline-button" disabled>待供应商出库交接</button>
@@ -198,7 +216,7 @@
               <view class="row-top"><text class="order-no">{{ order.id }}</text><span class="badge received">已收货</span></view>
               <view class="task-store"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ order.customer }}</text><text class="muted">{{ order.createdAt }}</text></view></view>
               <view class="task-items">
-                <view v-for="item in order.items" :key="`${item.productId}-${item.skuId}`" class="task-item"><image :src="item.image" mode="aspectFit" /><text>{{ item.name }}</text><text class="muted">×{{ item.quantity }}</text></view>
+                <view v-for="item in order.items" :key="`${item.productId}-${item.skuId}`" class="task-item"><BusinessImage :src="item.image" mode="aspectFit" /><text>{{ item.name }}</text><text class="muted">×{{ item.quantity }}</text></view>
               </view>
             </view>
           </view>
@@ -237,7 +255,7 @@
             </view>
             <view class="section-title">商品明细</view>
             <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line">
-              <image :src="item.image" mode="aspectFit" /><view class="row-main"><text>{{ item.name }}</text><text class="muted">{{ item.skuName }} ×{{ item.quantity }}</text></view><text class="order-item-price">{{ money(item.price * item.quantity) }}</text>
+              <BusinessImage :src="item.image" mode="aspectFit" /><view class="row-main"><text>{{ item.name }}</text><text class="muted">{{ item.skuName }} ×{{ item.quantity }}</text></view><text class="order-item-price">{{ money(item.price * item.quantity) }}</text>
             </view>
             <view class="section-title">收货门店</view>
             <view class="store-line"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ isCourierOrder(selectedOrder) ? '收货地址' : selectedOrder.customer }}</text><text class="muted">{{ addressLabel(selectedOrder) }}</text></view></view>
@@ -315,7 +333,7 @@
             <view class="sheet-head"><text class="sheet-title">到店交接</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
             <view class="store-line"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ selectedOrder.customer }}</text><text class="muted">{{ storeInfoOf(selectedOrder.customer).address }} · {{ storeInfoOf(selectedOrder.customer).contact }} {{ storeInfoOf(selectedOrder.customer).phone }}</text></view></view>
             <view class="section-title">商品明细</view>
-            <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line"><image :src="item.image" mode="aspectFit" /><view class="row-main"><text>{{ item.name }}</text><text class="muted">{{ item.skuName }} ×{{ item.quantity }}</text></view><text class="order-item-price">{{ money(item.price * item.quantity) }}</text></view>
+            <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line"><BusinessImage :src="item.image" mode="aspectFit" /><view class="row-main"><text>{{ item.name }}</text><text class="muted">{{ item.skuName }} ×{{ item.quantity }}</text></view><text class="order-item-price">{{ money(item.price * item.quantity) }}</text></view>
             <view v-if="orderShortage(selectedOrder).length" class="section-title">缺货提示</view>
             <view v-if="orderShortage(selectedOrder).length">
               <view v-for="item in orderShortage(selectedOrder)" :key="item.skuId" class="shortage-line"><text>{{ item.name }}</text><span class="tag danger">缺 {{ item.shortage }}</span></view>
@@ -379,7 +397,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { DriverAccount, Order, ShortageItem } from '@agritainment/shared'
-import { PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, installKeyboardButtonSupport, money } from '@agritainment/shared'
+import { PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, installKeyboardButtonSupport, money, subscribePlatformChanges } from '@agritainment/shared'
+import { BusinessImage } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import { storeInfoOf, supplierInfo } from '../../services/repository'
 import { useSupplierStore } from '../../stores/supplier'
@@ -399,14 +418,14 @@ function toast(text: string) {
 
 // ---------- 登录（自动填充）----------
 const loginRole = ref<'supplier' | 'driver'>('supplier')
-const loginAccount = ref('supplier')
-const loginPassword = ref('123456')
+const loginAccount = ref('13787366688')
+const loginPassword = ref('13787366688')
 
 function switchLoginRole(role: 'supplier' | 'driver') {
   loginRole.value = role
   store.loginError = ''
-  loginAccount.value = role === 'supplier' ? 'supplier' : 'driver01'
-  loginPassword.value = '123456'
+  loginAccount.value = role === 'supplier' ? '13787366688' : 'driver01'
+  loginPassword.value = role === 'supplier' ? '13787366688' : '123456'
 }
 
 function submitLogin() {
@@ -432,12 +451,13 @@ function logout() {
 }
 
 // ---------- 底部 tab（按角色）----------
-type SupplierTab = 'dashboard' | 'orders' | 'drivers' | 'handovers'
+type SupplierTab = 'dashboard' | 'orders' | 'drivers' | 'handovers' | 'settlements'
 const active = ref<SupplierTab>('dashboard')
 const supplierTabs = [
   { key: 'dashboard' as const, label: '工作台', icon: 'layout-dashboard', badge: () => 0 },
   { key: 'orders' as const, label: '配送订单', icon: 'package', badge: () => store.metrics.toAcceptCount },
   { key: 'drivers' as const, label: '司机管理', icon: 'users', badge: () => 0 },
+  { key: 'settlements' as const, label: '结算账单', icon: 'package-check', badge: () => 0 },
   { key: 'handovers' as const, label: '交接日志', icon: 'list-tree', badge: () => 0 }
 ]
 type DriverTab = 'today' | 'history' | 'mine'
@@ -463,7 +483,7 @@ const orderStatusKeys = ['全部', 'submitted', 'accepted', 'shipped', 'deliveri
 const orderFilters = computed(() => orderStatusKeys.map((key) => ({
   key,
   label: key === '全部' ? '全部' : key === '缺货' ? '缺货' : store.statusText(key),
-  count: key === '全部' ? store.orders.length : key === '缺货' ? store.metrics.shortageOrderCount : store.orders.filter((order) => orderFulfillment(order).status === key).length
+  count: store.supplierOrderCounts[key] ?? 0
 })))
 const filteredOrders = computed(() => store.supplierOrders.filter((order) => {
   const matchesFilter = orderFilter.value === '全部' || (orderFilter.value === '缺货' ? orderShortage(order).length > 0 : orderFulfillment(order).status === orderFilter.value)
@@ -765,7 +785,7 @@ onMounted(() => {
   store.initialize()
   disposeKeyboardButtons = installKeyboardButtonSupport()
   if (typeof window !== 'undefined') {
-    const keys = new Set([PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY])
+    const keys = new Set([PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY])
     const onStorage = (event: StorageEvent) => { if (!event.key || keys.has(event.key)) void store.refreshSharedState() }
     window.addEventListener('storage', onStorage)
     disposeStorageSync = () => window.removeEventListener('storage', onStorage)
@@ -868,6 +888,7 @@ $line: #dfe3dc;
 .order-actions, .sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .order-actions button, .sheet-actions button { min-height: 36px; }
 .store-line .row-main, .task-store .row-main { flex: 1; }
+.task-item .business-image { width:30px;height:30px;border-radius:8px;flex:none; }.order-item-line .business-image { width:36px;height:36px;border-radius:8px;flex:none; }
 /* #ifdef MP-WEIXIN */
 .app-shell { padding-bottom: var(--safe-area-inset-bottom, 0px); }
 /* #endif */

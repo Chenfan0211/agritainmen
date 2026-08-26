@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { BalanceEntry, Booking, CAddress, CatalogProduct, CatalogState, FarmStore, Member, MockScenario, Order, Product, PromotionRecord, Role, ShareRecord, StoreAccount, StoreCatalogSelection, StorefrontOrder, TenantConfig, UserBinding } from '@agritainment/shared'
-import { abortCatalogTransaction, allocateStoreCatalogCommission, applyCatalogStockOperation, applyPlatformMedia, buildPortalUrl, calcCartTotal, catalogProductToProduct, catalogProductToStoreProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, createId, isExpressDeliverable, markCatalogTransactionStockApplied, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformStoreAccounts, prepareCatalogTransaction, readCatalogState, readPendingCatalogTransactions, readPlatformOrders, readPlatformStoreAccounts, readShareConfig, readShareRecords, readStoreCatalogSelectionState, readUserBindings, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, saveStoreCatalogSelection, simulateWechatLogin, storeAccounts, suppliers, updateCatalogStock, upsertUserBinding, writePlatformOrder, writePlatformStoreAccounts, writeShareRecord } from '@agritainment/shared'
+import type { BalanceEntry, Booking, BusinessMediaValue, FarmExperience, CAddress, CatalogProduct, CatalogState, FarmStore, Member, MockScenario, Order, Product, PromotionRecord, Role, ShareRecord, StoreAccount, StoreCatalogSelection, StorefrontOrder, TenantConfig, UserBinding, VoucherOrder } from '@agritainment/shared'
+import { abortCatalogTransaction, allocateStoreCatalogCommission, applyCatalogStockOperation, applyPlatformMedia, buildPortalUrl, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductToStoreProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, createId, isExpressDeliverable, mediaValueToImage, markCatalogTransactionStockApplied, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformExperiences, mergePlatformStoreAccounts, prepareCatalogTransaction, promoters, readCatalogState, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformBookings, readPlatformCommissionLedger, readPlatformOrders, readPlatformStoreAccounts, readPlatformVoucherOrders, readShareConfig, readShareRecords, readStoreCatalogSelectionState, readUserBindings, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, saveStoreCatalogSelection, simulateWechatLogin, storeAccounts, suppliers, updateCatalogStock, upsertUserBinding, reverseCommissionLedgerEntry, transitionVoucherOrder, readPlatformExperiences, writePlatformExperience, removePlatformExperience, writePlatformAfterSale, writePlatformBooking, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformStoreAccounts, writeShareRecord } from '@agritainment/shared'
 import { resolveRuntimeTenant } from '../config/tenant'
 import { farmhouseRepository } from '../services/repository'
 
@@ -9,7 +9,7 @@ interface CartLine {
   skuId: string
   skuName: string
   name: string
-  image: string
+  image: BusinessMediaValue
   price: number
   stock: number
   quantity: number
@@ -21,6 +21,7 @@ interface FarmhouseTransactionPayload {
   memberPoints?: number
   balanceEntry?: BalanceEntry
   platformOrder?: Order
+  platformOrders?: Order[]
   shareRecords?: ShareRecord[]
   userBinding?: UserBinding
 }
@@ -43,6 +44,7 @@ function buildOrderShareReversals(orderId: string): ShareRecord[] {
 
 function applyFarmhouseTransactionSideEffects(payload: FarmhouseTransactionPayload): boolean {
   if (payload.platformOrder && !writePlatformOrder(payload.platformOrder)) return false
+  if (payload.platformOrders && !payload.platformOrders.every((platformOrder) => writePlatformOrder(platformOrder))) return false
   if (payload.userBinding && !upsertUserBinding(payload.userBinding)) return false
   if (payload.shareRecords && !payload.shareRecords.every((record) => writeShareRecord(record))) return false
   return true
@@ -60,7 +62,7 @@ export interface Room {
   id: string
   name: string
   emoji: string
-  image: string
+  image: BusinessMediaValue
   capacity: string
   sessions: string
   status: '可预订' | '仅余晚市'
@@ -74,7 +76,7 @@ export interface FoodItem {
   price: number
   originalPrice?: number
   emoji?: string
-  image: string
+  image: BusinessMediaValue
 }
 
 const seedRooms = (): Room[] => [
@@ -83,6 +85,12 @@ const seedRooms = (): Room[] => [
   { id: 'R003', name: '丰收大厅', image: '/static/images/farmhouse.webp', emoji: '🍂', capacity: '20–30 人 · 适合家宴聚会 · 最低消费 ¥1500', sessions: '晚市 17:30', status: '仅余晚市', people: 20 }
 ]
 
+
+const seedExperiences = (): FarmExperience[] => [
+  { id: 'EXP001', farmId: 'F001', name: '农事采摘体验', categoryCode: 'pick', description: '应季果蔬采摘 · 亲子互动', price: 68, status: 'active', image: '/static/images/field.webp', sort: 1, updatedAt: '2026-08-01T09:00:00.000Z' },
+  { id: 'EXP002', farmId: 'F001', name: '柴火土灶现做', categoryCode: 'cook', description: '农家柴火灶 · 现场烹饪', price: 128, status: 'active', image: '/static/images/farmhouse.webp', sort: 2, updatedAt: '2026-08-01T09:00:00.000Z' },
+  { id: 'EXP003', farmId: 'F001', name: '露营帐篷烧烤', categoryCode: 'camp', description: '临溪草坪 · 夜宿露营', price: 198, status: 'active', image: '/static/images/mountain.webp', sort: 3, updatedAt: '2026-08-01T09:00:00.000Z' }
+]
 interface FarmhouseState {
   initialized: boolean
   loading: boolean
@@ -105,6 +113,7 @@ interface FarmhouseState {
   balanceEntries: BalanceEntry[]
   promotionRecords: PromotionRecord[]
   foods: FoodItem[]
+  experiences: FarmExperience[]
   checkoutError: string
   auth: { isLoggedIn: boolean; openid: string }
   storeAccounts: StoreAccount[]
@@ -154,6 +163,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     balanceEntries: [{ id: 'BL2026080901', type: 'recharge', amount: 300, balance: 386.5, description: '会员储值充值', createdAt: '2026-08-09 10:18' }],
     promotionRecords: [],
     foods: [],
+    experiences: seedExperiences(),
     checkoutError: '',
     auth: { isLoggedIn: false, openid: '' },
     storeAccounts: [],
@@ -169,6 +179,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     cartTotal: (state) => calcCartTotal(state.cart.map(({ price, quantity }) => ({ price, quantity }))),
     balance: (state) => state.member.balance,
     points: (state) => state.member.points,
+    vouchers: (state): VoucherOrder[] => Object.values(readPlatformVoucherOrders() || {}).filter((item) => item.farmId === (state.tenant?.farmId || state.farm?.id || 'F001')).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     canOperate: (state) => state.role === 'staff' || state.role === 'manager',
     canSelect: (state) => state.role === 'manager'
   },
@@ -189,11 +200,19 @@ export const useFarmhouseStore = defineStore('storefront', {
           farm: hasPersistedData ? mergePersistedDefaults(storefront.farm, this.farm) : storefront.farm,
           member: hasPersistedData ? mergePersistedDefaults(storefront.member, this.member) : storefront.member,
           foods: hasPersistedData ? mergeEntitySeeds(storefront.foods, this.foods) : storefront.foods,
+          experiences: hasPersistedData ? mergeEntitySeeds(storefront.experiences, this.experiences) : storefront.experiences,
           initialized: true
         })
         this.applyCatalogState(catalogState)
         if (this.farm) applyPlatformMedia([this.farm], this.products)
         this.storeAccounts = mergePlatformStoreAccounts(storeAccounts, readPlatformStoreAccounts())
+        this.experiences = mergePlatformExperiences(this.experiences)
+        const sharedBookings = readPlatformBookings() || {}
+        const currentFarmId = this.tenant?.farmId || this.farm?.id || 'F001'
+        for (const shared of Object.values(sharedBookings)) {
+          if (shared.farmId !== currentFarmId || this.bookings.some((booking) => booking.id === shared.id)) continue
+          this.bookings.push({ id: shared.id, type: 'package', name: shared.farmName, date: shared.date, session: shared.session, people: shared.people, status: shared.status === 'submitted' || shared.status === 'confirmed' ? 'reserved' : shared.status === 'completed' ? 'completed' : 'cancelled' })
+        }
         this.recoverCatalogTransactions()
         if (!this.deliveryAddress) this.deliveryAddress = this.tenant?.address || ''
         if (this.auth.isLoggedIn && this.auth.openid) this.setAuthorizedIdentity(this.auth.openid)
@@ -235,6 +254,11 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.applyCatalogState(state)
       return true
     },
+    async refreshSharedState() {
+      this.storeAccounts = mergePlatformStoreAccounts(storeAccounts, readPlatformStoreAccounts())
+      this.refreshCatalog()
+      this.syncCourierOrders()
+    },
     recoverCatalogTransactions() {
       for (const entry of readPendingCatalogTransactions('farmhouse')) {
         const payload = entry.payload as FarmhouseTransactionPayload
@@ -262,16 +286,18 @@ export const useFarmhouseStore = defineStore('storefront', {
       const platformOrders = readPlatformOrders()
       if (!platformOrders) return
       this.orders.forEach((order) => {
-        if (!order.platformOrderId) return
-        const platformOrder = platformOrders[order.platformOrderId]
-        const fulfillment = platformOrder?.supplierFulfillment
-        if (!fulfillment) return
-        if (fulfillment.status === 'received' || fulfillment.status === 'completed') order.status = '已完成'
-        else if (fulfillment.status === 'shipped' || fulfillment.status === 'delivering') order.status = '已发货'
+        const ids = order.platformOrderIds?.length ? order.platformOrderIds : order.platformOrderId ? [order.platformOrderId] : []
+        const linked = ids.map((platformOrderId) => platformOrders[platformOrderId]).filter((item): item is Order => !!item)
+        if (!linked.length) return
+        const fulfillments = linked.map((platformOrder) => platformOrder.supplierFulfillment).filter((item): item is NonNullable<Order['supplierFulfillment']> => !!item)
+        if (!fulfillments.length) return
+        if (fulfillments.every((fulfillment) => fulfillment.status === 'received' || fulfillment.status === 'completed')) order.status = '已完成'
+        else if (fulfillments.some((fulfillment) => fulfillment.status === 'shipped' || fulfillment.status === 'delivering')) order.status = '已发货'
         else order.status = '待发货'
-        order.trackingNo = fulfillment.trackingNo
-        order.courier = fulfillment.shipType === 'driver' ? '司机配送' : '快递直发'
-        order.logistics = platformOrder?.logistics?.length ? platformOrder.logistics : order.logistics
+        const shipped = fulfillments.find((fulfillment) => fulfillment.trackingNo)
+        order.trackingNo = shipped?.trackingNo
+        order.courier = fulfillments.some((fulfillment) => fulfillment.shipType === 'driver') ? '司机配送' : '快递直发'
+        order.logistics = linked[0]?.logistics?.length ? linked[0].logistics : order.logistics
       })
     },
     setMockScenario(scenario: MockScenario) {
@@ -358,7 +384,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       const cartItems = this.cart.map((item) => {
         const product = this.products.find((p) => p.id === item.productId)
         const courier = wantsCourier && !!product && isExpressDeliverable(product)
-        return { productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: item.image, quantity: item.quantity, price: item.price, deliveryMode: courier ? 'courier' as const : 'pickup' as const }
+        return { productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: mediaValueToImage(item.image), quantity: item.quantity, price: item.price, deliveryMode: courier ? 'courier' as const : 'pickup' as const }
       })
       const order: StorefrontOrder = {
         id: orderId, amount: total, itemCount, status: '待发货', createdAt: new Date().toLocaleString('zh-CN'),
@@ -370,23 +396,23 @@ export const useFarmhouseStore = defineStore('storefront', {
       const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
       const operationId = `${orderId}:reserve`
       const courierItems = cartItems.filter((item) => item.deliveryMode === 'courier')
-      const courierAmount = round2(courierItems.reduce((sum, item) => sum + item.price * item.quantity, 0))
-      const firstCourierProduct = courierItems.length ? this.products.find((product) => product.id === courierItems[0]?.productId) : undefined
       const address: CAddress | undefined = courierItems.length
         ? { id: `${orderId}-ADDR`, userId: this.auth.openid || '', receiver: this.member.name, phone: this.member.phone || '', region: payload.address?.trim() || '', detail: '', isDefault: false, updatedAt: new Date().toISOString() }
         : undefined
-      const platformOrder: Order | undefined = courierItems.length
-        ? {
-            id: `FH-${orderId}`, productName: courierItems[0]?.name || '特产商品', quantity: courierItems.reduce((sum, item) => sum + item.quantity, 0), amount: courierAmount,
-            customer: `游客 · ${this.member.name}`, channel: 'shop', status: 'pending', createdAt: new Date().toLocaleString('zh-CN'),
-            items: courierItems, supplierId: suppliers.find((supplier) => supplier.name === firstCourierProduct?.supplier)?.id,
-            supplierOrderLink: { source: 'farmhouse-courier', sourceOrderId: orderId, deliveryAddress: address! }
-          }
-        : undefined
+      const platformOrders: Order[] = courierItems.length
+        ? buildSupplierPlatformOrders({
+            items: courierItems, products: this.products, customer: '游客 · ' + this.member.name, channel: 'shop', source: 'farmhouse-courier',
+            sourceOrderId: 'FH-' + orderId, status: 'pending', createdAt: new Date().toLocaleString('zh-CN'), customerUserId: this.auth.openid || '', deliveryAddress: address
+          })
+        : []
+      if (platformOrders.length) {
+        order.platformOrderId = platformOrders[0].id
+        order.platformOrderIds = platformOrders.map((platformOrder) => platformOrder.id)
+      }
       const shareSideEffects = this.buildOrderShareSideEffects(orderId, cartItems)
       const transactionPayload: FarmhouseTransactionPayload & { order: StorefrontOrder; memberBalance: number; memberPoints: number; balanceEntry: BalanceEntry; cartItems: typeof cartItems } = {
         order, memberBalance: balanceEntry.balance, memberPoints: this.member.points + pointsAwarded, balanceEntry, cartItems,
-        platformOrder, shareRecords: shareSideEffects.shareRecord ? [shareSideEffects.shareRecord] : undefined, userBinding: shareSideEffects.userBinding
+        platformOrder: platformOrders[0], platformOrders, shareRecords: shareSideEffects.shareRecord ? [shareSideEffects.shareRecord] : undefined, userBinding: shareSideEffects.userBinding
       }
       if (!prepareCatalogTransaction({ id: operationId, channel: 'farmhouse', action: 'reserve', inventoryChanges, payload: transactionPayload })) {
         this.checkoutError = '订单准备失败，请稍后重试'
@@ -429,10 +455,12 @@ export const useFarmhouseStore = defineStore('storefront', {
       const nextBalance = round2(this.member.balance + order.amount)
       const nextPoints = Math.max(0, this.member.points - (order.pointsAwarded || 0))
       const balanceEntry: BalanceEntry = { id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: `商城订单取消退款 · ${order.itemCount} 件商品`, createdAt: new Date().toLocaleString('zh-CN') }
-      const platformOrder = order.platformOrderId ? readPlatformOrders()?.[order.platformOrderId] : undefined
+      const platformOrderIds = order.platformOrderIds?.length ? order.platformOrderIds : order.platformOrderId ? [order.platformOrderId] : []
+      const platformOrders = platformOrderIds.map((platformOrderId) => readPlatformOrders()?.[platformOrderId]).filter((item): item is Order => !!item).map((platformOrder) => ({ ...platformOrder, status: 'paid-cancelled' as const }))
+      const platformOrder = platformOrders[0]
       const transactionPayload: FarmhouseTransactionPayload = {
         order: nextOrder, memberBalance: nextBalance, memberPoints: nextPoints, balanceEntry,
-        platformOrder: platformOrder ? { ...platformOrder, status: 'unpaid-cancelled' } : undefined,
+        platformOrder, platformOrders,
         shareRecords: buildOrderShareReversals(order.id)
       }
       if (!prepareCatalogTransaction({ id: operationId, channel: 'farmhouse', action: 'release', inventoryChanges, payload: transactionPayload })) return false
@@ -445,9 +473,18 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.balanceEntries.unshift(balanceEntry)
       return commitCatalogTransaction(operationId)
     },
-    requestStorefrontAfterSale(id: string, type: 'refund' | 'return') {
+    requestStorefrontAfterSale(id: string, type: 'refund' | 'return', evidenceImages?: BusinessMediaValue[]) {
       const order = this.orders.find((item) => item.id === id)
       if (!order || order.status !== '已完成' || order.afterSaleType) return false
+      if (Object.values(readPlatformAfterSales() || {}).some((work) => work.orderId === id)) return false
+      const first = order.items[0]
+      const workId = createId('AS')
+      if (!writePlatformAfterSale({
+        id: workId, orderId: id, productName: first?.name || '特产商品', applicant: this.member.name || '游客',
+        type, amount: order.amount, status: 'processing', issue: '用户申请售后，平台受理中', quantity: first?.quantity || order.itemCount,
+        evidenceImages,
+        history: [{ time: new Date().toLocaleString('zh-CN'), action: '用户发起售后，平台受理中', operator: this.member.name || '游客' }]
+      })) return false
       order.afterSaleType = type
       order.status = type === 'refund' ? '退款中' : '退货中'
       return true
@@ -457,8 +494,10 @@ export const useFarmhouseStore = defineStore('storefront', {
       if (!order || (order.status !== '退款中' && order.status !== '退货中') || order.balanceRefunded) return false
       const nextBalance = round2(this.member.balance + order.amount)
       const nextPoints = Math.max(0, this.member.points - (order.pointsAwarded || 0))
+      const afterSaleWork = Object.values(readPlatformAfterSales() || {}).find((work) => work.orderId === id)
       if (order.afterSaleType === 'refund') {
         if (!reverseOrderShares(order.id)) return false
+        if (afterSaleWork && afterSaleWork.status !== 'refunded' && !writePlatformAfterSale({ ...afterSaleWork, status: 'refunded', history: [...(afterSaleWork.history || []), { time: new Date().toLocaleString('zh-CN'), action: '退款完成', operator: this.member.name || '游客' }] })) return false
         order.status = '已退款'; order.balanceRefunded = true
         this.member.balance = nextBalance; this.member.points = nextPoints
         this.balanceEntries.unshift({ id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: '商城订单退款', createdAt: new Date().toLocaleString('zh-CN') })
@@ -471,6 +510,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       const operationId = `${order.id}:release`
       const nextOrder = { ...cloneSeed(order), status: '已退货' as const, inventoryReleased: true, balanceRefunded: true }
       const balanceEntry: BalanceEntry = { id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: '商城退货退款', createdAt: new Date().toLocaleString('zh-CN') }
+      if (afterSaleWork && afterSaleWork.status !== 'refunded' && !writePlatformAfterSale({ ...afterSaleWork, status: 'refunded', history: [...(afterSaleWork.history || []), { time: new Date().toLocaleString('zh-CN'), action: '退货确认，退款完成', operator: this.member.name || '游客' }] })) return false
       const transactionPayload: FarmhouseTransactionPayload = { order: nextOrder, memberBalance: nextBalance, memberPoints: nextPoints, balanceEntry, shareRecords: buildOrderShareReversals(order.id) }
       if (!prepareCatalogTransaction({ id: operationId, channel: 'farmhouse', action: 'release', inventoryChanges, payload: transactionPayload })) return false
       const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, catalog.revision)
@@ -489,6 +529,8 @@ export const useFarmhouseStore = defineStore('storefront', {
     cancelBooking(id: string) {
       const item = this.bookings.find((booking) => booking.id === id)
       if (!item || item.status !== 'reserved') return false
+      const shared = readPlatformBookings()?.[id]
+      if (shared && !writePlatformBooking({ ...shared, status: 'cancelled', updatedAt: new Date().toLocaleString('zh-CN') })) return false
       item.status = 'cancelled'
       return true
     },
@@ -559,6 +601,29 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.rooms.splice(index, 1)
       return true
     },
+    addExperience(payload: Omit<FarmExperience, 'id' | 'updatedAt'>) {
+      if (!payload.name.trim()) return false
+      const experience: FarmExperience = { ...payload, id: createId('EXP'), updatedAt: new Date().toISOString() }
+      this.experiences.unshift(experience)
+      writePlatformExperience(experience)
+      return true
+    },
+    updateExperience(id: string, payload: Omit<FarmExperience, 'id' | 'updatedAt'>) {
+      const experience = this.experiences.find((item) => item.id === id)
+      if (!experience || !payload.name.trim()) return false
+      const next: FarmExperience = { ...experience, ...payload, id, updatedAt: new Date().toISOString() }
+      const index = this.experiences.findIndex((item) => item.id === id)
+      this.experiences[index] = next
+      writePlatformExperience(next)
+      return true
+    },
+    removeExperience(id: string) {
+      const index = this.experiences.findIndex((item) => item.id === id)
+      if (index < 0) return false
+      this.experiences.splice(index, 1)
+      removePlatformExperience(id)
+      return true
+    },
     addFood(payload: Omit<FoodItem, 'id'>) {
       if (!payload.name.trim() || payload.price <= 0) return false
       this.foods.unshift({ ...payload, id: createId('FD') })
@@ -576,10 +641,37 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.foods.splice(index, 1)
       return true
     },
-    verifyBooking(id: string) {
+    verifyBooking(id: string, amount: number) {
       const item = this.bookings.find((booking) => booking.id === id)
-      if (!item || item.status !== 'reserved') return false
+      const confirmedAmount = round2(Number(amount))
+      if (!item || item.status !== 'reserved' || !Number.isFinite(confirmedAmount) || confirmedAmount <= 0) return false
+      const shared = readPlatformBookings()?.[id]
+      const confirmedAt = new Date().toISOString()
+      if (shared && !writePlatformBooking({ ...shared, status: 'completed', amount: confirmedAmount, amountConfirmedAt: confirmedAt, updatedAt: confirmedAt })) return false
       item.status = 'completed'
+      item.amount = confirmedAmount
+      return true
+    },
+    redeemVoucher(id: string) {
+      const voucher = readPlatformVoucherOrders()?.[id]
+      const farmId = this.tenant?.farmId || this.farm?.id || 'F001'
+      if (!voucher || voucher.farmId !== farmId || voucher.status !== 'paid') return false
+      const now = new Date().toLocaleString('zh-CN')
+      if (!transitionVoucherOrder(id, 'redeemed', now)) return false
+      const entryId = id + ':commission'
+      const entry = readPlatformCommissionLedger()?.[entryId]
+      if (entry && entry.status === 'pending' && !writePlatformCommissionLedgerEntry({ ...entry, status: 'available', updatedAt: now })) return false
+      return true
+    },
+    refundVoucher(id: string) {
+      const voucher = readPlatformVoucherOrders()?.[id]
+      const farmId = this.tenant?.farmId || this.farm?.id || 'F001'
+      if (!voucher || voucher.farmId !== farmId || voucher.status === 'refunded') return false
+      const now = new Date().toLocaleString('zh-CN')
+      if (!transitionVoucherOrder(id, 'refunded', now)) return false
+      const entryId = id + ':commission'
+      const entry = readPlatformCommissionLedger()?.[entryId]
+      if (entry) reverseCommissionLedgerEntry(entryId, id, entry.beneficiaryId, entry.amount, now)
       return true
     },
     repeatOrder(id: string) {
@@ -698,15 +790,21 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.applyReferrerBinding()
     },
     applyReferrerBinding() {
-      if (!this.currentUserId) return
+      if (!this.currentUserId) return false
       const bindings = readUserBindings() ?? {}
       const existing = bindings[this.currentUserId]
-      if (existing && existing.status === 'bound') return
+      if (existing && existing.status === 'bound') return false
       if (this.referrer.promoterId) {
-        upsertUserBinding({ userId: this.currentUserId, promoterId: this.referrer.promoterId, status: 'pending' })
+        const promoter = promoters.find((item) => item.id === this.referrer.promoterId && item.status === 'active')
+        if (!promoter) return false
+        return upsertUserBinding({ userId: this.currentUserId, promoterId: promoter.id, status: 'pending' })
       } else if (this.referrer.staffAccountId) {
-        upsertUserBinding({ userId: this.currentUserId, staffAccountId: this.referrer.staffAccountId, status: 'pending' })
+        const farmId = this.tenant?.farmId || this.farm?.id || 'F001'
+        const account = this.storeAccounts.find((item) => item.id === this.referrer.staffAccountId)
+        if (!account || !account.enabled || !account.promoEnabled || account.farmId !== farmId) return false
+        return upsertUserBinding({ userId: this.currentUserId, staffAccountId: account.id, status: 'pending' })
       }
+      return false
     },
     addStoreAccount(payload: { name: string; account: string; password: string; role: StoreAccount['role']; promoEnabled?: boolean }) {
       const farmId = this.tenant?.farmId || this.farm?.id || 'F001'

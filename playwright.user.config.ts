@@ -14,7 +14,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'mobile', use: { viewport: { width: 375, height: 812 } } },
-    { name: 'narrow-desktop', use: { viewport: { width: 768, height: 900 } } }
+    { name: 'desktop-frame', use: { viewport: { width: 1280, height: 900 } } }
   ],
   webServer: {
     command: 'pnpm --filter @agritainment/user dev:h5:e2e',

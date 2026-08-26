@@ -1,7 +1,9 @@
 ﻿import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { CatalogProduct } from '@agritainment/shared'
-import { afterSales, categories, cloneSeed, farms, mergePlatformOrders, orders, pendingShareAmount, products, promoters, readCatalogState, readPlatformCommissionSettlement, readPlatformOrders, readPricingDefaults, suppliers, writeCatalogState, writePlatformOrder, writePricingDefaults, writeShareRecords } from '@agritainment/shared'
+import { vi } from 'vitest'
+import type { CatalogProduct, GeocodeResult } from '@agritainment/shared'
+import { addDictItem, afterSales, categories, cloneSeed, farms, mergePlatformOrders, orders, pendingShareAmount, products, promoters, publishPlatformDictionaries, readCatalogState, readPlatformCommissionSettlement, readPlatformDictionaries, readPlatformOrders, readPlatformSupplierAccounts, readPricingDefaults, suppliers, writeCatalogState, writePlatformOrder, writePricingDefaults, writeShareRecords } from '@agritainment/shared'
+import { readPlatformEntities } from '@agritainment/shared'
 import { useAdminStore } from './admin'
 
 if (!globalThis.localStorage) {
@@ -19,6 +21,123 @@ if (!globalThis.localStorage) {
 
 describe('admin store interactions', () => {
   beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
+
+  it('新增门店时解析地址并持久化 GCJ-02 坐标', async () => {
+    const store = useAdminStore()
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockResolvedValue({
+      status: 'resolved', provider: 'amap', coordinate: { longitude: 112.9388, latitude: 28.2282 },
+      location: { longitude: 112.9388, latitude: 28.2282, coordinateSystem: 'GCJ-02', provider: 'amap', geocodedAt: '2026-08-25T00:00:00.000Z', adCode: '430104', province: '湖南省', city: '长沙市', district: '岳麓区', formattedAddress: '湖南省长沙市岳麓区潇湘中路' }
+    })
+
+    await expect(store.addFarm({ name: '坐标测试门店', region: '长沙市岳麓区', address: '湖南省长沙市岳麓区潇湘中路', city: '长沙市' }, geocode)).resolves.toBe(true)
+    expect(store.farms[0]).toMatchObject({
+      address: '湖南省长沙市岳麓区潇湘中路', locationStatus: 'resolved', location: { coordinateSystem: 'GCJ-02', longitude: 112.9388, latitude: 28.2282 }
+    })
+    expect(readPlatformEntities()?.farms?.[store.farms[0].id]).toMatchObject({ location: { longitude: 112.9388, latitude: 28.2282 } })
+  })
+
+  it('按县区和详细地址构建并保存结构化门店地址', async () => {
+    const store = useAdminStore()
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockResolvedValue({
+      status: 'resolved', provider: 'amap', coordinate: { longitude: 112.9388, latitude: 28.2282 },
+      location: { longitude: 112.9388, latitude: 28.2282, coordinateSystem: 'GCJ-02', provider: 'amap', geocodedAt: '2026-08-25T00:00:00.000Z', adCode: '430104', province: '湖南省', city: '长沙市', district: '岳麓区', formattedAddress: '湖南省长沙市岳麓区潇湘中路123号' }
+    })
+
+    await expect(store.addFarm({ name: '结构化地址门店', districtCode: '430104', detail: '潇湘中路123号' }, geocode)).resolves.toBe(true)
+    expect(geocode).toHaveBeenCalledWith({ address: '湖南省长沙市岳麓区潇湘中路123号', city: '长沙市' })
+    expect(store.farms[0]).toMatchObject({
+      address: '湖南省长沙市岳麓区潇湘中路123号', city: '长沙市', region: '岳麓区', regionCode: '430104',
+      structuredAddress: { province: '湖南省', city: '长沙市', district: '岳麓区', districtCode: '430104', detail: '潇湘中路123号' }
+    })
+  })
+
+  it('地理编码县区与所选县区不一致时清空坐标并标记 REGION_MISMATCH', async () => {
+    const store = useAdminStore()
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockResolvedValue({
+      status: 'resolved', provider: 'amap', coordinate: { longitude: 113.05, latitude: 28.25 },
+      location: { longitude: 113.05, latitude: 28.25, coordinateSystem: 'GCJ-02', provider: 'amap', geocodedAt: '2026-08-25T00:00:00.000Z', adCode: '430105', province: '湖南省', city: '长沙市', district: '开福区', formattedAddress: '湖南省长沙市开福区测试路' }
+    })
+
+    await expect(store.addFarm({ name: '县区不匹配门店', districtCode: '430104', detail: '测试路1号' }, geocode)).resolves.toBe(true)
+    expect(store.farms[0]).toMatchObject({ locationStatus: 'failed', locationError: 'REGION_MISMATCH', regionCode: '430104' })
+    expect(store.farms[0].location).toBeUndefined()
+  })
+
+  it('编辑门店地址解析失败时保留地址并清除旧坐标', async () => {
+    const store = useAdminStore()
+    store.farms = [cloneSeed(farms[0])]
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockResolvedValue({ status: 'failed' })
+
+    await expect(store.updateFarm('F001', { name: farms[0].name, region: farms[0].region, address: '湖南省湘西州永顺县新的石板溪地址' }, geocode)).resolves.toBe(true)
+    expect(store.farms[0]).toMatchObject({ address: '湖南省湘西州永顺县新的石板溪地址', locationStatus: 'failed' })
+    expect(store.farms[0].location).toBeUndefined()
+  })
+
+  it('同一地址失败后可强制重新定位并恢复坐标', async () => {
+    const store = useAdminStore()
+    store.farms = [{ ...cloneSeed(farms[0]), locationStatus: 'failed', location: undefined, locationError: 'GEOCODE_FAILED' }]
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockResolvedValue({
+      status: 'resolved', provider: 'tencent', coordinate: { longitude: 109.8561, latitude: 29.0816 },
+      location: { longitude: 109.8561, latitude: 29.0816, coordinateSystem: 'GCJ-02', provider: 'tencent', geocodedAt: '2026-08-25T00:00:00.000Z', adCode: '433127', province: '湖南省', city: '湘西州', district: '永顺县', formattedAddress: farms[0].address }
+    })
+
+    await expect(store.updateFarm('F001', { name: farms[0].name, region: farms[0].region, address: farms[0].address, forceGeocode: true }, geocode)).resolves.toBe(true)
+    expect(geocode).toHaveBeenCalledWith({ address: farms[0].address, city: farms[0].city })
+    expect(store.farms[0]).toMatchObject({ locationStatus: 'resolved', location: { provider: 'tencent', longitude: 109.8561, latitude: 29.0816 } })
+  })
+
+  it('同一结构化地址已有有效坐标时复用定位结果', async () => {
+    const store = useAdminStore()
+    store.farms = [{ ...cloneSeed(farms[0]), address: '湖南省湘西州永顺县石板溪村', regionCode: '433127', structuredAddress: { provinceCode: '43', province: '湖南省', cityCode: '4331', city: '湘西州', districtCode: '433127', district: '永顺县', detail: '石板溪村' } }]
+    const geocode = vi.fn<() => Promise<GeocodeResult>>()
+
+    await expect(store.updateFarm('F001', { name: farms[0].name, districtCode: '433127', detail: '石板溪村' }, geocode)).resolves.toBe(true)
+    expect(geocode).not.toHaveBeenCalled()
+    expect(store.farms[0].locationStatus).toBe('resolved')
+  })
+
+  it('地理编码请求期间清除旧坐标并显示定位中', async () => {
+    const store = useAdminStore()
+    store.farms = [cloneSeed(farms[0])]
+    let resolveGeocode!: (result: GeocodeResult) => void
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockImplementation(() => new Promise((resolve) => { resolveGeocode = resolve }))
+
+    const updating = store.updateFarm('F001', { name: farms[0].name, region: farms[0].region, address: '湖南省湘西州永顺县新地址' }, geocode)
+    expect(store.farms[0]).toMatchObject({ address: '湖南省湘西州永顺县新地址', locationStatus: 'pending' })
+    expect(store.farms[0].location).toBeUndefined()
+
+    resolveGeocode({ status: 'failed' })
+    await updating
+    expect(store.farms[0].locationStatus).toBe('failed')
+  })
+
+  it('新增和编辑门店时拒绝空详细地址', async () => {
+    const store = useAdminStore()
+    store.farms = [cloneSeed(farms[0])]
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockResolvedValue({ status: 'failed' })
+
+    await expect(store.addFarm({ name: '无地址门店', region: '长沙市岳麓区', address: '   ' }, geocode)).resolves.toBe(false)
+    await expect(store.updateFarm('F001', { name: farms[0].name, region: farms[0].region, address: '' }, geocode)).resolves.toBe(false)
+    expect(geocode).not.toHaveBeenCalled()
+    expect(store.farms).toHaveLength(1)
+    expect(store.farms[0].address).toBe(farms[0].address)
+  })
+
+  it('门店新增和编辑在保存边界规范化图片引用', async () => {
+    const store = useAdminStore()
+    const geocode = vi.fn<() => Promise<GeocodeResult>>().mockResolvedValue({ status: 'failed' })
+    await expect(store.addFarm({
+      name: '图片规范化门店', region: '长沙市岳麓区', address: '湖南省长沙市岳麓区测试路1号',
+      image: 'https://cdn.example.com/farm.jpg'
+    }, geocode)).resolves.toBe(true)
+    expect(store.farms[0].image).toEqual({ source: 'legacy', url: 'https://cdn.example.com/farm.jpg' })
+
+    await expect(store.updateFarm(store.farms[0].id, {
+      name: '图片规范化门店', region: '长沙市岳麓区', address: '湖南省长沙市岳麓区测试路1号',
+      image: '/static/images/farmhouse.webp'
+    }, geocode)).resolves.toBe(true)
+    expect(store.farms[0].image).toEqual({ source: 'builtin', path: '/static/images/farmhouse.webp' })
+  })
 
   it('initializes the unified catalog revision and projects all-channel products to both lists', async () => {
     const store = useAdminStore()
@@ -38,9 +157,9 @@ describe('admin store interactions', () => {
     await store.initialize()
     const product: CatalogProduct = {
       id: 'CAT-ADMIN-1', name: '统一商品', category: '土特产', supplierId: store.suppliers[0].id, supplierName: store.suppliers[0].name,
-      source: 'platform', status: 'active', image: '', images: [], tags: ['演示'], productType: 'goods', expressDelivery: true,
+      source: 'platform', status: 'active', image: { source: 'builtin', path: '/static/images/product.webp' }, images: [], tags: ['演示'], productType: 'goods', expressDelivery: true,
       channel: 'all', farmIds: [], promoterCommissionRate: 5, storeCommissionRate: 3,
-      skus: [{ id: 'CAT-ADMIN-1-SKU', name: '默认规格', image: '', retailPrice: 60, cost: 30, stock: 10, level1Amount: 10, level2Amount: 15 }]
+      skus: [{ id: 'CAT-ADMIN-1-SKU', name: '默认规格', image: { source: 'builtin', path: '/static/images/product.webp' }, retailPrice: 60, cost: 30, stock: 10, level1Amount: 10, level2Amount: 15 }]
     }
 
     expect(store.saveCatalogProduct(product)).toEqual({ ok: true })
@@ -209,10 +328,96 @@ describe('admin store interactions', () => {
     expect(store.removeCategory('C018')).toBe(true)
     expect(store.categories.some((item) => item.id === 'C018')).toBe(false)
   })
+
+  it('creates a default phone account when inviting a supplier', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+
+    expect(store.inviteSupplier({ name: '测试鲜果供应商', category: '生鲜农产', contactPhone: '13900009991', coop: true })).toEqual({ ok: true })
+    const supplier = store.suppliers.find((item) => item.name === '测试鲜果供应商')!
+    expect(readPlatformSupplierAccounts()?.find((item) => item.supplierId === supplier.id)).toMatchObject({
+      account: '13900009991',
+      password: '13900009991'
+    })
+  })
+
+  it('rejects a supplier phone already bound to another supplier', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+
+    expect(store.inviteSupplier({ name: '重复手机号供应商', category: '综合品类', contactPhone: '13787366688' })).toEqual({
+      ok: false,
+      error: '该手机号已绑定其他供应商'
+    })
+  })
+
+  it('requires a valid phone before creating a supplier account', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+
+    expect(store.inviteSupplier({ name: '无手机号供应商', category: '综合品类' })).toEqual({ ok: false, error: '请填写联系人手机号' })
+    expect(store.inviteSupplier({ name: '错号供应商', category: '综合品类', contactPhone: '123' })).toEqual({ ok: false, error: '请输入正确的11位手机号' })
+    expect(store.suppliers.some((item) => item.name === '无手机号供应商' || item.name === '错号供应商')).toBe(false)
+  })
+
+  it('changes the login account with the supplier phone while preserving its password', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const supplier = store.suppliers.find((item) => item.id === 'S002')!
+
+    expect(store.updateSupplier(supplier.id, { ...supplier, contactPhone: '13900009992', password: 'custom123' })).toEqual({ ok: true })
+    expect(store.updateSupplier(supplier.id, { ...supplier, contactPhone: '13900009993' })).toEqual({ ok: true })
+    expect(readPlatformSupplierAccounts()?.find((item) => item.supplierId === supplier.id)).toMatchObject({
+      account: '13900009993',
+      password: 'custom123'
+    })
+  })
+
+  it('rejects an invalid replacement password without changing credentials', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const supplier = store.suppliers.find((item) => item.id === 'S002')!
+
+    expect(store.updateSupplier(supplier.id, { ...supplier, password: '123' })).toEqual({ ok: false, error: '密码需6-20位' })
+    expect(store.supplierAccounts.find((item) => item.supplierId === supplier.id)?.password).toBe('13787366688')
+  })
+
+  it('keeps the credential version when only supplier profile fields change', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const supplier = store.suppliers.find((item) => item.id === 'S002')!
+    const before = store.supplierAccounts.find((item) => item.supplierId === supplier.id)!.updatedAt
+
+    expect(store.updateSupplier(supplier.id, { ...supplier, region: '湘西州新地址' })).toEqual({ ok: true })
+    expect(store.supplierAccounts.find((item) => item.supplierId === supplier.id)?.updatedAt).toBe(before)
+  })
+
+  it('显式清空营业执照图片时不恢复旧图，未传许可证图片时保留旧图', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const supplier = store.suppliers.find((item) => item.id === 'S002')!
+    const businessLicense = { source: 'asset' as const, assetId: 'media-business-license' }
+    const permit = { source: 'asset' as const, assetId: 'media-permit' }
+    supplier.qualification.attachments = [
+      { typeCode: 'businessLicense', number: 'BL-001', image: businessLicense },
+      { typeCode: 'permit', number: 'PERMIT-001', image: permit }
+    ]
+
+    expect(store.updateSupplier(supplier.id, {
+      name: supplier.name,
+      category: supplier.category,
+      contactPhone: supplier.contactPhone,
+      businessLicense: null
+    })).toEqual({ ok: true })
+
+    const attachments = supplier.qualification.attachments!
+    expect(attachments.find((item) => item.typeCode === 'businessLicense')?.image).not.toEqual(businessLicense)
+    expect(attachments.find((item) => item.typeCode === 'permit')?.image).toEqual(permit)
+  })
 })
 
 describe('admin auth', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
 
   it('logs in with the demo account and logs out', () => {
     const store = useAdminStore()
@@ -225,49 +430,64 @@ describe('admin auth', () => {
     expect(store.auth).toEqual({ isLoggedIn: false, account: '' })
   })
 
-  it('manages dictionary items with code uniqueness', () => {
+  it('优先初始化共享字典且不恢复 city 字典', async () => {
+    const initial = readPlatformDictionaries()
+    const customized = addDictItem(initial, { id: 'DI-ADMIN-INIT', type: 'productTag', code: 'fresh', label: '共享标签', enabled: true, sort: 0 })!
+    expect(await publishPlatformDictionaries(customized, initial.revision)).not.toBeNull()
     const store = useAdminStore()
-    store.dictItems = []
-    expect(store.addDictItem({ type: 'city', code: '永州市', label: '永州市' })).toBe(true)
-    expect(store.addDictItem({ type: 'city', code: '永州市', label: '永州' })).toBe(false)
-    expect(store.addDictItem({ type: 'afterSaleReason', code: 'late', label: '配送延误' })).toBe(true)
-    const item = store.dictItems[0]
-    expect(store.updateDictItem(item.id, { label: '配送超时' })).toBe(true)
-    expect(store.dictItems.find((i) => i.id === item.id)?.label).toBe('配送超时')
-    expect(store.removeDictItem(item.id)).toBe(true)
-    expect(store.dictItems).toHaveLength(1)
+    await store.initialize()
+    expect(store.dictItems).toContainEqual(expect.objectContaining({ code: 'fresh', label: '共享标签' }))
+    expect(store.dictGroups.some((group) => group.type === 'city')).toBe(false)
   })
 
-  it('manages dictionary groups and blocks deleting non-empty ones', () => {
-    const store = useAdminStore()
-    store.dictGroups = []
-    store.dictItems = []
-    expect(store.addDictGroup({ type: 'city', name: '城市信息' })).toBe(true)
-    expect(store.addDictGroup({ type: 'city', name: '城市信息' })).toBe(false)
-    expect(store.addDictGroup({ type: 'status', name: '城市信息' })).toBe(false)
-    expect(store.addDictGroup({ type: 'industry', name: '行业类型' })).toBe(true)
-    const city = store.dictGroups.find((g) => g.type === 'city')!
-    const industry = store.dictGroups.find((g) => g.type === 'industry')!
-    expect(store.updateDictGroup(city.id, { name: '省市信息' })).toBe(true)
-    expect(store.dictGroups.find((g) => g.id === city.id)?.name).toBe('省市信息')
-    store.addDictItem({ type: 'industry', code: '农旅', label: '农旅融合' })
-    expect(store.removeDictGroup(industry.id)).toBe(false)
-    expect(store.removeDictGroup(city.id)).toBe(true)
-    expect(store.dictGroups).toHaveLength(1)
+  it('两个后台发布同一 revision 时后者刷新胜者状态', async () => {
+    const first = useAdminStore()
+    await first.initialize()
+    setActivePinia(createPinia())
+    const stale = useAdminStore()
+    await stale.initialize()
+
+    expect(await first.addDictItem({ type: 'productTag', code: 'winner', label: '胜者', enabled: true, sort: 0 })).toBe(true)
+    expect(await stale.addDictItem({ type: 'productTag', code: 'stale', label: '旧发布者', enabled: true, sort: 0 })).toBe(false)
+    expect(stale.dictItems).toContainEqual(expect.objectContaining({ code: 'winner', label: '胜者' }))
+    expect(stale.dictItems.some((item) => item.code === 'stale')).toBe(false)
+    expect(stale.error).toBe('字典数据已更新，请重试')
   })
 
-  it('renames a group type and migrates its items', () => {
+  it('manages dictionary items with code uniqueness', async () => {
     const store = useAdminStore()
-    store.dictGroups = []
-    store.dictItems = []
-    expect(store.addDictGroup({ type: 'city', name: '城市信息' })).toBe(true)
-    expect(store.addDictGroup({ type: 'status', name: '数据状态' })).toBe(true)
-    expect(store.addDictItem({ type: 'city', code: '湘西州', label: '湘西州' })).toBe(true)
-    const group = store.dictGroups.find((g) => g.type === 'city')!
-    expect(store.updateDictGroup(group.id, { type: 'status' })).toBe(false)
-    expect(store.updateDictGroup(group.id, { type: 'region' })).toBe(true)
-    expect(store.dictGroups.find((g) => g.id === group.id)?.type).toBe('region')
-    expect(store.dictItems[0].type).toBe('region')
+    await store.initialize()
+    expect(await store.addDictItem({ type: 'productTag', code: 'fresh', label: '新鲜直供' })).toBe(true)
+    expect(await store.addDictItem({ type: 'productTag', code: 'fresh', label: '重复' })).toBe(false)
+    const item = store.dictItems.find((candidate) => candidate.type === 'productTag' && candidate.code === 'fresh')!
+    expect(await store.updateDictItem(item.id, { label: '每日新鲜直供' })).toBe(true)
+    expect(store.dictItems.find((i) => i.id === item.id)?.label).toBe('每日新鲜直供')
+    expect(await store.removeDictItem(item.id)).toBe(true)
+    expect(store.dictItems.some((candidate) => candidate.id === item.id)).toBe(false)
+  })
+
+  it('manages dictionary groups and blocks deleting non-empty ones', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    expect(await store.addDictGroup({ type: 'industryDemo', name: '行业类型' })).toBe(true)
+    expect(await store.addDictGroup({ type: 'industryDemo', name: '重复类型' })).toBe(false)
+    const industry = store.dictGroups.find((g) => g.type === 'industryDemo')!
+    expect(await store.updateDictGroup(industry.id, { name: '农旅行业' })).toBe(true)
+    expect(await store.addDictItem({ type: 'industryDemo', code: 'agritourism', label: '农旅融合' })).toBe(true)
+    expect(await store.removeDictGroup(industry.id)).toBe(false)
+    expect(store.error).toBe('该分组下还有字典项，请先清空')
+  })
+
+  it('locks system dictionary identity while allowing labels', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    const group = store.dictGroups.find((candidate) => candidate.type === 'orderStatus')!
+    const item = store.dictItems.find((candidate) => candidate.type === 'orderStatus')!
+    expect(await store.updateDictGroup(group.id, { type: 'renamedStatus' })).toBe(false)
+    expect(await store.addDictItem({ type: 'orderStatus', code: 'custom', label: '自定义' })).toBe(false)
+    expect(await store.updateDictItem(item.id, { code: 'renamed', label: '新文案' })).toBe(false)
+    expect(await store.updateDictItem(item.id, { label: '新文案' })).toBe(true)
+    expect(await store.removeDictItem(item.id)).toBe(false)
   })
 
   it('manages store login accounts', () => {

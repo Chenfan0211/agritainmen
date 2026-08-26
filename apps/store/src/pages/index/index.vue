@@ -1,7 +1,7 @@
 <template>
   <view v-if="!store.auth.isLoggedIn" class="login-page">
     <view class="login-card">
-      <view class="login-head"><image class="login-logo" :src="store.info.image" mode="aspectFit" /><text class="login-title">门店订货商城</text><text class="login-sub">甄选好物供应链 · 供货价直采 · 中台直配到店</text></view>
+      <view class="login-head"><BusinessImage class="login-logo" :src="store.info.image" mode="aspectFit" /><text class="login-title">中选科技门店订货商城</text><text class="login-sub">中选科技供应链 · 供货价直采 · 中台直配到店</text></view>
       <view class="login-tabs">
         <button :class="{ active: loginTab === 'password' }" @click="loginTab = 'password'">密码登录</button>
         <button :class="{ active: loginTab === 'code' }" @click="loginTab = 'code'">验证码登录</button>
@@ -12,11 +12,11 @@
         <label v-else class="login-field"><text>验证码</text><view class="code-input"><input v-model="loginCode" type="number" maxlength="6" placeholder="请输入验证码" confirm-type="done" @confirm="submitLogin" /><button class="code-button" :disabled="codeCountdown > 0" @click="sendCode">{{ codeCountdown > 0 ? codeCountdown + 's' : '发送验证码' }}</button></view></label>
       </view>
       <button class="login-button" @click="submitLogin">登 录</button>
-      <text class="login-hint">演示手机号 13800000000　密码 123456　验证码 123456</text>
+      <text class="login-hint">演示手机号 13800000001　密码 123456　验证码 123456</text>
     </view>
   </view>
   <view v-else class="app-shell">
-    <view v-if="store.loading" class="loading">正在准备门店订货商城...</view>
+    <view v-if="store.loading" class="loading">正在准备中选科技门店订货商城...</view>
     <view v-else-if="store.error" class="state-page">
       <UiIcon name="radio" :size="28" />
       <text>{{ store.error }}</text>
@@ -25,8 +25,8 @@
     <template v-else>
       <view v-if="activeTab === 'shop'" class="tab-page shop-page">
         <view class="mall-hero">
-          <text class="mall-hero-title">门店订货商城</text>
-          <text class="mall-hero-sub">甄选好物供应链 · 供货价直采 · 中台直配到店</text>
+          <text class="mall-hero-title">中选科技门店订货商城</text>
+          <text class="mall-hero-sub">中选科技供应链 · 供货价直采 · 中台直配到店</text>
           <view class="mall-hero-meta"><text>🏪 {{ store.info.name }}</text><text>📍 {{ store.info.region }} · 账期月结</text></view>
         </view>
         <view class="page-pad">
@@ -36,14 +36,14 @@
             <view><small>直采累计节省</small><strong>{{ money(storeMetrics.savedTotal) }}</strong></view>
           </view>
           <view class="search-bar"><UiIcon name="search" :size="18" /><input v-model="keyword" placeholder="搜索供应链商品 / 供应商" confirm-type="search" /></view>
-          <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>甄选好物供应链中台</b>，统一品控、统一履约、供货价直采。</text></view>
+          <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>中选科技供应链中台</b>，统一品控、统一履约、供货价直采。</text></view>
           <view v-if="activePolicies.length" class="policy-hint">🎯 中台价格策略：<b>{{ activePolicies.map((p) => p.name).join('、') }}</b> 已生效</view>
           <view class="chip-scroll"><view class="chips"><button v-for="item in categories" :key="item.key" :class="{ active: category === item.key }" @click="category = item.key">{{ item.label }}<text class="chip-count">{{ item.count }}</text></button></view></view>
           <view v-if="visibleProducts.length" class="result-count">共 {{ visibleProducts.length }} 款商品 · 中台直配到店</view>
           <view v-if="visibleProducts.length" class="product-grid">
             <view v-for="product in visibleProducts" :key="product.id" class="product-card">
               <button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)">
-                <image class="product-emoji" :src="product.image" mode="aspectFit" />
+                <BusinessImage class="product-emoji" :src="product.image" mode="aspectFit" />
                 <text v-if="product.source === 'platform'">中台供</text>
               </button>
               <view class="product-body">
@@ -71,7 +71,7 @@
       </view>
 
       <view v-else-if="activeTab === 'orders'" class="tab-page orders-page page-pad">
-        <view class="mobile-head"><text class="page-title">我的订货单</text><text class="page-sub">供应链中台统一履约 · 直配到店</text></view>
+        <view class="mobile-head"><text class="page-title">我的订货单</text><text class="page-sub">中选科技供应链中台统一履约 · 直配到店</text></view>
         <view class="order-summary">
           <text>共 {{ store.orders.length }} 单</text>
           <text>待收货 {{ store.orderMetrics.pendingReceipt }}</text>
@@ -82,7 +82,7 @@
           <button v-for="order in filteredOrders" :key="order.id" class="order-card" @click="openOrder(order.id)">
             <view class="order-top"><text class="order-no">{{ order.id }}</text><span class="status-badge" :class="order.status">{{ displayStatus(order) }}</span></view>
             <view class="order-main">
-              <image class="order-emoji" :src="order.items[0]?.image || '/static/images/field.webp'" mode="aspectFit" />
+              <BusinessImage class="order-emoji" :src="order.items[0]?.image" mode="aspectFit" />
               <view class="order-info">
                 <text class="order-title">{{ orderTitle(order) }}</text>
                 <small>{{ order.createdAt }} · 共 {{ order.itemCount }} 件 · {{ order.trackingNo ? '运单 ' + order.trackingNo : '等待接单' }}</small>
@@ -100,8 +100,8 @@
 
       <view v-else class="tab-page store-page">
         <view class="store-hero">
-          <view class="store-hero-top"><text class="page-title">门店工作台</text><small>供货价直采 · 供应链中台直配</small></view>
-          <view class="store-identity"><image class="store-emoji" :src="store.info.image" mode="aspectFit" /><view><text>{{ store.info.name }}</text><small>{{ store.info.region }} · {{ store.info.contact }}</small></view></view>
+          <view class="store-hero-top"><text class="page-title">门店工作台</text><small>供货价直采 · 中选科技供应链中台直配</small></view>
+          <view class="store-identity"><BusinessImage class="store-emoji" :src="store.info.image" mode="aspectFit" /><view><text>{{ store.info.name }}</text><small>{{ store.info.region }} · {{ store.info.contact }}</small></view></view>
           <view class="metric-band store-metrics">
             <view><small>本月进货额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
             <view><small>订货单数</small><strong>{{ store.orderMetrics.orderCount }}</strong></view>
@@ -121,7 +121,7 @@
           <view class="hot-list">
             <view v-for="(item, index) in storeMetrics.hotOrders" :key="item.id" class="hot-item">
               <text class="hot-rank">{{ index + 1 }}</text>
-              <image class="hot-emoji" :src="item.image" mode="aspectFit" />
+              <BusinessImage class="hot-emoji" :src="item.image" mode="aspectFit" />
               <view class="hot-main"><text>{{ item.name }}</text><small>已订 {{ item.times }} 次</small></view>
               <strong>{{ money(item.amount) }}</strong>
             </view>
@@ -144,8 +144,8 @@
             <view><small>客服电话</small><text>{{ store.info.phone }}</text></view>
           </view>
           <button class="logout-button" @click="logout">退出登录</button>
-          <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>门店以<b>供货价</b>向甄选好物供应链中台直采，统一品控、统一履约、直配到店；建议零售仅作毛利参考，请勿外泄供货价。</text></view>
-          <view class="member-footer">平台支持 · 湖南省电子商务协会 · 甄选好物供应链中台</view>
+          <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>门店以<b>供货价</b>向中选科技供应链中台直采，统一品控、统一履约、直配到店；建议零售仅作毛利参考，请勿外泄供货价。</text></view>
+          <view class="member-footer">平台支持 · 湖南省电子商务协会 · 中选科技供应链中台</view>
         </view>
       </view>
 
@@ -168,7 +168,7 @@
           </view>
 
           <view v-if="sheet === 'product' && selectedProduct" class="product-detail">
-            <image class="product-detail-emoji" :src="selectedProduct.image" mode="aspectFit" />
+            <BusinessImage class="product-detail-emoji" :src="selectedProduct.image" mode="aspectFit" />
             <text>{{ selectedProduct.name }}</text>
             <small>{{ selectedProduct.supplier }} · {{ selectedProduct.tags.join(' / ') }}</small>
             <view class="detail-price"><strong>{{ money(selectedSku?.cost ?? selectedProduct.cost) }}</strong><del>{{ money(selectedProduct.price) }}</del><span>省 {{ savePercent(selectedProduct) }}%</span></view>
@@ -186,7 +186,7 @@
           <view v-else-if="sheet === 'cart'" class="sheet-list">
             <view v-if="!store.cart.length" class="empty">进货单还是空的</view>
             <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }">
-              <image :src="item.image" mode="aspectFit" />
+              <BusinessImage :src="item.image" mode="aspectFit" />
               <view><text>{{ item.name }}</text><small>{{ item.skuName }} · 供货价 {{ money(item.price) }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price * item.quantity) }}</strong></view>
               <view class="stepper">
                 <button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button>
@@ -235,7 +235,7 @@
             </view>
             <view class="order-items">
               <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line">
-                <image :src="item.image" mode="aspectFit" />
+                <BusinessImage :src="item.image" mode="aspectFit" />
                 <view><text>{{ item.name }}</text><small>{{ item.skuName }} ×{{ item.quantity }}</small></view>
                 <strong>{{ money(item.price * item.quantity) }}</strong>
               </view>
@@ -259,7 +259,7 @@
           <view v-else-if="sheet === 'contact'" class="contact-sheet">
             <view class="contact-hero">
               <UiIcon name="headset" :size="30" />
-              <text>甄选好物供应链 · 门店客服</text>
+              <text>中选科技供应链 · 门店客服</text>
               <small>统一品控 · 统一履约 · 工作日 {{ store.info.hours }} 在线</small>
             </view>
             <view class="contact-rows">
@@ -280,7 +280,7 @@
               <small>收货人</small><text>{{ store.info.contact }} {{ store.info.phone }}</text>
               <small>收货地址</small><text>{{ store.info.address }}</text>
             </view>
-            <text class="address-note">订单由供应链中台统一直配到店，到货后请当面验货签收。</text>
+            <text class="address-note">订单由中选科技供应链中台统一直配到店，到货后请当面验货签收。</text>
             <button class="outline-button" @click="copyAddress">复制地址</button>
           </view>
         </view>
@@ -291,7 +291,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Product, PurchaseStatus } from '@agritainment/shared'
-import { installKeyboardButtonSupport, money, orderStatusText, purchaseSteps, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrder, validatePhone } from '@agritainment/shared'
+import { installKeyboardButtonSupport, money, orderStatusText, purchaseSteps, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrder, subscribePlatformChanges, validatePhone } from '@agritainment/shared'
+import { BusinessImage } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import { deriveStoreMetrics } from '../../services/repository'
 import { useStoreStore } from '../../stores/store'
@@ -555,7 +556,7 @@ function copyPhone() {
 }
 
 const loginTab = ref<'password' | 'code'>('password')
-const loginPhone = ref('13800000000')
+const loginPhone = ref('13800000001')
 const loginPassword = ref('123456')
 const loginCode = ref('123456')
 const codeCountdown = ref(0)
@@ -575,7 +576,7 @@ function submitLogin() {
     ? store.loginWithPassword(loginPhone.value, loginPassword.value)
     : store.loginWithCode(loginPhone.value, loginCode.value)
   if (!ok) {
-    toast(loginTab.value === 'password' ? '手机号或密码错误（演示 13800000000 / 123456）' : '手机号或验证码错误（演示验证码 123456）')
+    toast(loginTab.value === 'password' ? '手机号或密码错误（演示 13800000001 / 123456）' : '手机号或验证码错误（演示验证码 123456）')
     return
   }
   toast('登录成功')
@@ -586,18 +587,24 @@ function logout() {
 }
 
 let disposeKeyboardButtons: (() => void) | undefined
+let disposePlatformChanges: (() => void) | null = null
 onMounted(async () => {
   disposeKeyboardButtons = installKeyboardButtonSupport()
   const scenario = uni.getLaunchOptionsSync().query?.mock
   if (scenario === 'empty' || scenario === 'failure') store.setMockScenario(scenario)
   await store.initialize()
   ensureStockDrafts()
+  if (typeof window !== 'undefined') {
+    const onStorage = () => void store.refreshSharedState()
+    window.addEventListener('storage', onStorage)
+    disposePlatformChanges = () => window.removeEventListener('storage', onStorage)
+  }
   if (typeof document !== 'undefined') {
     document.documentElement.style.setProperty('--farm-green', '#17633f')
-    document.title = '门店订货商城'
+    document.title = '中选科技门店订货商城'
   }
 })
-onBeforeUnmount(() => disposeKeyboardButtons?.())
+onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); disposePlatformChanges = null })
 </script>
 
 <style scoped lang="scss">
@@ -945,5 +952,6 @@ onBeforeUnmount(() => disposeKeyboardButtons?.())
 .login-button{min-height:46px;border-radius:11px;background:linear-gradient(135deg,#17633f,#2f8a5b);color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center}
 .login-hint{display:block;text-align:center;margin-top:16px;font-size:11.5px;color:#8a9a90}
 .logout-button{width:100%;min-height:42px;margin:14px 0 4px;border-radius:12px;background:#f1f5f2;color:#555;font-size:13.5px;font-weight:700;border:1px solid #e2eae4;display:flex;align-items:center;justify-content:center}
+.sheet-line .business-image{width:54px;height:54px;border-radius:6px}.order-item-line .business-image{width:48px;height:48px;border-radius:5px}
 
 </style>

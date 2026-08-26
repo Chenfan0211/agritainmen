@@ -6,8 +6,11 @@ export function readLivePackageProjection() {
   return readStoreCatalogSelections()
     .filter((selection) => selection.listed)
     .flatMap((selection) => {
-      const product = catalog.products.find((item) => item.id === selection.productId && item.status === 'active' && item.productType === 'package' && item.skus.some((sku) => sku.status !== 'retired'))
-      return product ? [{ ...catalogProductToStoreProduct(product, selection), farmIds: [selection.storeId] }] : []
+      const product = catalog.products.find((item) => item.id === selection.productId && item.status === 'active' && item.productType === 'package' && item.skus.some((sku) => sku.status !== 'retired' && sku.stock > 0))
+      if (!product) return []
+      const saleableSkuIds = new Set(product.skus.filter((sku) => sku.status !== 'retired' && sku.stock > 0).map((sku) => sku.id))
+      const projected = catalogProductToStoreProduct(product, selection)
+      return [{ ...projected, stock: projected.skus.filter((sku) => saleableSkuIds.has(sku.id)).reduce((sum, sku) => sum + sku.stock, 0), skus: projected.skus.filter((sku) => saleableSkuIds.has(sku.id)), farmIds: [selection.storeId] }]
     })
 }
 

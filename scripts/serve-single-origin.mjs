@@ -6,6 +6,7 @@ const portArgumentIndex = process.argv.findIndex((argument) => argument === '--p
 const inlinePort = process.argv.find((argument) => argument.startsWith('--port='))?.slice('--port='.length)
 const port = Number(inlinePort || (portArgumentIndex >= 0 ? process.argv[portArgumentIndex + 1] : '') || process.env.PORT || 8780)
 const apps = {
+  '/dashboard/': 'apps/dashboard/dist/single-origin/dashboard',
   '/admin/': 'apps/admin/dist/single-origin/admin',
   '/farmhouse/': 'apps/farmhouse/dist/single-origin/farmhouse',
   '/alliance/': 'apps/alliance/dist/single-origin/alliance',

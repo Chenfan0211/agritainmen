@@ -1,3 +1,8 @@
+import { PLATFORM_DICTIONARIES_STORAGE_KEY, DICTIONARY_SCHEMA_VERSION, selectDictOptions, builtInDictLabel, canPublishPlatformDictionaries, defaultDictionaryPublishLock, migratePlatformDictionaries, createInitialPlatformDictionaries } from './dictionaries'
+import { PlatformEventBus } from './platform-event-bus'
+import { normalizeMediaReference, type MediaReference } from './media'
+import type { DictionaryPublishLock, PlatformDictionaryState } from './dictionaries'
+import type { FarmLocation } from './geocoding'
 export type Role = 'customer' | 'staff' | 'manager'
 export type ProductSource = 'platform' | 'farmhouse'
 export type ProductStatus = 'active' | 'pending' | 'offline' | 'rejected'
@@ -6,7 +11,7 @@ export type AfterSaleStatus = 'processing' | 'rejected' | 'refund-pending' | 're
 export type PurchaseStatus = 'submitted' | 'accepted' | 'shipped' | 'delivering' | 'received' | 'completed' | 'cancelled'
 export type MockScenario = 'normal' | 'empty' | 'failure'
 export type FarmAvailability = 'bookable' | 'full' | 'closed'
-export type CommissionStatus = 'pending' | 'available' | 'completed'
+export type CommissionStatus = 'pending' | 'available' | 'completed' | 'settled' | 'reversed'
 export const PERSISTENCE_VERSION = 7
 
 export interface Sku {
@@ -66,6 +71,7 @@ export interface PromotionRecord {
   shareCount: number
   lockedFans: number
   estimatedCommission: number
+  promoterId?: string
   createdAt: string
 }
 
@@ -75,6 +81,7 @@ export interface CommissionEntry {
   amount: number
   description: string
   createdAt: string
+  promoterId?: string
   status: CommissionStatus
   targetType?: PromotionRecord['targetType']
   targetId?: string
@@ -117,7 +124,7 @@ export interface Product {
   sales: number
   source: ProductSource
   status: ProductStatus
-  image: string
+  image: BusinessMediaValue
   supplier: string
   tags: string[]
   skus: Sku[]
@@ -128,7 +135,7 @@ export interface Product {
   commissionSold?: number
   commissionEarn?: number
   spec?: string
-  images?: string[]
+  images?: BusinessMediaValue[]
   channels?: { store?: boolean; live?: boolean }
   expressDelivery?: boolean
   productType?: ProductType
@@ -154,7 +161,7 @@ export interface PricingDefaults {
 export interface CatalogSku {
   id: string
   name: string
-  image: string
+  image: BusinessMediaValue
   retailPrice: number
   cost: number
   stock: number
@@ -171,8 +178,8 @@ export interface CatalogProduct {
   supplierName: string
   source: ProductSource
   status: ProductStatus
-  image: string
-  images: string[]
+  image: BusinessMediaValue
+  images: BusinessMediaValue[]
   tags: string[]
   productType: ProductType
   expressDelivery: boolean
@@ -214,6 +221,8 @@ export interface CatalogStockChange {
 
 export interface CatalogStockOperation {
   id: string
+  action: 'reserve' | 'release'
+  requestFingerprint: string
   changes: CatalogStockChange[]
   appliedAt: string
 }
@@ -290,11 +299,20 @@ export function storeGrossMargin(retail: number, cost: number): number {
   return round2((Number(retail) || 0) - (Number(cost) || 0))
 }
 
+export interface SupplierQualificationAttachment {
+  typeCode: string
+  number?: string
+  image?: BusinessMediaValue
+  validUntil?: string
+  reviewNote?: string
+}
+
 export interface SupplierQualification {
-  businessLicense: string
-  permit: string
+  businessLicense: BusinessMediaValue
+  permit: BusinessMediaValue
   validUntil: string
   reviewNote: string
+  attachments?: SupplierQualificationAttachment[]
 }
 
 export interface Supplier {
@@ -323,6 +341,9 @@ export interface DictGroup {
   id: string
   type: DictType
   name: string
+  scope?: 'business' | 'system'
+  locked?: boolean
+  enabled?: boolean
 }
 
 export interface DictItem {
@@ -332,6 +353,7 @@ export interface DictItem {
   label: string
   enabled: boolean
   sort: number
+  tone?: 'default' | 'success' | 'warning' | 'danger'
 }
 
 export type StoreRole = 'owner' | 'staff'
@@ -348,6 +370,25 @@ export interface StoreAccount {
   createdAt?: string
 }
 
+export type BusinessMediaValue = MediaReference | string
+
+export function mediaValueToImage(value: BusinessMediaValue): string {
+  if (typeof value === 'string') return value
+  if (value.source === 'legacy') return value.url
+  if (value.source === 'builtin') return value.path
+  return ''
+}
+
+export interface FarmAdministrativeAddress {
+  provinceCode?: string
+  province: string
+  cityCode?: string
+  city: string
+  districtCode?: string
+  district: string
+  detail: string
+}
+
 export interface FarmStore {
   id: string
   name: string
@@ -359,7 +400,7 @@ export interface FarmStore {
   status: 'active' | 'pending' | 'paused'
   selectedCount: number
   gmv: number
-  image: string
+  image: BusinessMediaValue
   tags: string[]
   storeTags?: string[]
   emoji?: string
@@ -368,6 +409,12 @@ export interface FarmStore {
   city: string
   availability: FarmAvailability
   livePopularity: number
+  address: string
+  regionCode?: string
+  structuredAddress?: FarmAdministrativeAddress
+  location?: FarmLocation
+  locationStatus?: 'resolved' | 'pending' | 'failed'
+  locationError?: string
 }
 
 export interface OrderFlowEvent {
@@ -492,6 +539,7 @@ export interface AfterSale {
   issue?: string
   quantity?: number
   image?: string
+  evidenceImages?: BusinessMediaValue[]
   refundAmount?: number
   refundMethod?: 'return' | 'only'
   refundMode?: 'full' | 'ratio' | 'custom'
@@ -523,7 +571,7 @@ export interface LiveRoom {
   status: 'live' | 'preview'
   reminded: boolean
   emoji?: string
-  image: string
+  image: BusinessMediaValue
   farmId?: string
   promoterId?: string
   linkedFarms?: Array<{ farmId: string; packageIds: string[] }>
@@ -550,6 +598,7 @@ export interface StorefrontOrder {
   createdAt: string
   delivery?: { mode: 'pickup' | 'courier'; address?: string }
   platformOrderId?: string
+  platformOrderIds?: string[]
   trackingNo?: string
   courier?: string
   logistics?: LogisticsEvent[]
@@ -565,6 +614,7 @@ export interface SupplierSettlementRecord {
   supplierIds: string[]
   orderIds: string[]
   amount: number
+  status?: string
   createdAt: string
   items: Array<{ supplierId: string; supplierName: string; orderIds: string[]; amount: number }>
 }
@@ -584,7 +634,7 @@ export interface TravelRoute {
   meta?: string
   price: number
   city: string
-  image: string
+  image: BusinessMediaValue
 }
 
 export interface PurchaseOrder {
@@ -868,7 +918,7 @@ export const categories: Category[] = [
   { id: 'C024', name: '研学亲子', type: 'general' }
 ]
 
-export const farms: FarmStore[] = [
+const rawFarms: Array<Omit<FarmStore, 'address' | 'location' | 'locationStatus' | 'locationError' | 'structuredAddress' | 'regionCode'>> = [
   { id: 'F001', core: true, emoji: '🏡', adminDesc: '样板店 · 柴火土菜', name: '石板溪农家乐', region: '湘西州永顺县', city: '湘西州', availability: 'bookable', livePopularity: 9842, distance: 0.8, rating: 4.9, monthlySales: 1280, averageSpend: 78, status: 'active', selectedCount: 86, gmv: 42860, image: '/static/images/farmhouse.webp', tags: ['柴火土菜', '临溪包厢', '可直播'], storeTags: ['柴火土灶', '山泉养鱼', '亲子研学'] },
   { id: 'F002', core: true, emoji: '⛰', adminDesc: '山景民宿', name: '云上人家山景农庄', region: '张家界永定区', city: '张家界市', availability: 'bookable', livePopularity: 8657, distance: 1.1, rating: 4.8, monthlySales: 960, averageSpend: 120, status: 'active', selectedCount: 64, gmv: 38420, image: '/static/images/mountain.webp', tags: ['山景民宿', '家宴大厅'] },
   { id: 'F003', core: true, emoji: '🌾', adminDesc: '亲子研学', name: '稻香村生态农庄', region: '常德桃源县', city: '常德市', availability: 'full', livePopularity: 7321, distance: 1.6, rating: 4.7, monthlySales: 720, averageSpend: 65, status: 'active', selectedCount: 52, gmv: 31200, image: '/static/images/field.webp', tags: ['亲子研学', '研学基地'] },
@@ -900,6 +950,47 @@ export const farms: FarmStore[] = [
   { id: 'F029', emoji: '🌉', adminDesc: '窑湾江畔 · 夜泊人家', name: '湘潭窑湾江畔农庄', region: '湘潭市雨湖区', city: '湘潭市', availability: 'closed', livePopularity: 1420, distance: 3.3, rating: 4.2, monthlySales: 0, averageSpend: 0, status: 'paused', selectedCount: 4, gmv: 0, image: '/static/images/field.webp', tags: ['江畔夜景', '暂停营业'] },
   { id: 'F030', emoji: '🪷', adminDesc: '洋湖湿地 · 荷塘月色', name: '长沙洋湖荷塘月色院', region: '长沙市岳麓区', city: '长沙市', availability: 'closed', livePopularity: 1980, distance: 2.6, rating: 4.4, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 10, gmv: 0, image: '/static/images/field.webp', tags: ['湿地公园', '荷塘餐厅'] },
 ]
+
+const FARM_CITY_INDEX: Record<string, { adCode: string; longitude: number; latitude: number; district: string }> = {
+  '长沙市': { adCode: '430102', longitude: 112.9388, latitude: 28.2278, district: '岳麓区' },
+  '湘西州': { adCode: '433127', longitude: 109.8542, latitude: 28.6267, district: '永顺县' },
+  '张家界市': { adCode: '430802', longitude: 110.4792, latitude: 29.1171, district: '永定区' },
+  '常德市': { adCode: '430702', longitude: 111.6990, latitude: 29.0015, district: '桃源县' },
+  '湘潭市': { adCode: '430302', longitude: 112.5270, latitude: 27.9149, district: '韶山市' },
+  '衡阳市': { adCode: '430405', longitude: 112.5166, latitude: 27.2410, district: '南岳区' },
+  '株洲市': { adCode: '430202', longitude: 113.7744, latitude: 26.4894, district: '炎陵县' },
+  '岳阳市': { adCode: '430602', longitude: 112.8952, latitude: 29.4581, district: '君山区' },
+  '邵阳市': { adCode: '430502', longitude: 111.0588, latitude: 26.6350, district: '新宁县' },
+  '益阳市': { adCode: '430902', longitude: 112.3552, latitude: 28.5715, district: '安化县' },
+  '怀化市': { adCode: '431202', longitude: 109.9856, latitude: 27.3996, district: '洪江区' },
+  '娄底市': { adCode: '431302', longitude: 111.9946, latitude: 27.7001, district: '双峰县' },
+  '永州市': { adCode: '431102', longitude: 111.6134, latitude: 25.5278, district: '江永县' },
+  '郴州市': { adCode: '431002', longitude: 113.0135, latitude: 25.7704, district: '临武县' }
+}
+const FARM_LOCALE: Record<string, { adCode: string; longitude: number; latitude: number; district: string }> = {
+  'F004': { adCode: '430104', longitude: 112.9388, latitude: 28.2278, district: '岳麓区' }
+}
+
+const FARM_DETAIL: Record<string, string> = {
+  'F001': '石板溪街道', 'F004': '橘子洲街道潇湘中路', 'F002': '天门山路', 'F005': '清溪镇'
+}
+
+function enrichSeedFarms(seed: Array<Omit<FarmStore, 'address' | 'location' | 'locationStatus' | 'locationError' | 'structuredAddress' | 'regionCode'>>): FarmStore[] {
+  return seed.map((farm) => {
+    const info = FARM_LOCALE[farm.id] || FARM_CITY_INDEX[farm.city] || { adCode: '430100', longitude: 112.9388, latitude: 28.2278, district: '岳麓区' }
+    const detail = FARM_DETAIL[farm.id] || '演示地址'
+    const structuredAddress: FarmAdministrativeAddress = { province: '湖南省', provinceCode: '43', city: farm.city || '长沙市', cityCode: info.adCode.slice(0, 4), district: info.district, districtCode: info.adCode, detail }
+    return {
+      ...farm,
+      address: '湖南省' + (farm.city || '') + info.district + detail,
+      regionCode: info.adCode,
+      structuredAddress,
+      location: { longitude: info.longitude, latitude: info.latitude, coordinateSystem: 'GCJ-02' as const, adCode: info.adCode, province: '湖南省', city: farm.city || '长沙市', district: info.district, formattedAddress: '湖南省' + (farm.city || '') + info.district + detail, provider: 'amap' as const, geocodedAt: '2026-08-01T00:00:00.000Z' },
+      locationStatus: 'resolved' as const
+    }
+  })
+}
+export const farms: FarmStore[] = enrichSeedFarms(rawFarms)
 
 export const orders: Order[] = [
   { id: 'NJ202608110928', productName: '炎陵黄桃礼盒', quantity: 2, amount: 136, customer: '石板溪农家乐', channel: 'live', status: 'pending', createdAt: '2026-08-11 09:28', supplierId: 'S004', items: [{ productId: 'P002', skuId: 'P002-5J', name: '炎陵黄桃 5斤礼盒', skuName: '5斤礼盒', image: '/static/images/peach.webp', quantity: 2, price: 68 }], flow: [{ time: '2026-08-11 09:28', action: '用户下单', operator: '石板溪农家乐' }, { time: '2026-08-11 09:28', action: '订单支付成功', operator: '石板溪农家乐' }] },
@@ -1312,7 +1403,7 @@ export function derivePlatformMetrics(input: {
     .filter((product) => product.status === 'active')
     .sort((a, b) => b.sales - a.sales)
     .slice(0, 5)
-    .map((product) => ({ name: product.name, supplier: product.supplier, amount: Math.round(product.sales * product.price), units: product.sales, image: product.image }))
+    .map((product) => ({ name: product.name, supplier: product.supplier, amount: Math.round(product.sales * product.price), units: product.sales, image: mediaValueToImage(product.image) }))
   const categoryCount = new Map<string, number>()
   products.forEach((product) => categoryCount.set(product.category, (categoryCount.get(product.category) || 0) + 1))
   const categoryShares = [...categoryCount.entries()].map(([name, value]) => ({ name, value }))
@@ -1597,8 +1688,8 @@ export function validatePricePolicy(input: PricePolicyInput): string[] {
 export const PLATFORM_MEDIA_STORAGE_KEY = 'agritainment-platform-media'
 
 export interface PlatformMedia {
-  farms: Record<string, string>
-  products: Record<string, { image: string; images?: string[] }>
+  farms: Record<string, BusinessMediaValue>
+  products: Record<string, { image: BusinessMediaValue; images?: BusinessMediaValue[] }>
   farmPopularity?: Record<string, number>
   updatedAt: string
 }
@@ -1652,8 +1743,8 @@ export function readPlatformMedia(): PlatformMedia | null {
       const media = saved as Partial<PlatformMedia>
       if (media.farms && typeof media.farms === 'object' && media.products && typeof media.products === 'object') {
         return {
-          farms: media.farms as Record<string, string>,
-          products: media.products as Record<string, { image: string; images?: string[] }>,
+          farms: media.farms as Record<string, BusinessMediaValue>,
+          products: media.products as Record<string, { image: BusinessMediaValue; images?: BusinessMediaValue[] }>,
           farmPopularity: media.farmPopularity && typeof media.farmPopularity === 'object' ? media.farmPopularity as Record<string, number> : {},
           updatedAt: typeof media.updatedAt === 'string' ? media.updatedAt : ''
         }
@@ -1675,12 +1766,13 @@ export function writePlatformMedia(media: PlatformMedia): void {
   }
 }
 
-function isUploadedImage(value: string | undefined): boolean {
+function isUploadedImage(value: unknown): boolean {
+  if (typeof value !== 'string') return !!value && typeof value === 'object'
   return !!value && (value.startsWith('data:image/') || value.startsWith('blob:'))
 }
 
 /** 发布门店图片：上传图写入素材库，非上传图（默认图/移除）则删除对应记录 */
-export function upsertPlatformFarm(media: PlatformMedia | null, id: string, image: string): PlatformMedia {
+export function upsertPlatformFarm(media: PlatformMedia | null, id: string, image: BusinessMediaValue): PlatformMedia {
   const base = media ?? emptyPlatformMedia()
   const farms = { ...base.farms }
   if (isUploadedImage(image)) farms[id] = image
@@ -1697,7 +1789,7 @@ export function upsertPlatformFarmPopularity(media: PlatformMedia | null, id: st
 }
 
 /** 发布商品图片：主图/详情图任一为上传图则写入，否则删除对应记录 */
-export function upsertPlatformProduct(media: PlatformMedia | null, id: string, image: string, images?: string[]): PlatformMedia {
+export function upsertPlatformProduct(media: PlatformMedia | null, id: string, image: BusinessMediaValue, images?: BusinessMediaValue[]): PlatformMedia {
   const base = media ?? emptyPlatformMedia()
   const products = { ...base.products }
   const uploadedImages = (images ?? []).filter(isUploadedImage)
@@ -1719,7 +1811,7 @@ export function applyPlatformMedia(
   if (Array.isArray(farms)) {
     farms.forEach((farm) => {
       const override = media.farms[farm.id]
-      if (typeof override === 'string' && override) farm.image = override
+      if (override) farm.image = override
       const popularity = media.farmPopularity?.[farm.id]
       if (typeof popularity === 'number') farm.livePopularity = popularity
     })
@@ -1727,7 +1819,7 @@ export function applyPlatformMedia(
   if (Array.isArray(products)) {
     products.forEach((product) => {
       const override = media.products[product.id]
-      if (override && typeof override.image === 'string' && override.image) {
+      if (override && override.image) {
         product.image = override.image
         if (Array.isArray(override.images) && override.images.length) product.images = [...override.images]
       }
@@ -1810,11 +1902,21 @@ function readPlatformJson<T>(key: string, fallback: T | null = null): T | null {
   }
 }
 
+
+const platformChangeListeners = new Set<(event: PlatformChange) => void>()
+let lastPlatformChange: PlatformChange | null = null
+function notifyPlatformChange(key: string, source: string): void {
+  lastPlatformChange = { key, source }
+  const event = lastPlatformChange
+  platformChangeListeners.forEach((listener) => { try { listener(event) } catch { /* ignore */ } })
+}
+
 function writePlatformJson(key: string, value: unknown): boolean {
   const storage = platformJsonStorage()
   if (!storage) return false
   try {
     storage.write(key, JSON.stringify(value))
+    notifyPlatformChange(key, 'write')
     return true
   } catch {
     return false
@@ -1868,12 +1970,14 @@ export function readPlatformLives(): Record<string, LiveRoom | null> | null {
 }
 export function writePlatformLive(room: LiveRoom): boolean {
   const lives = readPlatformLives() ?? {}
-  return writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, { ...lives, [room.id]: room })
+  const written = writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, { ...lives, [room.id]: room })
+  if (written) writePlatformJson(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY, new Date().toISOString())
+  return written
 }
 export function removePlatformLive(id: string): void {
   const lives = readPlatformLives() ?? {}
   lives[id] = null
-  writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, lives)
+  if (writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, lives)) writePlatformJson(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY, new Date().toISOString())
 }
 export function mergePlatformLives(rooms: LiveRoom[]): LiveRoom[] {
   const published = readPlatformLives()
@@ -1898,7 +2002,16 @@ export function readUserBindings(): Record<string, UserBinding> | null {
   return bindings && typeof bindings === 'object' ? bindings : null
 }
 export function upsertUserBinding(binding: UserBinding): boolean {
+  if (!binding?.userId) return false
   const bindings = readUserBindings() ?? {}
+  const existing = bindings[binding.userId]
+  if (existing && existing.status === 'bound') {
+    const samePromoter = binding.promoterId && existing.promoterId === binding.promoterId
+    const sameStaff = binding.staffAccountId && existing.staffAccountId === binding.staffAccountId
+    const sameOwner = (samePromoter || sameStaff)
+    if (!sameOwner) return false
+    return writePlatformJson(PLATFORM_BINDINGS_STORAGE_KEY, { ...bindings, [binding.userId]: { ...binding, boundAt: binding.boundAt || existing.boundAt } })
+  }
   return writePlatformJson(PLATFORM_BINDINGS_STORAGE_KEY, { ...bindings, [binding.userId]: binding })
 }
 
@@ -2612,14 +2725,14 @@ function legacyDistributionAmounts(retailPrice: number, level1Amount: number, le
 
 export function catalogProductToProduct(product: CatalogProduct): Product {
   const channels = catalogChannelFlags(product.channel)
-  const skus: Sku[] = product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({ id: sku.id, name: sku.name, image: sku.image, price: sku.retailPrice, cost: sku.cost, stock: sku.stock, level1Amount: sku.level1Amount, level2Amount: sku.level2Amount }))
+  const skus: Sku[] = product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({ id: sku.id, name: sku.name, image: mediaValueToImage(sku.image), price: sku.retailPrice, cost: sku.cost, stock: sku.stock, level1Amount: sku.level1Amount, level2Amount: sku.level2Amount }))
   return {
     id: product.id, name: product.name, category: product.category,
     price: skus.length ? Math.min(...skus.map((sku) => sku.price)) : 0,
     cost: skus.length ? Math.min(...skus.map((sku) => sku.cost)) : 0,
     stock: skus.reduce((sum, sku) => sum + sku.stock, 0), sales: 0,
-    source: product.source, status: product.status, image: product.image,
-    images: [...product.images], supplier: product.supplierName, supplierId: product.supplierId,
+    source: product.source, status: product.status, image: mediaValueToImage(product.image),
+    images: [...product.images].map(mediaValueToImage), supplier: product.supplierName, supplierId: product.supplierId,
     supplierName: product.supplierName, tags: [...product.tags], skus,
     farmIds: [...product.farmIds], channels, channel: product.channel,
     expressDelivery: product.expressDelivery, productType: product.productType,
@@ -2646,11 +2759,11 @@ export function catalogProductToCProduct(product: CatalogProduct): CProduct {
   return {
     id: product.id, name: product.name, category: product.category,
     supplierId: product.supplierId, supplierName: product.supplierName,
-    image: product.image, images: [...product.images], tags: [...product.tags],
+    image: mediaValueToImage(product.image), images: [...product.images].map(mediaValueToImage), tags: [...product.tags],
     status: product.status === 'active' ? 'active' : 'offline', shippingType: 'courier',
     channels, expressDelivery: product.expressDelivery, productType: product.productType,
     skus: product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({
-      id: sku.id, name: sku.name, image: sku.image, stock: sku.stock,
+      id: sku.id, name: sku.name, image: mediaValueToImage(sku.image), stock: sku.stock,
       basePrice: round2(sku.retailPrice - sku.level1Amount - sku.level2Amount),
       level1Commission: sku.level1Amount, level2Commission: sku.level2Amount
     }))
@@ -2712,19 +2825,20 @@ export function readCatalogState(): CatalogState | null {
   const raw = readPlatformJson<CatalogState>(PLATFORM_CATALOG_STORAGE_KEY)
   const state = normalizeCatalogState(raw)
   if (!state || state.products.some((product) => !catalogProductIsValid(product))) return null
-  if (raw?.schemaVersion !== CATALOG_SCHEMA_VERSION || !raw.appliedOperations || raw.products.some((product) => product.skus.some((sku) => !sku.status))) writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, state)
   return cloneSeed(state)
 }
 
 export function ensureCatalogState(storeProducts: Product[], liveProducts: CProduct[], defaults: PricingDefaults = readPricingDefaults()): CatalogState {
   const existing = readCatalogState()
   if (existing) return existing
+  const migrated = readCatalogLegacyMigrationMarker()
   const state: CatalogState = {
     schemaVersion: CATALOG_SCHEMA_VERSION,
     revision: 0,
-    products: migrateLegacyCatalog(storeProducts, liveProducts, defaults),
+    products: migrateLegacyCatalog(storeProducts, migrated ? [] : liveProducts, defaults),
     appliedOperations: {}
   }
+  if (!migrated) writePlatformJson(PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY, { schemaVersion: 1, catalogSchemaVersion: CATALOG_SCHEMA_VERSION, migratedAt: new Date().toISOString() })
   writeCatalogState(state)
   return state
 }
@@ -2745,16 +2859,29 @@ export function writeCatalogState(state: CatalogState, expectedRevision?: number
   if (expectedRevision !== undefined && current?.revision !== expectedRevision) return false
   const normalized = normalizeCatalogState(state)
   if (!normalized || normalized.products.some((product) => !catalogProductIsValid(product))) return false
+  if (normalized.appliedOperations) {
+    const normalizedOps: Record<string, CatalogStockOperation> = {}
+    for (const [id, op] of Object.entries(normalized.appliedOperations)) {
+      normalizedOps[id] = { ...op, action: op.action || 'reserve', requestFingerprint: op.requestFingerprint || catalogOperationFingerprint(op.action || 'reserve', op.changes || []), changes: [] }
+    }
+    normalized.appliedOperations = normalizedOps
+  }
   return writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, normalized)
 }
 
 export function saveCatalogProduct(product: CatalogProduct, expectedRevision: number): CatalogState | null {
   const current = readCatalogState()
   if (!current || current.revision !== expectedRevision || !catalogProductIsValid(product)) return null
+  const normalized: CatalogProduct = {
+    ...product,
+    image: normalizeMediaReference(product.image) || product.image,
+    images: (product.images || []).map((img) => normalizeMediaReference(img) || img),
+    skus: product.skus.map((sku) => ({ ...sku, image: normalizeMediaReference(sku.image) || sku.image }))
+  }
   const next = cloneSeed(current)
   const index = next.products.findIndex((item) => item.id === product.id)
-  if (index >= 0) next.products[index] = cloneSeed(product)
-  else next.products.unshift(cloneSeed(product))
+  if (index >= 0) next.products[index] = cloneSeed(normalized)
+  else next.products.unshift(cloneSeed(normalized))
   next.revision += 1
   return writeCatalogState(next, expectedRevision) ? next : null
 }
@@ -2763,11 +2890,35 @@ function sameStockChanges(left: CatalogStockChange[], right: CatalogStockChange[
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+
+function catalogOperationFingerprint(action: string, changes: CatalogStockChange[]): string {
+  return JSON.stringify({ action, changes: changes.map((c) => ({ productId: c.productId, skuId: c.skuId, quantity: c.quantity })) })
+}
+export function compactCatalogTransactionJournal(journal: Record<string, CatalogTransactionJournalEntry>, options: { now: string; retentionMs: number }): Record<string, CatalogTransactionJournalEntry> {
+  const cutoff = new Date(options.now).getTime() - options.retentionMs
+  return Object.fromEntries(Object.entries(journal).filter(([, entry]) => {
+    const age = new Date(entry.updatedAt || entry.createdAt).getTime()
+    const terminal = entry.status === 'committed' || entry.status === 'aborted'
+    return !(terminal && age < cutoff)
+  }))
+}
+export function compactCatalogAppliedOperations(appliedOperations: Record<string, CatalogStockOperation>, journal: Record<string, CatalogTransactionJournalEntry>, options: { now: string; retentionMs: number }): Record<string, CatalogStockOperation> {
+  const cutoff = new Date(options.now).getTime() - options.retentionMs
+  const result: Record<string, CatalogStockOperation> = {}
+  for (const [id, op] of Object.entries(appliedOperations)) {
+    const journalEntry = journal[id]
+    const isOld = !!op.appliedAt && new Date(op.appliedAt).getTime() < cutoff
+    const keepForRecovery = journalEntry && (journalEntry.status === 'prepared' || journalEntry.status === 'stock-applied')
+    result[id] = (isOld && !keepForRecovery) ? { ...op, changes: [], requestFingerprint: op.requestFingerprint || catalogOperationFingerprint(op.action || 'reserve', op.changes || []) } : op
+  }
+  return result
+}
 export function applyCatalogStockOperation(operationId: string, changes: CatalogStockChange[], expectedRevision: number): { state: CatalogState; applied: boolean } | null {
   const current = readCatalogState()
   if (!current || !operationId || !changes.length) return null
   const existing = current.appliedOperations?.[operationId]
-  if (existing) return sameStockChanges(existing.changes, changes) ? { state: current, applied: false } : null
+  const fingerprint = catalogOperationFingerprint('reserve', changes)
+  if (existing) return existing.requestFingerprint === fingerprint ? { state: current, applied: false } : null
   if (current.revision !== expectedRevision) return null
   const next = cloneSeed(current)
   for (const change of changes) {
@@ -2777,7 +2928,7 @@ export function applyCatalogStockOperation(operationId: string, changes: Catalog
     sku.stock += change.quantity
   }
   next.appliedOperations ||= {}
-  next.appliedOperations[operationId] = { id: operationId, changes: cloneSeed(changes), appliedAt: new Date().toISOString() }
+  next.appliedOperations[operationId] = { id: operationId, action: 'reserve', requestFingerprint: fingerprint, changes: cloneSeed(changes), appliedAt: new Date().toISOString() }
   next.revision += 1
   return writeCatalogState(next, expectedRevision) ? { state: next, applied: true } : null
 }
@@ -2949,6 +3100,7 @@ export interface CAfterSaleRequest {
   reason: string
   status: 'processing' | 'reversed' | 'completed'
   createdAt: string
+  evidenceImages?: BusinessMediaValue[]
 }
 
 export interface CCommissionAllocation {
@@ -3382,6 +3534,7 @@ function readRawCInventoryState(): CInventoryState | null {
 }
 
 export function readCInventoryState(): CInventoryState | null {
+  if (readCatalogLegacyMigrationMarker()) return null
   const saved = readRawCInventoryState()
   if (saved) return saved
   const legacy = readPlatformJson<CProduct[]>(PLATFORM_C_PRODUCTS_STORAGE_KEY)
@@ -3393,6 +3546,7 @@ export function readCInventoryState(): CInventoryState | null {
 }
 
 export function writeCInventoryState(next: CInventoryState, expectedRevision: number): boolean {
+  if (readCatalogLegacyMigrationMarker()) return false
   const current = readCInventoryState()
   const currentRevision = current?.revision ?? 0
   if (currentRevision !== expectedRevision || next.revision !== expectedRevision + 1) return false
@@ -3472,3 +3626,601 @@ export function seedCCommerceData(): void {
 
 
 export * from './auth'
+export * from './media'
+export * from './regions'
+export * from './dashboard'
+export * from './dashboard-source'
+export * from './geocoding'
+export * from './dictionaries'
+export * from './platform-repository'
+export * from './platform-event-bus'
+
+// ===== 兼容层：平台共享数据引擎（按方案 B2 重建） =====
+export interface SharedBooking {
+  id: string
+  farmId: string
+  farmName: string
+  userId: string
+  source: 'alliance' | 'farmhouse'
+  date: string
+  session: string
+  people: number
+  amount?: number
+  amountConfirmedAt?: string
+  status: 'submitted' | 'confirmed' | 'rejected' | 'cancelled' | 'completed'
+  createdAt: string
+  updatedAt?: string
+}
+
+export interface VoucherOrder {
+  id: string
+  userId: string
+  promoterId?: string
+  liveId?: string
+  farmId: string
+  productId: string
+  skuId: string
+  quantity: number
+  amount: number
+  status: 'paid' | 'redeemed' | 'refunded'
+  createdAt: string
+  redeemedAt?: string
+  refundedAt?: string
+}
+
+export interface CommissionLedgerEntry {
+  id: string
+  sourceOrderId: string
+  sourceSubOrderId?: string
+  beneficiaryType: 'promoter' | 'staff' | 'farm' | 'live'
+  beneficiaryId: string
+  farmId?: string
+  role: string
+  amount: number
+  status: CommissionStatus
+  reversalOf?: string
+  createdAt: string
+  updatedAt?: string
+  dataOrigin?: 'dashboard_demo'
+}
+
+export interface PromoterAccount {
+  id: string
+  promoterId: string
+  type: string
+  level: string
+  status: 'active' | 'paused' | 'pending'
+  name: string
+  account: string
+  password: string
+  mobile?: string
+  enabled: boolean
+  createdAt: string
+}
+
+export interface PlatformPrincipal {
+  actorType: string
+  actorId: string
+  tenantId: string
+  regionCodes?: string[]
+  status: string
+}
+
+export interface PlatformChange {
+  key: string
+  source: 'write' | 'storage' | string
+  publishedAt?: number
+}
+export const PLATFORM_BOOKINGS_STORAGE_KEY = 'agritainment-platform-bookings'
+export const PLATFORM_VOUCHERS_STORAGE_KEY = 'agritainment-platform-vouchers'
+export const PLATFORM_COMMISSION_LEDGER_STORAGE_KEY = 'agritainment-platform-commission-ledger'
+export const PLATFORM_COMMISSION_LEDGER_MIGRATED_STORAGE_KEY = 'agritainment-platform-commission-ledger-migrated'
+export const PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY = 'agritainment-platform-promoter-accounts'
+export const PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY = 'agritainment-platform-supplier-accounts'
+export const PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY = 'agritainment-platform-supplier-settlements'
+export const PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY = 'agritainment-platform-lives-updated-at'
+export const PLATFORM_ROUTES_STORAGE_KEY = 'agritainment-platform-routes'
+export const PLATFORM_EXPERIENCES_STORAGE_KEY = 'agritainment-platform-experiences'
+export const PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY = 'agritainment-platform-catalog-legacy-migration-marker'
+
+// ===== 兼容层：字典运行时与平台变更订阅 =====
+export interface PlatformDictionaryCache {
+  getOptions(type: DictType): DictItem[]
+  label(type: DictType, code: string): string
+  subscribe(listener: (state: PlatformDictionaryState) => void): () => void
+  dispose(): void
+}
+
+export function readPlatformDictionaries(): PlatformDictionaryState {
+  const saved = readPlatformJson<unknown>(PLATFORM_DICTIONARIES_STORAGE_KEY)
+  if (!saved || typeof saved !== 'object') return createInitialPlatformDictionaries(dictGroupSeeds as unknown as DictGroup[], dictItemSeeds as unknown as DictItem[])
+  return migratePlatformDictionaries(saved, dictGroupSeeds as unknown as DictGroup[], dictItemSeeds as unknown as DictItem[])
+}
+
+const dictionariesEventBus = new PlatformEventBus('agritainment-platform-changes')
+
+export async function publishPlatformDictionaries(
+  input: PlatformDictionaryState,
+  expectedRevision: number,
+  publishLock: DictionaryPublishLock = defaultDictionaryPublishLock()
+): Promise<PlatformDictionaryState | null> {
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) return null
+  return publishLock.runExclusive(() => {
+    const current = readPlatformDictionaries()
+    if (current.revision !== expectedRevision || !canPublishPlatformDictionaries(current, input)) return null
+    const next = migratePlatformDictionaries({ ...input, schemaVersion: DICTIONARY_SCHEMA_VERSION, revision: expectedRevision + 1, updatedAt: new Date().toISOString() }, dictGroupSeeds as unknown as DictGroup[], dictItemSeeds as unknown as DictItem[])
+    return (writePlatformJson(PLATFORM_DICTIONARIES_STORAGE_KEY, next) ? (dictionariesEventBus.publish('storage.changed', { key: PLATFORM_DICTIONARIES_STORAGE_KEY, source: 'write' }), next) : null)
+  })
+}
+
+export function getDictOptions(type: DictType, options: { state?: PlatformDictionaryState; includeDisabled?: boolean } = {}): DictItem[] {
+  return selectDictOptions(options.state ?? readPlatformDictionaries(), type, options.includeDisabled)
+}
+
+export function dictLabel(type: DictType, code: string, state: PlatformDictionaryState = readPlatformDictionaries()): string {
+  return selectDictOptions(state, type, true).find((item) => item.code === code)?.label ?? builtInDictLabel(type, code) ?? code
+}
+
+let boundPlatformStorageListener = false
+function handlePlatformStorage(event: StorageEvent): void {
+  if (event.key) notifyPlatformChange(event.key, 'storage')
+}
+function ensurePlatformStorageListener(): void {
+  if (boundPlatformStorageListener) return
+  const scope = globalThis as { addEventListener?: (type: string, listener: EventListener) => void }
+  if (typeof scope.addEventListener === 'function') {
+    scope.addEventListener('storage', handlePlatformStorage as unknown as EventListener)
+    boundPlatformStorageListener = true
+  }
+}
+export function subscribePlatformChanges(listener: (event: PlatformChange) => void, keys: string[] = []): () => void {
+  ensurePlatformStorageListener()
+  const keySet = new Set(keys)
+  const wrapped = (event: PlatformChange) => { if (keySet.size === 0 || keySet.has(event.key)) listener(event) }
+  platformChangeListeners.add(wrapped)
+  const doc = typeof document !== 'undefined' ? document : null
+  const onVisibility = () => {
+    if (doc && (doc as { visibilityState?: string }).visibilityState === 'visible' && lastPlatformChange) wrapped({ ...lastPlatformChange, source: 'visibility' })
+  }
+  if (doc) {
+    const add = (doc as { addEventListener: (t: string, l: EventListener) => void }).addEventListener
+    const remove = (doc as { removeEventListener: (t: string, l: EventListener) => void }).removeEventListener
+    add('visibilitychange', onVisibility as unknown as EventListener)
+    return () => { platformChangeListeners.delete(wrapped); remove('visibilitychange', onVisibility as unknown as EventListener) }
+  }
+  return () => platformChangeListeners.delete(wrapped)
+}
+
+export function createPlatformDictionaryCache(options: { read?: () => PlatformDictionaryState; subscribe?: typeof subscribePlatformChanges } = {}): PlatformDictionaryCache {
+  const read = options.read ?? readPlatformDictionaries
+  const subscribeToPlatform = options.subscribe ?? subscribePlatformChanges
+  const listeners = new Set<(state: PlatformDictionaryState) => void>()
+  let state = read()
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const unsubscribe = subscribeToPlatform(() => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => { timer = null; state = read(); listeners.forEach((l) => l(state)) }, 300)
+  }, [PLATFORM_DICTIONARIES_STORAGE_KEY])
+  return {
+    getOptions: (type) => selectDictOptions(state, type, false),
+    label: (type, code) => selectDictOptions(state, type, true).find((item) => item.code === code)?.label ?? builtInDictLabel(type, code) ?? code,
+    subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
+    dispose: () => { unsubscribe(); if (timer) clearTimeout(timer); listeners.clear() }
+  }
+}
+
+// ===== 兼容层：平台共享 CRUD 引擎 =====
+export function readPlatformBookings(): Record<string, SharedBooking> | null {
+  const data = readPlatformJson<Record<string, SharedBooking>>(PLATFORM_BOOKINGS_STORAGE_KEY)
+  return data && typeof data === 'object' ? data : null
+}
+export function writePlatformBooking(booking: SharedBooking): boolean {
+  if (!booking?.id || !booking.farmId || !booking.date || !booking.session || !Number.isInteger(booking.people) || booking.people <= 0) return false
+  const bookings = readPlatformBookings() ?? {}
+  return writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, { ...bookings, [booking.id]: { ...booking, updatedAt: booking.updatedAt || booking.createdAt } })
+}
+export function readPlatformCommissionLedger(): Record<string, CommissionLedgerEntry> | null {
+  const data = readPlatformJson<Record<string, CommissionLedgerEntry>>(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY)
+  return data && typeof data === 'object' ? data : null
+}
+export function writePlatformCommissionLedgerEntry(entry: CommissionLedgerEntry): boolean {
+  if (!entry?.id || !entry.beneficiaryId) return false
+  const ledger = readPlatformCommissionLedger() ?? {}
+  return writePlatformJson(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, { ...ledger, [entry.id]: entry })
+}
+export function readPlatformVoucherOrders(): Record<string, VoucherOrder> | null {
+  const data = readPlatformJson<Record<string, VoucherOrder>>(PLATFORM_VOUCHERS_STORAGE_KEY)
+  return data && typeof data === 'object' ? data : null
+}
+export function writePlatformVoucherOrder(order: VoucherOrder): boolean {
+  if (!order?.id || !order.userId || !order.farmId) return false
+  const orders = readPlatformVoucherOrders() ?? {}
+  return writePlatformJson(PLATFORM_VOUCHERS_STORAGE_KEY, { ...orders, [order.id]: order })
+}
+export function readPlatformSupplierSettlements(): Record<string, SupplierSettlementRecord> | null {
+  const data = readPlatformJson<Record<string, SupplierSettlementRecord>>(PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY)
+  return data && typeof data === 'object' ? data : null
+}
+export function writePlatformSupplierSettlement(record: SupplierSettlementRecord): boolean {
+  if (!record?.id) return false
+  const records = readPlatformSupplierSettlements() ?? {}
+  const normalized = { ...record, status: record.status || 'pending' }
+  return writePlatformJson(PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, { ...records, [record.id]: normalized })
+}
+export function readPlatformLivesUpdatedAt(): string | undefined {
+  const updatedAt = readPlatformJson<unknown>(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY)
+  return typeof updatedAt === 'string' && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : undefined
+}
+export function readPlatformRoutes(): Record<string, TravelRoute | null> | null {
+  const data = readPlatformJson<Record<string, TravelRoute | null>>(PLATFORM_ROUTES_STORAGE_KEY)
+  return data && typeof data === 'object' ? data : null
+}
+export function writePlatformRoute(route: TravelRoute): boolean {
+  if (!route?.id) return false
+  const routes = readPlatformRoutes() ?? {}
+  return writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, { ...routes, [route.id]: route })
+}
+export function removePlatformRoute(id: string): void {
+  const routes = readPlatformRoutes() ?? {}
+  routes[id] = null
+  writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, routes)
+}
+export function mergePlatformRoutes(routes: TravelRoute[]): TravelRoute[] {
+  const merged = new Map<string, TravelRoute>()
+  routes.forEach((r) => { if (r) merged.set(r.id, r) })
+  const shared = readPlatformRoutes()
+  if (shared) Object.entries(shared).forEach(([id, r]) => { if (r) merged.set(id, r); else merged.delete(id) })
+  return Array.from(merged.values())
+}
+
+// ===== 兼容层：供应商拆单引擎 =====
+export function buildSupplierPlatformOrders(input: {
+  sourceOrderId: string
+  source: OrderSource
+  customer: string
+  channel: Order['channel']
+  items: OrderItem[]
+  products: Product[]
+  createdAt: string
+  status: OrderStatus
+  customerUserId?: string
+  deliveryAddress?: CAddress
+}): Order[] {
+  const supplierByName = new Map<string, Supplier>()
+  suppliers.forEach((supplier) => supplierByName.set(supplier.name, supplier))
+  const groups = new Map<string, { supplierId: string; supplierName: string; items: OrderItem[] }>()
+  for (const item of input.items) {
+    const product = input.products.find((p) => p.id === item.productId)
+    const supplierName = product?.supplier || ''
+    const supplier = supplierByName.get(supplierName)
+    const key = supplier?.id || supplierName || 'unknown'
+    if (!groups.has(key)) groups.set(key, { supplierId: supplier?.id || '', supplierName, items: [] })
+    groups.get(key)!.items.push(item)
+  }
+  const groupList = Array.from(groups.values())
+  const multiple = groupList.length > 1
+  return groupList.map((group, index) => {
+    const baseId = multiple ? `${input.sourceOrderId}-S${index + 1}` : input.sourceOrderId
+    const quantity = group.items.reduce((sum, item) => sum + item.quantity, 0)
+    const amount = group.items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    const first = group.items[0]
+    return {
+      id: baseId,
+      productName: first?.name || input.customer,
+      quantity,
+      amount,
+      customer: input.customer,
+      channel: input.channel,
+      status: input.status,
+      createdAt: input.createdAt,
+      supplierId: group.supplierId,
+      items: group.items,
+      supplierOrderLink: { source: input.source, sourceOrderId: input.sourceOrderId, sourceSubOrderId: baseId, customerUserId: input.customerUserId }
+    }
+  })
+}
+
+// ===== 兼容层：推客账号引擎 =====
+export interface PromoterAccountState {
+  schemaVersion: number
+  revision: number
+  accounts: PromoterAccount[]
+  updatedAt: string
+}
+export function buildPromoterAccountSeeds(promotersSeed: Promoter[]): PromoterAccount[] {
+  return promotersSeed.map((promoter, index) => ({
+    id: 'PA' + String(index + 1).padStart(3, '0'),
+    promoterId: promoter.id,
+    name: promoter.name,
+    level: promoter.level,
+    type: promoter.type || '',
+    account: '138' + String(index * 20).padStart(8, '0'),
+    password: '123456',
+    status: 'active' as const,
+    enabled: true,
+    createdAt: '2026-08-01T09:00:00.000Z'
+  }))
+}
+export function readPlatformPromoterAccountState(): PromoterAccountState {
+  const saved = readPlatformJson<PromoterAccountState>(PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY)
+  if (saved && typeof saved === 'object') return saved
+  return { schemaVersion: 1, revision: 0, accounts: [], updatedAt: '' }
+}
+export function readPlatformPromoterAccounts(): PromoterAccount[] {
+  return readPlatformPromoterAccountState().accounts
+}
+export function writePlatformPromoterAccounts(accounts: PromoterAccount[], expectedRevision: number): boolean {
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) return false
+  const accountsSet = new Set(accounts.map((a) => a.account))
+  if (accountsSet.size !== accounts.length) return false
+  const current = readPlatformPromoterAccountState()
+  if (current.revision !== expectedRevision) return false
+  const next: PromoterAccountState = { schemaVersion: 1, revision: expectedRevision + 1, accounts, updatedAt: new Date().toISOString() }
+  return writePlatformJson(PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, next)
+}
+export function authenticatePromoter(accounts: PromoterAccount[], promotersSeed: Promoter[], account: string, password: string): { ok: true; account: PromoterAccount; promoter: Promoter } | { ok: false; reason: string } {
+  const found = accounts.find((a) => a.account === account)
+  if (!found || found.password !== password) return { ok: false, reason: 'invalid-credentials' }
+  if (!found.enabled) return { ok: false, reason: 'inactive' }
+  const promoter = promotersSeed.find((p) => p.id === found.promoterId)
+  if (!promoter || promoter.status !== 'active') return { ok: false, reason: 'inactive' }
+  return { ok: true, account: found, promoter }
+}
+export function mergePlatformPromoterAccounts(defaults: PromoterAccount[], saved: PromoterAccount[]): PromoterAccount[] {
+  const savedByKey = new Map(saved.map((a) => [a.promoterId, a]))
+  return defaults.map((d) => savedByKey.get(d.promoterId) || d)
+}
+
+// ===== 兼容层：佣金冲正 / 迁移 / 券流转 =====
+export function reverseCommissionLedgerEntry(id: string, sourceOrderId: string, beneficiaryId: string, amount: number, reversedAt: string): boolean {
+  const ledger = readPlatformCommissionLedger() ?? {}
+  const entry = ledger[id]
+  if (!entry || entry.status === 'reversed') return false
+  const reversed: CommissionLedgerEntry = { ...entry, id, status: 'reversed', reversalOf: entry.id, updatedAt: reversedAt }
+  const next = { ...ledger, [id]: reversed }
+  return writePlatformJson(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, next)
+}
+export function migrateLegacyCommissionsToLedger(): boolean {
+  const migrated = readPlatformJson<unknown>(PLATFORM_COMMISSION_LEDGER_MIGRATED_STORAGE_KEY)
+  if (migrated !== null && migrated !== undefined) return false
+  const legacy = readPlatformJson<Array<Record<string, unknown>>>(PLATFORM_C_COMMISSIONS_STORAGE_KEY)
+  const ledger = readPlatformCommissionLedger() ?? {}
+  if (Array.isArray(legacy)) {
+    for (const record of legacy) {
+      const id = String(record.id || '')
+      if (!id) continue
+      ledger[id] = {
+        id,
+        sourceOrderId: String(record.orderId || record.sourceOrderId || ''),
+        beneficiaryType: (record.beneficiaryType as CommissionLedgerEntry['beneficiaryType']) || 'promoter',
+        beneficiaryId: String(record.beneficiaryId || record.promoterId || 'T001'),
+        role: String(record.role || 'promoter'),
+        amount: Number(record.amount) || 0,
+        status: (record.status as CommissionLedgerEntry['status']) || 'available',
+        createdAt: String(record.createdAt || ''),
+        updatedAt: String(record.createdAt || '')
+      }
+    }
+  }
+  writePlatformJson(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, ledger)
+  writePlatformJson(PLATFORM_COMMISSION_LEDGER_MIGRATED_STORAGE_KEY, new Date().toISOString())
+  return true
+}
+export function transitionVoucherOrder(id: string, status: VoucherOrder['status'], at: string): boolean {
+  const orders = readPlatformVoucherOrders() ?? {}
+  const order = orders[id]
+  if (!order || order.status === status) return false
+  const next: VoucherOrder = { ...order, status }
+  if (status === 'redeemed') next.redeemedAt = at
+  if (status === 'refunded') next.refundedAt = at
+  return writePlatformJson(PLATFORM_VOUCHERS_STORAGE_KEY, { ...orders, [id]: next })
+}
+
+// ===== 兼容层：供应商账号引擎 =====
+export interface SupplierAccount {
+  id: string
+  supplierId: string
+  supplierName: string
+  account: string
+  password: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+export function buildSupplierAccountSeeds(suppliersSeed: Supplier[], createdAt: string = '2026-08-24T09:00:00.000Z'): SupplierAccount[] {
+  return suppliersSeed
+    .filter((supplier) => !!supplier.contactPhone)
+    .map((supplier, index) => ({
+      id: 'SA' + String(index + 1).padStart(3, '0'),
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      account: supplier.contactPhone!,
+      password: supplier.contactPhone!,
+      enabled: true,
+      createdAt,
+      updatedAt: createdAt
+    }))
+}
+export function authenticateSupplier(accounts: SupplierAccount[], suppliersSeed: Supplier[], account: string, password: string): { ok: true; account: SupplierAccount; supplier: Supplier } | { ok: false; reason: string } {
+  const found = accounts.find((a) => a.account === account)
+  if (!found || found.password !== password) return { ok: false, reason: 'invalid-credentials' }
+  const supplier = suppliersSeed.find((s) => s.id === found.supplierId)
+  if (!supplier || supplier.status !== 'cooperating' || found.enabled === false) return { ok: false, reason: 'inactive' }
+  return { ok: true, account: found, supplier }
+}
+export function mergePlatformSupplierAccounts(defaults: SupplierAccount[], saved: SupplierAccount[]): SupplierAccount[] {
+  const savedByKey = new Map(saved.map((a) => [a.supplierId, a]))
+  return defaults.map((d) => savedByKey.get(d.supplierId) || d)
+}
+
+// ===== 兼容层：字典种子 =====
+export interface DictGroupSeed { id: string; type: string; name: string; scope: 'business' | 'system'; locked: boolean; enabled: boolean }
+export interface DictItemSeed { id: string; type: string; code: string; label: string; enabled: boolean; sort: number }
+const dictGroupSeeds: DictGroupSeed[] = [
+  { id: 'DG01', type: 'supplierStatus', name: '供应商状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG02', type: 'afterSaleReason', name: '售后原因', scope: 'business', locked: false, enabled: true },
+  { id: 'DG03', type: 'productStatus', name: '商品状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG04', type: 'farmStatus', name: '门店状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG05', type: 'orderStatus', name: '订单状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG06', type: 'afterSaleStatus', name: '售后状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG07', type: 'promoterStatus', name: '推客状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG08', type: 'liveStatus', name: '直播状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG09', type: 'bookingStatus', name: '预约状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG10', type: 'unit', name: '商品单位', scope: 'business', locked: false, enabled: true },
+  { id: 'DG11', type: 'logistics', name: '物流公司', scope: 'business', locked: false, enabled: true },
+  { id: 'DG12', type: 'productCategory', name: '商品品类', scope: 'business', locked: false, enabled: true },
+  { id: 'DG13', type: 'supplierCategory', name: '供应商品类', scope: 'business', locked: false, enabled: true },
+  { id: 'DG14', type: 'generalCategory', name: '通用品类', scope: 'business', locked: false, enabled: true },
+  { id: 'DG15', type: 'productTag', name: '商品标签', scope: 'business', locked: false, enabled: true },
+  { id: 'DG16', type: 'farmTag', name: '门店标签', scope: 'business', locked: false, enabled: true },
+  { id: 'DG17', type: 'routeTag', name: '线路标签', scope: 'business', locked: false, enabled: true },
+  { id: 'DG19', type: 'qualificationType', name: '供应商资质', scope: 'business', locked: false, enabled: true },
+  { id: 'DG18', type: 'serviceCategory', name: '体验分类', scope: 'business', locked: false, enabled: true },
+  { id: 'DG20', type: 'promoterType', name: '推客类型', scope: 'business', locked: false, enabled: true },
+  { id: 'DG21', type: 'promoterLevel', name: '推客等级', scope: 'business', locked: false, enabled: true },
+  { id: 'DG22', type: 'liveHostRole', name: '直播角色', scope: 'business', locked: false, enabled: true },
+  { id: 'DG23', type: 'bookingSession', name: '预约时段', scope: 'business', locked: false, enabled: true },
+  { id: 'DG24', type: 'roomNotice', name: '包厢须知', scope: 'business', locked: false, enabled: true },
+  { id: 'DG25', type: 'withdrawMethod', name: '提现方式', scope: 'business', locked: false, enabled: true },
+  { id: 'DG26', type: 'fulfillmentStatus', name: '履约状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG27', type: 'voucherStatus', name: '核销状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG28', type: 'settlementStatus', name: '结算状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG29', type: 'commissionStatus', name: '佣金状态', scope: 'system', locked: true, enabled: true },
+  { id: 'DG30', type: 'productSource', name: '商品来源', scope: 'system', locked: true, enabled: true },
+  { id: 'DG31', type: 'productType', name: '商品类型', scope: 'system', locked: true, enabled: true },
+  { id: 'DG32', type: 'catalogChannel', name: '商品渠道', scope: 'system', locked: true, enabled: true },
+  { id: 'DG33', type: 'deliveryMode', name: '配送方式', scope: 'system', locked: true, enabled: true },
+  { id: 'DG34', type: 'afterSaleType', name: '售后类型', scope: 'system', locked: true, enabled: true },
+  { id: 'DG35', type: 'refundMode', name: '退款模式', scope: 'system', locked: true, enabled: true },
+  { id: 'DG36', type: 'pricePolicyType', name: '价格策略类型', scope: 'system', locked: true, enabled: true },
+  { id: 'DG37', type: 'accountRole', name: '账号角色', scope: 'system', locked: true, enabled: true },
+  { id: 'DG38', type: 'memberLevel', name: '会员等级', scope: 'system', locked: true, enabled: true },
+  { id: 'DG40', type: 'refundMethod', name: '退款方式', scope: 'system', locked: true, enabled: true },
+  { id: 'DG39', type: 'commissionTargetType', name: '佣金目标类型', scope: 'system', locked: true, enabled: true }
+];
+
+const dictItemSeeds: DictItemSeed[] = [
+  { id: 'DIR01', type: 'afterSaleReason', code: 'transport', label: '运输破损', enabled: true, sort: 1 },
+  { id: 'DIR02', type: 'afterSaleReason', code: 'quality', label: '质量问题', enabled: true, sort: 2 },
+  { id: 'DIR03', type: 'afterSaleReason', code: 'seven-day', label: '七天无理由', enabled: true, sort: 3 },
+  { id: 'DIR04', type: 'afterSaleReason', code: 'shortage', label: '少发漏发', enabled: true, sort: 4 },
+  { id: 'DIR05', type: 'afterSaleReason', code: 'taste', label: '口感风味不符', enabled: true, sort: 5 },
+  { id: 'DIR06', type: 'afterSaleReason', code: 'cancel', label: '预约取消', enabled: true, sort: 6 },
+  { id: 'DIR07', type: 'afterSaleReason', code: 'other', label: '其他', enabled: true, sort: 7 },
+  { id: 'DISS01', type: 'supplierStatus', code: 'pending', label: '待处理', enabled: true, sort: 1 },
+  { id: 'DISS02', type: 'supplierStatus', code: 'cooperating', label: '合作中', enabled: true, sort: 2 },
+  { id: 'DISS03', type: 'supplierStatus', code: 'paused', label: '已暂停', enabled: true, sort: 3 },
+  { id: 'DISS04', type: 'supplierStatus', code: 'rejected', label: '已驳回', enabled: true, sort: 4 },
+  { id: 'DISP01', type: 'productStatus', code: 'pending', label: '待审核', enabled: true, sort: 1 },
+  { id: 'DISP02', type: 'productStatus', code: 'active', label: '已上架', enabled: true, sort: 2 },
+  { id: 'DISP03', type: 'productStatus', code: 'offline', label: '已下架', enabled: true, sort: 3 },
+  { id: 'DISP04', type: 'productStatus', code: 'rejected', label: '已驳回', enabled: true, sort: 4 },
+  { id: 'DIFS01', type: 'farmStatus', code: 'pending', label: '筹备中', enabled: true, sort: 1 },
+  { id: 'DIFS02', type: 'farmStatus', code: 'active', label: '经营中', enabled: true, sort: 2 },
+  { id: 'DIFS03', type: 'farmStatus', code: 'paused', label: '已停用', enabled: true, sort: 3 },
+  { id: 'DIOS01', type: 'orderStatus', code: 'pending', label: '待支付', enabled: true, sort: 1 },
+  { id: 'DIOS02', type: 'orderStatus', code: 'paid', label: '已支付', enabled: true, sort: 2 },
+  { id: 'DIOS03', type: 'orderStatus', code: 'shipping', label: '配送中', enabled: true, sort: 3 },
+  { id: 'DIOS04', type: 'orderStatus', code: 'delivered', label: '已完成', enabled: true, sort: 4 },
+  { id: 'DIOS05', type: 'orderStatus', code: 'after-sale', label: '售后中', enabled: true, sort: 5 },
+  { id: 'DIAS01', type: 'afterSaleStatus', code: 'processing', label: '售后中', enabled: true, sort: 1 },
+  { id: 'DIAS02', type: 'afterSaleStatus', code: 'rejected', label: '售后拒绝', enabled: true, sort: 2 },
+  { id: 'DIAS03', type: 'afterSaleStatus', code: 'refunded', label: '已退款', enabled: true, sort: 3 },
+  { id: 'DIPR01', type: 'promoterStatus', code: 'active', label: '启用', enabled: true, sort: 1 },
+  { id: 'DIPR02', type: 'promoterStatus', code: 'paused', label: '停用', enabled: true, sort: 2 },
+  { id: 'DILV01', type: 'liveStatus', code: 'preview', label: '预告', enabled: true, sort: 1 },
+  { id: 'DILV02', type: 'liveStatus', code: 'live', label: '直播中', enabled: true, sort: 2 },
+  { id: 'DILV03', type: 'liveStatus', code: 'ended', label: '已结束', enabled: true, sort: 3 },
+  { id: 'DIPS01', type: 'productSource', code: 'platform', label: '平台商品', enabled: true, sort: 1 },
+  { id: 'DIPS02', type: 'productSource', code: 'farmhouse', label: '门店商品', enabled: true, sort: 2 },
+  { id: 'DIPT01', type: 'productType', code: 'goods', label: '实物商品', enabled: true, sort: 1 },
+  { id: 'DIPT02', type: 'productType', code: 'package', label: '套餐券', enabled: true, sort: 2 },
+  { id: 'DPC01', type: 'productCategory', code: 'C001', label: '农产品', enabled: true, sort: 1 },
+  { id: 'DPC02', type: 'productCategory', code: 'C002', label: '特色食材', enabled: true, sort: 2 },
+  { id: 'DSC01', type: 'supplierCategory', code: 'C001', label: '生鲜农产', enabled: true, sort: 1 },
+  { id: 'DSC02', type: 'supplierCategory', code: 'C002', label: '综合品类', enabled: true, sort: 2 },
+  { id: 'DGC01', type: 'generalCategory', code: 'G001', label: '通用分类', enabled: true, sort: 1 },
+  { id: 'DPT01', type: 'promoterType', code: 'promoter', label: '普通推客', enabled: true, sort: 1 },
+  { id: 'DPT02', type: 'promoterType', code: 'anchor', label: '直播主播', enabled: true, sort: 2 },
+  { id: 'DPL01', type: 'promoterLevel', code: 'bronze', label: '青铜', enabled: true, sort: 1 },
+  { id: 'DPL02', type: 'promoterLevel', code: 'silver', label: '白银', enabled: true, sort: 2 },
+  { id: 'DHR01', type: 'liveHostRole', code: 'banker', label: '店长主播', enabled: true, sort: 1 },
+  { id: 'DHR02', type: 'liveHostRole', code: 'promoter', label: '推客主播', enabled: true, sort: 2 },
+  { id: 'DBS01', type: 'bookingSession', code: 'lunch', label: '午市 11:00', enabled: true, sort: 1 },
+  { id: 'DBS02', type: 'bookingSession', code: 'dinner', label: '晚市 17:30', enabled: true, sort: 2 },
+  { id: 'DRN01', type: 'roomNotice', code: 'deposit', label: '需预付定金', enabled: true, sort: 1 },
+  { id: 'DRN02', type: 'roomNotice', code: 'min-spend', label: '有最低消费', enabled: true, sort: 2 },
+  { id: 'DWM01', type: 'withdrawMethod', code: 'wechat', label: '微信提现', enabled: true, sort: 1 },
+  { id: 'DWM02', type: 'withdrawMethod', code: 'bank', label: '银行卡', enabled: true, sort: 2 },
+  { id: 'DQT01', type: 'qualificationType', code: 'business-license', label: '营业执照', enabled: true, sort: 1 },
+  { id: 'DQT02', type: 'qualificationType', code: 'food-license', label: '食品经营许可证', enabled: true, sort: 2 },
+  { id: 'DSE01', type: 'serviceCategory', code: 'pick', label: '采摘体验', enabled: true, sort: 1 },
+  { id: 'DSE02', type: 'serviceCategory', code: 'cook', label: '柴火现做', enabled: true, sort: 2 },
+  { id: 'DUNIT01', type: 'unit', code: 'box', label: '盒', enabled: true, sort: 1 },
+  { id: 'DLEX01', type: 'logistics', code: 'sf', label: '顺丰速运', enabled: true, sort: 1 }
+];
+
+// ===== 兼容层：供应商账号读写 =====
+export interface PlatformSupplierAccount {
+  id: string
+  supplierId: string
+  supplierName: string
+  account: string
+  password: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+export function readPlatformSupplierAccounts(): PlatformSupplierAccount[] {
+  const data = readPlatformJson<PlatformSupplierAccount[]>(PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY)
+  return Array.isArray(data) ? data : []
+}
+export function writePlatformSupplierAccounts(accounts: PlatformSupplierAccount[]): boolean {
+  return writePlatformJson(PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, accounts)
+}
+
+// ===== 兼容层：体验项目引擎（farmhouse 维护发布） =====
+export interface FarmExperience {
+  id: string
+  farmId: string
+  name: string
+  categoryCode: string
+  description: string
+  price: number
+  status: 'active' | 'inactive'
+  image: BusinessMediaValue
+  sort: number
+  updatedAt: string
+}
+export function readPlatformExperiences(): Record<string, FarmExperience | null> | null {
+  const data = readPlatformJson<Record<string, FarmExperience | null>>(PLATFORM_EXPERIENCES_STORAGE_KEY)
+  return data && typeof data === 'object' ? data : null
+}
+export function writePlatformExperience(experience: FarmExperience): boolean {
+  if (!experience?.id) return false
+  const experiences = readPlatformExperiences() ?? {}
+  return writePlatformJson(PLATFORM_EXPERIENCES_STORAGE_KEY, { ...experiences, [experience.id]: experience })
+}
+export function removePlatformExperience(id: string): void {
+  const experiences = readPlatformExperiences() ?? {}
+  experiences[id] = null
+  writePlatformJson(PLATFORM_EXPERIENCES_STORAGE_KEY, experiences)
+}
+export function mergePlatformExperiences(experiences: FarmExperience[]): FarmExperience[] {
+  const merged = new Map<string, FarmExperience>()
+  experiences.forEach((e) => { if (e) merged.set(e.id, e) })
+  const shared = readPlatformExperiences()
+  if (shared) Object.entries(shared).forEach(([id, e]) => { if (e) merged.set(id, e); else merged.delete(id) })
+  return Array.from(merged.values())
+}
+
+
+
+// ===== 兼容层：catalog 迁移标记 =====
+export interface CatalogLegacyMigrationMarker { schemaVersion: number; catalogSchemaVersion: number; migratedAt: string }
+export function readCatalogLegacyMigrationMarker(): CatalogLegacyMigrationMarker | null {
+  const saved = readPlatformJson<CatalogLegacyMigrationMarker>(PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY)
+  if (!saved || typeof saved !== 'object') return null
+  if (saved.schemaVersion !== 1 || saved.catalogSchemaVersion !== CATALOG_SCHEMA_VERSION) return null
+  return saved
+}

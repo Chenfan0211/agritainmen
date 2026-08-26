@@ -1,19 +1,28 @@
 import { expect, test, type Page } from '@playwright/test'
 import { assertFixedLayerWithinViewport, assertNoClippedText, assertNoPageOverflow, monitorPageErrors } from './layout'
 
-const portals = ['admin', 'farmhouse', 'alliance', 'store', 'promoter', 'user', 'supplier']
+const portals = ['admin', 'dashboard', 'farmhouse', 'alliance', 'store', 'promoter', 'user', 'supplier']
 
 async function loginUser(page: Page) {
+  await page.evaluate(() => localStorage.setItem('agritainment-user-demo-orders-disabled', '1'))
   await page.waitForFunction(() => !!document.querySelector('.auth-btn') || !!document.querySelector('.c-mall'))
   if (await page.locator('.auth-btn').count()) await page.locator('.auth-btn').click()
   await expect(page.locator('.c-mall')).toBeVisible()
 }
 
-async function loginSupplier(page: Page, account: string) {
-  await expect(page.locator('.login-page')).toBeVisible()
-  await page.locator('.login-fields input').nth(0).fill(account)
-  await page.locator('.login-fields input').nth(1).fill('123456')
+async function submitSupplierLogin(page: Page, account: string, password = account) {
+  const inputs = page.locator('.login-fields input')
+  await inputs.nth(0).fill(account)
+  await inputs.nth(0).blur()
+  await inputs.nth(1).fill(password)
+  await inputs.nth(1).blur()
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await page.locator('.login-button').click()
+}
+
+async function loginSupplier(page: Page, account: string, password = account) {
+  await expect(page.locator('.login-page')).toBeVisible()
+  await submitSupplierLogin(page, account, password)
   await expect(page.locator('.app-shell')).toBeVisible()
   await page.locator('.tab-item').filter({ hasText: '配送订单' }).click()
 }
@@ -44,8 +53,8 @@ async function openPromoterLiveEntry(page: Page) {
   expect(link).toMatch(/^\/user\/#\/pages\/index\/index\?.*live=/)
   await page.goto(link)
   await loginUser(page)
-  await page.locator('.mall-banner').click()
-  await expect(page.locator('.live-content')).toContainText(title)
+  await page.locator('.live-card-enter').click()
+  await expect(page.locator('.live-room')).toContainText(title)
 }
 
 async function openAllianceLiveEntry(page: Page) {
@@ -75,8 +84,8 @@ async function openAllianceLiveEntry(page: Page) {
   expect(link).toMatch(/^\/user\/#\/pages\/index\/index\?.*live=/)
   await page.goto(link)
   await loginUser(page)
-  await page.locator('.mall-banner').click()
-  await expect(page.locator('.live-content')).toContainText(title)
+  await page.locator('.live-card-enter').click()
+  await expect(page.locator('.live-room')).toContainText(title)
 }
 
 test('same-origin portal entries and assets stay reachable', async ({ page }) => {
@@ -86,7 +95,7 @@ test('same-origin portal entries and assets stay reachable', async ({ page }) =>
   for (const portal of portals) {
     await page.goto(`/${portal}/`)
     await expect(page.locator('body')).toBeVisible()
-    await assertNoPageOverflow(page)
+    if (portal !== 'dashboard' || (page.viewportSize()?.width || 0) >= 1024) await assertNoPageOverflow(page)
   }
   const missingAsset = await page.request.get('/user/assets/__integration-missing__.js')
   expect(missingAsset.status(), '缺失静态资源不得回退到应用 index.html').toBe(404)
@@ -105,9 +114,10 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
   await page.locator('.login-button').click()
   await expect(page.locator('.admin-shell')).toBeVisible()
   await page.locator('.nav-item').filter({ hasText: '商品库管理' }).click()
-  await page.locator('.catalog-filter input').click()
-  await page.locator('.catalog-filter input').fill('直播')
-  await page.locator('.catalog-filter .store-option').filter({ hasText: '直播商品' }).click()
+  const catalogChannelSelect = page.locator('.goods-tools .searchable-select').first()
+  await catalogChannelSelect.locator('.searchable-select__trigger').click()
+  await page.locator('.searchable-select__search input').fill('直播')
+  await page.getByRole('option', { name: '直播商品', exact: true }).click()
   await expect(page.locator('.unified-product-grid').first()).toBeVisible()
   await page.locator('.unified-product-grid').nth(1).locator('.row-actions uni-button').filter({ hasText: '编辑' }).click()
   await assertFixedLayerWithinViewport(page.locator('.modal'))
@@ -142,8 +152,8 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
 
   await page.goto('/user/#/pages/index/index?promoter=T002&live=L001')
   await loginUser(page)
-  await expect(page.locator('.live-content')).toBeVisible()
-  await page.locator('.sheet-head uni-button').click()
+  await expect(page.locator('.live-room')).toBeVisible()
+  await page.locator('.live-room [aria-label="关闭直播间"]').click()
   await expect(page.locator('.product-card').first().locator('.product-price')).toContainText('48.00')
   await page.locator('.product-card').nth(0).click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
@@ -155,7 +165,7 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
   await page.locator('.primary-btn').filter({ hasText: '新增地址' }).click()
   const inputs = page.locator('.address-form input')
   await inputs.nth(0).fill('联调用户')
-  await inputs.nth(1).fill('13800000000')
+  await inputs.nth(1).fill('13800000001')
   await inputs.nth(2).fill('湖南省长沙市')
   await inputs.nth(3).fill('同源联调地址 1 号')
   await page.locator('.primary-btn').filter({ hasText: '保存地址' }).click()
@@ -175,11 +185,11 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
   expect(supplierB.sourceSubOrderId).toBeTruthy()
 
   await page.goto('/supplier/')
-  await loginSupplier(page, 'supplier')
+  await loginSupplier(page, '13787366688')
   await expect(page.locator('.list-card').filter({ hasText: supplierB.id })).toHaveCount(0)
   await fulfillSupplierOrder(page, supplierA.id, 'SF-INTEGRATION-A')
   await page.locator('.hero-logout').click()
-  await loginSupplier(page, 'supplier04')
+  await loginSupplier(page, '13574902233')
   await expect(page.locator('.list-card').filter({ hasText: supplierA.id })).toHaveCount(0)
   await fulfillSupplierOrder(page, supplierB.id, 'SF-INTEGRATION-B')
   await assertNoPageOverflow(page)
@@ -241,9 +251,15 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await page.locator('.head-actions .button.primary').filter({ hasText: '新增商品' }).click()
   const catalogModal = page.locator('.catalog-product-modal')
   await catalogModal.locator('.field').filter({ hasText: '商品名称' }).locator('input').fill(productName)
-  await catalogModal.locator('.field').filter({ hasText: '商品渠道' }).locator('select').selectOption('all')
-  await catalogModal.locator('.field').filter({ hasText: '快递直发' }).locator('select').selectOption({ label: '支持' })
-  await catalogModal.locator('.field').filter({ hasText: '供应商' }).locator('select').selectOption({ index: 1 })
+  const selectCatalogField = async (fieldLabel: string, optionLabel: string) => {
+    const select = catalogModal.locator('.field').filter({ hasText: fieldLabel }).locator('.searchable-select')
+    await select.locator('.searchable-select__trigger').click()
+    await page.locator('.searchable-select__search input').fill(optionLabel)
+    await page.getByRole('option', { name: optionLabel, exact: true }).click()
+  }
+  await selectCatalogField('商品渠道', '全部商品')
+  await selectCatalogField('快递直发', '支持')
+  await selectCatalogField('供应商', '武陵蜂业专业合作社')
   const skuInputs = catalogModal.locator('.c-sku-row').first().locator('input')
   await skuInputs.nth(1).fill('100')
   await skuInputs.nth(2).fill('60')
@@ -286,7 +302,7 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   expect(await stockOf()).toBe(5)
 
   await page.goto('/store/')
-  await page.locator('.login-fields input').nth(0).fill('13800000000')
+  await page.locator('.login-fields input').nth(0).fill('13800000001')
   await page.locator('.login-fields input').nth(1).fill('123456')
   await page.locator('.login-button').click()
   await page.locator('.search-bar input').fill(productName)
@@ -308,11 +324,140 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await page.locator('.primary-btn').filter({ hasText: '新增地址' }).click()
   const addressInputs = page.locator('.address-form input')
   await addressInputs.nth(0).fill('共享库存用户')
-  await addressInputs.nth(1).fill('13800000000')
+  await addressInputs.nth(1).fill('13800000001')
   await addressInputs.nth(2).fill('湖南省长沙市')
   await addressInputs.nth(3).fill('同源库存测试地址')
   await page.locator('.primary-btn').filter({ hasText: '保存地址' }).click()
   await page.locator('.address-row').filter({ hasText: '共享库存用户' }).click()
   await page.locator('.primary-btn').filter({ hasText: '提交订单' }).click()
   expect(await stockOf()).toBe(3)
+})
+
+test('admin-created supplier phone account follows phone and password changes', async ({ page }) => {
+  const supplierName = '联调鲜果供应商'
+  const initialPhone = '13900008881'
+  const nextPhone = '13900008882'
+  const nextPassword = 'fresh789'
+
+  await page.goto('/admin/')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.locator('.login-field input').nth(0).fill('admin')
+  await page.locator('.login-field input').nth(1).fill('123456')
+  await page.locator('.login-button').click()
+  await page.locator('.nav-item').filter({ hasText: '供应商管理' }).click()
+  await page.locator('.head-actions .button.primary').filter({ hasText: '邀请供应商' }).click()
+
+  const createModal = page.locator('.modal')
+  await createModal.locator('.field').filter({ hasText: '供应商名称' }).locator('input').fill(supplierName)
+  await createModal.locator('.field').filter({ hasText: '联系人手机' }).locator('input').fill(initialPhone)
+  await createModal.locator('.modal-actions .button.primary').click()
+
+  const supplierRow = page.locator('.supplier-grid').filter({ hasText: supplierName })
+  await expect(supplierRow).toHaveCount(1)
+  await supplierRow.locator('.row-actions uni-button').filter({ hasText: '通过' }).click()
+  await expect(supplierRow).toContainText('合作中')
+
+  await page.goto('/supplier/')
+  await loginSupplier(page, initialPhone)
+  await expect(page.locator('.hero-title')).toContainText(supplierName)
+  await page.locator('.hero-logout').click()
+
+  await page.goto('/admin/')
+  await page.locator('.nav-item').filter({ hasText: '供应商管理' }).click()
+  await page.locator('.module-search .search-box input').fill(supplierName)
+  const updatedRow = page.locator('.supplier-grid').filter({ hasText: supplierName })
+  await updatedRow.locator('.row-actions uni-button').filter({ hasText: '修改' }).click()
+  const editModal = page.locator('.modal')
+  await editModal.locator('.field').filter({ hasText: '联系人手机' }).locator('input').fill(nextPhone)
+  await editModal.locator('.modal-actions .button.primary').click()
+  await expect(editModal).toBeHidden()
+  await expect.poll(() => page.evaluate(({ account }) => {
+    const accounts = JSON.parse(localStorage.getItem('agritainment-platform-supplier-accounts') || '[]') as Array<{ account: string; password: string }>
+    return accounts.find((item) => item.account === account)?.password
+  }, { account: nextPhone })).toBe(initialPhone)
+
+  await page.goto('/supplier/')
+  await submitSupplierLogin(page, initialPhone, initialPhone)
+  await expect(page.locator('.login-error')).toContainText('账号或密码错误')
+  await loginSupplier(page, nextPhone, initialPhone)
+  await page.locator('.hero-logout').click()
+
+  await page.goto('/admin/')
+  await page.locator('.nav-item').filter({ hasText: '供应商管理' }).click()
+  await page.locator('.module-search .search-box input').fill(supplierName)
+  const passwordRow = page.locator('.supplier-grid').filter({ hasText: supplierName })
+  await passwordRow.locator('.row-actions uni-button').filter({ hasText: '修改' }).click()
+  const passwordModal = page.locator('.modal')
+  await passwordModal.locator('.field').filter({ hasText: '新密码' }).locator('input').fill(nextPassword)
+  await passwordModal.locator('.modal-actions .button.primary').click()
+  await expect(passwordModal).toBeHidden()
+  await expect.poll(() => page.evaluate(({ account }) => {
+    const accounts = JSON.parse(localStorage.getItem('agritainment-platform-supplier-accounts') || '[]') as Array<{ account: string; password: string }>
+    return accounts.find((item) => item.account === account)?.password
+  }, { account: nextPhone })).toBe(nextPassword)
+
+  await page.goto('/supplier/')
+  await submitSupplierLogin(page, nextPhone, initialPhone)
+  await expect(page.locator('.login-error')).toContainText('账号或密码错误')
+  await loginSupplier(page, nextPhone, nextPassword)
+  await expect(page.locator('.hero-title')).toContainText(supplierName)
+})
+
+
+test('shared supplier settlement is visible in the supplier workbench', async ({ page }) => {
+  await page.goto('/admin/')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.locator('.login-field input').nth(0).fill('admin')
+  await page.locator('.login-field input').nth(1).fill('123456')
+  await page.locator('.login-button').click()
+  await page.locator('.nav-item').filter({ hasText: '佣金结算' }).click()
+  await page.locator('.head-actions uni-button').filter({ hasText: '供应商结算' }).click()
+  await page.getByText('OK', { exact: true }).click()
+  await page.locator('.filter-chips uni-button').filter({ hasText: '供应商结算' }).click()
+  await expect(page.locator('.settlement-history').filter({ hasText: '供应商结算记录' })).toContainText('湘西腊味合作社')
+
+  await page.goto('/supplier/')
+  await loginSupplier(page, '13787366688', '13787366688')
+  await page.locator('.tab-item').filter({ hasText: '结算账单' }).click()
+  await expect(page.locator('.list-card').first()).toContainText('关联订单')
+})
+
+test('admin farm changes refresh the production dashboard and keep unresolved stores off the map', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', '驾驶舱同源联动仅需在桌面视口执行一次')
+  await page.goto('/dashboard/')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.locator('.login-panel input').nth(0).fill('leader')
+  await page.locator('.login-panel input').nth(1).fill('123456')
+  await page.getByRole('button', { name: '登录驾驶舱' }).click()
+  const storeKpi = page.locator('.kpi').filter({ hasText: '门店总数' })
+  await expect(storeKpi.locator('strong')).toHaveText('30')
+  await expect(page.locator('.map-legend')).toContainText('城市聚合 14')
+
+  const adminPage = await page.context().newPage()
+  await adminPage.goto('/admin/')
+  await adminPage.locator('.login-field input').nth(0).fill('admin')
+  await adminPage.locator('.login-field input').nth(1).fill('123456')
+  await adminPage.locator('.login-button').click()
+  await adminPage.locator('.nav-item').filter({ hasText: '农家乐管理' }).click()
+  await adminPage.locator('.head-actions .button.primary').filter({ hasText: '新增农家乐门店' }).click()
+  const modal = adminPage.locator('.modal')
+  await modal.locator('.field').filter({ hasText: '门店名称' }).locator('input').fill('同源未定位门店')
+  const selectFarmRegion = async (fieldLabel: string, optionLabel: string) => {
+    const select = modal.locator('.field').filter({ hasText: fieldLabel }).locator('.searchable-select')
+    await select.locator('.searchable-select__trigger').click()
+    await adminPage.getByRole('option', { name: optionLabel, exact: true }).click()
+  }
+  await selectFarmRegion('城市', '长沙市')
+  await selectFarmRegion('县区', '岳麓区')
+  await modal.locator('.field').filter({ hasText: '详细地址' }).locator('input').fill('联调路 1 号')
+  await modal.locator('.modal-actions .button.primary').click()
+  await expect(modal).toBeHidden()
+
+  await expect(storeKpi.locator('strong')).toHaveText('31', { timeout: 3_000 })
+  await expect(page.locator('.map-legend')).toContainText('城市聚合 14')
+  await expect(page.locator('.map-legend')).toContainText('未定位 1')
+  await adminPage.close()
 })

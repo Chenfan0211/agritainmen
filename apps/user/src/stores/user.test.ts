@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { CatalogProduct, CUserLevel } from '@agritainment/shared'
-import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, acceptSupplierOrder, demoCDistributorProfiles, readCAddresses, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPendingCatalogTransactions, readPlatformOrders, readStoreCatalogSelectionState, readUserBindings, saveStoreCatalogSelection, shipSupplierCourier, todayString, updateCatalogStock, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCDistributorProfiles, writeCUserSession, writeCatalogState, writePlatformLive, writePlatformOrder } from '@agritainment/shared'
+import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, acceptSupplierOrder, catalogProductToProduct, demoCDistributorProfiles, normalizeMediaReference, readCAddresses, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPendingCatalogTransactions, readPlatformCommissionLedger, readPlatformAfterSales, readPlatformOrders, readPlatformVoucherOrders, readStoreCatalogSelectionState, readUserBindings, saveStoreCatalogSelection, shipSupplierCourier, todayString, updateCatalogStock, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCDistributorProfiles, writeCUserSession, writeCatalogState, writePlatformLive, writePlatformOrder } from '@agritainment/shared'
 import { useUserStore } from './user'
 
 if (!globalThis.localStorage) {
@@ -17,7 +17,7 @@ if (!globalThis.localStorage) {
 }
 
 describe('C端商城 user store', () => {
-  beforeEach(() => { localStorage.clear(); setActivePinia(createPinia()) })
+  beforeEach(() => { localStorage.clear(); localStorage.setItem('agritainment-user-demo-orders-disabled', '1'); setActivePinia(createPinia()) })
 
   const catalogProduct = (id: string, overrides: Partial<CatalogProduct> = {}): CatalogProduct => ({
     id,
@@ -284,7 +284,7 @@ describe('C端商城 user store', () => {
     const order = store.orders[0]
     expect(order.subOrders).toHaveLength(2)
     expect(order.items[0].unitPrice).toBe(45)
-    expect(order.createdAt.slice(0, 10)).toBe(todayString())
+    expect(order.createdAt.slice(0, 10)).toBe(new Date().toISOString().slice(0, 10))
     expect(readCOrders()?.[order.id]?.subOrders).toHaveLength(2)
   })
 
@@ -366,6 +366,22 @@ describe('C端商城 user store', () => {
     expect(store.requestSubOrderAfterSale(orderId, subId)).toBe(true)
     expect(readPlatformOrders()?.[`C-MALL-${subId}`]).toMatchObject({ status: 'after-sale', supplierFulfillment: { status: 'cancelled' } })
     expect(store.refreshFulfillment().find((order) => order.id === orderId)?.subOrders[0].status).toBe('after_sale')
+  })
+  it('persists after-sale evidence images to the shared platform after-sale', async () => {
+    const store = allowedStore()
+    await store.initialize()
+    store.$patch({ userId: 'U-EVID-TEST', auth: { isLoggedIn: true, openid: 'openid-evid' } })
+    const product = store.cProducts[0]
+    store.setAddress({ receiver: '证据用户', phone: '13800000001', region: '湖南', detail: '售后测试地址', isDefault: true })
+    store.addToCart(product.id, product.skus[0].id)
+    expect(store.submitOrder()).toBe(true)
+    const orderId = store.orders[0].id
+    const subId = store.orders[0].subOrders[0].id
+    expect(store.payOrder(orderId)).toBe(true)
+    const evidence = [{ source: 'asset' as const, assetId: 'evid-1' }, { source: 'asset' as const, assetId: 'evid-2' }]
+    expect(store.requestSubOrderAfterSale(orderId, subId, evidence)).toBe(true)
+    const persisted = Object.values(readPlatformAfterSales() || {}).find((work) => work.orderId === orderId)
+    expect(persisted?.evidenceImages).toEqual(evidence)
   })
 
   it('pays only the upstream level1 for a level2 buyer and settles a referred order after receipt', async () => {
@@ -732,5 +748,114 @@ describe('C端商城 user store', () => {
 
     expect(store.confirmSubOrderReceipt(order.id, sub.id)).toBe(true)
     expect(readCCommissionRecords()).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'CC-EXTERNAL' })]))
+  })
+  it('buys a live package voucher and writes a pending promoter commission', async () => {
+    const pkg = catalogProduct('PKG-LIVE', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })
+    const store = allowedStore()
+    store.$patch({ userId: 'U-VOUCHER', auth: { isLoggedIn: true, openid: 'openid-voucher' }, liveId: 'LIVE-V', referralPromoterId: 'T002' })
+    await store.initialize()
+    writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: store.inventoryRevision + 1, products: [pkg] })
+    store.applyCatalogState(readCatalogState()!)
+    store.products = [catalogProductToProduct(pkg)]
+
+    expect(store.buyLivePackage('PKG-LIVE', 'PKG-LIVE-SKU', 1)).toBe(true)
+    const voucher = Object.values(readPlatformVoucherOrders() || {})[0]
+    expect(voucher).toMatchObject({ productId: 'PKG-LIVE', status: 'paid', promoterId: 'T002' })
+    expect(readPlatformCommissionLedger()?.[voucher.id + ':commission']).toMatchObject({ beneficiaryId: 'T002', farmId: 'F001', status: 'pending' })
+  })
+
+  it('recovers a live voucher after stock was reserved but voucher persistence failed', async () => {
+    const pkg = catalogProduct('PKG-RECOVER', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })
+    writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [pkg] })
+    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: pkg.id, listed: true, skuRetailPrices: { 'PKG-RECOVER-SKU': 100 } }, readStoreCatalogSelectionState().revision)).toBeTruthy()
+    const store = allowedStore()
+    store.$patch({ userId: 'U-VOUCHER-RECOVER', auth: { isLoggedIn: true, openid: 'openid-voucher-recover' }, liveId: 'LIVE-RECOVER', referralPromoterId: 'T002' })
+    await store.initialize()
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    let failed = false
+    localStorage.setItem = ((key: string, value: string) => {
+      if (!failed && key.includes('platform-vouchers')) { failed = true; throw new Error('quota') }
+      originalSetItem(key, value)
+    }) as Storage['setItem']
+
+    expect(store.buyLivePackage('PKG-RECOVER', 'PKG-RECOVER-SKU')).toBe(false)
+    localStorage.setItem = originalSetItem
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
+    expect(readPendingCatalogTransactions('user')).toEqual([expect.objectContaining({ status: 'stock-applied' })])
+
+    setActivePinia(createPinia())
+    const recovered = allowedStore()
+    recovered.$patch({ userId: 'U-VOUCHER-RECOVER', auth: { isLoggedIn: true, openid: 'openid-voucher-recover' } })
+    await recovered.initialize(true)
+    const voucher = Object.values(readPlatformVoucherOrders() || {})[0]
+    expect(voucher).toMatchObject({ productId: 'PKG-RECOVER', status: 'paid', promoterId: 'T002' })
+    expect(readPlatformCommissionLedger()?.[voucher.id + ':commission']).toMatchObject({ beneficiaryId: 'T002', farmId: 'F001', status: 'pending' })
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
+    expect(readPendingCatalogTransactions('user')).toEqual([])
+  })
+  it('seeds demo C orders and voucher orders once when enabled', async () => {
+    localStorage.removeItem('agritainment-user-demo-orders-disabled')
+    const store = allowedStore()
+    store.$patch({ userId: 'U-DEMO-SEED', auth: { isLoggedIn: true, openid: 'openid-demo-seed' } })
+    await store.initialize()
+    const demoOrders = store.orders.filter((item) => item.id.startsWith('DEMO-ORD'))
+    const demoVouchers = store.vouchers.filter((item) => item.id.startsWith('DEMO-VOUCHER'))
+    expect(demoOrders).toHaveLength(4)
+    expect(demoOrders.map((item) => item.status)).toEqual(expect.arrayContaining(['pending_payment', 'paid', 'shipped', 'partially_after_sale']))
+    expect(demoOrders.every((item) => item.userId === 'U-DEMO-SEED' && item.address.userId === 'U-DEMO-SEED')).toBe(true)
+    expect(demoOrders.every((item) => item.subOrders.length >= 1 && item.subOrders.length <= 2)).toBe(true)
+    expect(demoOrders.flatMap((item) => item.subOrders).every((item) => item.logistics.length > 0)).toBe(true)
+    expect(demoOrders.flatMap((item) => item.items).every((item) => normalizeMediaReference(item.image) !== null)).toBe(true)
+    expect(demoVouchers).toHaveLength(2)
+    expect(demoVouchers.some((item) => item.status === 'paid')).toBe(true)
+    expect(demoVouchers.some((item) => item.status === 'refunded' && item.redeemedAt && item.refundedAt)).toBe(true)
+    expect(Object.values(readPlatformOrders() || {}).some((item) => item.supplierOrderLink?.source === 'c-mall' && item.supplierOrderLink.sourceOrderId?.startsWith('DEMO-ORD'))).toBe(false)
+    const countAfterReload = store.orders.filter((item) => item.id.startsWith('DEMO-ORD')).length
+    await store.initialize(true)
+    expect(store.orders.filter((item) => item.id.startsWith('DEMO-ORD')).length).toBe(countAfterReload)
+  })
+
+  it('hides a linked live package when every SKU is out of stock', async () => {
+    const store = allowedStore()
+    await store.initialize()
+    const room = store.liveRooms[0]
+    const farm = store.farms[0]
+    const pkg = catalogProductToProduct(catalogProduct('PKG-SOLD-OUT', {
+      productType: 'package', channel: 'store', expressDelivery: false, farmIds: [farm.id],
+      skus: [{ id: 'PKG-SOLD-OUT-SKU', name: '售罄规格', image: '', retailPrice: 88, cost: 50, stock: 0, level1Amount: 8, level2Amount: 12 }]
+    }))
+    store.$patch({ liveId: room.id, liveRooms: [{ ...room, status: 'live', linkedFarms: [{ farmId: farm.id, packageIds: [pkg.id] }] }], products: [pkg] })
+
+    expect(store.liveFarms).toEqual([])
+    expect(store.availableLives).toEqual([])
+  })
+
+  it('exposes a live room only when it has a linked package with saleable stock', async () => {
+    const store = allowedStore()
+    await store.initialize()
+    const room = store.liveRooms[0]
+    const farm = store.farms[0]
+    const pkg = catalogProductToProduct(catalogProduct('PKG-AVAILABLE', {
+      productType: 'package', channel: 'store', expressDelivery: false, farmIds: [farm.id]
+    }))
+    store.$patch({ liveRooms: [{ ...room, status: 'live', linkedFarms: [{ farmId: farm.id, packageIds: [pkg.id] }] }], products: [pkg] })
+
+    expect(store.availableLives.map((item) => item.id)).toEqual([room.id])
+  })
+
+  it('keeps each users demo orders isolated when a second user is seeded', async () => {
+    localStorage.removeItem('agritainment-user-demo-orders-disabled')
+    const first = allowedStore()
+    first.$patch({ userId: 'U-DEMO-FIRST', auth: { isLoggedIn: true, openid: 'openid-demo-first' } })
+    await first.initialize()
+
+    setActivePinia(createPinia())
+    const second = allowedStore()
+    second.$patch({ userId: 'U-DEMO-SECOND', auth: { isLoggedIn: true, openid: 'openid-demo-second' } })
+    await second.initialize()
+
+    const orders = Object.values(readCOrders() || {})
+    expect(orders.filter((item) => item.userId === 'U-DEMO-FIRST')).toHaveLength(4)
+    expect(orders.filter((item) => item.userId === 'U-DEMO-SECOND')).toHaveLength(4)
   })
 })

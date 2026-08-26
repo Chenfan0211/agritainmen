@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { AllianceBooking, CommissionEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, Product, Promoter, PromotionRecord, TravelRoute } from '@agritainment/shared'
-import { DEMO_PASSWORD, DEMO_SMS_CODE, applyPlatformMedia, buildPortalUrl, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, readPlatformCommissionSettlement, readUserBindings, validatePhone, validateSmsCode } from '@agritainment/shared'
+import type { AllianceBooking, CommissionEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, PlatformPrincipal, Product, Promoter, PromoterAccount, PromotionRecord, TravelRoute } from '@agritainment/shared'
+import { applyPlatformMedia, authenticatePromoter, buildPortalUrl, buildPromoterAccountSeeds, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, mergePlatformPromoterAccounts, promoters, readPlatformCommissionSettlement, readPlatformPromoterAccountState, readPlatformBookings, readPlatformCommissionLedger, readPlatformPromoterAccounts, readUserBindings, validateSmsCode, writePlatformBooking, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts } from '@agritainment/shared'
 import { allianceRepository } from '../services/repository'
 
 interface FanRecord {
@@ -37,7 +37,8 @@ interface AllianceState {
   bookings: AllianceBooking[]
   watchedLiveIds: string[]
   routes: TravelRoute[]
-  auth: { isLoggedIn: boolean; phone: string }
+  auth: { isLoggedIn: boolean; phone: string; principal: PlatformPrincipal | null; accountId: string; promoterId: string }
+  promoterSessions: Record<string, { joinedRoutes: string[]; sharedProductIds: string[]; fans: FanRecord[]; commissionEntries: CommissionEntry[]; promotionRecords: PromotionRecord[] }>
 }
 
 
@@ -70,10 +71,10 @@ export const useAllianceStore = defineStore('discovery', {
       { id: 'FN003', name: '桃源人家', source: '乡村路线分享', lockedAt: '2026-08-08 12:05' }
     ],
     commissionEntries: [
-      { id: 'CM000', type: 'income', amount: 2460.44, description: '历史推广佣金结转', createdAt: '2026-08-01 09:00', status: 'available' },
-      { id: 'CM001', type: 'income', amount: 17.9, description: '湘西烟熏柴火腊肉推广佣金', createdAt: '2026-08-10 10:02', status: 'available', targetType: 'product', targetId: 'P001' },
-      { id: 'CM002', type: 'income', amount: 8.16, description: '炎陵黄桃礼盒推广佣金', createdAt: '2026-08-09 19:16', status: 'available', targetType: 'product', targetId: 'P002' },
-      { id: 'CM003', type: 'income', amount: 36.8, description: '东江湖鲜开捕节直播推广佣金', createdAt: '2026-08-12 16:20', status: 'pending', targetType: 'live', targetId: 'L005' }
+      { id: 'CM000', promoterId: 'T001', type: 'income', amount: 2460.44, description: '历史推广佣金结转', createdAt: '2026-08-01 09:00', status: 'available' },
+      { id: 'CM001', promoterId: 'T001', type: 'income', amount: 17.9, description: '湘西烟熏柴火腊肉推广佣金', createdAt: '2026-08-10 10:02', status: 'available', targetType: 'product', targetId: 'P001' },
+      { id: 'CM002', promoterId: 'T001', type: 'income', amount: 8.16, description: '炎陵黄桃礼盒推广佣金', createdAt: '2026-08-09 19:16', status: 'available', targetType: 'product', targetId: 'P002' },
+      { id: 'CM003', promoterId: 'T001', type: 'income', amount: 36.8, description: '东江湖鲜开捕节直播推广佣金', createdAt: '2026-08-12 16:20', status: 'pending', targetType: 'live', targetId: 'L005' }
     ],
     promotionRecords: [
       { id: 'PR-SEED', targetType: 'farm' as const, targetId: 'F001', targetName: '石板溪农家乐', link: alliancePortalLink('farm', 'F001'), shareCount: 3, lockedFans: 1, estimatedCommission: 78, createdAt: '2026-08-11 09:20' },
@@ -98,18 +99,24 @@ export const useAllianceStore = defineStore('discovery', {
     ],
     watchedLiveIds: [],
     routes: [],
-    auth: { isLoggedIn: false, phone: '' }
+    auth: { isLoggedIn: false, phone: '', principal: null, accountId: '', promoterId: '' },
+    promoterSessions: {}
   }),
   getters: {
-    cumulativeCommission: (state) => state.promoter?.cumulativeCommission ?? Math.round(state.commissionEntries.filter((item) => item.type === 'income').reduce((sum, item) => sum + item.amount, 0) * 100) / 100,
-    pendingCommission: (state) => Math.round(state.commissionEntries.filter((item) => item.type === 'income' && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0) * 100) / 100,
+    ledgerEntries: (state) => Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    cumulativeCommission: (state) => Math.round(Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && item.amount > 0).reduce((sum, item) => sum + item.amount, 0) * 100) / 100,
+    pendingCommission: (state) => { const touch = state.commissionEntries.length; return Math.round(Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0) * 100) / 100 + 0 * touch },
     commissionSettled: (state) => !!state.promoter && readPlatformCommissionSettlement(state.promoter.id)?.settled === true,
     allFans: (state) => {
       const bindings = Object.values(readUserBindings() || {}).filter((item) => item.promoterId === state.promoter?.id)
       const platform = bindings.map((item) => ({ id: `B-${item.userId}`, name: `用户 ${item.userId}`, source: '分享推广', lockedAt: item.boundAt || '' }))
       return [...platform, ...state.fans].sort((a, b) => (b.lockedAt || '').localeCompare(a.lockedAt || ''))
     },
-    availableCommission: (state) => state.promoter && readPlatformCommissionSettlement(state.promoter.id)?.settled ? 0 : Math.max(0, Math.round(state.commissionEntries.filter((item) => (item.type === 'income' && item.status === 'available') || item.type === 'withdrawal').reduce((sum, item) => sum + item.amount, 0) * 100) / 100),
+    availableCommission: (state) => {
+      const touch = state.commissionEntries.length
+      const entries = Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && (item.status === 'available' || (item.amount < 0 && item.status !== 'reversed')))
+      return Math.max(0, Math.round(entries.reduce((sum, item) => sum + item.amount, 0) * 100) / 100 + 0 * touch)
+    },
     withdrawalRecords: (state) => state.commissionEntries.filter((item) => item.type === 'withdrawal').map((item) => ({ amount: Math.abs(item.amount), method: item.description.replace(/提现$/, ''), createdAt: item.createdAt })),
     liveRanking: (state) => [...state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city))].sort((a, b) => b.livePopularity - a.livePopularity),
     cityFarms: (state) => state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city)),
@@ -132,7 +139,9 @@ export const useAllianceStore = defineStore('discovery', {
           farms: hasPersistedData ? mergeEntitySeeds(data.farms, this.farms) : data.farms,
           liveRooms: hasPersistedData ? mergeEntitySeeds(data.liveRooms, this.liveRooms) : data.liveRooms,
           products: hasPersistedData ? mergeEntitySeeds(data.products, this.products) : data.products,
-          promoter: hasPersistedData ? mergePersistedDefaults(data.promoter, this.promoter) : data.promoter,
+          promoter: this.auth.promoterId
+            ? cloneSeed(promoters.find((item) => item.id === this.auth.promoterId) || null)
+            : hasPersistedData ? mergePersistedDefaults(data.promoter, this.promoter) : data.promoter,
           promoterRanking: hasPersistedData ? mergeEntitySeeds(data.promoterRanking, this.promoterRanking) : data.promoterRanking,
           commissionRules: hasPersistedData ? mergeEntitySeeds(data.commissionRules, this.commissionRules) : data.commissionRules,
           cityOptions: [...new Set([...data.cityOptions, ...(hasPersistedData ? this.cityOptions : [])])],
@@ -164,10 +173,12 @@ export const useAllianceStore = defineStore('discovery', {
       return true
     },
     withdraw(amount: number, method: string, requestKey: string) {
-      if (requestKey && this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === requestKey)) return 'duplicate' as const
+      if (requestKey && (this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === requestKey) || Object.values(readPlatformCommissionLedger() || {}).some((item) => item.role === 'withdrawal' && item.sourceOrderId === requestKey))) return 'duplicate' as const
       if (!Number.isFinite(amount) || amount <= 0) return 'invalid' as const
       if (amount > this.availableCommission) return 'insufficient' as const
-      this.commissionEntries.unshift({ id: createId('CM'), type: 'withdrawal', amount: -amount, description: `${method}提现`, createdAt: new Date().toLocaleString('zh-CN'), status: 'completed', requestKey })
+      const createdAt = new Date().toLocaleString('zh-CN')
+      this.commissionEntries.unshift({ id: createId('CM'), promoterId: this.promoter?.id, type: 'withdrawal', amount: -amount, description: method + '提现', createdAt, status: 'completed', requestKey })
+      writePlatformCommissionLedgerEntry({ id: 'WD-' + (requestKey || createId('WD')), sourceOrderId: requestKey || 'withdrawal', beneficiaryType: 'promoter', beneficiaryId: this.promoter?.id || '', role: 'withdrawal', amount: -amount, status: 'settled', createdAt })
       return 'success' as const
     },
     watchLive(id: string) {
@@ -186,6 +197,7 @@ export const useAllianceStore = defineStore('discovery', {
         id: createId('AB'), farmId: farm.id, farmName: farm.name, date: payload.date, session: payload.session, people: payload.people,
         status: 'submitted', createdAt: new Date().toLocaleString('zh-CN')
       }
+      if (!writePlatformBooking({ id: booking.id, farmId: farm.id, farmName: farm.name, userId: this.auth.phone || 'alliance', source: 'alliance', date: payload.date, session: payload.session, people: payload.people, status: 'submitted', createdAt: booking.createdAt })) return false
       this.bookings.unshift(booking)
       return booking
     },
@@ -220,36 +232,72 @@ export const useAllianceStore = defineStore('discovery', {
         existing.lockedFans += 1
         existing.estimatedCommission = Math.round((existing.estimatedCommission + commission) * 100) / 100
         existing.createdAt = new Date().toLocaleString('zh-CN')
-        const entry = this.commissionEntries.find((item) => item.type === 'income' && item.status === 'pending' && item.targetType === targetType && item.targetId === id)
-        if (entry) { entry.amount = existing.estimatedCommission; entry.createdAt = existing.createdAt }
-        if (this.promoter) this.promoter.fans += 1
-        this.fans.unshift({ id: createId('FN'), name: `新粉丝${this.fans.length + 1}`, source: `${name}推广`, lockedAt: existing.createdAt })
         return existing
       }
       const record: PromotionRecord = {
         id: createId('PR'), targetType, targetId: id, targetName: name,
         link: alliancePortalLink(targetType, id, this.promoter?.id || 'T001'),
         shareCount: 1, lockedFans: 1, estimatedCommission: commission,
-        createdAt: new Date().toLocaleString('zh-CN')
+        createdAt: new Date().toLocaleString('zh-CN'), promoterId: this.promoter?.id
       }
       this.promotionRecords.unshift(record)
-      this.commissionEntries.unshift({ id: createId('CM'), type: 'income', amount: commission, description: `${name}预计推广佣金`, createdAt: record.createdAt, status: 'pending', targetType, targetId: id })
-      if (this.promoter) this.promoter.fans += 1
-      this.fans.unshift({ id: createId('FN'), name: `新粉丝${this.fans.length + 1}`, source: `${name}推广`, lockedAt: record.createdAt })
       return record
     },
-    loginWithPassword(phone: string, password: string) {
-      if (!validatePhone(phone) || password !== DEMO_PASSWORD) return false
-      this.auth = { isLoggedIn: true, phone: phone.trim() }
+    promoterAccounts(): PromoterAccount[] {
+      const defaults = buildPromoterAccountSeeds(promoters)
+      const saved = readPlatformPromoterAccounts()
+      if (!saved || saved.length === 0) writePlatformPromoterAccounts(defaults, readPlatformPromoterAccountState()?.revision ?? 0)
+      return mergePlatformPromoterAccounts(defaults, readPlatformPromoterAccounts())
+    },
+    saveCurrentPromoterSession() {
+      if (!this.auth.promoterId) return
+      this.promoterSessions[this.auth.promoterId] = cloneSeed({
+        joinedRoutes: this.joinedRoutes,
+        sharedProductIds: this.sharedProductIds,
+        fans: this.fans,
+        commissionEntries: this.commissionEntries,
+        promotionRecords: this.promotionRecords
+      })
+    },
+    activatePromoterAccount(account: PromoterAccount, promoter: Promoter) {
+      const previousPromoterId = this.auth.promoterId
+      if (previousPromoterId && previousPromoterId !== promoter.id) this.saveCurrentPromoterSession()
+      const session = this.promoterSessions[promoter.id]
+      if (session) this.$patch(cloneSeed(session))
+      else if (previousPromoterId !== promoter.id && promoter.id !== 'T001') {
+        this.$patch({ joinedRoutes: [], sharedProductIds: [], fans: [], commissionEntries: [], promotionRecords: [] })
+      } else if (previousPromoterId && previousPromoterId !== promoter.id) {
+        this.$patch({ joinedRoutes: [], sharedProductIds: [], fans: [], commissionEntries: [], promotionRecords: [] })
+      }
+      this.promoter = cloneSeed(promoter)
+      const principal: PlatformPrincipal = { actorType: 'alliance', actorId: promoter.id, tenantId: promoter.id, status: 'active' }
+      this.auth = { isLoggedIn: true, phone: account.account, principal, accountId: account.id, promoterId: promoter.id }
       return true
+    },
+    loginWithPassword(phone: string, password: string) {
+      const result = authenticatePromoter(this.promoterAccounts(), promoters, phone, password)
+      return result.ok ? this.activatePromoterAccount(result.account, result.promoter) : false
     },
     loginWithCode(phone: string, code: string) {
-      if (!validatePhone(phone) || !validateSmsCode(code)) return false
-      this.auth = { isLoggedIn: true, phone: phone.trim() }
-      return true
+      if (!validateSmsCode(code)) return false
+      const account = this.promoterAccounts().find((item) => item.account === phone.trim())
+      if (!account) return false
+      const result = authenticatePromoter([account], promoters, account.account, account.password)
+      return result.ok ? this.activatePromoterAccount(result.account, result.promoter) : false
+    },
+    async refreshSharedState() {
+      if (!this.auth.isLoggedIn || !this.auth.accountId) return
+      const account = this.promoterAccounts().find((item) => item.id === this.auth.accountId)
+      const promoter = promoters.find((item) => item.id === this.auth.promoterId)
+      if (!account?.enabled || !promoter || promoter.status !== 'active') {
+        this.logout()
+        return
+      }
+      await this.initialize(true)
     },
     logout() {
-      this.auth = { isLoggedIn: false, phone: '' }
+      this.saveCurrentPromoterSession()
+      this.auth = { isLoggedIn: false, phone: '', principal: null, accountId: '', promoterId: '' }
     }
   }
 })

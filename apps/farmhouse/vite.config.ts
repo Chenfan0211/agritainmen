@@ -10,8 +10,9 @@ export default defineConfig({
   build: buildOutDir ? { outDir: buildOutDir } : undefined,
   plugins: [uni()],
   resolve: {
-    alias: {
-      '@agritainment/shared': fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url))
-    }
+    preserveSymlinks: true,
+    alias: [
+      { find: '@agritainment/shared', replacement: fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)) }
+    ]
   }
 })

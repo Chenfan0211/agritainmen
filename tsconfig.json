@@ -9,7 +9,10 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@agritainment/shared": ["packages/shared/src/index.ts"]
+      "@agritainment/shared": ["packages/shared/src/index.ts"],
+      "@agritainment/ui": ["packages/ui/src/index.ts"],
+      "@agritainment/ui/h5": ["packages/ui/src/h5.ts"],
+      "@agritainment/ui/mp": ["packages/ui/src/mp.ts"]
     }
   }
 }

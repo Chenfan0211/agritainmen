@@ -1,10 +1,10 @@
 {
-  "name": "湖南农家乐推客端",
+  "name": "中选科技推客端",
   "appid": "__UNI__AGRITAINMENT_PROMOTER",
-  "description": "农家乐推客端：创建直播、推广门店套餐、用户绑定与消费分成",
+  "description": "中选科技推客端：创建直播、推广门店套餐、用户绑定与消费分成",
   "versionName": "0.1.0",
   "versionCode": 100,
   "transformPx": false,
-  "h5": { "title": "湖南农家乐推客端", "router": { "mode": "hash", "base": "/" } },
+  "h5": { "title": "中选科技推客端", "router": { "mode": "hash", "base": "/" } },
   "mp-weixin": { "appid": "touristappid", "setting": { "urlCheck": false }, "usingComponents": true }
 }

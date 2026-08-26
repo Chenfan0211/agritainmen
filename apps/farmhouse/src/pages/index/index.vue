@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
-import type { Booking, Product, Role, StoreAccount, StoreRole, StorefrontOrder } from '@agritainment/shared'
-import { calcMargin, displayProductTags, formatNumber, installKeyboardButtonSupport, isExpressDeliverable, money, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrderStatus } from '@agritainment/shared'
+import type { BusinessMediaValue, Booking, FarmExperience, Product, Role, StoreAccount, StoreRole, StorefrontOrder } from '@agritainment/shared'
+import { calcMargin, createPlatformDictionaryCache, displayProductTags, formatNumber, installKeyboardButtonSupport, isExpressDeliverable, mediaValueToImage, money, readPlatformAfterSaleStatus, readCatalogState, readPlatformEntities, readPlatformOrderStatus, subscribePlatformChanges } from '@agritainment/shared'
+import { BusinessImage, ImageUploader } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
 import qrcode from 'qrcode-generator'
@@ -10,14 +11,13 @@ import qrcode from 'qrcode-generator'
 import { useFarmhouseStore, type FoodItem, type Room } from '../../stores/farmhouse'
 
 type TabKey = 'home' | 'reserve' | 'shop' | 'member'
-type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'staff-admin' | 'orders' | 'bookings' | 'ledger' | 'help' | null
-type SheetKey = 'login' | 'cart' | 'orders' | 'bookings' | 'room-form' | 'food-form' | 'share' | 'product' | 'contact' | 'foods' | 'ledger' | 'recharge' | 'identity' | 'help' | 'booking-form' | 'service' | 'staff-form' | 'staff-promo' | null
+type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'design-experiences' | 'staff-admin' | 'orders' | 'bookings' | 'ledger' | 'help' | null
+type SheetKey = 'login' | 'cart' | 'orders' | 'bookings' | 'room-form' | 'food-form' | 'experience-form' | 'share' | 'product' | 'contact' | 'foods' | 'ledger' | 'recharge' | 'identity' | 'help' | 'booking-form' | 'after-sale' | 'service' | 'staff-form' | 'staff-promo' | null
+
+let disposePlatformChanges: (() => void) | null = null
 
 const store = useFarmhouseStore()
-const heroStyle = computed(() => {
-  const image = store.farm?.image
-  return image ? { backgroundImage: `url("${image}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}
-})
+const dictCache = createPlatformDictionaryCache()
 let disposeKeyboardButtons: () => void = () => undefined
 const activeTab = ref<TabKey>('home')
 const workView = ref<WorkView>(null)
@@ -46,21 +46,17 @@ const bookingDates = Array.from({ length: 5 }, (_, offset) => {
   return `${prefix} ${date.getMonth() + 1}月${date.getDate()}日`
 })
 const booking = reactive({ name: '观溪雅间', date: bookingDates[1], session: '晚市 17:30', people: 6 })
-const packageCards = [
-  { name: '农家四人欢聚套餐', image: '/static/images/farmhouse.webp', emoji: '🍲', detail: '土鸡汤 + 腊肉 + 剁椒鱼 + 时蔬 4 道 + 主食', price: '¥288 / 4人 · 省¥80', people: 4 },
-  { name: '家宴十人团圆套餐', image: '/static/images/farmhouse.webp', emoji: '🎉', detail: '硬菜 6 + 时蔬 3 + 汤 1 + 主食 + 果盘', price: '¥698 / 10人', people: 10 }
-]
-const services = [
-  { id: 'pick', icon: 'sprout', image: '/static/images/field.webp', emoji: '🌽', name: '农事采摘体验', desc: '应季果蔬采摘 · 亲子互动', suitable: '亲子家庭 / 朋友结伴', duration: '约 2 小时', fee: '¥68/人 · 含采摘带走 1kg', price: 68 },
-  { id: 'cook', icon: 'utensils', image: '/static/images/farmhouse.webp', emoji: '🍳', name: '柴火土灶现做', desc: '农家柴火灶 · 现场烹饪', suitable: '家庭聚餐 / 团队体验', duration: '约 1.5 小时', fee: '¥128/组 · 含食材与灶具', price: 128 },
-  { id: 'camp', icon: 'house', image: '/static/images/mountain.webp', emoji: '⛺', name: '露营帐篷烧烤', desc: '临溪草坪 · 夜宿露营', suitable: '好友聚会 / 情侣出游', duration: '过夜', fee: '¥198/顶 · 含帐篷与烧烤套餐', price: 198 }
-]
+const experienceList = computed(() => {
+  const farmId = store.tenant?.farmId || store.farm?.id || 'F001'
+  return store.experiences.filter((item) => item.farmId === farmId && item.status === 'active')
+})
 const retailPrices = reactive<Record<string, number>>({})
 const retailDraft = reactive<Record<string, number>>({})
 const rechargeAmount = ref(100)
 const selectedProduct = ref<Product | null>(null)
-const selectedService = ref<{ id: string; icon: string; image: string; emoji: string; name: string; desc: string; suitable: string; duration: string; fee: string; price: number } | null>(null)
+const selectedService = ref<FarmExperience | null>(null)
 const serviceBooking = reactive({ date: bookingDates[1], people: 2 })
+const bookingAmounts = reactive<Record<string, string>>({})
 const serviceFee = computed(() => (selectedService.value ? selectedService.value.price * serviceBooking.people : 0))
 const selectedSkuId = ref('')
 
@@ -72,6 +68,12 @@ const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
 ]
 
 const categories = computed(() => ['全部', ...Array.from(new Set(store.products.map((item) => item.category)))])
+const catalogPackages = computed(() => {
+  const farmId = store.tenant?.farmId || store.farm?.id || 'F001'
+  const state = readCatalogState()
+  if (!state) return []
+  return state.products.filter((item) => item.productType === 'package' && (item.farmIds || []).includes(farmId) && item.status === 'active')
+})
 const activePolicies = computed(() => Object.values(readPlatformEntities()?.policies || {}).filter((item) => item.enabled))
 const shopOrder = ['P001', 'P002', 'P010', 'P007', 'P008', 'P004', 'P005', 'P006']
 const visibleProducts = computed(() => {
@@ -113,7 +115,7 @@ function openBookingForm(type: 'room' | 'package', name: string, people: number)
   sheet.value = 'booking-form'
 }
 
-function openService(service: { id: string; icon: string; image: string; emoji: string; name: string; desc: string; suitable: string; duration: string; fee: string; price: number }) {
+function openService(service: FarmExperience) {
   selectedService.value = service
   sheet.value = 'service'
 }
@@ -122,7 +124,7 @@ function submitServiceOrder() {
   if (!requireLogin(() => submitServiceOrder())) return
   const service = selectedService.value
   if (!service) return
-  const payload = { type: 'service' as const, name: service.name, date: serviceBooking.date, session: '到店体验', people: serviceBooking.people, image: service.image, emoji: service.emoji, amount: service.price * serviceBooking.people }
+  const payload = { type: 'service' as const, name: service.name, date: serviceBooking.date, session: '到店体验', people: serviceBooking.people, image: mediaValueToImage(service.image), amount: service.price * serviceBooking.people }
   if (!store.submitBooking(payload)) return toast('该日期已预约，请更换时间')
   sheet.value = null
   toast('服务预约成功')
@@ -163,7 +165,7 @@ function shareProduct(product: Product) {
 
 function submitBooking() {
   if (!requireLogin(() => submitBooking())) return
-  const bookingImage = reserveType.value === 'room' ? (store.rooms.find((room) => room.name === booking.name)?.image || '/static/images/mountain.webp') : '/static/images/farmhouse.webp'
+  const bookingImage = reserveType.value === 'room' ? mediaValueToImage(store.rooms.find((room) => room.name === booking.name)?.image || '/static/images/mountain.webp') : '/static/images/farmhouse.webp'
   const payload: Omit<Booking, 'id' | 'status'> = { type: reserveType.value, ...booking, image: bookingImage }
   if (!store.submitBooking(payload)) return toast('该场次已预订，请更换时间')
   sheet.value = null
@@ -294,7 +296,30 @@ function reminderNote() {
 }
 
 
-const roomForm = reactive({ name: '', image: '/static/images/mountain.webp', emoji: '🪟', capacity: '', sessions: '', status: '可预订' as Room['status'], people: 8 })
+const afterSaleTarget = ref<{ id: string; type: 'refund' | 'return' } | null>(null)
+const afterSaleEvidence = ref<BusinessMediaValue[]>([])
+
+const experienceForm = reactive({ id: '', name: '', categoryCode: 'pick', description: '', price: 0, status: 'active' as FarmExperience['status'], image: '/static/images/field.webp' as BusinessMediaValue })
+const editingExperienceId = ref('')
+const experienceCategoryOptions = computed(() => dictCache.getOptions('serviceCategory'))
+const bookingSessionOptions = computed(() => dictCache.getOptions('bookingSession'))
+function openExperienceForm(experience?: FarmExperience) {
+  editingExperienceId.value = experience?.id || ''
+  Object.assign(experienceForm, experience ? { id: experience.id, name: experience.name, categoryCode: experience.categoryCode, description: experience.description, price: experience.price, status: experience.status, image: experience.image } : { id: '', name: '', categoryCode: 'pick', description: '', price: 0, status: 'active', image: '/static/images/field.webp' })
+  sheet.value = 'experience-form'
+}
+function saveExperienceForm() {
+  const farmId = store.tenant?.farmId || store.farm?.id || 'F001'
+  const payload = { farmId, name: experienceForm.name.trim(), categoryCode: experienceForm.categoryCode, description: experienceForm.description.trim(), price: Math.max(0, Number(experienceForm.price) || 0), status: experienceForm.status, image: experienceForm.image, sort: 1 }
+  if (!payload.name) return toast('请填写体验名称')
+  const ok = editingExperienceId.value ? store.updateExperience(editingExperienceId.value, payload) : store.addExperience(payload)
+  sheet.value = null
+  toast(ok ? (editingExperienceId.value ? '体验已更新' : '体验已新增') : '保存失败')
+}
+function removeExperienceFn(experience: FarmExperience) {
+  uni.showModal({ title: '删除体验', content: '确认删除「' + experience.name + '」？', success: (res) => { if (res.confirm) { store.removeExperience(experience.id); toast('体验已删除') } } })
+}
+const roomForm = reactive({ name: '', image: '/static/images/mountain.webp' as BusinessMediaValue, emoji: '🪟', capacity: '', sessions: '', status: '可预订' as Room['status'], people: 8 })
 const editingRoomId = ref('')
 const staffForm = reactive({ id: '', name: '', account: '', password: '', role: 'staff' as StoreRole, promoEnabled: false })
 const staffQrDataUrl = ref('')
@@ -401,7 +426,7 @@ async function generateStaffQr() {
 function copyStaffPromoLink() {
   uni.setClipboardData({ data: staffPromoLink(), success: () => toast('店员推广链接已复制') })
 }
-const foodForm = reactive({ name: '', description: '', price: 0, originalPrice: undefined as number | undefined, emoji: '', image: '/static/images/field.webp' })
+const foodForm = reactive({ name: '', description: '', price: 0, originalPrice: undefined as number | undefined, emoji: '', image: '/static/images/field.webp' as BusinessMediaValue })
 const editingFoodId = ref('')
 
 function openRoomForm(room?: Room) {
@@ -451,60 +476,6 @@ function saveFoodForm() {
   sheet.value = null
   toast(editingFoodId.value ? '菜品已更新' : '菜品已新增')
 }
-function designFileToDataUrl(path: string) {
-  return new Promise<string>((resolve, reject) => {
-    // #ifdef H5
-    if (typeof document !== 'undefined') {
-      const img = new Image()
-      img.onload = () => {
-        try {
-          const max = 800
-          const scale = Math.min(1, max / Math.max(img.width, img.height))
-          const canvas = document.createElement('canvas')
-          canvas.width = Math.max(1, Math.round(img.width * scale))
-          canvas.height = Math.max(1, Math.round(img.height * scale))
-          const ctx = canvas.getContext('2d')
-          if (!ctx) return reject(new Error('canvas'))
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-          resolve(canvas.toDataURL('image/jpeg', 0.8))
-        } catch (error) {
-          reject(error)
-        }
-      }
-      img.onerror = () => reject(new Error('image'))
-      img.src = path
-      return
-    }
-    // #endif
-    try {
-      const base64 = uni.getFileSystemManager().readFileSync(path, 'base64')
-      resolve(`data:image/jpeg;base64,${base64}`)
-    } catch (error) {
-      reject(error)
-    }
-  })
-}
-function chooseDesignImage(target: 'room' | 'food') {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: async (res) => {
-      const path = res.tempFilePaths[0]
-      if (!path) return
-      try {
-        const dataUrl = await designFileToDataUrl(path)
-        if (target === 'room') roomForm.image = dataUrl
-        else foodForm.image = dataUrl
-      } catch {
-        toast('图片读取失败，请重试')
-      }
-    }
-  })
-}
-function removeDesignImage(target: 'room' | 'food') {
-  if (target === 'room') roomForm.image = '/static/images/mountain.webp'
-  else foodForm.image = '/static/images/field.webp'
-}
 function removeFood(id: string) {
   const food = store.foods.find((item) => item.id === id)
   uni.showModal({
@@ -520,16 +491,31 @@ function removeFood(id: string) {
 function verifyBooking(id: string) {
   const item = store.bookings.find((booking) => booking.id === id)
   if (!item || item.status !== 'reserved') return
+  const amount = Number(bookingAmounts[id] || item.amount || 0)
+  if (!Number.isFinite(amount) || amount <= 0) return toast('请填写本次预约实际消费金额')
   uni.showModal({
     title: '核销预订',
-    content: `确认核销「${item.name}」的预订？核销后状态不可回退。`,
+    content: `确认核销「${item.name}」，实际消费 ¥${amount.toFixed(2)}？核销后状态不可回退。`,
     success: (res) => {
       if (!res.confirm) return
-      if (!store.verifyBooking(id)) return
+      if (!store.verifyBooking(id, amount)) return
       toast('核销成功')
     }
   })
 }
+function setBookingAmount(id: string, event: Event) {
+  bookingAmounts[id] = (event.target as HTMLInputElement).value
+}
+function verifyVoucher(id: string) {
+  if (!store.redeemVoucher(id)) return toast('券订单当前不能核销')
+  toast('券订单核销成功')
+}
+
+function refundVoucher(id: string) {
+  if (!store.refundVoucher(id)) return toast('券订单当前不能退款')
+  toast('券订单已退款并冲正佣金')
+}
+
 function cancelBooking(id: string) {
   if (!requireLogin(() => cancelBooking(id))) return
   if (!store.cancelBooking(id)) return
@@ -576,8 +562,17 @@ function cancelStorefrontOrder(id: string) {
 }
 
 function requestStorefrontAfterSale(id: string, type: 'refund' | 'return') {
-  if (!store.requestStorefrontAfterSale(id, type)) return toast('当前订单不能申请售后')
-  toast(type === 'refund' ? '退款申请已提交' : '退货申请已提交')
+  afterSaleTarget.value = { id, type }
+  afterSaleEvidence.value = []
+  sheet.value = 'after-sale'
+}
+function confirmStorefrontAfterSale() {
+  const target = afterSaleTarget.value
+  if (!target) return
+  if (!store.requestStorefrontAfterSale(target.id, target.type, afterSaleEvidence.value.length ? afterSaleEvidence.value : undefined)) return toast('当前订单不能申请售后')
+  sheet.value = null
+  afterSaleTarget.value = null
+  toast(target.type === 'refund' ? '退款申请已提交' : '退货申请已提交')
 }
 
 function completeStorefrontAfterSale(id: string) {
@@ -622,7 +617,7 @@ onMounted(async () => {
   }
   if (typeof document !== 'undefined') {
     document.documentElement.style.setProperty('--farm-green', store.tenant?.theme || '#17633f')
-    document.title = store.tenant?.name || '农家乐门店'
+    document.title = store.tenant?.name || '中选科技农家乐门店端'
   }
   store.selectableProducts.forEach((item) => {
     item.skus.forEach((sku) => {
@@ -633,8 +628,13 @@ onMounted(async () => {
     })
   })
 })
+  if (typeof window !== 'undefined') {
+    const onStorage = () => void store.refreshSharedState()
+    window.addEventListener('storage', onStorage)
+    disposePlatformChanges = () => window.removeEventListener('storage', onStorage)
+  }
 
-onBeforeUnmount(() => disposeKeyboardButtons())
+onBeforeUnmount(() => { disposeKeyboardButtons(); disposePlatformChanges?.(); disposePlatformChanges = null; dictCache.dispose() })
 
 onShareAppMessage(() => ({ title: store.tenant?.name || '石板溪农家乐', path: '/pages/index/index?from=share' }))
 onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
@@ -654,7 +654,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="select-list">
           <view v-for="product in filteredSelectable" :key="product.id" class="select-item">
             <view class="si-head">
-              <image class="select-emoji" :src="product.image" mode="aspectFit" />
+              <BusinessImage class="select-emoji" :src="product.image" mode="aspectFit" />
               <view class="si-title"><text class="item-title">{{ product.name }}</text><small class="si-sub">中台供货价 <b>{{ money(product.cost) }}</b> · 建议零售 {{ money(product.price) }}</small></view>
               <span class="si-status" :class="isListed(product) ? 'listed' : ''">{{ isListed(product) ? '已上架' : '未上架' }}</span>
             </view>
@@ -671,13 +671,15 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <view v-else-if="workView === 'verify'" class="work-page page-pad">
         <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">订单核销</text><text class="page-sub">到店核对预订/预约信息，确认后核销</text></view></view>
         <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>店员与店长均可核销：顾客到店出示预订信息，核对后点击「核销」，状态变为已核销。</text></view>
+        <view v-if="store.vouchers.length" class="voucher-list"><view class="section-head compact"><view><span></span><text>直播套餐券订单（{{ store.vouchers.length }}）</text></view></view><view v-for="voucher in store.vouchers" :key="voucher.id" class="verify-item"><view class="verify-main"><text class="item-title">{{ voucher.id }}</text><small>数量 {{ voucher.quantity }} · ¥{{ voucher.amount.toFixed(2) }} · {{ voucher.status }}</small></view><span class="verify-status" :class="voucher.status === 'paid' ? '' : 'ok'">{{ voucher.status === 'paid' ? '待核销' : voucher.status === 'redeemed' ? '已核销' : '已退款' }}</span><button v-if="voucher.status === 'paid'" class="verify-btn" @click="verifyVoucher(voucher.id)">核销</button><button v-else-if="voucher.status === 'redeemed'" class="verify-btn" @click="refundVoucher(voucher.id)">退款</button><span v-else class="verify-done">✓</span></view></view>
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="verifyKeyword" placeholder="搜索预订名称 / 日期 / 状态" /></view>
         <view v-if="!filteredVerifyBookings.length" class="empty-page"><UiIcon name="calendar-check" :size="28" /><text>暂无预订记录</text></view>
         <view class="verify-list">
           <view v-for="item in filteredVerifyBookings" :key="item.id" class="verify-item">
-            <image v-if="item.image" class="verify-emoji" :src="item.image" mode="aspectFit" /><view v-else class="verify-emoji emoji-thumb">🪟</view>
+            <BusinessImage v-if="item.image" class="verify-emoji" :src="item.image" mode="aspectFit" /><view v-else class="verify-emoji emoji-thumb">🪟</view>
             <view class="verify-main"><text class="item-title">{{ item.name }}</text><small>{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small></view>
             <span class="verify-status" :class="item.status === 'reserved' ? '' : item.status === 'cancelled' ? 'cancel' : 'ok'">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span>
+            <view v-if="item.status === 'reserved'" class="verify-amount"><text>¥</text><input type="digit" inputmode="decimal" aria-label="实际消费金额" placeholder="实际金额" :value="bookingAmounts[item.id] ?? item.amount ?? ''" @input="setBookingAmount(item.id, $event)" /></view>
             <button v-if="item.status === 'reserved'" class="verify-btn" @click="verifyBooking(item.id)">核销</button>
             <span v-else class="verify-done">{{ item.status === 'cancelled' ? '—' : '✓' }}</span>
           </view>
@@ -691,7 +693,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view v-if="!filteredRooms.length" class="empty-page"><UiIcon name="door-open" :size="28" /><text>还没有包厢，点击右上角「新增包厢」</text></view>
         <view class="design-list">
           <view v-for="room in filteredRooms" :key="room.id" class="design-item">
-            <image v-if="room.image" class="design-emoji" :src="room.image" mode="aspectFit" /><span v-else class="design-emoji emoji-thumb">{{ room.emoji || '🪟' }}</span>
+            <BusinessImage v-if="room.image" class="design-emoji" :src="room.image" mode="aspectFit" /><span v-else class="design-emoji emoji-thumb">{{ room.emoji || '🪟' }}</span>
             <view class="design-main"><text class="item-title">{{ room.name }}</text><small>{{ room.capacity }} · {{ room.sessions }} · {{ room.status }}</small></view>
             <view class="design-actions"><button class="design-edit" @click="openRoomForm(room)">编辑</button><button class="design-del" @click="removeRoom(room.id)">删除</button></view>
           </view>
@@ -705,9 +707,21 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view v-if="!filteredFoods.length" class="empty-page"><UiIcon name="utensils" :size="28" /><text>还没有菜品，点击右上角「新增菜品」</text></view>
         <view class="design-list">
           <view v-for="food in filteredFoods" :key="food.id" class="design-item">
-            <image v-if="food.image" class="design-emoji" :src="food.image" mode="aspectFill" /><view v-else class="design-emoji empty-box"></view>
+            <BusinessImage v-if="food.image" class="design-emoji" :src="food.image" mode="aspectFill" /><view v-else class="design-emoji empty-box"></view>
             <view class="design-main"><text class="item-title">{{ food.name }}</text><small>{{ food.description }} · {{ money(food.price) }}</small></view>
             <view class="design-actions"><button class="design-edit" @click="openFoodForm(food)">编辑</button><button class="design-del" @click="removeFood(food.id)">删除</button></view>
+          </view>
+        </view>
+      </view>
+      <view v-else-if="workView === 'design-experiences'" class="work-page page-pad">
+        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">设计体验项目</text><text class="page-sub">新增 / 编辑 / 删除本店体验项目</text></view><button class="primary-button small" @click="openExperienceForm()">＋ 新增体验</button></view>
+        <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="foodKeyword" placeholder="搜索体验项目" /></view>
+        <view v-if="!experienceList.length" class="empty-page"><UiIcon name="sprout" :size="28" /><text>还没有体验项目</text></view>
+        <view class="design-list">
+          <view v-for="experience in experienceList" :key="experience.id" class="design-item">
+            <BusinessImage v-if="experience.image" class="design-emoji" :src="experience.image" mode="aspectFill" />
+            <view class="design-main"><text class="item-title">{{ experience.name }}</text><small>{{ experience.description }} · ¥{{ experience.price }}/人</small></view>
+            <view class="design-actions"><button class="design-edit" @click="openExperienceForm(experience)">编辑</button><button class="design-remove" @click="removeExperienceFn(experience)">删除</button></view>
           </view>
         </view>
       </view>
@@ -727,11 +741,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       </view>
 
       <view v-else-if="workView === 'orders'" class="work-page page-pad">
-        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">我的订单</text><text class="page-sub">共 {{ store.orders.length }} 单 · 供应链中台统一履约</text></view></view>
+        <view class="sub-head"><button class="icon-button" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">我的订单</text><text class="page-sub">共 {{ store.orders.length }} 单 · 中选科技供应链中台统一履约</text></view></view>
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></view>
         <view v-if="!filteredOrders.length" class="empty-page"><UiIcon name="package-check" :size="28" /><text>还没有订单，去商城逛逛吧～</text></view>
         <view class="records order-records">
-          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><image v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">📦</view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><small v-if="item.delivery?.mode === 'courier'" class="rec-s">{{ item.courier || '快递直发' }}{{ item.trackingNo ? ' ' + item.trackingNo : '' }} · {{ item.delivery?.address }}</small><view class="record-actions"><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button><button v-if="item.status === '待发货'" class="rebuy-button" @click="cancelStorefrontOrder(item.id)">取消订单</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'refund')">申请退款</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'return')">申请退货</button><button v-if="item.status === '退款中' || item.status === '退货中'" class="rebuy-button" @click="completeStorefrontAfterSale(item.id)">完成售后</button></view></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
+          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><BusinessImage v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">📦</view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><small v-if="item.delivery?.mode === 'courier'" class="rec-s">{{ item.courier || '快递直发' }}{{ item.trackingNo ? ' ' + item.trackingNo : '' }} · {{ item.delivery?.address }}</small><view class="record-actions"><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button><button v-if="item.status === '待发货'" class="rebuy-button" @click="cancelStorefrontOrder(item.id)">取消订单</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'refund')">申请退款</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'return')">申请退货</button><button v-if="item.status === '退款中' || item.status === '退货中'" class="rebuy-button" @click="completeStorefrontAfterSale(item.id)">完成售后</button></view></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
         </view>
       </view>
 
@@ -740,7 +754,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="bookingKeyword" placeholder="搜索预订名称 / 日期" /></view>
         <view v-if="!filteredBookings.length" class="empty-page"><UiIcon name="calendar-check" :size="28" /><text>还没有预订，去门店逛逛吧～</text></view>
         <view class="records order-records">
-          <view v-for="item in filteredBookings" :key="item.id" class="rec-line"><image v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">🪟</view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="item.status === 'reserved'" class="rebuy-button" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span></view>
+          <view v-for="item in filteredBookings" :key="item.id" class="rec-line"><BusinessImage v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">🪟</view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="item.status === 'reserved'" class="rebuy-button" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span></view>
         </view>
       </view>
 
@@ -758,7 +772,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="help-sheet">
           <view class="help-row address-edit-row"><UiIcon name="map-pin" :size="20" /><view class="help-edit"><text>收货地址</text><input v-model="deliveryAddressDraft" placeholder="请输入收货地址" /></view><button class="address-save" @click="saveDeliveryAddress">保存</button></view>
           <view class="help-row" @click="makePhoneCall"><UiIcon name="headset" :size="20" /><view><text>联系客服</text><small>{{ store.tenant?.phone }} · 营业 {{ store.tenant?.hours }}</small></view><UiIcon name="chevron-right" :size="17" /></view>
-          <view class="help-row"><UiIcon name="store" :size="20" /><view><text>关于平台</text><small>湖南农家乐数字供应链与引流服务平台 · 演示版本</small></view><UiIcon name="chevron-right" :size="17" /></view>
+          <view class="help-row"><UiIcon name="store" :size="20" /><view><text>关于平台</text><small>中选科技数字供应链与引流服务平台 · 演示版本</small></view><UiIcon name="chevron-right" :size="17" /></view>
           <view class="help-row logout-help" @click="logout"><UiIcon name="door-open" :size="20" /><view><text>退出登录</text><small>退出当前微信登录账号</small></view><UiIcon name="chevron-right" :size="17" /></view>
         </view>
       </view>
@@ -766,22 +780,22 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <template v-else>
         <view v-if="activeTab === 'home'" class="tab-page home-page">
           <view v-if="referrerText" class="referrer-banner">🎁 {{ referrerText }}</view>
-          <view class="hero" :style="heroStyle">
-
+          <view class="hero">
+            <BusinessImage class="hero-media" :src="store.farm?.image" mode="aspectFill" />
             <view class="hero-shade"></view>
             <view class="hero-content"><text class="location">📍 {{ store.farm?.city || '湘西州' }} · 距您 {{ store.tenant?.distanceKm || 8.6 }}km</text><text class="hero-title">{{ store.tenant?.name }}</text><text class="hero-sub">⭐ {{ store.farm?.rating || 4.9 }} 分 · {{ store.tenant?.slogan }} · 营业 {{ store.tenant?.hours }}</text></view>
           </view>
-           <view class="store-summary"><image :src="store.farm?.image || '/static/images/farmhouse.webp'" mode="aspectFit" /><view><text class="item-title">{{ store.tenant?.name }}</text><text class="rating">⭐ {{ store.farm?.rating || 0 }} · 月售 {{ store.farm?.monthlySales || 0 }}+ · 本地口碑店</text><view class="tag-row"><text v-for="tag in store.farm?.storeTags || store.farm?.tags || []" :key="tag">{{ tag }}</text></view></view><button class="call-button" @click="sheet = 'contact'"><UiIcon name="phone" :size="17" />电话</button></view>
+           <view class="store-summary"><BusinessImage :src="store.farm?.image" mode="aspectFit" /><view><text class="item-title">{{ store.tenant?.name }}</text><text class="rating">⭐ {{ store.farm?.rating || 0 }} · 月售 {{ store.farm?.monthlySales || 0 }}+ · 本地口碑店</text><view class="tag-row"><text v-for="tag in store.farm?.storeTags || store.farm?.tags || []" :key="tag">{{ tag }}</text></view></view><button class="call-button" @click="sheet = 'contact'"><UiIcon name="phone" :size="17" />电话</button></view>
           <view class="quick-grid"><button @click="openReservation('room', '观溪雅间')"><UiIcon name="door-open" :size="22" /><text>包厢预订</text></button><button @click="openReservation('package', '四人欢聚套餐')"><UiIcon name="utensils" :size="22" /><text>套餐预订</text></button><button @click="chooseTab('shop')"><UiIcon name="shopping-bag" :size="22" /><text>特产商城</text></button><button @click="chooseTab('member')"><UiIcon name="crown" :size="22" /><text>会员中心</text></button></view>
           <view class="notice"><UiIcon name="megaphone" :size="18" /><text>端午特惠：到店满 200 减 30，会员储值享 9 折，分享好友下单得佣金～</text></view>
           <view class="section-head"><view><span></span><text>招牌土菜</text></view><button v-if="store.foods.length" @click="sheet = 'foods'">查看更多</button></view>
-          <view v-if="store.foods.length" class="food-scroll"><view class="food-list"><view v-for="food in store.foods.slice(0, 4)" :key="food.id" class="food-card"><image class="food-thumb" :src="food.image" mode="aspectFit" /><text>{{ food.name }}</text><small>{{ food.description }}</small><view class="food-price"><strong>{{ money(food.price) }}</strong><del v-if="food.originalPrice">{{ money(food.originalPrice) }}</del></view></view></view></view>
+          <view v-if="store.foods.length" class="food-scroll"><view class="food-list"><view v-for="food in store.foods.slice(0, 4)" :key="food.id" class="food-card"><BusinessImage class="food-thumb" :src="food.image" mode="aspectFit" /><text>{{ food.name }}</text><small>{{ food.description }}</small><view class="food-price"><strong>{{ money(food.price) }}</strong><del v-if="food.originalPrice">{{ money(food.originalPrice) }}</del></view></view></view></view>
           <view v-else class="empty-page home-empty"><UiIcon name="utensils" :size="28" /><text>暂无招牌土菜，店主可到会员中心→设计招牌土菜添加</text></view>
           <view class="section-head"><view><span></span><text>特色包厢</text></view><button class="more-button" @click="chooseTab('reserve')">去预订 ›</button></view>
-          <view v-if="store.rooms.length" class="room-list"><view v-for="room in store.rooms.slice(0, 2)" :key="room.id" class="room-card"><image class="room-emoji" :src="room.image" mode="aspectFit" /><view><text>{{ room.name }}</text><small>{{ room.capacity }}</small></view><button @click="openReservation('room', room.name)">立即预订</button></view></view>
+          <view v-if="store.rooms.length" class="room-list"><view v-for="room in store.rooms.slice(0, 2)" :key="room.id" class="room-card"><BusinessImage class="room-emoji" :src="room.image" mode="aspectFit" /><view><text>{{ room.name }}</text><small>{{ room.capacity }}</small></view><button @click="openReservation('room', room.name)">立即预订</button></view></view>
           <view v-else class="empty-page home-empty"><UiIcon name="door-open" :size="28" /><text>暂无包厢，店主可到会员中心→设计特色包厢添加</text></view>
-          <view class="section-head" @click="openService(services[0])"><view><span></span><text>特色服务</text></view></view>
-          <view class="service-grid"><view v-for="s in services" :key="s.id" hover-class="s-hover" @click="openService(s)"><UiIcon :name="s.icon" :size="22" /><text>{{ s.name }}</text><small>{{ s.desc }}</small></view></view>
+          <view class="section-head" @click="openService(experienceList[0])"><view><span></span><text>特色服务</text></view></view>
+          <view class="service-grid"><view v-for="s in experienceList" :key="s.id" hover-class="s-hover" @click="openService(s)"><BusinessImage class="s-emoji" :src="s.image" mode="aspectFit" /><text>{{ s.name }}</text><small>{{ s.description }}</small></view></view>
         </view>
 
         <view v-else-if="activeTab === 'reserve'" class="tab-page page-pad">
@@ -791,17 +805,17 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view class="section-head compact"><view><span></span><text>包厢预订</text></view></view>
           <view v-if="store.rooms.length" class="reserve-list">
             <view v-for="room in store.rooms" :key="room.id" class="room">
-              <image class="rimg" :src="room.image" mode="aspectFit" />
+              <BusinessImage class="rimg" :src="room.image" mode="aspectFit" />
               <view class="rb"><view class="rn">{{ room.name }}<text :class="room.status === '仅余晚市' ? 'status-busy' : 'status-free'">{{ room.status }}</text></view><view class="rd">{{ room.capacity }}</view><view class="rfoot"><span class="rd">🕐 {{ room.sessions }}</span><button class="booknow" @click="openBookingForm('room', room.name, room.people)">预订</button></view></view>
             </view>
           </view>
           <view v-else class="empty-page home-empty"><UiIcon name="door-open" :size="28" /><text>暂无包厢可预订</text></view>
           <view class="section-head compact"><view><span></span><text>套餐预订</text></view><small>含锁定食材</small></view>
           <view class="combo-list">
-            <view v-for="pkg in packageCards" :key="pkg.name" class="combo">
-              <image class="ci" :src="pkg.image" mode="aspectFit" />
-              <view class="cb"><view class="cn">{{ pkg.name }}</view><view class="cl">{{ pkg.detail }}</view><view class="cprice">{{ pkg.price }}</view></view>
-              <button class="booknow" @click="openBookingForm('package', pkg.name, pkg.people)">预订</button>
+            <view v-for="pkg in catalogPackages" :key="pkg.id" class="combo">
+              <BusinessImage class="ci" :src="pkg.image" mode="aspectFit" />
+              <view class="cb"><view class="cn">{{ pkg.name }}</view><view class="cl">{{ pkg.skus[0]?.name || "含锁定食材" }}</view><view class="cprice">{{ money(pkg.skus[0]?.retailPrice || 0) }}</view></view>
+              <button class="booknow" @click="openBookingForm('package', pkg.name, 4)">预订</button>
             </view>
           </view>
           <view class="reserve-note">🔔 {{ reminderNote() }}</view>
@@ -810,10 +824,10 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view v-else-if="activeTab === 'shop'" class="tab-page page-pad shop-page">
           <view class="mobile-head"><text class="page-title">特产商城</text><text class="page-sub">土特产 · 农产品 · 套餐券 · 伴手礼</text></view>
                     <view class="chip-scroll"><view class="chips"><button v-for="item in categories" :key="item" :class="{ active: category === item }" @click="category = item">{{ item }}</button></view></view>
-          <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>甄选好物供应链中台</b>，统一品控、统一履约、价格更优。</text></view>
+          <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>中选科技供应链中台</b>，统一品控、统一履约、价格更优。</text></view>
           <view v-if="activePolicies.length" class="policy-hint">🎯 中台价格策略：<b>{{ activePolicies.map((p) => p.name).join('、') }}</b> 已生效</view>
           <view v-if="visibleProducts.length" class="product-grid">
-             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><image class="product-emoji" :src="product.image" mode="aspectFit" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><view class="product-tag-row"><span class="source-tag">{{ displayProductTags(product, 'store')[0] || '门店商品' }}</span><span v-if="isExpressDeliverable(product)" class="express-tag">快递直发</span></view><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
+             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><BusinessImage class="product-emoji" :src="product.image" mode="aspectFit" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><view class="product-tag-row"><span class="source-tag">{{ displayProductTags(product, 'store')[0] || '门店商品' }}</span><span v-if="isExpressDeliverable(product)" class="express-tag">快递直发</span></view><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
           </view><view v-else class="empty-page"><UiIcon name="search" :size="28" /><text>没有找到相关商品</text><small>试试其他关键词或分类</small></view>
         </view>
 
@@ -825,9 +839,9 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view class="page-pad member-body">
             <view class="role-block"><view class="section-head compact"><view><span></span><text>切换演示身份</text></view></view><view class="segmented roles"><button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ active: store.role === role }" @click="chooseRole(role)">{{ roleNames[role] }}</button></view><text class="role-help">{{ store.role === 'customer' ? '浏览、预订、商城和会员功能' : store.role === 'staff' ? '包含顾客功能，并可核销订单' : '包含全部功能，并可设计包厢土菜、选品上架、核销订单' }}</text></view>
             <view class="promotion"><view><UiIcon name="badge-dollar-sign" :size="24" /><text>💰 分销推广中心</text><small>分享门店 / 商品给好友，好友下单你就赚佣金。员工、老客户、推客、主播均可参与，形成私域裂变。</small></view>            <view class="promo-stats"><view><text>累计佣金</text><strong>¥{{ formatNumber(store.member.cumulativeCommission ?? 0) }}</strong></view><view><text>我的粉丝</text><strong>{{ store.member.fans ?? 0 }}</strong></view><view><text>本月订单</text><strong>{{ store.member.monthlyOrders ?? 0 }}</strong></view></view><button @click="sheet = 'share'"><UiIcon name="link" :size="16" />🔗 生成我的专属推广海报</button></view>
-            <view v-if="store.canOperate" class="workbench"><view class="section-head compact"><view><span></span><text>店铺经营工作台</text></view></view><button @click="workView = 'verify'"><UiIcon name="check" :size="21" /><view><text>订单核销</text><small>到店核销预订/预约订单</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'design-rooms'"><UiIcon name="door-open" :size="21" /><view><text>设计特色包厢</text><small>新增 / 编辑 / 删除包厢</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'design-foods'"><UiIcon name="utensils" :size="21" /><view><text>设计招牌土菜</text><small>新增 / 编辑 / 删除菜品</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'select'"><UiIcon name="tags" :size="21" /><view><text>选品上架</text><small>自主定价并上架到本店商城</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.role === 'manager'" @click="workView = 'staff-admin'"><UiIcon name="users" :size="21" /><view><text>店员管理</text><small>添加登录账号 · 配置推广权限</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="myStaffPromoEnabled" @click="openStaffPromo()"><UiIcon name="link" :size="21" /><view><text>我的推广码</text><small>生成店员推广码 / 链接</small></view><UiIcon name="chevron-right" :size="18" /></button></view>
+            <view v-if="store.canOperate" class="workbench"><view class="section-head compact"><view><span></span><text>店铺经营工作台</text></view></view><button @click="workView = 'verify'"><UiIcon name="check" :size="21" /><view><text>订单核销</text><small>到店核销预订/预约订单</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'design-rooms'"><UiIcon name="door-open" :size="21" /><view><text>设计特色包厢</text><small>新增 / 编辑 / 删除包厢</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'design-foods'"><UiIcon name="utensils" :size="21" /><view><text>设计招牌土菜</text><small>新增 / 编辑 / 删除菜品</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'design-experiences'"><UiIcon name="sprout" :size="21" /><view><text>设计体验项目</text><small>新增 / 编辑 / 删除体验</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.canSelect" @click="workView = 'select'"><UiIcon name="tags" :size="21" /><view><text>选品上架</text><small>自主定价并上架到本店商城</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="store.role === 'manager'" @click="workView = 'staff-admin'"><UiIcon name="users" :size="21" /><view><text>店员管理</text><small>添加登录账号 · 配置推广权限</small></view><UiIcon name="chevron-right" :size="18" /></button><button v-if="myStaffPromoEnabled" @click="openStaffPromo()"><UiIcon name="link" :size="21" /><view><text>我的推广码</text><small>生成店员推广码 / 链接</small></view><UiIcon name="chevron-right" :size="18" /></button></view>
             <view class="mine-list"><button @click="workView = 'orders'"><UiIcon name="package-check" :size="20" /><view><text>我的订单</text><small>共 {{ store.orders.length }} 单</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="workView = 'bookings'"><UiIcon name="calendar-check" :size="20" /><view><text>我的预订</text><small>共 {{ store.bookings.length }} 个预订</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="workView = 'ledger'"><UiIcon name="credit-card" :size="20" /><view><text>储值记录</text><small>充值 / 消费明细</small></view><UiIcon name="chevron-right" :size="18" /></button><button @click="openHelp()"><UiIcon name="headset" :size="20" /><view><text>设置与帮助</text><small>收货地址 · 客服 · 关于</small></view><UiIcon name="chevron-right" :size="18" /></button></view>
-            <view class="member-footer">平台支持 · 湖南省电子商务协会 · 甄选好物供应链中台</view>
+            <view class="member-footer">平台支持 · 湖南省电子商务协会 · 中选科技供应链中台</view>
             <view class="recharge-options"><text>快捷充值</text><view class="choice-row"><button v-for="item in [100,300,500,1000]" :key="item" :class="{ active: rechargeAmount === item }" @click="rechargeAmount = item">{{ money(item) }}</button></view><button class="primary-button" @click="recharge">模拟充值</button></view>
           </view>
           </template>
@@ -850,11 +864,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <view v-if="sheet" class="sheet-mask" @click.self="sheet = null">
         <view class="sheet">
           <view class="sheet-handle"></view>
-           <view class="sheet-head"><text>{{ sheet === 'login' ? '微信登录' : sheet === 'service' ? (selectedService?.name || '服务详情') : sheet === 'cart' ? '购物车结算' : sheet === 'orders' ? '我的订单' : sheet === 'bookings' ? '我的预订' : sheet === 'room-form' ? (editingRoomId ? '编辑包厢' : '新增包厢') : sheet === 'food-form' ? (editingFoodId ? '编辑菜品' : '新增菜品') : sheet === 'product' ? '商品详情' : sheet === 'booking-form' ? booking.name : sheet === 'contact' ? `联系${store.tenant?.name || ''}` : sheet === 'foods' ? '招牌菜品' : sheet === 'ledger' ? '储值明细' : sheet === 'recharge' ? '会员储值充值' : sheet === 'identity' ? '切换身份' : sheet === 'staff-form' ? (staffForm.id ? '编辑店员' : '新增店员') : sheet === 'staff-promo' ? '我的推广码' : sheet === 'help' ? '设置与帮助' : '专属推广海报' }}</text><button aria-label="关闭弹层" @click="sheet = null"><UiIcon name="x" :size="19" /></button></view>
+           <view class="sheet-head"><text>{{ sheet === 'login' ? '微信登录' : sheet === 'service' ? (selectedService?.name || '服务详情') : sheet === 'cart' ? '购物车结算' : sheet === 'orders' ? '我的订单' : sheet === 'bookings' ? '我的预订' : sheet === 'room-form' ? (editingRoomId ? '编辑包厢' : '新增包厢') : sheet === 'food-form' ? (editingFoodId ? '编辑菜品' : '新增菜品') : sheet === 'experience-form' ? (editingExperienceId ? '编辑体验' : '新增体验') : sheet === 'product' ? '商品详情' : sheet === 'booking-form' ? booking.name : sheet === 'contact' ? `联系${store.tenant?.name || ''}` : sheet === 'after-sale' ? '售后申请' : sheet === 'foods' ? '招牌菜品' : sheet === 'ledger' ? '储值明细' : sheet === 'recharge' ? '会员储值充值' : sheet === 'identity' ? '切换身份' : sheet === 'staff-form' ? (staffForm.id ? '编辑店员' : '新增店员') : sheet === 'staff-promo' ? '我的推广码' : sheet === 'help' ? '设置与帮助' : '专属推广海报' }}</text><button aria-label="关闭弹层" @click="sheet = null"><UiIcon name="x" :size="19" /></button></view>
 <view v-if="sheet === 'login'" class="login-sheet">
           <view class="login-sheet-icon emoji-thumb">👋</view>
           <text class="login-sheet-title">{{ loginRole === 'customer' ? '微信一键登录' : '账号密码登录' }}</text>
-          <text class="login-sheet-sub">登录「{{ store.tenant?.name || '农家乐门店' }}」前，请先选择身份</text>
+          <text class="login-sheet-sub">登录「{{ store.tenant?.name || '中选科技农家乐门店端' }}」前，请先选择身份</text>
           <view class="segmented roles login-roles">
             <button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ active: loginRole === role }" @click="loginRole = role">{{ roleNames[role] }}</button>
           </view>
@@ -871,18 +885,12 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </template>
         </view>
 
-           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }"><image :src="item.image" mode="aspectFit" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="cartHasExpress" class="delivery-picker"><text class="delivery-label">配送方式</text><view class="ui-chips"><button :class="{ sel: deliveryMode === 'pickup' }" @click="deliveryMode = 'pickup'">到店自提</button><button :class="{ sel: deliveryMode === 'courier' }" @click="deliveryMode = 'courier'">快递配送</button></view><label v-if="deliveryMode === 'courier'" class="form-field"><text>收货地址</text><input v-model="deliveryAddressDraft" placeholder="省市区 + 详细地址" /></label></view><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" @click="checkout">提交订单</button></view></view>
+           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }"><BusinessImage :src="item.image" mode="aspectFit" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="cartHasExpress" class="delivery-picker"><text class="delivery-label">配送方式</text><view class="ui-chips"><button :class="{ sel: deliveryMode === 'pickup' }" @click="deliveryMode = 'pickup'">到店自提</button><button :class="{ sel: deliveryMode === 'courier' }" @click="deliveryMode = 'courier'">快递配送</button></view><label v-if="deliveryMode === 'courier'" class="form-field"><text>收货地址</text><input v-model="deliveryAddressDraft" placeholder="省市区 + 详细地址" /></label></view><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" @click="checkout">提交订单</button></view></view>
 
            <view v-else-if="sheet === 'room-form'" class="design-form">
             <label class="form-field"><text>包厢名称</text><input v-model="roomForm.name" placeholder="如：观溪雅间" /></label>
             <view class="form-field"><text>展示图片</text>
-              <view class="design-upload-row">
-                <image class="room-form-image" :src="roomForm.image" mode="aspectFit" />
-                <view class="design-upload-actions">
-                  <button class="design-upload-btn" @click="chooseDesignImage('room')">{{ roomForm.image.startsWith('data:') ? '重新选择' : '＋ 上传图片' }}</button>
-                  <button v-if="roomForm.image.startsWith('data:')" class="design-upload-btn danger" @click="removeDesignImage('room')">移除</button>
-                </view>
-              </view>
+              <ImageUploader v-model="roomForm.image" purpose="room" profile="normal" />
               <small class="form-hint">可上传门店实拍图，未上传使用默认场景图</small>
             </view>
             <label class="form-field"><text>容量与特色</text><input v-model="roomForm.capacity" placeholder="如：8–10 人 · 临溪景观 · 最低消费 ¥600" /></label>
@@ -898,25 +906,33 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
             <label class="form-field"><text>原价（元，可选）</text><input v-model.number="foodForm.originalPrice" type="digit" placeholder="留空则无划线价" /></label>
 
             <view class="form-field"><text>菜品图片</text>
-              <view class="design-upload-row">
-                <image class="room-form-image" :src="foodForm.image" mode="aspectFit" />
-                <view class="design-upload-actions">
-                  <button class="design-upload-btn" @click="chooseDesignImage('food')">{{ foodForm.image.startsWith('data:') ? '重新选择' : '＋ 上传图片' }}</button>
-                  <button v-if="foodForm.image.startsWith('data:')" class="design-upload-btn danger" @click="removeDesignImage('food')">移除</button>
-                </view>
-              </view>
+              <ImageUploader v-model="foodForm.image" purpose="food" profile="normal" />
               <small class="form-hint">可上传菜品实拍图，未上传使用默认图</small>
             </view>
             <button class="primary-button" @click="saveFoodForm">{{ editingFoodId ? '保存修改' : '新增菜品' }}</button>
+          </view>
+          <view v-else-if="sheet === 'experience-form'" class="design-form">
+            <label class="form-field"><text>体验名称</text><input v-model="experienceForm.name" placeholder="如：农事采摘体验" /></label>
+            <view class="form-field"><text>体验分类</text><view class="choice-row"><button v-for="opt in experienceCategoryOptions" :key="opt.code" :class="{ active: experienceForm.categoryCode === opt.code }" @click="experienceForm.categoryCode = opt.code">{{ opt.label }}</button></view></view>
+            <label class="form-field"><text>体验描述</text><input v-model="experienceForm.description" placeholder="如：应季果蔬采摘 · 亲子互动" /></label>
+            <label class="form-field"><text>价格（元/人）</text><input v-model.number="experienceForm.price" type="digit" /></label>
+            <view class="form-field"><text>体验图片</text><ImageUploader v-model="experienceForm.image" purpose="experience" profile="normal" /></view>
+            <button class="primary-button" @click="saveExperienceForm">{{ editingExperienceId ? '保存修改' : '新增体验' }}</button>
           </view>
 
 
 
 
-           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><image :src="selectedProduct.image" mode="aspectFit" /><text>{{ selectedProduct.name }}</text><small>{{ displayProductTags(selectedProduct, 'store').join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!sku.stock" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!selectedSkuId" @click="addSelectedProduct">加入购物车</button></view></view>
-           <view v-else-if="sheet === 'booking-form'" class="booking-sheet"><small class="booking-sub">选择日期 / 场次 / 人数，确认后将发送到店提醒</small><view class="booking-section"><text>📅 选择日期</text><view class="ui-chips"><button v-for="item in bookingDates.slice(0, 3)" :key="item" :class="{ sel: booking.date === item }" @click="booking.date = item">{{ item }}</button></view></view><view class="booking-section"><text>🕐 选择场次</text><view class="ui-chips"><button v-for="item in ['午市 11:00','晚市 17:30']" :key="item" :class="{ sel: booking.session === item }" @click="booking.session = item">{{ item }}</button></view></view><view class="booking-section"><text>👥 用餐人数</text><view class="ui-chips"><button v-for="item in [4,6,8,10,20]" :key="item" :class="{ sel: booking.people === item }" @click="booking.people = item">{{ item }} 人</button></view></view><button class="primary-button" @click="submitBooking">确认预订</button></view>
+           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><BusinessImage :src="selectedProduct.image" mode="aspectFit" /><text>{{ selectedProduct.name }}</text><small>{{ displayProductTags(selectedProduct, 'store').join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!sku.stock" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!selectedSkuId" @click="addSelectedProduct">加入购物车</button></view></view>
+           <view v-else-if="sheet === 'booking-form'" class="booking-sheet"><small class="booking-sub">选择日期 / 场次 / 人数，确认后将发送到店提醒</small><view class="booking-section"><text>📅 选择日期</text><view class="ui-chips"><button v-for="item in bookingDates.slice(0, 3)" :key="item" :class="{ sel: booking.date === item }" @click="booking.date = item">{{ item }}</button></view></view><view class="booking-section"><text>🕐 选择场次</text><view class="ui-chips"><button v-for="opt in (bookingSessionOptions.length ? bookingSessionOptions : [{ label: '午市 11:00' }, { label: '晚市 17:30' }])" :key="opt.label" :class="{ sel: booking.session === opt.label }" @click="booking.session = opt.label">{{ opt.label }}</button></view></view><view class="booking-section"><text>👥 用餐人数</text><view class="ui-chips"><button v-for="item in [4,6,8,10,20]" :key="item" :class="{ sel: booking.people === item }" @click="booking.people = item">{{ item }} 人</button></view></view><button class="primary-button" @click="submitBooking">确认预订</button></view>
+          <view v-else-if="sheet === 'after-sale' && afterSaleTarget" class="design-form">
+            <view class="form-field"><text>售后类型</text><view class="choice-row"><button :class="{ active: afterSaleTarget.type === 'refund' }" @click="afterSaleTarget.type = 'refund'">申请退款</button><button :class="{ active: afterSaleTarget.type === 'return' }" @click="afterSaleTarget.type = 'return'">申请退货</button></view></view>
+            <view class="form-field"><text>上传凭证（1-6 张，可选）</text><ImageUploader v-model="afterSaleEvidence" multiple :max-count="6" purpose="after-sale" profile="license" /></view>
+            <small class="form-hint">提交后平台将结合凭证审核</small>
+            <button class="primary-button" @click="confirmStorefrontAfterSale">提交售后申请</button>
+          </view>
 <view v-else-if="sheet === 'contact'" class="contact-sheet"><small class="contact-sub">营业 {{ store.tenant?.hours }} · {{ store.tenant?.slogan }}</small><view class="ui-opt sel" @click="copyPhone"><text>门店电话</text><span>{{ store.tenant?.phone }}</span></view><button class="primary-button" @click="makePhoneCall">📞 拨打电话</button><button class="outline-button" @click="sheet = null">取消</button></view>
-          <view v-else-if="sheet === 'foods'" class="food-detail-list"><view v-if="!store.foods.length" class="empty">暂无招牌菜品</view><view v-for="food in store.foods" :key="food.id"><image :src="food.image" mode="aspectFit" /><view><text>{{ food.name }}</text><small>{{ food.description }}</small></view><strong>{{ money(food.price) }}</strong><button @click="sheet = null; openReservation('package', food.name)">预订</button></view></view><view v-else-if="sheet === 'service' && selectedService" class="service-detail"><image class="s-emoji" :src="selectedService.image" mode="aspectFit" /><text class="s-name">{{ selectedService.name }}</text><small class="s-desc">{{ selectedService.desc }}</small><view class="s-rows"><view><text>适合人群</text><strong>{{ selectedService.suitable }}</strong></view><view><text>体验时长</text><strong>{{ selectedService.duration }}</strong></view><view><text>参与方式</text><strong>{{ selectedService.fee }}</strong></view></view><view class="s-order"><text>📅 选择日期</text><view class="ui-chips"><button v-for="d in bookingDates.slice(0, 3)" :key="d" :class="{ sel: serviceBooking.date === d }" @click="serviceBooking.date = d">{{ d }}</button></view></view><view class="s-order"><text>👥 人数</text><view class="ui-chips"><button v-for="p in [2, 4, 6, 8]" :key="p" :class="{ sel: serviceBooking.people === p }" @click="serviceBooking.people = p">{{ p }} 人</button></view></view><view class="s-fee"><text>费用</text><strong>¥{{ selectedService.price }}/人 × {{ serviceBooking.people }} 人 = ¥{{ serviceFee }}</strong></view><button class="primary-button" @click="submitServiceOrder">确认下单</button><button class="outline-button" @click="makePhoneCall">📞 电话咨询</button></view>
+          <view v-else-if="sheet === 'foods'" class="food-detail-list"><view v-if="!store.foods.length" class="empty">暂无招牌菜品</view><view v-for="food in store.foods" :key="food.id"><BusinessImage :src="food.image" mode="aspectFit" /><view><text>{{ food.name }}</text><small>{{ food.description }}</small></view><strong>{{ money(food.price) }}</strong><button @click="sheet = null; openReservation('package', food.name)">预订</button></view></view><view v-else-if="sheet === 'service' && selectedService" class="service-detail"><BusinessImage class="s-emoji" :src="selectedService.image" mode="aspectFit" /><text class="s-name">{{ selectedService.name }}</text><small class="s-desc">{{ selectedService.description }}</small><view class="s-rows"><view><text>体验类型</text><strong>{{ selectedService.categoryCode }}</strong></view><view><text>状态</text><strong>{{ selectedService.status === 'active' ? '在售' : '下架' }}</strong></view></view><view class="s-order"><text>📅 选择日期</text><view class="ui-chips"><button v-for="d in bookingDates.slice(0, 3)" :key="d" :class="{ sel: serviceBooking.date === d }" @click="serviceBooking.date = d">{{ d }}</button></view></view><view class="s-order"><text>👥 人数</text><view class="ui-chips"><button v-for="p in [2, 4, 6, 8]" :key="p" :class="{ sel: serviceBooking.people === p }" @click="serviceBooking.people = p">{{ p }} 人</button></view></view><view class="s-fee"><text>费用</text><strong>¥{{ selectedService.price }}/人 × {{ serviceBooking.people }} 人 = ¥{{ serviceFee }}</strong></view><button class="primary-button" @click="submitServiceOrder">确认下单</button><button class="outline-button" @click="makePhoneCall">📞 电话咨询</button></view>
            <view v-else-if="sheet === 'recharge'" class="recharge-confirm"><text class="recharge-sub">当前余额 {{ money(store.balance) }} · 储值享 9 折，可用于堂食与商城</text><view class="ui-chips"><button v-for="item in [100,300,500,1000]" :key="item" :class="{ sel: rechargeAmount === item }" @click="rechargeAmount = item">¥{{ item }}</button></view><button class="primary-button" @click="confirmRecharge">确认充值</button></view>
           <view v-else-if="sheet === 'identity'" class="identity-sheet"><small class="identity-sub">演示不同角色可见的功能权限</small><view class="identity-options"><button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ sel: store.role === role }" @click="chooseRole(role); sheet = null"><view><text>{{ role === 'customer' ? '👤' : role === 'staff' ? '🧑‍🍳' : '🧑‍💼' }} {{ roleNames[role] }}</text><small>{{ role === 'customer' ? '普通消费者 · 仅购物、预订与会员' : role === 'staff' ? '可见「店员专区」· 核销订单' : '设计包厢/土菜 + 选品上架 + 核销订单 · 管理本店' }}</small></view><span>{{ store.role === role ? '✓' : '›' }}</span></button></view><button class="outline-button" @click="sheet = null">取消</button></view>
           <view v-else-if="sheet === 'staff-form'" class="design-form">
@@ -945,7 +961,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 .app-shell { width:100%; min-height:100vh; background:var(--farm-bg); padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
 .loading { min-height:100vh;display:grid;place-items:center;color:var(--farm-muted); }
 .page-pad { padding:0 16px; }.tab-page { min-height:100vh;padding-bottom:28px; }.home-page { padding-bottom:25px; }
-.hero { height:248px;position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(15,60,30,.05),rgba(15,40,22,.78)),linear-gradient(135deg,#3c7a45,#1d5a2a 60%,#114a22); }.hero>image { display:none; }.hero-shade { position:absolute;inset:0;background:linear-gradient(to bottom,rgba(8,34,22,.14),rgba(8,34,22,.78)); }.hero-content { position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:0 18px 56px;color:#fff; }.location { position:absolute;top:54px;right:16px;display:inline-block;margin:0;padding:5px 12px;font-size:11.5px;font-weight:600;opacity:.95;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:999px;backdrop-filter:blur(6px); }.hero-title { display:block;font-size:23px;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.35); }.hero-sub { display:block;font-size:12px;margin-top:7px;opacity:.9; }
+.hero { height:248px;position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(15,60,30,.05),rgba(15,40,22,.78)),linear-gradient(135deg,#3c7a45,#1d5a2a 60%,#114a22); }.hero-media { position:absolute;inset:0;width:100%;height:100%; }.hero-shade { position:absolute;inset:0;background:linear-gradient(to bottom,rgba(8,34,22,.14),rgba(8,34,22,.78)); }.hero-content { position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:0 18px 56px;color:#fff; }.location { position:absolute;top:54px;right:16px;display:inline-block;margin:0;padding:5px 12px;font-size:11.5px;font-weight:600;opacity:.95;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:999px;backdrop-filter:blur(6px); }.hero-title { display:block;font-size:23px;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.35); }.hero-sub { display:block;font-size:12px;margin-top:7px;opacity:.9; }
 .store-summary { position:relative;margin:-46px 14px 0;padding:14px;background:#fff;border:1px solid var(--farm-line);border-radius:18px;display:grid;grid-template-columns:54px 1fr auto;gap:12px;align-items:center;box-shadow:0 18px 38px -26px rgba(20,60,30,.5); }.store-summary>image { width:54px;height:54px;border-radius:14px; }.item-title { display:block;font-size:14px;font-weight:800;line-height:1.35; }.rating { display:block;margin-top:4px;color:#9a722b;font-size:10px; }.tag-row { display:flex;gap:4px;margin-top:5px;flex-wrap:wrap; }.tag-row text { padding:3px 5px;border-radius:3px;background:var(--farm-green-soft);color:var(--farm-green);font-size:8px; }.call-button { height:34px;padding:0 10px;border-radius:5px;background:var(--farm-green);color:#fff;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700; }.call-button .ui-icon { filter:brightness(0) invert(1); }
 .quick-grid { margin:14px 14px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:transparent;border:0;border-radius:0; }.quick-grid button { min-height:84px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:11px;color:var(--farm-ink); }.quick-grid .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
 .notice,.security-note,.supply-note { margin:14px 16px;padding:12px;background:#fff9e9;border:1px solid #ecdfbd;border-radius:7px;display:flex;align-items:flex-start;gap:8px;color:#765c27;font-size:10px;line-height:1.5; }.security-note,.supply-note { margin:14px 0;background:var(--farm-green-soft);border-color:#cfe2d6;color:#315e48; }
@@ -1253,6 +1269,8 @@ button, uni-button { text-align: center; }
 .verify-status{font-size:11px;font-weight:700;color:var(--farm-green);white-space:nowrap}
 .verify-status.cancel{color:var(--farm-muted)}
 .verify-status.ok{color:#2e8b57}
+.verify-amount{width:92px;height:32px;display:flex;align-items:center;padding:0 8px;border:1px solid var(--farm-line);border-radius:8px;background:#fff;color:var(--farm-muted);font-size:12px}
+.verify-amount input{min-width:0;flex:1;height:30px;padding:0 0 0 3px;border:0;background:transparent;color:var(--farm-ink);font-size:12px}
 .verify-btn{min-height:30px;padding:0 12px;border-radius:8px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
 .verify-done{color:var(--farm-muted);font-size:12px;font-weight:700;width:34px;text-align:center}
 .design-actions{display:flex;gap:6px;flex-shrink:0}
@@ -1285,4 +1303,5 @@ button, uni-button { text-align: center; }
 .express-tag{font-size:10px;padding:1px 7px;border-radius:9px;background:#eaf3ff;color:#35658f}
 .delivery-picker{padding:12px 16px;border-bottom:1px solid #e9eeea}
 .delivery-label{display:block;font-size:12px;font-weight:800;margin-bottom:8px}
+.store-summary>.business-image{width:54px;height:54px;border-radius:14px}.food-card .business-image{width:100%;height:100px}.room-card .business-image{width:72px;height:58px;border-radius:5px}.reserve-card .business-image{width:82px;height:74px;border-radius:8px}.sheet-line>.business-image{width:54px;height:54px;border-radius:6px}.product-detail>.business-image{width:100%;height:210px;border-radius:8px}.food-detail-list .business-image{width:58px;height:54px;border-radius:5px}
 </style>

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { readPlatformDrivers, readPlatformOrders, todayString, writePlatformDrivers, writePlatformOrder } from '@agritainment/shared'
+import { buildSupplierAccountSeeds, readPlatformDrivers, readPlatformOrders, suppliers, todayString, upsertPlatformEntity, writePlatformDrivers, writePlatformOrder, writePlatformSupplierAccounts } from '@agritainment/shared'
 import { useSupplierStore } from './supplier'
 
 if (!globalThis.localStorage) {
@@ -18,6 +18,58 @@ if (!globalThis.localStorage) {
 describe('supplier store interactions', () => {
   beforeEach(async () => { setActivePinia(createPinia()); localStorage.clear() })
 
+  it('logs suppliers in by phone and exposes the linked supplier profile', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+    expect(store.currentSupplier).toMatchObject({ id: 'S002', name: '湘西腊味合作社', region: '湘西州' })
+    store.logout()
+    expect(store.loginSupplier('supplier', '123456')).toBe(false)
+  })
+
+  it('rejects phone accounts for suppliers that are not cooperating', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+
+    expect(store.loginSupplier('13973015588', '13973015588')).toBe(false)
+    expect(store.loginError).toBe('账号暂不可登录，请联系平台管理员')
+  })
+
+  it('invalidates an active supplier session when its credentials change', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+
+    const accounts = buildSupplierAccountSeeds(suppliers)
+    writePlatformSupplierAccounts(accounts.map((item) => item.supplierId === 'S002' ? { ...item, account: '13900008881', updatedAt: '2026-08-24T12:00:00.000Z' } : item))
+    await store.refreshSharedState()
+
+    expect(store.auth.isLoggedIn).toBe(false)
+  })
+
+  it('invalidates an active supplier session when cooperation is paused', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+
+    upsertPlatformEntity('suppliers', 'S002', { ...suppliers[1], status: 'paused' })
+    await store.refreshSharedState()
+
+    expect(store.auth.isLoggedIn).toBe(false)
+  })
+
+  it('refreshes the active supplier name from the latest supplier profile', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+
+    upsertPlatformEntity('suppliers', 'S002', { ...suppliers[1], name: '更新后的供应商名称' })
+    await store.refreshSharedState()
+
+    expect(store.auth.name).toBe('更新后的供应商名称')
+  })
+
   it('loads C-mall fulfillment orders and isolates them by supplier account', async () => {
     writePlatformOrder({ id: 'C-MALL-CSO-A', productName: '腊肉', quantity: 1, amount: 45, customer: '甲 · C端商城', channel: 'purchase', status: 'pending', createdAt: new Date().toISOString(), supplierId: 'S002', supplierOrderLink: { source: 'c-mall', sourceOrderId: 'CO-A', sourceSubOrderId: 'CSO-A', customerUserId: 'U-A' } })
     writePlatformOrder({ id: 'C-MALL-CSO-B', productName: '黄桃', quantity: 1, amount: 45, customer: '乙 · C端商城', channel: 'purchase', status: 'pending', createdAt: new Date().toISOString(), supplierId: 'S004', supplierOrderLink: { source: 'c-mall', sourceOrderId: 'CO-B', sourceSubOrderId: 'CSO-B', customerUserId: 'U-B' } })
@@ -25,11 +77,14 @@ describe('supplier store interactions', () => {
     await store.initialize(true)
     expect(store.orders.some((item) => item.id === 'C-MALL-CSO-A')).toBe(true)
     expect(store.orders.some((item) => item.id === 'C-MALL-CSO-B')).toBe(true)
-    expect(store.loginSupplier('supplier', '123456')).toBe(true)
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
     expect(store.supplierOrders.every((item) => item.supplierId === 'S002')).toBe(true)
-    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+    expect(store.supplierOrderCounts['全部']).toBe(store.supplierOrders.length)
+    expect(store.supplierOrderCounts.submitted).toBe(store.supplierOrders.filter((item) => item.supplierFulfillment?.status === 'submitted').length)
+    expect(store.loginSupplier('13574902233', '13574902233')).toBe(true)
     expect(store.supplierOrders).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'C-MALL-CSO-B', supplierId: 'S004' })]))
     expect(store.supplierOrders.some((item) => item.supplierId === 'S002')).toBe(false)
+    expect(store.supplierOrderCounts['全部']).toBe(store.supplierOrders.length)
   })
 
   it('allows only the owning supplier role to operate and locks after-sale orders', async () => {
@@ -41,10 +96,10 @@ describe('supplier store interactions', () => {
     expect(store.loginDriver('driver01', '123456')).toBe(true)
     expect(store.acceptOrder(submitted.id)).toBe(false)
     store.logout()
-    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+    expect(store.loginSupplier('13574902233', '13574902233')).toBe(true)
     expect(store.acceptOrder(submitted.id)).toBe(false)
     store.logout()
-    expect(store.loginSupplier('supplier', '123456')).toBe(true)
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
     expect(store.acceptOrder('C-MALL-GUARD')).toBe(false)
     expect(store.shipCourier('C-MALL-GUARD', 'SF-GUARD')).toBe(false)
     expect(store.markCourierDelivered('C-MALL-GUARD')).toBe(false)
@@ -65,7 +120,7 @@ describe('supplier store interactions', () => {
     })
     const store = useSupplierStore()
     await store.initialize(true)
-    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+    expect(store.loginSupplier('13574902233', '13574902233')).toBe(true)
 
     expect(store.visibleDrivers.map((driver) => driver.id)).toEqual(['D-S004'])
     expect(store.activeDrivers.map((driver) => driver.id)).toEqual(['D-S004'])
@@ -84,7 +139,7 @@ describe('supplier store interactions', () => {
     })
     const store = useSupplierStore()
     await store.initialize(true)
-    expect(store.loginSupplier('supplier04', '123456')).toBe(true)
+    expect(store.loginSupplier('13574902233', '13574902233')).toBe(true)
 
     expect(store.updateDriver('D001', { name: '越权修改' })).toBe(false)
     expect(store.resetDriverPassword('D001', 'newpass')).toBe(false)
@@ -134,16 +189,16 @@ describe('supplier store interactions', () => {
   it('F1: logs in as supplier and active driver, rejects disabled driver and wrong password', async () => {
     const store = useSupplierStore()
     await store.initialize()
-    expect(store.loginSupplier('supplier', '123456')).toBe(true)
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
     expect(store.auth.role).toBe('supplier')
     store.logout()
-    expect(store.loginSupplier('supplier', 'bad')).toBe(false)
+    expect(store.loginSupplier('13787366688', 'bad')).toBe(false)
     expect(store.loginDriver('driver01', '123456')).toBe(true)
     expect(store.auth.role).toBe('driver')
     store.logout()
     expect(store.loginDriver('driver01', 'bad')).toBe(false)
     expect(store.loginDriver('no-such', '123456')).toBe(false)
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     store.toggleDriverStatus('D002')
     store.logout()
     expect(store.loginDriver('driver02', '123456')).toBe(false)
@@ -153,7 +208,7 @@ describe('supplier store interactions', () => {
   it('F2: accepts, assigns driver, hands over with shortage, driver sees task and completes', async () => {
     const store = useSupplierStore()
     await store.initialize()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     const submitted = store.orders.find((order) => order.supplierFulfillment?.status === 'submitted')!
     expect(store.acceptOrder(submitted.id)).toBe(true)
     const accepted = store.orders.find((order) => order.id === submitted.id)!
@@ -185,7 +240,7 @@ describe('supplier store interactions', () => {
   it('F3: courier flow ships directly and confirms delivery', async () => {
     const store = useSupplierStore()
     await store.initialize()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     const accepted = store.orders.find((order) => order.supplierFulfillment?.status === 'accepted')!
     expect(store.shipCourier(accepted.id, '')).toBe(false)
     expect(store.shipCourier(accepted.id, 'SF-TEST-01')).toBe(true)
@@ -200,7 +255,7 @@ describe('supplier store interactions', () => {
   it('F5: manages drivers — add, duplicate reject, reset password, reassign visibility', async () => {
     const store = useSupplierStore()
     await store.initialize()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     expect(store.addDriver({ name: '测试司机', phone: '13900001111', account: 'driver09', password: 'abc123' }).ok).toBe(true)
     expect(store.addDriver({ name: '重复', phone: '13900002222', account: 'driver09', password: 'abc123' }).error).toBe('账号已存在')
     expect(store.addDriver({ name: '坏手机', phone: '123', account: 'driver10', password: 'abc123' }).error).toContain('手机号')
@@ -218,7 +273,7 @@ describe('supplier store interactions', () => {
     }
 
     store.logout()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     expect(store.resetDriverPassword('D001', 'newpass')).toBe(true)
     store.logout()
     expect(store.loginDriver('driver01', 'newpass')).toBe(true)
@@ -227,7 +282,7 @@ describe('supplier store interactions', () => {
   it('guards: wrong-state actions return false and batch accept counts', async () => {
     const store = useSupplierStore()
     await store.initialize()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     const submitted = store.orders.filter((order) => order.supplierFulfillment?.status === 'submitted')
     const ids = submitted.map((order) => order.id)
     expect(store.batchAcceptOrders(ids)).toBe(ids.length)
@@ -247,7 +302,7 @@ describe('supplier store interactions', () => {
     const store = useSupplierStore()
     await store.initialize()
     expect(store.metrics.shortageOrderCount).toBe(2)
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
 
     // accept + assign an order -> deliverDate today
     const submitted = store.orders.find((order) => order.supplierFulfillment?.status === 'submitted')!
@@ -267,7 +322,7 @@ describe('supplier store interactions', () => {
 
     // a task dated in the past is excluded from today tasks
     store.logout()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     const assigned = store.orders.find((order) => order.supplierFulfillment?.driverId === 'D001')!
     assigned.supplierFulfillment!.deliverDate = '2000-01-01'
     store.logout()
@@ -276,7 +331,7 @@ describe('supplier store interactions', () => {
 
     // reset demo data -> shortage unhandled again, 3 drivers
     store.logout()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     await store.resetDemoData()
     const resetShort = store.orders.find((order) => (order.supplierFulfillment?.shortages.length || 0) > 0)!
     expect(resetShort.supplierFulfillment?.shortages[0].handled).toBeFalsy()
@@ -342,7 +397,7 @@ describe('supplier store interactions', () => {
   it('seeds incrementally: missing demo orders/drivers merged without overwriting existing data', async () => {
     const store = useSupplierStore()
     await store.initialize()
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
 
     // progress one order (submitted -> accepted) so it diverges from seed
     const submitted = store.orders.find((order) => order.supplierFulfillment?.status === 'submitted')!
@@ -352,7 +407,7 @@ describe('supplier store interactions', () => {
 
     // re-seed (simulates next launch): must NOT overwrite the progressed order, and merges missing demo data
     await store.initialize(true)
-    store.loginSupplier('supplier', '123456')
+    store.loginSupplier('13787366688', '13787366688')
     expect(readPlatformOrders()?.[acceptedId]?.supplierFulfillment?.status).toBe('accepted')
     expect(store.orders.length).toBeGreaterThanOrEqual(18)
     expect(store.drivers.length).toBe(3)
