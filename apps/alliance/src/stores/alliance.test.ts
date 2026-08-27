@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cloneSeed, farms, liveRooms, products, promoters, readPlatformCommissionLedger, readPlatformRoutes, removePlatformRoute, travelRoutes, writePlatformRoute, mergePlatformRoutes, readPlatformPromoterAccountState, upsertUserBinding, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts } from '@agritainment/shared'
+import { cloneSeed, farms, liveRooms, products, promoters, readPlatformCommissionLedger, readPlatformWithdrawals, readPlatformRoutes, removePlatformRoute, travelRoutes, writePlatformRoute, mergePlatformRoutes, readPlatformPromoterAccountState, transitionPlatformWithdrawal, upsertUserBinding, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts } from '@agritainment/shared'
 import { useAllianceStore } from './alliance'
 
 if (!globalThis.localStorage) {
@@ -43,7 +43,10 @@ describe('alliance store interactions', () => {
     writePlatformCommissionLedgerEntry({ id: 'L1', sourceOrderId: 'O1', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
     expect(store.joinRoute('RT01')).toBe(true)
     expect(store.joinRoute('RT01')).toBe(false)
-    expect(store.withdraw(100, '微信钱包', 'WD-001')).toBe('success')
+    expect(store.withdraw(100, '微信钱包', 'WD-001')).toBe('pending')
+    expect(readPlatformWithdrawals()?.['WD-001']?.status).toBe('pending')
+    transitionPlatformWithdrawal('WD-001', 'approved', '运营')
+    store.syncWithdrawals()
     expect(store.commissionEntries[0].type).toBe('withdrawal')
     expect(store.withdrawalRecords[0]).toMatchObject({ amount: 100, method: '微信钱包' })
   })
@@ -76,12 +79,14 @@ writePlatformCommissionLedgerEntry({ id: 'L2', sourceOrderId: 'O2', beneficiaryT
     store.$patch({ promoter: cloneSeed(promoters[0]) })
     writePlatformCommissionLedgerEntry({ id: 'L3', sourceOrderId: 'O3', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
     const before = store.availableCommission
-    expect(store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('success')
+    expect(store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('pending')
     expect(store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('duplicate')
-    expect(Object.values(readPlatformCommissionLedger() || {}).some((item) => item.role === 'withdrawal')).toBe(true)
-    expect(Object.values(readPlatformCommissionLedger() || {}).find((item) => item.role === 'withdrawal')?.beneficiaryId).toBe('T001')
+    expect(readPlatformWithdrawals()?.['WD-SAME']?.status).toBe('pending')
     expect(store.availableCommission).toBe(before - 100)
+    transitionPlatformWithdrawal('WD-SAME', 'approved', '运营')
+    store.syncWithdrawals()
     expect(store.commissionEntries.filter((item) => item.requestKey === 'WD-SAME')).toHaveLength(1)
+    expect(Object.values(readPlatformCommissionLedger() || {}).find((item) => item.role === 'withdrawal')?.beneficiaryId).toBe('T001')
   })
 
   it('filters farms, live rooms and routes by city', () => {

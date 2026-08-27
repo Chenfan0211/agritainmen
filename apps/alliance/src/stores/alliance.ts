@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { AllianceBooking, CommissionEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, PlatformPrincipal, Product, Promoter, PromoterAccount, PromotionRecord, TravelRoute } from '@agritainment/shared'
-import { applyPlatformMedia, authenticatePromoter, buildPortalUrl, buildPromoterAccountSeeds, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, mergePlatformPromoterAccounts, promoters, readPlatformCommissionSettlement, readPlatformPromoterAccountState, readPlatformBookings, readPlatformCommissionLedger, readPlatformPromoterAccounts, readUserBindings, validateSmsCode, writePlatformBooking, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts } from '@agritainment/shared'
+import type { AllianceBooking, CommissionEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, PlatformPrincipal, Product, Promoter, PromoterAccount, PromotionRecord, TravelRoute, WithdrawalRequest } from '@agritainment/shared'
+import { applyPlatformMedia, authenticatePromoter, buildPortalUrl, buildPromoterAccountSeeds, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, mergePlatformPromoterAccounts, promoters, readPlatformCommissionSettlement, readPlatformPromoterAccountState, readPlatformBookings, readPlatformCommissionLedger, readPlatformPromoterAccounts, readPlatformWithdrawals, readUserBindings, validateSmsCode, writePlatformBooking, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts, writePlatformWithdrawal, round2 } from '@agritainment/shared'
 import { allianceRepository } from '../services/repository'
 
 interface FanRecord {
@@ -21,6 +21,7 @@ interface AllianceState {
   loading: boolean
   error: string
   mockScenario: MockScenario
+  withdrawalsTick: number
   city: string
   cityOptions: string[]
   farms: FarmStore[]
@@ -55,6 +56,7 @@ export const useAllianceStore = defineStore('discovery', {
     loading: false,
     error: '',
     mockScenario: 'normal',
+    withdrawalsTick: 0,
     city: '张家界永定区',
     cityOptions: [],
     farms: [],
@@ -115,8 +117,11 @@ export const useAllianceStore = defineStore('discovery', {
     availableCommission: (state) => {
       const touch = state.commissionEntries.length
       const entries = Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && (item.status === 'available' || (item.amount < 0 && item.status !== 'reversed')))
-      return Math.max(0, Math.round(entries.reduce((sum, item) => sum + item.amount, 0) * 100) / 100 + 0 * touch)
+      const gross = Math.round(entries.reduce((sum, item) => sum + item.amount, 0) * 100) / 100 + 0 * touch
+      const pending = Object.values(readPlatformWithdrawals() || {}).filter((item) => item.requesterId === state.promoter?.id && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0)
+      return Math.max(0, round2(gross - pending) + 0 * state.withdrawalsTick)
     },
+    pendingWithdrawalAmount: (state) => Object.values(readPlatformWithdrawals() || {}).filter((item) => item.requesterId === state.promoter?.id && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0) + 0 * state.withdrawalsTick,
     withdrawalRecords: (state) => state.commissionEntries.filter((item) => item.type === 'withdrawal').map((item) => ({ amount: Math.abs(item.amount), method: item.description.replace(/提现$/, ''), createdAt: item.createdAt })),
     liveRanking: (state) => [...state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city))].sort((a, b) => b.livePopularity - a.livePopularity),
     cityFarms: (state) => state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city)),
@@ -172,14 +177,28 @@ export const useAllianceStore = defineStore('discovery', {
       this.joinedRoutes.push(id)
       return true
     },
-    withdraw(amount: number, method: string, requestKey: string) {
-      if (requestKey && (this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === requestKey) || Object.values(readPlatformCommissionLedger() || {}).some((item) => item.role === 'withdrawal' && item.sourceOrderId === requestKey))) return 'duplicate' as const
+withdraw(amount: number, method: string, requestKey: string) {
+      if (requestKey && (this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === requestKey) || Object.values(readPlatformWithdrawals() || {}).some((item) => item.requestKey === requestKey && item.requesterId === this.promoter?.id))) return 'duplicate' as const
       if (!Number.isFinite(amount) || amount <= 0) return 'invalid' as const
       if (amount > this.availableCommission) return 'insufficient' as const
-      const createdAt = new Date().toLocaleString('zh-CN')
-      this.commissionEntries.unshift({ id: createId('CM'), promoterId: this.promoter?.id, type: 'withdrawal', amount: -amount, description: method + '提现', createdAt, status: 'completed', requestKey })
-      writePlatformCommissionLedgerEntry({ id: 'WD-' + (requestKey || createId('WD')), sourceOrderId: requestKey || 'withdrawal', beneficiaryType: 'promoter', beneficiaryId: this.promoter?.id || '', role: 'withdrawal', amount: -amount, status: 'settled', createdAt })
-      return 'success' as const
+      const createdAt = new Date().toISOString()
+      const id = requestKey || createId('WD')
+      writePlatformWithdrawal({ id, requesterType: 'promoter', requesterId: this.promoter?.id || '', amount, method, status: 'pending', requestKey: id, createdAt })
+      this.withdrawalsTick += 1
+      return 'pending' as const
+    },
+    syncWithdrawals() {
+      if (!this.promoter?.id) return
+      for (const req of Object.values(readPlatformWithdrawals() || {})) {
+        if (req.requesterType !== 'promoter' || req.requesterId !== this.promoter.id) continue
+        if (req.status === 'approved' && !this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === req.requestKey)) {
+          const createdAt = req.reviewedAt || req.createdAt
+          this.commissionEntries.unshift({ id: createId('CM'), promoterId: this.promoter.id, type: 'withdrawal', amount: -req.amount, description: req.method + '提现', createdAt, status: 'completed', requestKey: req.requestKey })
+          writePlatformCommissionLedgerEntry({ id: 'WD-' + req.requestKey, sourceOrderId: req.requestKey, beneficiaryType: 'promoter', beneficiaryId: this.promoter.id, role: 'withdrawal', amount: -req.amount, status: 'settled', createdAt })
+        }
+      }
+      this.saveCurrentPromoterSession()
+      this.withdrawalsTick += 1
     },
     watchLive(id: string) {
       const room = this.liveRooms.find((item) => item.id === id)
@@ -294,6 +313,7 @@ export const useAllianceStore = defineStore('discovery', {
         return
       }
       await this.initialize(true)
+      this.syncWithdrawals()
     },
     logout() {
       this.saveCurrentPromoterSession()
