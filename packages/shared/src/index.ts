@@ -1433,6 +1433,14 @@ export function cloneSeed<T>(value: T): T {
 export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100
 }
+export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)) * 10) / 10
+}
 
 export function formatNumber(value: number): string {
   return round2(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
@@ -3827,6 +3835,40 @@ export function writePlatformCommissionLedgerEntry(entry: CommissionLedgerEntry)
   if (!entry?.id || !entry.beneficiaryId) return false
   const ledger = readPlatformCommissionLedger() ?? {}
   return writePlatformJson(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, { ...ledger, [entry.id]: entry })
+}
+export type WithdrawalRequesterType = 'promoter' | 'user'
+export type WithdrawalRequestStatus = 'pending' | 'approved' | 'rejected'
+export interface WithdrawalRequest {
+  id: string
+  requesterType: WithdrawalRequesterType
+  requesterId: string
+  amount: number
+  method: string
+  status: WithdrawalRequestStatus
+  requestKey: string
+  createdAt: string
+  reviewedAt?: string
+  operator?: string
+  reviewedNote?: string
+}
+export const PLATFORM_WITHDRAWALS_STORAGE_KEY = 'agritainment-platform-withdrawals'
+export function readPlatformWithdrawals(): Record<string, WithdrawalRequest> | null {
+  const data = readPlatformJson<Record<string, WithdrawalRequest>>(PLATFORM_WITHDRAWALS_STORAGE_KEY)
+  return data && typeof data === 'object' ? data : null
+}
+export function writePlatformWithdrawal(request: WithdrawalRequest): boolean {
+  if (!request?.id || !request.requesterId || !Number.isFinite(request.amount) || request.amount <= 0) return false
+  const withdrawals = readPlatformWithdrawals() ?? {}
+  return writePlatformJson(PLATFORM_WITHDRAWALS_STORAGE_KEY, { ...withdrawals, [request.id]: request })
+}
+export function transitionPlatformWithdrawal(id: string, status: WithdrawalRequestStatus, operator: string, note?: string): WithdrawalRequest | null {
+  if (status !== 'approved' && status !== 'rejected') return null
+  const withdrawals = readPlatformWithdrawals() ?? {}
+  const current = withdrawals[id]
+  if (!current || current.status !== 'pending') return null
+  const next: WithdrawalRequest = { ...current, status, reviewedAt: new Date().toISOString(), operator, reviewedNote: note?.trim() || undefined }
+  writePlatformJson(PLATFORM_WITHDRAWALS_STORAGE_KEY, { ...withdrawals, [id]: next })
+  return next
 }
 export function readPlatformVoucherOrders(): Record<string, VoucherOrder> | null {
   const data = readPlatformJson<Record<string, VoucherOrder>>(PLATFORM_VOUCHERS_STORAGE_KEY)
