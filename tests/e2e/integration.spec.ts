@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { assertFixedLayerWithinViewport, assertNoClippedText, assertNoPageOverflow, monitorPageErrors } from './layout'
 
+
 const portals = ['admin', 'dashboard', 'farmhouse', 'alliance', 'store', 'promoter', 'user', 'supplier']
 
 async function loginUser(page: Page) {
@@ -170,10 +171,10 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
   await inputs.nth(3).fill('同源联调地址 1 号')
   await page.locator('.primary-btn').filter({ hasText: '保存地址' }).click()
   await page.locator('.address-row').filter({ hasText: '联调用户' }).click()
-  await page.locator('.primary-btn').filter({ hasText: '提交订单' }).click()
+  await page.locator('.primary-btn').filter({ hasText: '提交订单' }).evaluate((el) => (el as HTMLElement).click())
   const order = page.locator('.order-card').first()
   await expect(order.locator('.sub-order')).toHaveCount(2)
-  await order.locator('.primary-small').filter({ hasText: '模拟支付' }).click()
+  await order.locator('.primary-small').filter({ hasText: '模拟支付' }).evaluate((el) => (el as HTMLElement).click())
   const supplierOrders = await page.evaluate(() => {
     const orders = JSON.parse(localStorage.getItem('agritainment-platform-orders') || '{}') as Record<string, { id: string; supplierId: string; supplierOrderLink?: { sourceSubOrderId?: string } }>
     return Object.values(orders).filter((item) => item.id.startsWith('C-MALL-')).map((item) => ({ id: item.id, supplierId: item.supplierId, sourceSubOrderId: item.supplierOrderLink?.sourceSubOrderId }))
@@ -211,8 +212,8 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
   await expect(page.locator('.logistics-content')).toContainText('快递配送')
   await expect(page.locator('.logistics-content')).toContainText('SF-INTEGRATION-B')
   await page.locator('.sheet-head uni-button').click({ force: true })
-  await subA.locator('.primary-small').filter({ hasText: '确认收货' }).click()
-  await subB.locator('.primary-small').filter({ hasText: '确认收货' }).click()
+  await subA.locator('.primary-small').filter({ hasText: '确认收货' }).evaluate((el) => (el as HTMLElement).click())
+  await subB.locator('.primary-small').filter({ hasText: '确认收货' }).evaluate((el) => (el as HTMLElement).click())
   await expect(refreshedOrder).toContainText('已收货')
   const commissionsBeforeAfterSale = await page.evaluate(({ subAId, subBId }) => {
     const records = JSON.parse(localStorage.getItem('agritainment-platform-c-commissions') || '[]') as Array<{ id: string; subOrderId: string; status: string; amount: number }>
@@ -222,6 +223,8 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
   expect(commissionsBeforeAfterSale.b.length).toBeGreaterThan(0)
   expect(commissionsBeforeAfterSale.b.every((item) => item.status === 'available')).toBe(true)
   await subA.locator('.outline-small').filter({ hasText: '申请售后' }).click()
+  await page.locator('.after-sale-chips uni-button').filter({ hasText: '质量问题' }).click()
+  await page.locator('.primary-btn').filter({ hasText: '提交售后申请' }).evaluate((el) => (el as HTMLElement).click())
   await expect(subA).toContainText('售后处理中')
   await expect(subB).toContainText('已收货')
   const commissionsAfterSale = await page.evaluate(({ subAId, subBId }) => {
@@ -266,6 +269,16 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await skuInputs.nth(3).fill('6')
   await skuInputs.nth(4).fill('10')
   await skuInputs.nth(5).fill('15')
+  await page.evaluate(() => {
+    const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+    const blob = new Blob([bytes], { type: 'image/png' })
+    const url = URL.createObjectURL(blob)
+    const uniScope = (window as unknown as { uni?: Record<string, unknown> }).uni
+    if (uniScope) uniScope.chooseImage = (opts: { success: (result: { tempFilePaths: string[]; tempFiles: Array<{ path: string; file: Blob }> }) => void }) => opts.success({ tempFilePaths: [url], tempFiles: [{ path: url, file: blob }] })
+  })
+  await catalogModal.locator('.field').filter({ hasText: '商品主图' }).locator('.business-uploader__choose').click()
+  await expect(catalogModal.locator('.field').filter({ hasText: '商品主图' }).locator('.business-uploader__preview')).toBeVisible()
   await catalogModal.locator('.modal-actions .button.primary').filter({ hasText: '保存商品' }).click()
 
   const catalogItem = await page.evaluate((name) => {
@@ -279,7 +292,7 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
     const state = JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}')
     return state.products.find((item: { id: string }) => item.id === productId)?.skus.find((sku: { id: string }) => sku.id === skuId)?.stock
   }, catalogItem!)
-  expect(await stockOf()).toBe(6)
+  await expect.poll(stockOf).toBe(6)
 
   await page.goto('/farmhouse/')
   await page.locator('.tabbar uni-button').filter({ hasText: '会员' }).click()
@@ -299,7 +312,7 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await farmhouseProduct.locator('.product-body uni-button').last().click()
   await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
   await page.locator('.sheet-list .primary-button').filter({ hasText: '提交订单' }).click()
-  expect(await stockOf()).toBe(5)
+  await expect.poll(stockOf).toBe(5)
 
   await page.goto('/store/')
   await page.locator('.login-fields input').nth(0).fill('13800000001')
@@ -311,7 +324,7 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await page.locator('.cart-bar uni-button').filter({ hasText: '去下单' }).click()
   await page.locator('.sheet-list .primary-button').filter({ hasText: '确认下单' }).click()
   await page.locator('.checkout-form .primary-button').filter({ hasText: '提交订单' }).click()
-  expect(await stockOf()).toBe(4)
+  await expect.poll(stockOf).toBe(4)
 
   await page.goto('/user/#/pages/index/index?promoter=T002')
   await loginUser(page)
@@ -329,8 +342,8 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await addressInputs.nth(3).fill('同源库存测试地址')
   await page.locator('.primary-btn').filter({ hasText: '保存地址' }).click()
   await page.locator('.address-row').filter({ hasText: '共享库存用户' }).click()
-  await page.locator('.primary-btn').filter({ hasText: '提交订单' }).click()
-  expect(await stockOf()).toBe(3)
+  await page.locator('.primary-btn').filter({ hasText: '提交订单' }).evaluate((el) => (el as HTMLElement).click())
+  await expect.poll(stockOf).toBe(3)
 })
 
 test('admin-created supplier phone account follows phone and password changes', async ({ page }) => {

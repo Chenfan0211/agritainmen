@@ -1,14 +1,20 @@
-import { expect, type ConsoleMessage, type Locator, type Page } from '@playwright/test'
+import { expect, type ConsoleMessage, type Locator, type Page, type Response } from '@playwright/test'
 
 export function monitorPageErrors(page: Page) {
   const errors: string[] = []
-  const onConsole = (message: ConsoleMessage) => { if (message.type() === 'error') errors.push(`console.error: ${message.text()}`) }
+  const onConsole = (message: ConsoleMessage) => {
+    if (message.type() === 'error' && !/Failed to load resource: the server responded with a status of 404/i.test(message.text())) errors.push(`console.error: ${message.text()}`)
+  }
+  const onResponse = (response: Response) => {
+    if (response.status() === 404 && !/favicon\.ico$/i.test(response.url())) errors.push(`http 404: ${response.url()}`)
+  }
   const onPageError = (error: Error) => errors.push(`pageerror: ${error.message}`)
   page.on('console', onConsole)
+  page.on('response', onResponse)
   page.on('pageerror', onPageError)
   return {
     assertClean: () => expect(errors, errors.join('\n')).toEqual([]),
-    dispose: () => { page.off('console', onConsole); page.off('pageerror', onPageError) }
+    dispose: () => { page.off('console', onConsole); page.off('response', onResponse); page.off('pageerror', onPageError) }
   }
 }
 
