@@ -474,3 +474,103 @@ test('admin farm changes refresh the production dashboard and keep unresolved st
   await expect(page.locator('.map-legend')).toContainText('未定位 1')
   await adminPage.close()
 })
+
+test('user withdrawal review synchronizes approval and rejection across portals', async ({ page }) => {
+  const userId = 'U-INTEGRATION-WITHDRAW'
+  const openid = 'openid-integration-withdraw'
+  const commissionKey = 'agritainment-platform-c-commissions'
+  const withdrawalKey = 'agritainment-platform-withdrawals'
+  const profileKey = 'agritainment-platform-c-distributors'
+  const linksKey = 'agritainment-platform-user-links'
+
+  await page.goto('/user/#/pages/index/index?promoter=T002')
+  await page.evaluate(({ userId, openid, commissionKey, withdrawalKey, profileKey, linksKey }) => {
+    ;[commissionKey, withdrawalKey, profileKey, linksKey, 'agritainment-mock-openid'].forEach((key) => localStorage.removeItem(key))
+    localStorage.setItem('agritainment-mock-openid', openid)
+    localStorage.setItem(linksKey, JSON.stringify({ [openid]: userId }))
+    localStorage.setItem(profileKey, JSON.stringify({ [userId]: { userId, promoterId: 'T002', level: 'level2', parentPromoterId: 'T001', status: 'active' } }))
+    localStorage.setItem(commissionKey, JSON.stringify([
+      { id: 'CC-INTEGRATION-APPROVE', orderId: 'CO-INTEGRATION-APPROVE', subOrderId: 'CSO-INTEGRATION-APPROVE', beneficiaryId: 'T002', beneficiaryLevel: 'level2', amount: 25, status: 'available', createdAt: '2026-08-01T10:00:00.000Z' },
+      { id: 'CC-INTEGRATION-REJECT', orderId: 'CO-INTEGRATION-REJECT', subOrderId: 'CSO-INTEGRATION-REJECT', beneficiaryId: 'T002', beneficiaryLevel: 'level2', amount: 18, status: 'available', createdAt: '2026-08-02T10:00:00.000Z' }
+    ]))
+  }, { userId, openid, commissionKey, withdrawalKey, profileKey, linksKey })
+  await page.reload()
+  await loginUser(page)
+  await page.evaluate(({ key, userId }) => localStorage.setItem(key, JSON.stringify({
+    'WD-INTEGRATION-APPROVE': { id: 'WD-INTEGRATION-APPROVE', requesterType: 'user', requesterId: userId, amount: 25, method: '微信提现', status: 'pending', requestKey: 'WD-INTEGRATION-APPROVE', createdAt: '2026-08-03T10:00:00.000Z' }
+  })), { key: withdrawalKey, userId })
+  await page.reload()
+  await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
+  await expect(page.locator('.commission-summary')).toContainText('¥43.00')
+  await expect.poll(() => page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key) || '{}')
+    return Object.values(raw).find((item: any) => item.requesterId === 'U-INTEGRATION-WITHDRAW')?.status
+  }, withdrawalKey)).toBe('pending')
+  const approvedRequest = await page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key) || '{}')
+    return Object.values(raw).find((item: any) => item.requesterId === 'U-INTEGRATION-WITHDRAW') as { id: string; amount: number } | undefined
+  }, withdrawalKey)
+  expect(approvedRequest?.amount).toBe(25)
+
+  await page.goto('/admin/')
+  await page.locator('.login-field input').nth(0).fill('admin')
+  await page.locator('.login-field input').nth(1).fill('123456')
+  await page.locator('.login-button').click()
+  await expect(page.locator('.admin-shell')).toBeVisible()
+  await page.locator('.nav-item').filter({ hasText: '佣金结算' }).click()
+  await page.locator('.filter-chips').filter({ hasText: '提现审核' }).getByText('提现审核', { exact: true }).click()
+  const approvedRow = page.locator('.withdrawal-grid').filter({ hasText: userId }).last()
+  await expect(approvedRow).toContainText('¥25')
+  page.once('dialog', (dialog) => dialog.accept())
+  await approvedRow.locator('button').filter({ hasText: '通过' }).click()
+  if (await page.getByText('OK', { exact: true }).count()) await page.getByText('OK', { exact: true }).click()
+  await expect.poll(() => page.evaluate(({ key, id }) => {
+    const raw = JSON.parse(localStorage.getItem(key) || '{}')
+    return Object.values(raw).find((item: any) => item.id === id)?.status
+  }, { key: withdrawalKey, id: approvedRequest?.id })).toBe('approved')
+
+  await page.goto('/user/#/pages/index/index?promoter=T002')
+  await page.reload()
+  await loginUser(page)
+  await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
+  await expect(page.locator('.commission-row').filter({ hasText: '已提现' })).toHaveCount(1)
+  await expect(page.locator('.commission-summary')).toContainText('¥0.00')
+
+  await page.locator('.withdrawal-history').getByText('提现申请').waitFor()
+  await expect(page.locator('.withdrawal-history')).toContainText('已通过')
+  await expect(page.locator('.withdraw-btn')).toHaveCount(0)
+
+  await page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key) || '{}')
+    Object.values(raw).forEach((item: any) => { if (item.requesterId === 'U-INTEGRATION-WITHDRAW') delete raw[item.id] })
+    localStorage.setItem(key, JSON.stringify(raw))
+  }, withdrawalKey)
+  await page.reload()
+  await expect(page.locator('.commission-summary')).toContainText('¥18.00')
+  await page.evaluate((key, userId) => {
+    const raw = JSON.parse(localStorage.getItem(key) || '{}')
+    Object.values(raw).forEach((item: any) => { if (item.requesterId === userId) delete raw[item.id] })
+    raw['WD-INTEGRATION-REJECT'] = { id: 'WD-INTEGRATION-REJECT', requesterType: 'user', requesterId: userId, amount: 18, method: '微信提现', status: 'pending', requestKey: 'WD-INTEGRATION-REJECT', createdAt: '2026-08-04T10:00:00.000Z' }
+    localStorage.setItem(key, JSON.stringify(raw))
+  }, withdrawalKey, userId)
+  await page.reload()
+
+  await page.goto('/admin/')
+  await page.locator('.nav-item').filter({ hasText: '佣金结算' }).click()
+  await page.locator('.filter-chips').filter({ hasText: '提现审核' }).getByText('提现审核', { exact: true }).click()
+  const rejectedRow = page.locator('.withdrawal-grid').filter({ hasText: userId }).last()
+  await rejectedRow.locator('button').filter({ hasText: '驳回' }).click()
+  await page.locator('.modal input[placeholder="请输入驳回原因"]').fill('资料不完整')
+  await page.locator('.modal-actions .button.primary').filter({ hasText: '确认驳回' }).click()
+  await expect.poll(() => page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key) || '{}')
+    return Object.values(raw).find((item: any) => item.requesterId === 'U-INTEGRATION-WITHDRAW' && item.status === 'rejected')?.reviewedNote
+  }, withdrawalKey)).toBe('资料不完整')
+
+  await page.goto('/user/#/pages/index/index?promoter=T002')
+  await page.reload()
+  await loginUser(page)
+  await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
+  await expect(page.locator('.commission-summary')).toContainText('¥18.00')
+  await expect(page.locator('.withdrawal-history')).toContainText('资料不完整')
+})
