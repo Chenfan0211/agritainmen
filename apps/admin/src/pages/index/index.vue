@@ -1953,6 +1953,7 @@ button, uni-button { text-align: center; }
 .commission-status-table{margin-bottom:14px;border:1px solid #dfe3dc;border-radius:8px;overflow:hidden}
 .commission-status-grid{grid-template-columns:1.4fr 1fr 1fr 1fr}
 .withdrawal-table{margin:0 16px 16px;border:1px solid #dfe3dc;border-radius:8px;overflow:auto}.withdrawal-grid{grid-template-columns:1.5fr .8fr 1fr 1.4fr .8fr 1.5fr 1.2fr;min-width:980px}.withdrawal-grid>view strong{display:block}.withdrawal-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:11px}
+.withdrawal-grid .status.approved{background:#eaf5ec;color:#2f7650}
 .commission-status-grid>view strong{display:block}
 .commission-status-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:11px}
 .commission-status-grid .status{justify-self:start}
