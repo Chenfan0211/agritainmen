@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
-import type { BusinessMediaValue, CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, CProduct, CProductSku, CUserLevel, CommissionLedgerEntry, FarmStore, LiveRoom, MockScenario, Product, UserBinding, VoucherOrder } from '@agritainment/shared'
+import type { BusinessMediaValue, CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, CProduct, CProductSku, CUserLevel, CommissionLedgerEntry, FarmStore, LiveRoom, MockScenario, Product, UserBinding, VoucherOrder, WithdrawalRequest } from '@agritainment/shared'
 import {
   abortCatalogTransaction, allocateCCommissions, applyCatalogStockOperation, cPriceForSku, catalogProductToCProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, createId, demoCDistributorProfiles, deriveCOrderStatus, ensureCatalogState, markCatalogTransactionStockApplied, normalizeCAddresses, normalizeCOrders, normalizeCProducts, prepareCatalogTransaction, promoters, readCAddresses, readCCommissionRecords, readCatalogState, readCOrders, readCUserSession, readCDistributorProfiles, readPendingCatalogTransactions, round2,
-  confirmCSubOrderReceiptAtSupplier, markCSubOrderAfterSaleAtSupplier, readPlatformOrders, readUserBindings, resolveCReferralChain, resolveUserIdentity, simulateWechatLogin, splitCOrderItems, syncCSubOrderFromSupplier, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCOrder, writeCOrders, writeCUserSession, publishCSubOrderToSupplier, migrateLegacyCommissionsToLedger, readPlatformVoucherOrders, writePlatformAfterSale, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformVoucherOrder
+  confirmCSubOrderReceiptAtSupplier, markCSubOrderAfterSaleAtSupplier, readPlatformOrders, readPlatformWithdrawals, readUserBindings, resolveCReferralChain, resolveUserIdentity, simulateWechatLogin, splitCOrderItems, syncCSubOrderFromSupplier, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCOrder, writeCOrders, writeCUserSession, publishCSubOrderToSupplier, migrateLegacyCommissionsToLedger, readPlatformVoucherOrders, writePlatformAfterSale, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformVoucherOrder, writePlatformWithdrawal
 } from '@agritainment/shared'
 import { seedDemoUserOrders } from '../data/demo-orders'
 import { readLivePackageProjection, readLiveRoomProjection, userRepository } from '../services/repository'
@@ -18,6 +18,8 @@ interface UserVoucherCatalogTransactionPayload {
   voucherOrder: VoucherOrder
   commissionEntry?: CommissionLedgerEntry
 }
+
+type CommissionWithWithdrawalKeys = CCommissionAllocation & { withdrawalRequestKeys?: string[] }
 
 function saleableLiveFarms(state: Pick<UserState, 'farms' | 'liveRooms' | 'products'>, liveId: string) {
   const live = state.liveRooms.find((item) => item.id === liveId)
@@ -56,6 +58,7 @@ function publishUserAfterSaleCase(order: COrder, sub: COrder['subOrders'][number
 interface UserState {
   initialized: boolean
   loading: boolean
+  withdrawalsTick: number
   error: string
   mockScenario: MockScenario
   farms: FarmStore[]
@@ -156,7 +159,7 @@ function syncPersistedFulfillment(orders: Record<string, COrder>): Record<string
 
 export const useUserStore = defineStore('user', {
   state: (): UserState => ({
-    initialized: false, loading: false, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, liveRooms: [], liveId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
+    initialized: false, loading: false, withdrawalsTick: 0, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, liveRooms: [], liveId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
     cart: [], orders: [], addresses: [], commissionRecords: [], auth: { isLoggedIn: false, openid: '' }, checkoutError: '', entryChecked: false, entryRestricted: false
   }),
   getters: {
@@ -186,7 +189,15 @@ export const useUserStore = defineStore('user', {
       const beneficiaryId = profile?.status === 'active' ? profile.promoterId : undefined
       return state.commissionRecords.filter((item) => item.beneficiaryId === beneficiaryId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     },
-    availableCommission(): number { return Math.round(this.myCommissionRecords.filter((item) => item.status === 'available').reduce((sum, item) => sum + item.amount, 0) * 100) / 100 },
+    withdrawalRequests: (state): WithdrawalRequest[] => {
+      void state.withdrawalsTick
+      return Object.values(readPlatformWithdrawals() || {}).filter((item) => item.requesterType === 'user' && item.requesterId === state.userId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    },
+    availableCommission(): number {
+      const available = this.myCommissionRecords.filter((item) => item.status === 'available').reduce((sum, item) => sum + item.amount, 0)
+      const pending = this.withdrawalRequests.filter((item) => item.status === 'pending').reduce((sum, item) => sum + item.amount, 0)
+      return Math.max(0, round2(available - pending))
+    },
     pendingCommission(): number { return Math.round(this.myCommissionRecords.filter((item) => item.status === 'pending').reduce((sum, item) => sum + item.amount, 0) * 100) / 100 }
   },
   actions: {
@@ -257,6 +268,7 @@ export const useUserStore = defineStore('user', {
         if (this.userId && this.mockScenario === 'normal' && !this.orders.length && seedDemoUserOrders(this.userId)) {
           this.orders = Object.values(readCOrders() || {}).filter((item) => item.userId === this.userId)
         }
+        if (this.userId) this.syncWithdrawals()
       } catch (error) { this.error = error instanceof Error ? error.message : '数据加载失败' } finally { this.loading = false }
     },
     applyLaunch(query: Record<string, string | undefined>) {
@@ -292,6 +304,7 @@ export const useUserStore = defineStore('user', {
       this.orders = this.userId ? Object.values(synced).filter((item) => item.userId === this.userId) : []
       this.addresses = this.userId ? Object.values(addresses).filter((item) => item.userId === this.userId) : []
       this.commissionRecords = this.userId ? readCCommissionRecords() || [] : []
+      if (this.userId) this.syncWithdrawals()
       if (this.userId) this.restoreSession()
       return this.orders
     },
@@ -508,18 +521,63 @@ export const useUserStore = defineStore('user', {
       if (confirmedSupplierOrder) writePlatformOrder(confirmedSupplierOrder)
       return true
     },
-    withdrawCommission() {
-      const ids = new Set(this.myCommissionRecords.filter((item) => item.status === 'available').map((item) => item.id))
-      if (!ids.size) return false
-      this.commissionRecords = this.commissionRecords.map((item) => ids.has(item.id) ? { ...item, status: 'withdrawn' as const } : item)
-      this.orders.forEach((order) => {
-        if (!order.commissionAllocations.some((item) => ids.has(item.id))) return
-        order.commissionAllocations.forEach((item) => { if (ids.has(item.id)) item.status = 'withdrawn' })
-        writeCOrder(order)
-      })
-      const records = persistCommissionChanges(this.commissionRecords.filter((item) => ids.has(item.id)))
-      if (!records) return false
+    withdrawCommission(method = '微信提现') {
+      if (!this.userId) return 'invalid' as const
+      if (this.withdrawalRequests.some((item) => item.status === 'pending')) return 'duplicate' as const
+      const amount = round2(this.availableCommission)
+      if (!Number.isFinite(amount) || amount <= 0) return 'invalid' as const
+      const id = createId('WD-USER')
+      const request: WithdrawalRequest = { id, requesterType: 'user', requesterId: this.userId, amount, method, status: 'pending', requestKey: id, createdAt: nowString() }
+      if (!writePlatformWithdrawal(request)) return false
+      this.withdrawalsTick += 1
+      return 'pending' as const
+    },
+    syncWithdrawals() {
+      if (!this.userId) return false
+      this.withdrawalsTick += 1
+      const requests = this.withdrawalRequests.filter((item) => item.status === 'approved').sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      let records = [...this.commissionRecords]
+      let changed = false
+      for (const request of requests) {
+        const marked = records.some((item) => (item as CommissionWithWithdrawalKeys).withdrawalRequestKeys?.includes(request.requestKey))
+        if (marked) continue
+        const available = records.filter((item) => item.beneficiaryId === (readCDistributorProfiles()?.[this.userId]?.promoterId || '') && item.status === 'available').sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        const total = round2(available.reduce((sum, item) => sum + item.amount, 0))
+        if (total < request.amount) { this.error = `提现 ${request.id} 的可用佣金不足`; continue }
+        let remaining = request.amount
+        const additions: CommissionWithWithdrawalKeys[] = []
+        for (const item of available) {
+          if (remaining <= 0) break
+          const current = records.find((candidate) => candidate.id === item.id) as CommissionWithWithdrawalKeys | undefined
+          if (!current) continue
+          const consume = Math.min(current.amount, remaining)
+          if (consume >= current.amount) {
+            current.status = 'withdrawn'
+            current.withdrawalRequestKeys = [...(current.withdrawalRequestKeys || []), request.requestKey]
+          } else {
+            current.amount = round2(current.amount - consume)
+            const withdrawn: CommissionWithWithdrawalKeys = { ...current, id: `${current.id}:withdrawn:${request.requestKey}`, amount: round2(consume), status: 'withdrawn', withdrawalRequestKeys: [request.requestKey] }
+            additions.push(withdrawn)
+          }
+          remaining = round2(remaining - consume)
+        }
+        records.push(...additions)
+        changed = true
+      }
+      if (!changed) return false
+      if (!writeCCommissionRecords(records)) return false
       this.commissionRecords = records
+      this.withdrawalsTick += 1
+      this.orders.forEach((order) => {
+        let orderChanged = false
+        const allocations = [...order.commissionAllocations]
+        records.filter((item) => item.orderId === order.id).forEach((record) => {
+          const index = allocations.findIndex((item) => item.id === record.id)
+          if (index >= 0) { allocations[index] = { ...record }; orderChanged = true }
+          else if (record.status === 'withdrawn') { allocations.push({ ...record }); orderChanged = true }
+        })
+        if (orderChanged) { order.commissionAllocations = allocations; writeCOrder(order) }
+      })
       return true
     },
     cancelOrder(id: string) {

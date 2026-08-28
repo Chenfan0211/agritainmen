@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { CatalogProduct, CUserLevel } from '@agritainment/shared'
-import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, acceptSupplierOrder, catalogProductToProduct, demoCDistributorProfiles, normalizeMediaReference, readCAddresses, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPendingCatalogTransactions, readPlatformCommissionLedger, readPlatformAfterSales, readPlatformOrders, readPlatformVoucherOrders, readStoreCatalogSelectionState, readUserBindings, saveStoreCatalogSelection, shipSupplierCourier, todayString, updateCatalogStock, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCDistributorProfiles, writeCUserSession, writeCatalogState, writePlatformLive, writePlatformOrder } from '@agritainment/shared'
+import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, acceptSupplierOrder, catalogProductToProduct, demoCDistributorProfiles, normalizeMediaReference, readCAddresses, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPendingCatalogTransactions, readPlatformCommissionLedger, readPlatformAfterSales, readPlatformOrders, readPlatformVoucherOrders, readPlatformWithdrawals, readStoreCatalogSelectionState, readUserBindings, saveStoreCatalogSelection, shipSupplierCourier, todayString, transitionPlatformWithdrawal, updateCatalogStock, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCDistributorProfiles, writeCUserSession, writeCatalogState, writePlatformLive, writePlatformOrder, writePlatformWithdrawal } from '@agritainment/shared'
 import { useUserStore } from './user'
 
 if (!globalThis.localStorage) {
@@ -410,7 +410,10 @@ describe('C端商城 user store', () => {
     expect(shippedOrder.status).toBe('received')
     expect(shippedOrder.commissionAllocations.every((item) => item.status === 'available')).toBe(true)
     store.$patch({ userId: 'U-DEMO-L2', auth: { isLoggedIn: true, openid: 'openid-level2' } })
-    expect(store.withdrawCommission()).toBe(true)
+    expect(store.withdrawCommission()).toBe('pending')
+    const withdrawal = Object.values(readPlatformWithdrawals() || {}).find((item) => item.requesterId === 'U-DEMO-L2')!
+    expect(transitionPlatformWithdrawal(withdrawal.id, 'approved', 'admin')).toMatchObject({ status: 'approved' })
+    store.syncWithdrawals()
     expect(store.availableCommission).toBe(0)
     expect(store.requestSubOrderAfterSale(orderId, subOrderId)).toBe(true)
     const afterSaleOrder = store.orders.find((item) => item.id === orderId)!
@@ -720,7 +723,10 @@ describe('C端商城 user store', () => {
     }
     writeCDistributorProfiles(demoCDistributorProfiles)
     store.$patch({ userId: 'U-DEMO-L2', auth: { isLoggedIn: true, openid: 'openid-level2' } })
-    expect(store.withdrawCommission()).toBe(true)
+    expect(store.withdrawCommission()).toBe('pending')
+    const withdrawal = Object.values(readPlatformWithdrawals() || {}).find((item) => item.requesterId === 'U-DEMO-L2')!
+    expect(transitionPlatformWithdrawal(withdrawal.id, 'approved', 'admin')).toMatchObject({ status: 'approved' })
+    store.syncWithdrawals()
     const target = order.subOrders[0]
     const other = order.subOrders[1]
     expect(store.requestSubOrderAfterSale(order.id, target.id)).toBe(true)
@@ -748,6 +754,43 @@ describe('C端商城 user store', () => {
 
     expect(store.confirmSubOrderReceipt(order.id, sub.id)).toBe(true)
     expect(readCCommissionRecords()).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'CC-EXTERNAL' })]))
+  })
+
+  it('creates a pending user withdrawal, deducts it from available balance, and consumes approval idempotently', () => {
+    writeCDistributorProfiles({ 'U-WITHDRAW': { userId: 'U-WITHDRAW', promoterId: 'T002', level: 'level2', parentPromoterId: 'T001', status: 'active' } })
+    writeCCommissionRecords([{ id: 'CC-WITHDRAW', orderId: 'CO-WITHDRAW', subOrderId: 'CSO-WITHDRAW', beneficiaryId: 'T002', beneficiaryLevel: 'level2', amount: 25, status: 'available', createdAt: '2026-08-01T10:00:00.000Z' }])
+    const store = useUserStore()
+    store.$patch({ userId: 'U-WITHDRAW', auth: { isLoggedIn: true, openid: 'openid-withdraw' }, commissionRecords: readCCommissionRecords() || [] })
+
+    expect(store.withdrawCommission('微信提现')).toBe('pending')
+    const request = Object.values(readPlatformWithdrawals() || {}).find((item) => item.requesterId === 'U-WITHDRAW')
+    expect(request).toMatchObject({ requesterType: 'user', requesterId: 'U-WITHDRAW', amount: 25, method: '微信提现', status: 'pending' })
+    expect(store.withdrawalRequests).toHaveLength(1)
+    expect(store.myCommissionRecords[0].status).toBe('available')
+    expect(store.availableCommission).toBe(0)
+    expect(store.withdrawCommission('微信提现')).toBe('duplicate')
+
+    expect(request && transitionPlatformWithdrawal(request.id, 'approved', 'admin')).toMatchObject({ status: 'approved' })
+    store.syncWithdrawals()
+    expect(store.myCommissionRecords[0].status).toBe('withdrawn')
+    expect(store.availableCommission).toBe(0)
+    const recordCount = store.myCommissionRecords.length
+    store.syncWithdrawals()
+    expect(store.myCommissionRecords).toHaveLength(recordCount)
+  })
+
+  it('keeps available commission and restores balance when a withdrawal is rejected', () => {
+    writeCDistributorProfiles({ 'U-WITHDRAW-REJECT': { userId: 'U-WITHDRAW-REJECT', promoterId: 'T002', level: 'level2', parentPromoterId: 'T001', status: 'active' } })
+    writeCCommissionRecords([{ id: 'CC-WITHDRAW-REJECT', orderId: 'CO-WITHDRAW-REJECT', subOrderId: 'CSO-WITHDRAW-REJECT', beneficiaryId: 'T002', beneficiaryLevel: 'level2', amount: 18, status: 'available', createdAt: '2026-08-02T10:00:00.000Z' }])
+    const store = useUserStore()
+    store.$patch({ userId: 'U-WITHDRAW-REJECT', auth: { isLoggedIn: true, openid: 'openid-withdraw-reject' }, commissionRecords: readCCommissionRecords() || [] })
+
+    expect(store.withdrawCommission()).toBe('pending')
+    const request = Object.values(readPlatformWithdrawals() || {}).find((item) => item.requesterId === 'U-WITHDRAW-REJECT')
+    expect(request && transitionPlatformWithdrawal(request.id, 'rejected', 'admin', '资料不完整')).toMatchObject({ status: 'rejected', reviewedNote: '资料不完整' })
+    store.syncWithdrawals()
+    expect(store.myCommissionRecords[0].status).toBe('available')
+    expect(store.availableCommission).toBe(18)
   })
   it('buys a live package voucher and writes a pending promoter commission', async () => {
     const pkg = catalogProduct('PKG-LIVE', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })

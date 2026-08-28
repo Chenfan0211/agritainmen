@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import type { BusinessMediaValue, CAddress, COrder, CProduct, CProductSku, CSubOrder, Product } from '@agritainment/shared'
-import { PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, displayProductTags, installKeyboardButtonSupport, money, resolveProductChannels, subscribePlatformChanges } from '@agritainment/shared'
+import { PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, displayProductTags, installKeyboardButtonSupport, money, resolveProductChannels, subscribePlatformChanges } from '@agritainment/shared'
 import { BusinessImage, ImageUploader } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import { LIVE_VIDEO_POSTER, LIVE_VIDEO_URL } from '../../config/live'
@@ -44,6 +44,7 @@ const featuredLive = computed(() => store.availableLives.find((item) => item.id 
 const orderStatusLabel = (status: COrder['status']) => ({ pending_payment: '待支付', paid: '备货中', shipped: '已发货', received: '已收货', cancelled: '已取消', after_sale: '售后处理中', partially_shipped: '部分发货', partially_received: '部分收货', partially_after_sale: '部分售后' }[status])
 const subStatusLabel = (status: COrder['subOrders'][number]['status']) => orderStatusLabel(status)
 const formatDate = (value: string) => value.replace('T', ' ').slice(0, 16)
+const withdrawalStatusLabel = (status: 'pending' | 'approved' | 'rejected') => ({ pending: '处理中', approved: '已通过', rejected: '已驳回' }[status])
 
 function toast(title: string) { uni.showToast({ title, icon: 'none' }) }
 
@@ -141,7 +142,10 @@ function confirmAfterSale() {
   toast(status === 'paid' ? '已提交售后，库存已释放，待结算佣金已撤销' : status === 'shipped' ? '已提交售后，库存不再恢复' : '已提交售后，佣金已冲正')
 }
 function openLogistics(sub: CSubOrder) { selectedSubOrder.value = sub; sheet.value = 'logistics' }
-function withdrawCommission() { store.withdrawCommission() ? toast('模拟提现已提交') : toast('暂无可提现佣金') }
+function withdrawCommission() {
+  const result = store.withdrawCommission('微信提现')
+  toast(result === 'pending' ? '提现申请已提交' : result === 'duplicate' ? '已有提现申请处理中' : result === 'invalid' ? '暂无可提现佣金' : '提现申请失败')
+}
 
 async function logout() {
   store.logout()
@@ -173,7 +177,7 @@ onMounted(async () => {
   store.applyLaunch(launchQuery)
   await store.initialize()
   if (typeof window !== 'undefined') {
-    const keys = new Set([PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, 'agritainment-platform-c-orders', 'agritainment-platform-c-addresses', 'agritainment-platform-c-commissions', 'agritainment-platform-orders'])
+    const keys = new Set([PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, 'agritainment-platform-c-orders', 'agritainment-platform-c-addresses', 'agritainment-platform-c-commissions', 'agritainment-platform-orders'])
     const onStorage = (event: StorageEvent) => { if (!event.key || keys.has(event.key)) store.refreshSharedState() }
     window.addEventListener('storage', onStorage)
     const unsubscribePlatformChanges = subscribePlatformChanges(() => store.refreshSharedState(), [...keys])
@@ -253,9 +257,10 @@ onBeforeUnmount(() => { disposeStorageSync?.(); disposeStorageSync = null })
         <view class="profile-panel"><view class="avatar">{{ roleLabel.slice(0, 1) }}</view><view class="profile-main"><text class="profile-role">{{ roleLabel }}</text><text class="profile-id">用户 {{ store.userId || '演示用户' }}</text></view><text class="profile-state">已登录</text></view>
         <view class="commission-summary"><view><small class="meta-text">待结算佣金</small><strong class="strong-text">¥{{ store.pendingCommission.toFixed(2) }}</strong></view><view><small class="meta-text">可用佣金</small><strong class="strong-text">¥{{ store.availableCommission.toFixed(2) }}</strong><button v-if="store.availableCommission > 0" class="withdraw-btn" @click="withdrawCommission">模拟提现</button></view></view>
         <view class="referral-panel"><view><text>{{ store.level === 'normal' ? '推荐关系' : '我的上级' }}</text><small class="meta-text">{{ store.level === 'normal' ? (store.referralPromoterId ? `已绑定推荐人 ${store.referralPromoterId}` : '暂无有效推荐关系') : (store.currentDistributor?.parentPromoterId ? `一级分销商 ${store.currentDistributor.parentPromoterId}` : '平台直营分销商') }}</small></view><UiIcon name="chevron-right" :size="16" /></view>
-        <view class="section-line"><text>佣金明细</text><small class="meta-text">{{ store.myCommissionRecords.length }} 笔</small></view>
-        <view v-if="!store.myCommissionRecords.length" class="empty-block compact">确认收货后，分销佣金会在这里显示</view>
-        <view v-for="record in store.myCommissionRecords" :key="record.id" class="commission-row"><view><text>{{ record.beneficiaryLevel === 'level1' ? '一级分佣' : '二级分佣' }}</text><small class="meta-text">{{ formatDate(record.createdAt) }} · {{ record.status === 'available' ? '可用' : record.status === 'pending' ? '待结算' : record.status === 'withdrawn' ? '已提现' : '已冲正' }}</small></view><strong class="strong-text" :class="{ reversed: record.status === 'reversed' }">{{ record.amount < 0 ? '' : '+' }}¥{{ record.amount.toFixed(2) }}</strong></view>
+         <view class="section-line"><text>佣金明细</text><small class="meta-text">{{ store.myCommissionRecords.length }} 笔</small></view>
+         <view v-if="!store.myCommissionRecords.length" class="empty-block compact">确认收货后，分销佣金会在这里显示</view>
+         <view v-for="record in store.myCommissionRecords" :key="record.id" class="commission-row"><view><text>{{ record.beneficiaryLevel === 'level1' ? '一级分佣' : '二级分佣' }}</text><small class="meta-text">{{ formatDate(record.createdAt) }} · {{ record.status === 'available' ? '可用' : record.status === 'pending' ? '待结算' : record.status === 'withdrawn' ? '已提现' : '已冲正' }}</small></view><strong class="strong-text" :class="{ reversed: record.status === 'reversed' }">{{ record.amount < 0 ? '' : '+' }}¥{{ record.amount.toFixed(2) }}</strong></view>
+         <view v-if="store.withdrawalRequests.length" class="withdrawal-history"><view class="section-line"><text>提现申请</text><small class="meta-text">{{ store.withdrawalRequests.length }} 笔</small></view><view v-for="request in store.withdrawalRequests" :key="request.id" class="commission-row"><view><text>{{ request.method }} · {{ withdrawalStatusLabel(request.status) }}</text><small class="meta-text">{{ formatDate(request.createdAt) }}<text v-if="request.reviewedNote"> · {{ request.reviewedNote }}</text></small></view><strong class="strong-text">¥{{ request.amount.toFixed(2) }}</strong></view></view>
         <view class="settings-list"><view @click="openAddressManager(false)"><UiIcon name="map-pin" :size="17" /><text>收货地址</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region : '未设置' }}</small><UiIcon name="chevron-right" :size="15" /></view><view class="live-entry" @click="openLive"><UiIcon name="play" :size="17" /><text>直播/推客活动</text><small class="meta-text">进入活动专区</small><UiIcon name="chevron-right" :size="15" /></view><view @click="logout"><UiIcon name="door-open" :size="17" /><text>退出登录</text><small class="meta-text"></small><UiIcon name="chevron-right" :size="15" /></view></view>
       </view>
 
