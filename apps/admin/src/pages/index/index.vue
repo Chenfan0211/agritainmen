@@ -2,8 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import type { ECharts } from 'echarts'
-import type { TravelRoute, AfterSale, AfterSaleStatus, BusinessMediaValue, CatalogProduct, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, MediaReference, Order, OrderFlowEvent, OrderItem, OrderStatus, PlatformDictionaryState, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier } from '@agritainment/shared'
-import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, pendingShareAmount, readShareConfig, readShareRecords, round2, subscribePlatformChanges, toCsv, validatePricePolicy, writeShareConfig } from '@agritainment/shared'
+import type { TravelRoute, AfterSale, AfterSaleStatus, BusinessMediaValue, CatalogProduct, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, MediaReference, Order, OrderFlowEvent, OrderItem, OrderStatus, PlatformDictionaryState, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier, WithdrawalRequest } from '@agritainment/shared'
+import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, pendingShareAmount, readPlatformWithdrawals, readShareConfig, readShareRecords, round2, subscribePlatformChanges, toCsv, transitionPlatformWithdrawal, validatePricePolicy, writeShareConfig } from '@agritainment/shared'
 import { BusinessImage, ImageUploader, getMediaRuntime } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
@@ -45,7 +45,7 @@ const active = ref<ModuleKey>('dashboard')
 const keyword = ref('')
 const page = ref(1)
 const pageSize = 20
-const dialog = ref<'supplier' | 'supplier-edit' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'route' | 'route-edit' | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
+const dialog = ref<'supplier' | 'supplier-edit' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'route' | 'route-edit' | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'withdrawal-reject' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
 type DetailType = 'todos' | 'supplier' | 'order' | 'afterSale' | 'farm' | 'route'
 type TierFormRow = { minQty: number; maxQty: number | null | ''; price: number; discountOff: number }
 const detail = ref<{ type: DetailType; id?: string } | null>(null)
@@ -78,6 +78,12 @@ const commissionTab = ref('佣金结算')
 const commissionKeyword = ref('')
 const commissionStatusFilter = ref('全部')
 const commissionHistoryPage = ref(1)
+const withdrawalStatusFilter = ref('全部')
+const withdrawalKeyword = ref('')
+const withdrawalVersion = ref(0)
+const withdrawalRejectId = ref('')
+const withdrawalNote = ref('')
+const withdrawalStatusOptions: SearchableSelectOption[] = [{ label: '全部', value: '全部' }, { label: '待审核', value: 'pending' }, { label: '已通过', value: 'approved' }, { label: '已驳回', value: 'rejected' }]
 const supplierSettleKeyword = ref('')
 const ruleKeyword = ref('')
 const categoryKeyword = ref('')
@@ -291,6 +297,27 @@ const filteredPromoterCommissionRows = computed(() => {
   })
 })
 const pagedPromoterCommissionRows = computed(() => filteredPromoterCommissionRows.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+const filteredWithdrawals = computed<WithdrawalRequest[]>(() => {
+  withdrawalVersion.value
+  const q = withdrawalKeyword.value.trim().toLowerCase()
+  return Object.values(readPlatformWithdrawals() || {}).filter((item) => {
+    const matchesKeyword = !q || `${item.id}${item.requesterType}${item.requesterId}${item.amount}${item.method}${item.reviewedNote || ''}`.toLowerCase().includes(q)
+    const matchesStatus = withdrawalStatusFilter.value === '全部' || item.status === withdrawalStatusFilter.value
+    return matchesKeyword && matchesStatus
+  }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+})
+function withdrawalStatusText(status: WithdrawalRequest['status']) { return status === 'pending' ? '待审核' : status === 'approved' ? '已通过' : '已驳回' }
+function approveWithdrawal(id: string) {
+  const result = transitionPlatformWithdrawal(id, 'approved', 'admin')
+  if (!result) return showToast('该提现申请已处理或不存在')
+  withdrawalVersion.value++
+  showToast('提现申请已通过')
+}
+function openWithdrawalReject(id: string) {
+  withdrawalRejectId.value = id
+  withdrawalNote.value = ''
+  dialog.value = 'withdrawal-reject'
+}
 const pagedSupplierSettlementRecords = computed(() => filteredSupplierRecords.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 function settlementLabel(record: (typeof settlementRecords.value)[number]) {
   return record.kind === 'supplier'
@@ -1067,6 +1094,11 @@ async function saveDialog() {
     else saved = store.updatePromoter(form.value.id, { name: form.value.name, level: form.value.level, type: form.value.promoterType, status: form.value.promoterStatus })
   }
   if (dialog.value === 'commission') saved = store.updateCommissionRule(form.value.id, Number(form.value.rate), true)
+  if (dialog.value === 'withdrawal-reject') {
+    const result = transitionPlatformWithdrawal(withdrawalRejectId.value, 'rejected', 'admin', withdrawalNote.value)
+    saved = Boolean(result)
+    if (saved) { withdrawalVersion.value++; withdrawalRejectId.value = ''; withdrawalNote.value = '' }
+  }
   busy.value = false
   if (!saved) return showToast(errorMessage || '请检查必填项和数值范围')
   dialog.value = null
@@ -1264,7 +1296,7 @@ watch(trendRange, async () => { if (active.value === 'dashboard') { await nextTi
 watch([() => store.loading, () => store.auth.isLoggedIn], async () => { if (!store.loading && store.auth.isLoggedIn) { await nextTick(); renderCharts() } })
 watch(keyword, () => { page.value = 1 })
 watch([productKeyword, productSourceFilter, productCategoryFilter, productStatusFilter, productChannelFilter], () => { page.value = 1 })
-watch([supplierKeyword, supplierStatusFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, afterTypeFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, ruleKeyword, dictKeyword, farmAccountFilter, afterReasonFilter], () => { page.value = 1; commissionHistoryPage.value = 1 })
+watch([supplierKeyword, supplierStatusFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, afterTypeFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, ruleKeyword, dictKeyword, farmAccountFilter, afterReasonFilter, withdrawalKeyword, withdrawalStatusFilter], () => { page.value = 1; commissionHistoryPage.value = 1 })
 watch(orderStatusFilter, () => { page.value = 1; selectedOrderIds.value = [] })
 const loginAccount = ref('admin')
 const loginPassword = ref('123456')
@@ -1292,7 +1324,7 @@ onMounted(async () => {
   disposeKeyboardButtons = installKeyboardButtonSupport()
   window.addEventListener('resize', resizeCharts)
   const storageKeys = new Set([PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY])
-  const onStorage = (event: StorageEvent) => { if (!event.key || storageKeys.has(event.key)) void store.refreshSharedState() }
+  const onStorage = (event: StorageEvent) => { if (event.key === PLATFORM_WITHDRAWALS_STORAGE_KEY) withdrawalVersion.value++; else if (!event.key || storageKeys.has(event.key)) void store.refreshSharedState() }
   window.addEventListener('storage', onStorage)
   disposeStorageSync = () => window.removeEventListener('storage', onStorage)
 })
@@ -1562,7 +1594,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'commissions'" class="data-panel">
-          <view class="filter-chips solid"><button v-for="item in ['佣金结算','供应商结算','佣金规则','消费分成']" :key="item" :class="{ active: commissionTab === item }" @click="commissionTab = item; page = 1">{{ item }}</button></view>
+          <view class="filter-chips solid"><button v-for="item in ['佣金结算','提现审核','供应商结算','佣金规则','消费分成']" :key="item" :class="{ active: commissionTab === item }" @click="commissionTab = item; page = 1">{{ item }}</button></view>
           <template v-if="commissionTab === '佣金结算'">
             <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" size="medium" search-placeholder="搜索结算状态" /></view>
             <view class="commission-status-table">
@@ -1581,6 +1613,17 @@ onBeforeUnmount(() => {
               <view v-if="!filteredCommissionRecords.length" class="empty-state">暂无佣金流水</view>
               <view v-for="record in pagedCommissionRecords" :key="record.id" class="history-row"><strong>{{ record.id }} · {{ money(record.amount) }}</strong><small>佣金结算 · {{ record.items.length }} 位推客 · {{ record.createdAt }}</small><view class="history-items"><view v-for="item in record.items" :key="item.promoterId"><span>{{ item.promoterName }}</span><small>{{ item.promoterId }}</small><b>{{ money(item.amount) }}</b></view></view></view>
               <PaginationBar :page="commissionHistoryPage" :page-size="pageSize" :total="filteredCommissionRecords.length" @change="commissionHistoryPage = $event" />
+            </view>
+          </template>
+          <template v-else-if="commissionTab === '提现审核'">
+            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="withdrawalKeyword" placeholder="搜索申请人 / 提现单号 / 方式" /></label><SearchableSelect v-model="withdrawalStatusFilter" :options="withdrawalStatusOptions" size="medium" search-placeholder="筛选状态" /></view>
+            <view class="withdrawal-table">
+              <view class="table-row table-head withdrawal-grid"><text>申请人</text><text>金额</text><text>方式</text><text>申请时间</text><text>状态</text><text>备注</text><text>操作</text></view>
+              <view v-for="item in filteredWithdrawals" :key="item.id" class="table-row withdrawal-grid">
+                <view><strong>{{ item.requesterType === 'user' ? '用户' : '推客' }} · {{ item.requesterId }}</strong><small>{{ item.id }}</small></view><strong>{{ money(item.amount) }}</strong><text>{{ item.method }}</text><text>{{ item.createdAt }}</text><span class="status" :class="item.status">{{ withdrawalStatusText(item.status) }}</span><text>{{ item.reviewedNote || '—' }}</text>
+                <view class="row-actions"><template v-if="item.status === 'pending'"><button @click="confirmAction('确认通过该提现申请？', () => approveWithdrawal(item.id))">通过</button><button class="danger" @click="openWithdrawalReject(item.id)">驳回</button></template><text v-else>—</text></view>
+              </view>
+              <view v-if="!filteredWithdrawals.length" class="empty-state">暂无提现申请</view>
             </view>
           </template>
           <template v-else-if="commissionTab === '供应商结算'">
@@ -1630,7 +1673,8 @@ onBeforeUnmount(() => {
 
      <view v-if="dialog" class="modal-mask" @click.self="closeOverlay">
        <view class="modal" role="dialog" aria-modal="true" @keydown="trapFocus">
-         <view class="modal-head"><view><h2>{{ dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'route' ? '新增旅游线路' : dialog === 'route-edit' ? '编辑旅游线路' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>保存后立即写入本地演示数据</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
+         <view class="modal-head"><view><h2>{{ dialog === 'withdrawal-reject' ? '驳回提现申请' : dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'route' ? '新增旅游线路' : dialog === 'route-edit' ? '编辑旅游线路' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>保存后立即写入本地演示数据</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
+        <template v-if="dialog === 'withdrawal-reject'"><label class="field"><text>驳回备注（可选）</text><input v-model="withdrawalNote" placeholder="请输入驳回原因" /></label></template>
         <label v-if="['policy','policy-edit'].includes(dialog)" class="field"><text>名称</text><input v-model="form.name" placeholder="请输入名称" /></label>
         <template v-if="dialog === 'supplier' || dialog === 'supplier-edit'">
           <label class="field"><text>供应商名称</text><input v-model="form.name" placeholder="请输入供应商名称" /></label>
@@ -1709,7 +1753,7 @@ onBeforeUnmount(() => {
           <label class="field"><text>平均客单价</text><input v-model.number="form.averageSpend" type="number" min="0" /></label><label class="field"><text>人气值</text><input v-model.number="form.livePopularity" type="number" min="0" /></label>
           <view class="field"><text>经营状态</text><SearchableSelect v-model="form.farmStatus" :options="farmStatusOptions" search-placeholder="搜索经营状态" /></view>
         </template>
-         <view class="modal-actions"><button class="button secondary" :disabled="busy" @click="closeOverlay">取消</button><button class="button primary" :disabled="busy" @click="saveDialog">{{ busy ? '处理中...' : dialog === 'supplier' ? '发送邀请' : dialog === 'supplier-edit' || dialog === 'farm-edit' ? '保存修改' : '保存' }}</button></view>
+        <view class="modal-actions"><button class="button secondary" :disabled="busy" @click="closeOverlay">取消</button><button class="button primary" :disabled="busy" @click="saveDialog">{{ busy ? '处理中...' : dialog === 'withdrawal-reject' ? '确认驳回' : dialog === 'supplier' ? '发送邀请' : dialog === 'supplier-edit' || dialog === 'farm-edit' ? '保存修改' : '保存' }}</button></view>
       </view>
     </view>
 
@@ -1908,6 +1952,7 @@ button, uni-button { text-align: center; }
 .promoter-grid .commission{color:var(--red,#b23a2c);font-weight:800}
 .commission-status-table{margin-bottom:14px;border:1px solid #dfe3dc;border-radius:8px;overflow:hidden}
 .commission-status-grid{grid-template-columns:1.4fr 1fr 1fr 1fr}
+.withdrawal-table{margin:0 16px 16px;border:1px solid #dfe3dc;border-radius:8px;overflow:auto}.withdrawal-grid{grid-template-columns:1.5fr .8fr 1fr 1.4fr .8fr 1.5fr 1.2fr;min-width:980px}.withdrawal-grid>view strong{display:block}.withdrawal-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:11px}
 .commission-status-grid>view strong{display:block}
 .commission-status-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:11px}
 .commission-status-grid .status{justify-self:start}
