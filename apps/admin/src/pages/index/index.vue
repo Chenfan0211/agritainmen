@@ -136,6 +136,7 @@ const farmCityFilter = ref('全部城市')
 const promoterKeyword = ref('')
 const promoterTypeFilter = ref('全部')
 const commissionTab = ref('佣金结算')
+const commissionTabOptions: { label: string; value: string }[] = ['佣金结算', '提现审核', '供应商结算', '佣金规则', '消费分成'].map((v) => ({ label: v, value: v }))
 const commissionKeyword = ref('')
 const commissionStatusFilter = ref('全部')
 const commissionHistoryPage = ref(1)
@@ -161,6 +162,7 @@ const productStatusFilter = ref('全部')
 const productChannelFilter = ref<'all' | 'store' | 'live'>('all')
 const productReviewFilter = ref<'正式商品' | '待审核' | '已驳回'>('正式商品')
 const productReviewFilters = ['正式商品', '待审核', '已驳回'] as const
+const productReviewOptions: { label: string; value: string }[] = productReviewFilters.map((v) => ({ label: v, value: v }))
 const productRejectTarget = ref<CatalogProductSubmission | null>(null)
 const productRejectReason = ref('')
 const catalogProductDialog = ref(false)
@@ -2011,7 +2013,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="active === 'products'" class="data-panel">
           <view class="goods-tools"><view class="module-search"><SearchableSelect v-model="productChannelFilter" :options="catalogChannelFilterOptions" size="medium" search-placeholder="搜索商品渠道" /><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称 / 供应商" /></label><SearchableSelect v-model="productCategoryFilter" :options="productCategoryFilterOptions" size="medium" search-placeholder="搜索商品品类" /><SearchableSelect v-model="productStatusFilter" :options="productStatusOptions" size="medium" search-placeholder="搜索商品状态" /></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
-          <view class="product-review-tabs"><button v-for="item in productReviewFilters" :key="item" :class="{ active: productReviewFilter === item }" @click="productReviewFilter = item">{{ item }}</button></view>
+          <SearchableSelect v-model="productReviewFilter" :options="productReviewOptions" size="medium" search-placeholder="搜索商品审核状态" />
           <view v-if="productReviewFilter === '正式商品'" class="table-row table-head unified-product-grid"><text>商品</text><text>渠道</text><text>品类</text><text>价格</text><text>库存</text><text>状态</text><text>操作</text></view>
           <view v-for="product in productReviewFilter === '正式商品' ? pagedUnifiedProductRows : []" :key="product.id" class="table-row unified-product-grid">
             <view class="product-cell"><BusinessImage class="product-thumb" :src="product.image" mode="aspectFit" /><view><strong>{{ product.name }}</strong><view class="tag-row"><span v-for="tag in product.tags.slice(0, 3)" :key="tag" class="product-tag">{{ tag }}</span></view></view></view>
@@ -2142,7 +2144,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'commissions'" class="data-panel">
-          <view class="filter-chips solid"><button v-for="item in ['佣金结算','提现审核','供应商结算','佣金规则','消费分成']" :key="item" :class="{ active: commissionTab === item }" @click="commissionTab = item; page = 1">{{ item }}</button></view>
+          <SearchableSelect v-model="commissionTab" :options="commissionTabOptions" size="medium" search-placeholder="搜索结算频道" />
           <template v-if="commissionTab === '佣金结算'">
             <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" size="medium" search-placeholder="搜索结算状态" /></view>
             <view class="commission-status-table">
@@ -2497,7 +2499,7 @@ button, uni-button { text-align: center; }
 .goods-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .goods-count{margin-left:auto;font-size:12px;color:var(--admin-muted);white-space:nowrap}
 .c-product-grid{grid-template-columns:1.7fr 1.2fr .7fr .7fr .7fr .7fr .7fr 1fr;min-width:920px}.c-sku-editor{padding:12px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8}.c-sku-row,.catalog-sku-labels{display:grid;grid-template-columns:1.2fr 110px repeat(6,.8fr) auto;gap:7px;margin-top:8px;align-items:start}.catalog-sku-labels{padding:0 4px;color:var(--admin-muted);font-size:12px}.c-sku-row input{width:100%;box-sizing:border-box;height:34px;padding:0 8px;border:1px solid var(--admin-line);border-radius:4px;background:#fff;font-size:13px}.c-sku-row.retired{opacity:.65}.c-sku-row.retired input{background:#f1f3ef}
-.product-review-tabs{display:flex;gap:8px;padding:12px 0}.product-review-tabs button{padding:8px 14px;border:1px solid var(--admin-line);background:#fff;color:var(--admin-muted)}.product-review-tabs button.active{border-color:var(--admin-primary);background:var(--admin-primary-soft);color:var(--admin-primary)}.product-submission-list{display:grid;gap:10px}.product-submission-card{display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(150px,.7fr) minmax(180px,1fr) minmax(180px,1fr) auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--admin-line)}.product-submission-card small,.submission-skus{display:block;color:var(--admin-muted);font-size:12px}.submission-skus{display:grid;gap:3px}.reject-note{color:#a51d2d}.product-submission-card .row-actions{justify-content:flex-end}
+.product-submission-list{display:grid;gap:10px}.product-submission-card{display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(150px,.7fr) minmax(180px,1fr) minmax(180px,1fr) auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--admin-line)}.product-submission-card small,.submission-skus{display:block;color:var(--admin-muted);font-size:12px}.submission-skus{display:grid;gap:3px}.reject-note{color:#a51d2d}.product-submission-card .row-actions{justify-content:flex-end}
 .sku-no{color:var(--admin-muted)!important;font-size:12px}
 .source-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
 .source-pill.platform{background:#e8eff4;color:#3b5f7a}

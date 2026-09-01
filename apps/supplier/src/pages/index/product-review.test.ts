@@ -21,6 +21,8 @@ describe('supplier product review workspace', () => {
     expect(source).toContain('store.toggleCatalogProduct')
     expect(source).toContain('重新提交')
     expect(source).toContain('reviewNote')
+    expect(source).toContain('picker mode="selector" :range="productFilters"')
+    expect(source).not.toContain('product-filter-chips')
   })
 
   it('shows and validates MOQ and refreshes catalog plus submissions', () => {

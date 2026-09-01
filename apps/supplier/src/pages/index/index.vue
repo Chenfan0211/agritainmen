@@ -282,7 +282,7 @@
       <view v-if="store.auth.role === 'supplier' && productWorkspace" class="product-work-page">
         <view class="product-work-head"><button class="icon-button" aria-label="返回" @click="closeProductWorkspace"><UiIcon name="chevron-left" :size="20" /></button><view><text class="product-work-title">商品管理</text><text class="muted">{{ productEditor ? '编辑商品资料' : `${supplierProductRows.length} 条商品记录` }}</text></view><button v-if="!productEditor" class="primary-button mini-button" @click="openNewProduct">新增商品</button></view>
         <template v-if="!productEditor">
-          <view class="chips product-filter-chips"><button v-for="item in productFilters" :key="item" class="chip" :class="{ active: productFilter === item }" @click="productFilter = item">{{ item }}</button></view>
+          <picker mode="selector" :range="productFilters" @change="setProductFilter"><view class="picker-field">{{ productFilter }}</view></picker>
           <view v-if="supplierProductRows.length" class="supplier-product-list">
             <view v-for="row in supplierProductRows" :key="row.key" class="supplier-product-card">
               <view class="row"><BusinessImage class="supplier-product-image" :src="row.product.image" mode="aspectFit" /><view class="row-main"><view class="row-top"><text class="order-no">{{ row.product.name }}</text><span class="badge" :class="row.status">{{ row.status === 'pending' ? '待审核' : row.status === 'rejected' ? '已驳回' : row.status === 'offline' ? '已下架' : '已上架' }}</span></view><text class="muted">{{ row.product.category }} · {{ row.product.channel === 'store' ? '门店' : row.product.channel === 'live' ? '直播' : '全渠道' }}</text></view></view>
@@ -642,6 +642,11 @@ function openProductEditor(product: CatalogProduct, submission?: CatalogProductS
 
 function setProductChannel(event: { detail: { value: string | number } }) {
   if (productEditor.value) productEditor.value.channel = productChannelOptions[Number(event.detail.value)] || 'store'
+}
+
+function setProductFilter(event: { detail: { value: string | number } }) {
+  const index = Number(event.detail.value)
+  productFilter.value = productFilters[index] || productFilter.value
 }
 
 function validateSupplierProduct(product: CatalogProduct) {
@@ -1180,7 +1185,6 @@ $line: #dfe3dc;
 .product-work-head { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; padding: 10px 0 14px; background: $bg; border-bottom: 1px solid $line; }
 .product-work-head button { margin: 0; }
 .product-work-title { display: block; font-size: 20px; font-weight: 750; }
-.product-filter-chips { margin: 14px 0; }
 .supplier-product-list { display: grid; gap: 10px; }
 .supplier-product-card { padding: 14px; border: 1px solid $line; border-radius: 8px; background: #fff; }
 .supplier-product-image { width: 48px; height: 48px; flex: none; border-radius: 6px; background: #f1f3ef; }

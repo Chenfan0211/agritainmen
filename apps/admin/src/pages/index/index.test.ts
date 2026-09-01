@@ -181,6 +181,15 @@ describe('admin supplier and RBAC page', () => {
     expect(source).toContain("store.can('product.audit')")
     expect(source).toContain('submission.reviewNote')
   })
+  it('renders product and commission filters as searchable dropdowns', () => {
+    expect(source).not.toContain('product-review-tabs')
+    expect(source).toContain('SearchableSelect v-model="productReviewFilter"')
+    expect(source).toContain('productReviewFilters')
+    expect(source).not.toContain("['佣金结算','提现审核','供应商结算','佣金规则','消费分成']")
+    expect(source).toContain('SearchableSelect v-model="commissionTab"')
+    expect(source).toContain('commissionTabOptions')
+  })
+
 
   it('opens submission and legacy product todos on their exact non-empty row subsets', () => {
     const submissionTodo = { route: 'products' as const, filters: { review: 'pending' }, objectIds: ['SUB-VISIBLE'] }
