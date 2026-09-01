@@ -46,6 +46,59 @@ describe('withdrawal review', () => {
     expect(transitionPlatformWithdrawal('WD7', 'approved', 'admin')).toBeNull()
     expect(transitionPlatformWithdrawal('WD8', 'pending', 'admin')).toBeNull()
   })
+
+  it('returns null when persisting a transition fails', () => {
+    writePlatformWithdrawal(request('WD-WRITE-FAIL'))
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    localStorage.setItem = ((key: string, value: string) => {
+      if (key === PLATFORM_WITHDRAWALS_STORAGE_KEY) throw new Error('quota')
+      originalSetItem(key, value)
+    }) as Storage['setItem']
+
+    expect(transitionPlatformWithdrawal('WD-WRITE-FAIL', 'approved', 'admin')).toBeNull()
+
+    localStorage.setItem = originalSetItem
+    expect(readPlatformWithdrawals()?.['WD-WRITE-FAIL'].status).toBe('pending')
+  })
+
+  it('returns null when another reviewer replaces the snapshot during transition', () => {
+    writePlatformWithdrawal(request('WD-CAS'))
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    let replaced = false
+    localStorage.setItem = ((key: string, value: string) => {
+      originalSetItem(key, value)
+      if (!replaced && key === PLATFORM_WITHDRAWALS_STORAGE_KEY) {
+        replaced = true
+        const snapshot = JSON.parse(value)
+        snapshot['WD-CAS'] = { ...snapshot['WD-CAS'], status: 'rejected', revision: 1, operator: 'other-admin' }
+        originalSetItem(key, JSON.stringify(snapshot))
+      }
+    }) as Storage['setItem']
+    expect(transitionPlatformWithdrawal('WD-CAS', 'approved', 'admin')).toBeNull()
+    localStorage.setItem = originalSetItem
+  })
+
+  it('allows only one reviewer when a transition is re-entered during persistence', () => {
+    writePlatformWithdrawal(request('WD-CONCURRENT'))
+    const originalSetItem = localStorage.setItem.bind(localStorage)
+    let nestedResult: WithdrawalRequest | null = null
+    let reentered = false
+    localStorage.setItem = ((key: string, value: string) => {
+      if (!reentered && key === PLATFORM_WITHDRAWALS_STORAGE_KEY) {
+        reentered = true
+        nestedResult = transitionPlatformWithdrawal('WD-CONCURRENT', 'rejected', 'other-admin')
+      }
+      originalSetItem(key, value)
+    }) as Storage['setItem']
+
+    const outerResult = transitionPlatformWithdrawal('WD-CONCURRENT', 'approved', 'admin')
+
+    localStorage.setItem = originalSetItem
+    expect(nestedResult).toBeNull()
+    expect(outerResult?.status).toBe('approved')
+    expect([outerResult, nestedResult].filter(Boolean)).toHaveLength(1)
+    expect(readPlatformWithdrawals()?.['WD-CONCURRENT'].status).toBe('approved')
+  })
 })
 
 describe('haversineKm', () => {

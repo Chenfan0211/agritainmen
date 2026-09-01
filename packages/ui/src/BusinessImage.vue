@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { normalizeMediaReference } from '@agritainment/shared'
 import type { MediaReference } from '@agritainment/shared'
 import { createResolvedMediaController } from './media-helpers'
-import { getMediaRuntime } from './runtime'
+import { getMediaRuntime, isMediaRuntimeConfigured } from './runtime'
 
 const props = withDefaults(defineProps<{
   src?: MediaReference | string | null
@@ -11,29 +11,49 @@ const props = withDefaults(defineProps<{
   mode?: string
 }>(), { src: null, fallback: null, mode: 'aspectFill' })
 
-const emit = defineEmits<{ click: [resolvedUrl: string] }>()
+const emitImageClick = defineEmits<{ click: [resolvedUrl: string] }>()
 const resolvedUrl = ref('')
 const failed = ref(false)
-const runtime = getMediaRuntime()
-const fallbackReference = normalizeMediaReference(props.fallback)
-const fallbackUrl = fallbackReference?.source === 'builtin'
-  ? fallbackReference.path
-  : runtime.fallback.source === 'builtin' ? runtime.fallback.path : ''
-const controller = createResolvedMediaController({
-  fallbackUrl,
-  resolve: (reference) => runtime.storage.resolve(reference),
-  release: (url) => runtime.storage.release(url),
-  onChange: (url) => { resolvedUrl.value = url },
-  onError: (value) => { failed.value = value }
-})
+let controller: ReturnType<typeof createResolvedMediaController> | null = null
+let runtimeRetryTimer: ReturnType<typeof setTimeout> | undefined
 
-watch(() => props.src, (value) => { void controller.set(value) }, { immediate: true, deep: true })
-onBeforeUnmount(() => controller.dispose())
+function initializeController() {
+  if (controller) return
+  const runtime = getMediaRuntime()
+  const fallbackReference = normalizeMediaReference(props.fallback)
+  const fallbackUrl = fallbackReference?.source === 'builtin'
+    ? fallbackReference.path
+    : runtime.fallback.source === 'builtin' ? runtime.fallback.path : ''
+  controller = createResolvedMediaController({
+    fallbackUrl,
+    resolve: (reference) => runtime.storage.resolve(reference),
+    release: (url) => runtime.storage.release(url),
+    onChange: (url) => { resolvedUrl.value = url },
+    onError: (value) => { failed.value = value }
+  })
+  void controller.set(props.src)
+}
+
+function ensureController() {
+  if (controller) return
+  if (!isMediaRuntimeConfigured()) {
+    runtimeRetryTimer = setTimeout(ensureController, 0)
+    return
+  }
+  initializeController()
+}
+
+onMounted(ensureController)
+watch(() => props.src, (value) => { if (controller) void controller.set(value) }, { deep: true })
+onBeforeUnmount(() => {
+  if (runtimeRetryTimer) clearTimeout(runtimeRetryTimer)
+  controller?.dispose()
+})
 </script>
 
 <template>
   <view class="business-image">
-    <image :src="resolvedUrl" :mode="mode" @error="controller.fail(resolvedUrl)" @click="emit('click', resolvedUrl)" />
+    <image :src="resolvedUrl" :mode="mode" @error="controller?.fail(resolvedUrl)" @click="emitImageClick('click', resolvedUrl)" />
     <text v-if="failed" class="business-image__error">数据异常</text>
   </view>
 </template>
@@ -57,8 +77,8 @@ onBeforeUnmount(() => controller.dispose())
   bottom: 4px;
   padding: 2px 4px;
   color: #fff;
-  font-size: 10px;
-  line-height: 1.2;
+  font-size: 12px;
+  line-height: 1.35;
   background: rgb(31 41 55 / 72%);
   border-radius: 2px;
 }

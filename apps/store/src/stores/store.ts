@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { AfterSale, BusinessMediaValue, CatalogState, MockScenario, Order, OrderItem, OrderStatus, PlatformPrincipal, Product, PurchaseStatus, StoreAccount, StoreRole } from '@agritainment/shared'
-import { applyCatalogStockOperation, applyPlatformMedia, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, ensureCatalogState, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformStoreAccounts, nextPurchaseStatus, prepareCatalogTransaction, purchaseSteps, readCatalogState, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformMedia, readPlatformOrders, readPlatformStoreAccounts, storeAccounts, updateCatalogStock, validateSmsCode, writePlatformAfterSale, writePlatformOrder } from '@agritainment/shared'
+import type { AfterSale, BusinessMediaValue, CatalogState, MockScenario, Order, OrderItem, OrderStatus, PlatformJournalEntry, PlatformRecoveryHandlerKey, PlatformPrincipal, Product, PurchaseStatus, StoreAccount, StoreRole } from '@agritainment/shared'
+import { abortCatalogTransaction, applyCatalogStockOperation, applyPlatformMedia, buildSupplierAccountSeeds, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, ensureCatalogState, initializePlatformRecoveryHandlers, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, nextPurchaseStatus, normalizeMinimumOrderQuantity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, prepareCatalogTransaction, purchaseSteps, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformEntities, readPlatformMedia, readPlatformOrders, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, reconcilePendingPlatformTransactions, resolvePlatformJournal, runLockedPlatformTransaction, storeAccounts, supplierCanReceiveNewOrders, suppliers as supplierSeeds, updateCatalogStock, validateCatalogSkuOrderQuantity, validateSmsCode, writeCatalogState, writePlatformAfterSale, writePlatformAfterSales, writePlatformOrder, writePlatformOrders } from '@agritainment/shared'
 import { storeInfo, storeInfoForFarm, storeRepository } from '../services/repository'
 
 interface CartLine {
@@ -13,6 +13,18 @@ interface CartLine {
   retail: number
   stock: number
   quantity: number
+  minimumOrderQuantity: number
+  unavailable?: boolean
+}
+
+function unavailableSupplierName(supplierIds: string[]): string | null {
+  const directory = mergePlatformEntities(cloneSeed(supplierSeeds), readPlatformEntities()?.suppliers)
+  const accounts = mergePlatformSupplierAccounts(buildSupplierAccountSeeds(directory), readPlatformSupplierAccounts())
+  for (const supplierId of new Set(supplierIds)) {
+    const supplier = directory.find((item) => item.id === supplierId)
+    if (supplier && !supplierCanReceiveNewOrders(supplier, accounts.find((item) => item.supplierId === supplierId))) return supplier.name
+  }
+  return null
 }
 
 export interface LogisticsEvent {
@@ -77,13 +89,14 @@ const purchaseToOrderStatus: Record<PurchaseStatus, OrderStatus> = {
 function toPlatformOrders(order: StoreOrder, products: Product[], info: typeof storeInfo, farmId: string): Order[] {
   const orders = buildSupplierPlatformOrders({
     items: order.items, products, customer: info.name, channel: 'purchase', source: 'store',
-    sourceOrderId: order.id, status: purchaseToOrderStatus[order.status], createdAt: order.createdAt, customerUserId: farmId
+    sourceOrderId: order.id, status: purchaseToOrderStatus[order.status], createdAt: order.createdAt, customerUserId: farmId,
+    storeId: farmId, storeName: info.name.replace(/·门店$/, '')
   })
   if (orders.length) return orders
   return [{
     id: order.id, productName: '进货商品', quantity: order.itemCount, amount: order.amount,
     customer: info.name, channel: 'purchase', status: purchaseToOrderStatus[order.status],
-    createdAt: order.createdAt, items: order.items,
+    createdAt: order.createdAt, items: order.items, storeId: farmId, storeName: info.name.replace(/·门店$/, ''),
     supplierOrderLink: { source: 'store', sourceOrderId: order.id, customerUserId: farmId }
   }]
 }
@@ -91,12 +104,152 @@ function toPlatformOrders(order: StoreOrder, products: Product[], info: typeof s
 function syncStorePlatformOrders(order: StoreOrder, products: Product[], info: typeof storeInfo, farmId: string): boolean {
   const ids = order.platformOrderIds?.length ? order.platformOrderIds : [order.id]
   const existing = readPlatformOrders() || {}
-  return ids.every((id) => {
+  const original = cloneSeed(existing)
+  const ok = ids.every((id) => {
     const current = existing[id]
     const next = toPlatformOrders(order, products, info, farmId).find((candidate) => candidate.id === id) || current
     if (!next) return false
     return writePlatformOrder({ ...current, ...next, id, supplierFulfillment: current?.supplierFulfillment, flow: current?.flow, logistics: current?.logistics || next.logistics })
   })
+  if (!ok) writePlatformOrders(original)
+  return ok
+}
+
+function nextStorePlatformOrders(order: StoreOrder, products: Product[], info: typeof storeInfo, farmId: string, existing: Record<string, Order>): Record<string, Order> | null {
+  const nextOrders = cloneSeed(existing)
+  const ids = order.platformOrderIds?.length ? order.platformOrderIds : [order.id]
+  const projected = toPlatformOrders(order, products, info, farmId)
+  for (const id of ids) {
+    const current = existing[id]
+    const next = projected.find((candidate) => candidate.id === id) || current
+    if (!next) return null
+    nextOrders[id] = { ...current, ...next, id, supplierFulfillment: current?.supplierFulfillment, flow: current?.flow, logistics: current?.logistics || next.logistics }
+  }
+  return nextOrders
+}
+
+const STORE_RETURN_RECOVERY_HANDLER_KEY = 'store-return-completion-v1' as PlatformRecoveryHandlerKey
+const STORE_RETURN_RECOVERY_SCHEMA = 'store-return-snapshot-v1'
+const STORE_ORDER_RECOVERY_HANDLER_KEY = 'store-order-v1' as PlatformRecoveryHandlerKey
+const STORE_ORDER_RECOVERY_SCHEMA = 'store-order-snapshot-v1'
+
+interface StoreReturnSnapshot {
+  catalog: CatalogState
+  afterSales: Record<string, AfterSale> | null
+  platformOrders: Record<string, Order>
+}
+
+interface StableStoreReturnSnapshot {
+  snapshot: StoreReturnSnapshot
+  revisions: { catalog: number; afterSales: number; platformOrders: number }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isStoreReturnSnapshot(value: unknown): value is StoreReturnSnapshot {
+  return isRecord(value) && isRecord(value.catalog) && Array.isArray(value.catalog.products) && Number.isInteger(value.catalog.revision) && (value.afterSales === null || isRecord(value.afterSales)) && isRecord(value.platformOrders)
+}
+
+function isStoreReturnJournal(journal: PlatformJournalEntry): boolean {
+  const expected = [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY]
+  const system = [PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY]
+  const knownHandler = (journal.recoveryHandlerKey === STORE_RETURN_RECOVERY_HANDLER_KEY && journal.recoverySchema === STORE_RETURN_RECOVERY_SCHEMA)
+    || (journal.recoveryHandlerKey === STORE_ORDER_RECOVERY_HANDLER_KEY && journal.recoverySchema === STORE_ORDER_RECOVERY_SCHEMA)
+  return knownHandler
+    && journal.collections.every((key) => expected.includes(key) || system.includes(key))
+    && expected.every((key) => journal.collections.includes(key))
+    && isStoreReturnSnapshot(journal.original)
+    && isStoreReturnSnapshot(journal.target)
+}
+
+function sameStoreSnapshot(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function executeStrictStoreRecovery(journal: PlatformJournalEntry): boolean {
+  if (!isStoreReturnJournal(journal)) return false
+  const original = journal.original as StoreReturnSnapshot
+  const target = journal.target as StoreReturnSnapshot
+  const current = readStableStoreReturnSnapshot()
+  if (!current) return false
+  const fields: Array<keyof StoreReturnSnapshot> = ['catalog', 'afterSales', 'platformOrders']
+  if (fields.some((field) => !sameStoreSnapshot(current.snapshot[field], original[field]) && !sameStoreSnapshot(current.snapshot[field], target[field]))) return false
+  if (sameStoreSnapshot(current.snapshot, original) || sameStoreSnapshot(current.snapshot, target)) return true
+  if (readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY) !== current.revisions.catalog
+    || readPlatformCollectionRevision(PLATFORM_AFTERSALES_STORAGE_KEY) !== current.revisions.afterSales
+    || readPlatformCollectionRevision(PLATFORM_ORDERS_STORAGE_KEY) !== current.revisions.platformOrders) return false
+  return writeStoreReturnSnapshot(original)
+}
+
+export function createStoreAtomicRecoveryHandlerRegistrations() {
+  return [STORE_ORDER_RECOVERY_HANDLER_KEY, STORE_RETURN_RECOVERY_HANDLER_KEY].map((key) => createStrictSnapshotRecoveryHandlerRegistration({
+    key,
+    fields: ['catalog', 'afterSales', 'platformOrders'] as const,
+    validateJournal: (journal) => isStoreReturnJournal(journal) && journal.recoveryHandlerKey === key,
+    readStable: () => {
+      const stable = readStableStoreReturnSnapshot()
+      return stable ? { snapshot: stable.snapshot, token: stable.revisions } : null
+    },
+    isStillStable: (revisions) => readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY) === revisions.catalog
+      && readPlatformCollectionRevision(PLATFORM_AFTERSALES_STORAGE_KEY) === revisions.afterSales
+      && readPlatformCollectionRevision(PLATFORM_ORDERS_STORAGE_KEY) === revisions.platformOrders,
+    writeSnapshot: (snapshot) => writeStoreReturnSnapshot(snapshot)
+  }))
+}
+
+function readStoreReturnSnapshot(): StoreReturnSnapshot | null {
+  const catalog = readCatalogState()
+  return catalog ? { catalog: cloneSeed(catalog), afterSales: cloneSeed(readPlatformAfterSales()), platformOrders: cloneSeed(readPlatformOrders() || {}) } : null
+}
+
+function readStableStoreReturnSnapshot(): StableStoreReturnSnapshot | null {
+  const catalogBefore = readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY)
+  const catalog = readCatalogState()
+  const catalogAfter = readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY)
+  const afterSalesBefore = readPlatformCollectionRevision(PLATFORM_AFTERSALES_STORAGE_KEY)
+  const afterSales = readPlatformAfterSales()
+  const afterSalesAfter = readPlatformCollectionRevision(PLATFORM_AFTERSALES_STORAGE_KEY)
+  const ordersBefore = readPlatformCollectionRevision(PLATFORM_ORDERS_STORAGE_KEY)
+  const platformOrders = readPlatformOrders() || {}
+  const ordersAfter = readPlatformCollectionRevision(PLATFORM_ORDERS_STORAGE_KEY)
+  if (!catalog || catalogBefore !== catalogAfter || afterSalesBefore !== afterSalesAfter || ordersBefore !== ordersAfter) return null
+  return {
+    snapshot: { catalog: cloneSeed(catalog), afterSales: cloneSeed(afterSales), platformOrders: cloneSeed(platformOrders) },
+    revisions: { catalog: catalogAfter, afterSales: afterSalesAfter, platformOrders: ordersAfter }
+  }
+}
+
+function writeStoreReturnSnapshot(snapshot: StoreReturnSnapshot): boolean {
+  const before = readStoreReturnSnapshot()
+  if (!before) return false
+  const steps = [
+    { apply: () => writeCatalogState(snapshot.catalog), rollback: () => writeCatalogState(before.catalog) },
+    { apply: () => writePlatformAfterSales(snapshot.afterSales), rollback: () => writePlatformAfterSales(before.afterSales) },
+    { apply: () => writePlatformOrders(snapshot.platformOrders), rollback: () => writePlatformOrders(before.platformOrders) }
+  ]
+  const applied: typeof steps = []
+  for (const step of steps) {
+    if (step.apply()) {
+      applied.push(step)
+      continue
+    }
+    for (const completed of [...applied].reverse()) completed.rollback()
+    return false
+  }
+  return true
+}
+
+function queueStoreReturnRecovery(operationId: string): boolean {
+  const journalResolved = resolvePlatformJournal(operationId, 'recovery-pending')
+  const recoveryQueued = enqueuePlatformRecovery({
+    operationId,
+    failedStep: 'catalog-abort',
+    reason: 'catalog return abort could not be persisted',
+    handlerKey: STORE_RETURN_RECOVERY_HANDLER_KEY
+  })
+  return journalResolved && recoveryQueued
 }
 
 const logisticsEventFor = (status: PurchaseStatus, order: StoreOrder): LogisticsEvent => {
@@ -285,6 +438,15 @@ const seedOrders = (farmId = 'F001'): StoreOrder[] => farmId === 'F001' ? [
   }
 ] : []
 
+function mergeStoreOrders(farmId: string, current: StoreOrder[]): StoreOrder[] {
+  const seeds = seedOrders(farmId)
+  const seedIds = new Set(seeds.map((order) => order.id))
+  const tenantOrders = current.filter((order) => !order.farmId || order.farmId === farmId)
+  const customOrders = tenantOrders.filter((order) => !seedIds.has(order.id))
+  const mergedSeeds = mergeEntitySeeds(seeds, tenantOrders).filter((order) => seedIds.has(order.id))
+  return [...customOrders, ...mergedSeeds]
+}
+
 export const useStoreStore = defineStore('store', {
   state: (): StoreState => ({
     initialized: false,
@@ -305,6 +467,7 @@ export const useStoreStore = defineStore('store', {
     isListed: (state) => (productId: string) => state.overrides[productId]?.listed !== false,
     cartCount: (state) => state.cart.reduce((sum, item) => sum + item.quantity, 0),
     cartTotal: (state) => calcCartTotal(state.cart.map(({ price, quantity }) => ({ price, quantity }))),
+    cartHasUnavailable: (state) => state.cart.some((item) => item.unavailable),
     orderMetrics: (state) => {
       const now = new Date()
       const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -328,6 +491,11 @@ export const useStoreStore = defineStore('store', {
       this.loading = true
       this.error = ''
       try {
+        initializePlatformRecoveryHandlers(createStoreAtomicRecoveryHandlerRegistrations())
+        for (const handlerKey of [STORE_ORDER_RECOVERY_HANDLER_KEY, STORE_RETURN_RECOVERY_HANDLER_KEY]) {
+          const reconciliation = reconcilePendingPlatformTransactions({ handlerKey, matches: isStoreReturnJournal })
+          if (!reconciliation.ok) throw new Error(reconciliation.message)
+        }
         const farmId = this.auth.farmId || 'F001'
         const account = this.currentStoreAccounts().find((item) => item.id === this.auth.accountId)
         const data = await storeRepository.loadStore(this.mockScenario, farmId, account)
@@ -336,7 +504,7 @@ export const useStoreStore = defineStore('store', {
           info: hasPersistedData ? mergePersistedDefaults(data.info, this.info) : data.info,
           products: catalogProductsForAudience(catalog, 'ordering').map(catalogProductToProduct),
           catalogRevision: catalog.revision,
-          orders: hasPersistedData ? mergeEntitySeeds(seedOrders(farmId), this.orders.filter((item) => !item.farmId || item.farmId === farmId)) : seedOrders(farmId),
+          orders: mergeStoreOrders(farmId, this.orders),
           initialized: true
         })
         applyPlatformMedia(null, this.products)
@@ -352,7 +520,6 @@ export const useStoreStore = defineStore('store', {
           const sku = product?.skus.find((item) => item.id === line.skuId) || product?.skus[0]
           if (product && sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, image: product.image })
         }))
-        this.recoverCatalogTransactions()
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {
@@ -366,8 +533,9 @@ export const useStoreStore = defineStore('store', {
     addToCart(product: Product, skuId?: string) {
       if (product.skus.length > 1 && !skuId) return 'sku-required' as const
       const sku = product.skus.find((item) => item.id === skuId) || product.skus[0]
-      if (!sku || sku.stock <= 0) {
-        this.checkoutError = `${product.name}库存不足`
+      const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
+      if (!sku || !validateCatalogSkuOrderQuantity(sku, minimumOrderQuantity).ok) {
+        this.checkoutError = sku && sku.stock < minimumOrderQuantity ? `${product.name}库存不足起订量` : `${product.name}库存不足`
         return 'out-of-stock' as const
       }
       const line = this.cart.find((item) => item.productId === product.id && item.skuId === sku.id)
@@ -378,8 +546,10 @@ export const useStoreStore = defineStore('store', {
         }
         line.quantity += 1
         line.stock = sku.stock
+        line.minimumOrderQuantity = minimumOrderQuantity
+        line.unavailable = !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
       } else {
-        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity: 1 })
+        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity: minimumOrderQuantity, minimumOrderQuantity, unavailable: false })
       }
       this.checkoutError = ''
       return 'added' as const
@@ -395,7 +565,11 @@ export const useStoreStore = defineStore('store', {
       }
       line.quantity += delta
       if (line.quantity <= 0) this.cart = this.cart.filter((item) => !(item.productId === productId && item.skuId === skuId))
-      else line.stock = sku?.stock || line.stock
+      else {
+        line.stock = sku?.stock ?? 0
+        line.minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? line.minimumOrderQuantity)
+        line.unavailable = !sku || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
+      }
       this.checkoutError = ''
       return true
     },
@@ -406,12 +580,12 @@ export const useStoreStore = defineStore('store', {
     applyCatalogState(state: CatalogState) {
       this.catalogRevision = state.revision
       this.products = catalogProductsForAudience(state, 'ordering').map(catalogProductToProduct)
-      this.cart = this.cart.filter((line) => {
+      this.cart = this.cart.map((line) => {
         const product = this.products.find((item) => item.id === line.productId)
         const sku = product?.skus.find((item) => item.id === line.skuId)
-        if (!product || !sku) return false
-        Object.assign(line, { name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock })
-        return true
+        const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? line.minimumOrderQuantity)
+        if (!product || !sku) return { ...line, stock: 0, minimumOrderQuantity, unavailable: true }
+        return { ...line, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, minimumOrderQuantity, unavailable: !validateCatalogSkuOrderQuantity(sku, line.quantity).ok }
       })
     },
     refreshCatalog(message = '') {
@@ -422,11 +596,15 @@ export const useStoreStore = defineStore('store', {
       return true
     },
     recoverCatalogTransactions() {
+      const pendingRecoveryOperationIds = new Set(readPlatformRecoveryQueue()
+        .filter((task) => task.status === 'pending' && task.handlerKey === STORE_RETURN_RECOVERY_HANDLER_KEY)
+        .map((task) => task.operationId))
       for (const entry of readPendingCatalogTransactions('store')) {
+        if (pendingRecoveryOperationIds.has(entry.id)) continue
         const payload = entry.payload as { order?: StoreOrder; afterSale?: AfterSale }
         if (!payload.order?.id) continue
         if (entry.status === 'prepared') {
-          const catalog = readCatalogState()
+      const catalog = readCatalogState()
           if (!catalog) continue
           const result = applyCatalogStockOperation(entry.id, entry.inventoryChanges, catalog.revision)
           if (!result || !markCatalogTransactionStockApplied(entry.id)) continue
@@ -476,25 +654,37 @@ export const useStoreStore = defineStore('store', {
       ov.listed = ov.listed === false ? true : false
       return true
     },
-    submitOrder(remark = '') {
+    async submitOrder(remark = '') {
       this.checkoutError = ''
       if (!this.cart.length) {
         this.checkoutError = '进货单为空'
         return false
       }
+      const unavailableSupplier = unavailableSupplierName(this.cart.map((line) => this.products.find((product) => product.id === line.productId)?.supplierId || ''))
+      if (unavailableSupplier) {
+        this.checkoutError = `${unavailableSupplier}已暂停接单，请选择其他商品`
+        return false
+      }
+      const catalog = readCatalogState()
+      if (!catalog) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
+      const revisionChanged = catalog.revision !== this.catalogRevision
+      if (revisionChanged) this.applyCatalogState(catalog)
       const insufficient = this.cart.find((line) => {
         const product = this.products.find((item) => item.id === line.productId)
         const sku = product?.skus.find((item) => item.id === line.skuId)
-        return !product || !sku || sku.stock < line.quantity
+        return !product || !sku || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
       })
       if (insufficient) {
-        this.checkoutError = `${insufficient.name}（${insufficient.skuName}）库存不足`
+        const sku = this.products.find((item) => item.id === insufficient.productId)?.skus.find((item) => item.id === insufficient.skuId)
+        const validation = sku ? validateCatalogSkuOrderQuantity(sku, insufficient.quantity) : null
+        this.checkoutError = !sku ? `${insufficient.name}（${insufficient.skuName}）规格已失效` : validation && !validation.ok && validation.code === 'below_minimum_order_quantity' ? `${insufficient.name}（${insufficient.skuName}）起订 ${validation.minimumOrderQuantity} 件` : sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity) ? `${insufficient.name}（${insufficient.skuName}）库存不足起订量` : `${insufficient.name}（${insufficient.skuName}）库存不足`
         return false
       }
+      if (revisionChanged) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
       const amount = this.cartTotal
       const saved = Math.round(this.cart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100
       const itemCount = this.cartCount
-      const orderItems = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, skuName: line.skuName, name: line.name, image: mediaValueToImage(line.image), quantity: line.quantity, price: line.price }))
+      const orderItems = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, skuName: line.skuName, name: line.name, image: mediaValueToImage(line.image), quantity: line.quantity, price: line.price, minimumOrderQuantity: normalizeMinimumOrderQuantity(line.minimumOrderQuantity) }))
       const now = new Date().toLocaleString('zh-CN')
       const order: StoreOrder = {
         id: createId('SO'), farmId: this.auth.farmId || 'F001', amount, saved, itemCount, items: orderItems, status: 'submitted', createdAt: now,
@@ -502,56 +692,110 @@ export const useStoreStore = defineStore('store', {
       }
       const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
       const operationId = `${order.id}:reserve`
-      if (!prepareCatalogTransaction({ id: operationId, channel: 'store', action: 'reserve', inventoryChanges, payload: { order } })) return false
-      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, this.catalogRevision)
-      if (!stockResult) {
-        this.refreshCatalog('商品库存已更新，请刷新后重试')
-        return false
+      const stable = readStableStoreReturnSnapshot()
+      if (!stable || stable.snapshot.catalog.revision !== catalog.revision) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
+      const original = stable.snapshot
+      const targetCatalog = cloneSeed(original.catalog)
+      for (const change of inventoryChanges) {
+        const sku = targetCatalog.products.find((product) => product.id === change.productId)?.skus.find((item) => item.id === change.skuId)
+        if (!sku || !validateCatalogSkuOrderQuantity(sku, -change.quantity).ok) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
+        sku.stock += change.quantity
       }
-      this.applyCatalogState(stockResult.state)
+      targetCatalog.revision += 1
+      targetCatalog.appliedOperations ||= {}
+      targetCatalog.appliedOperations[operationId] = { id: operationId, action: 'reserve', requestFingerprint: JSON.stringify({ action: 'reserve', changes: inventoryChanges }), changes: [], appliedAt: new Date().toISOString() }
       const platformOrders = toPlatformOrders(order, this.products, this.info, order.farmId || this.auth.farmId || 'F001')
       order.platformOrderIds = platformOrders.map((platformOrder) => platformOrder.id)
-      if (!markCatalogTransactionStockApplied(operationId) || !platformOrders.every((platformOrder) => writePlatformOrder(platformOrder)) || !commitCatalogTransaction(operationId)) {
-        this.checkoutError = '订单处理中，请刷新后重试'
+      const targetPlatformOrders = cloneSeed(original.platformOrders)
+      platformOrders.forEach((platformOrder) => { targetPlatformOrders[platformOrder.id] = platformOrder })
+      const target: StoreReturnSnapshot = { catalog: targetCatalog, afterSales: cloneSeed(original.afterSales), platformOrders: targetPlatformOrders }
+      const result = await runLockedPlatformTransaction({
+        operationId,
+        collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY],
+        original,
+        target,
+        recoveryHandlerKey: STORE_ORDER_RECOVERY_HANDLER_KEY,
+        recoverySchema: STORE_ORDER_RECOVERY_SCHEMA,
+        revisionChecks: [
+          { key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: stable.revisions.catalog },
+          { key: PLATFORM_AFTERSALES_STORAGE_KEY, expectedRevision: stable.revisions.afterSales },
+          { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders }
+        ],
+        steps: [
+          { key: 'catalog', apply: () => writeCatalogState(targetCatalog, original.catalog.revision), rollback: () => writeCatalogState(original.catalog, targetCatalog.revision) },
+          { key: 'platform-orders', apply: () => writePlatformOrders(targetPlatformOrders), rollback: () => writePlatformOrders(original.platformOrders) }
+        ]
+      })
+      if (!result.ok) {
+        this.checkoutError = result.code === 'revision_conflict' ? '商品库存已更新，请刷新后重试' : result.fatal ? '订单事务恢复失败，请联系平台处理' : '订单处理中，请刷新后重试'
         return false
       }
+      this.applyCatalogState(targetCatalog)
       this.orders.unshift(order)
       this.cart = []
       return true
     },
-    advanceOrder(id: string) {
+    async advanceOrder(id: string) {
       const order = this.orders.find((item) => item.id === id)
       if (!order || order.status === 'completed') return false
-      order.status = nextPurchaseStatus(order.status)
-      order.logistics.push(logisticsEventFor(order.status, order))
-      if (!syncStorePlatformOrders(order, this.products, this.info, order.farmId || this.auth.farmId || 'F001')) return false
+      const nextOrder = cloneSeed(order)
+      nextOrder.status = nextPurchaseStatus(order.status)
+      nextOrder.logistics = [...order.logistics, logisticsEventFor(nextOrder.status, nextOrder)]
+      const stable = readStableStoreReturnSnapshot()
+      if (!stable) return false
+      const targetPlatformOrders = nextStorePlatformOrders(nextOrder, this.products, this.info, nextOrder.farmId || this.auth.farmId || 'F001', stable.snapshot.platformOrders)
+      if (!targetPlatformOrders) return false
+      const target: StoreReturnSnapshot = { ...cloneSeed(stable.snapshot), platformOrders: targetPlatformOrders }
+      const result = await runLockedPlatformTransaction({ operationId: `${id}:advance:${nextOrder.status}`, collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY], original: stable.snapshot, target, recoveryHandlerKey: STORE_ORDER_RECOVERY_HANDLER_KEY, recoverySchema: STORE_ORDER_RECOVERY_SCHEMA, revisionChecks: [{ key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: stable.revisions.catalog }, { key: PLATFORM_AFTERSALES_STORAGE_KEY, expectedRevision: stable.revisions.afterSales }, { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders }], steps: [{ key: 'platform-orders', apply: () => writePlatformOrders(targetPlatformOrders), rollback: () => writePlatformOrders(stable.snapshot.platformOrders) }] })
+      if (!result.ok) return false
+      Object.assign(order, nextOrder)
       return true
     },
-    confirmReceipt(id: string) {
+    async confirmReceipt(id: string) {
       const order = this.orders.find((item) => item.id === id)
       if (!order || order.status !== 'delivering') return false
-      order.status = 'received'
-      order.logistics.push(logisticsEventFor('received', order))
-      if (!syncStorePlatformOrders(order, this.products, this.info, order.farmId || this.auth.farmId || 'F001')) return false
+      const nextOrder = cloneSeed(order)
+      nextOrder.status = 'received'
+      nextOrder.logistics = [...order.logistics, logisticsEventFor('received', nextOrder)]
+      const stable = readStableStoreReturnSnapshot()
+      if (!stable) return false
+      const targetPlatformOrders = nextStorePlatformOrders(nextOrder, this.products, this.info, nextOrder.farmId || this.auth.farmId || 'F001', stable.snapshot.platformOrders)
+      if (!targetPlatformOrders) return false
+      const target: StoreReturnSnapshot = { ...cloneSeed(stable.snapshot), platformOrders: targetPlatformOrders }
+      const result = await runLockedPlatformTransaction({ operationId: `${id}:receipt`, collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY], original: stable.snapshot, target, recoveryHandlerKey: STORE_ORDER_RECOVERY_HANDLER_KEY, recoverySchema: STORE_ORDER_RECOVERY_SCHEMA, revisionChecks: [{ key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: stable.revisions.catalog }, { key: PLATFORM_AFTERSALES_STORAGE_KEY, expectedRevision: stable.revisions.afterSales }, { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders }], steps: [{ key: 'platform-orders', apply: () => writePlatformOrders(targetPlatformOrders), rollback: () => writePlatformOrders(stable.snapshot.platformOrders) }] })
+      if (!result.ok) return false
+      Object.assign(order, nextOrder)
       return true
     },
-    cancelOrder(id: string) {
+    async cancelOrder(id: string) {
       const order = this.orders.find((item) => item.id === id)
       if (!order || (order.status !== 'submitted' && order.status !== 'accepted')) return false
       if (order.inventoryReleased) return false
+      const catalog = readCatalogState()
+      if (!catalog || catalog.revision !== this.catalogRevision) { this.refreshCatalog('商品库存已更新，请刷新后重试'); return false }
+      const stable = readStableStoreReturnSnapshot()
+      if (!stable || stable.snapshot.catalog.revision !== catalog.revision) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
+      const original = stable.snapshot
       const nextOrder = cloneSeed(order)
       nextOrder.status = 'cancelled'; nextOrder.inventoryReleased = true
       nextOrder.logistics.push({ time: new Date().toLocaleString('zh-CN'), title: '订单已取消', detail: '门店取消进货单' })
       const inventoryChanges = order.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
       const operationId = `${order.id}:release`
-      if (!prepareCatalogTransaction({ id: operationId, channel: 'store', action: 'release', inventoryChanges, payload: { order: nextOrder } })) return false
-      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, this.catalogRevision)
-      if (!stockResult) {
-        this.refreshCatalog('商品库存已更新，请刷新后重试')
-        return false
+      const targetCatalog = cloneSeed(original.catalog)
+      for (const change of inventoryChanges) {
+        const sku = targetCatalog.products.find((product) => product.id === change.productId)?.skus.find((item) => item.id === change.skuId)
+        if (!sku) return false
+        sku.stock += change.quantity
       }
-      if (!markCatalogTransactionStockApplied(operationId) || !syncStorePlatformOrders(nextOrder, this.products, this.info, nextOrder.farmId || this.auth.farmId || 'F001') || !commitCatalogTransaction(operationId)) return false
-      this.applyCatalogState(stockResult.state)
+      targetCatalog.revision += 1
+      targetCatalog.appliedOperations ||= {}
+      targetCatalog.appliedOperations[operationId] = { id: operationId, action: 'release', requestFingerprint: JSON.stringify({ action: 'release', changes: inventoryChanges }), changes: [], appliedAt: new Date().toISOString() }
+      const targetPlatformOrders = nextStorePlatformOrders(nextOrder, this.products, this.info, nextOrder.farmId || this.auth.farmId || 'F001', original.platformOrders)
+      if (!targetPlatformOrders) return false
+      const target: StoreReturnSnapshot = { catalog: targetCatalog, afterSales: cloneSeed(original.afterSales), platformOrders: targetPlatformOrders }
+      const result = await runLockedPlatformTransaction({ operationId, collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY], original, target, recoveryHandlerKey: STORE_ORDER_RECOVERY_HANDLER_KEY, recoverySchema: STORE_ORDER_RECOVERY_SCHEMA, revisionChecks: [{ key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: stable.revisions.catalog }, { key: PLATFORM_AFTERSALES_STORAGE_KEY, expectedRevision: stable.revisions.afterSales }, { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders }], steps: [{ key: 'catalog', apply: () => writeCatalogState(targetCatalog, original.catalog.revision), rollback: () => writeCatalogState(original.catalog, targetCatalog.revision) }, { key: 'platform-orders', apply: () => writePlatformOrders(targetPlatformOrders), rollback: () => writePlatformOrders(original.platformOrders) }] })
+      if (!result.ok) return false
+      this.applyCatalogState(targetCatalog)
       Object.assign(order, nextOrder)
       return true
     },
@@ -569,20 +813,61 @@ export const useStoreStore = defineStore('store', {
       order.afterSaleType = type
       return true
     },
-    completeReturn(orderId: string) {
+    async completeReturn(orderId: string) {
       const order = this.orders.find((item) => item.id === orderId)
-      const work = Object.values(readPlatformAfterSales() || {}).find((item) => item.orderId === orderId && item.type === 'return')
+      const stable = readStableStoreReturnSnapshot()
+      const work = Object.values(stable?.snapshot.afterSales || {}).find((item) => item.orderId === orderId && item.type === 'return')
       if (!order || !work || order.inventoryReleased || (work.status !== 'return-pending' && work.status !== 'processing')) return false
+      if (!stable || stable.snapshot.catalog.revision !== this.catalogRevision) {
+        this.refreshCatalog('商品库存已更新，请刷新后重试')
+        return false
+      }
+      const { catalog: originalCatalog, afterSales: originalAfterSales, platformOrders: originalPlatformOrders } = stable.snapshot
       const inventoryChanges = order.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
       const operationId = `${order.id}:return-release`
       const nextOrder = { ...cloneSeed(order), inventoryReleased: true }
       const nextAfterSale: AfterSale = { ...work, status: 'refunded', history: [...(work.history || []), { time: new Date().toLocaleString('zh-CN'), action: '退货确认完成，库存已回补', operator: this.info.name }] }
-      if (!prepareCatalogTransaction({ id: operationId, channel: 'store', action: 'release', inventoryChanges, payload: { order: nextOrder, afterSale: nextAfterSale } })) return false
-      const stockResult = applyCatalogStockOperation(operationId, inventoryChanges, this.catalogRevision)
-      if (!stockResult || !markCatalogTransactionStockApplied(operationId)) return false
-      if (!writePlatformAfterSale(nextAfterSale)) return false
-      if (!commitCatalogTransaction(operationId)) return false
-      this.applyCatalogState(stockResult.state); Object.assign(order, nextOrder)
+      const targetCatalog = cloneSeed(originalCatalog)
+      for (const change of inventoryChanges) {
+        const sku = targetCatalog.products.find((product) => product.id === change.productId)?.skus.find((item) => item.id === change.skuId)
+        if (!sku) return false
+        sku.stock += change.quantity
+      }
+      targetCatalog.revision += 1
+      targetCatalog.appliedOperations ||= {}
+      targetCatalog.appliedOperations[operationId] = {
+        id: operationId,
+        action: 'release',
+        requestFingerprint: JSON.stringify({ action: 'release', changes: inventoryChanges }),
+        changes: [],
+        appliedAt: new Date().toISOString()
+      }
+      const targetPlatformOrders = nextStorePlatformOrders(nextOrder, this.products, this.info, nextOrder.farmId || this.auth.farmId || 'F001', originalPlatformOrders)
+      if (!targetPlatformOrders) return false
+      const result = await runLockedPlatformTransaction({
+        operationId,
+        collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY],
+        original: { catalog: originalCatalog, afterSales: originalAfterSales, platformOrders: originalPlatformOrders },
+        target: { catalog: targetCatalog, afterSales: { ...(originalAfterSales || {}), [nextAfterSale.id]: nextAfterSale }, platformOrders: targetPlatformOrders },
+        recoveryHandlerKey: STORE_RETURN_RECOVERY_HANDLER_KEY,
+        recoverySchema: STORE_RETURN_RECOVERY_SCHEMA,
+        revisionChecks: [
+          { key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: stable.revisions.catalog },
+          { key: PLATFORM_AFTERSALES_STORAGE_KEY, expectedRevision: stable.revisions.afterSales },
+          { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders }
+        ],
+        steps: [
+          { key: 'catalog-stock', apply: () => writeCatalogState(targetCatalog, originalCatalog.revision), rollback: () => writeCatalogState(originalCatalog) },
+          { key: 'platform-after-sales', apply: () => writePlatformAfterSales({ ...(originalAfterSales || {}), [nextAfterSale.id]: nextAfterSale }), rollback: () => writePlatformAfterSales(originalAfterSales) },
+          { key: 'platform-orders', apply: () => writePlatformOrders(targetPlatformOrders), rollback: () => writePlatformOrders(originalPlatformOrders) }
+        ]
+      })
+      if (!result.ok) {
+        if (result.fatal) this.error = '退货事务恢复失败，请联系平台处理'
+        return false
+      }
+      this.applyCatalogState(targetCatalog)
+      Object.assign(order, nextOrder)
       return true
     },
     repeatOrder(id: string) {
@@ -600,7 +885,7 @@ export const useStoreStore = defineStore('store', {
           line.quantity = Math.min(line.quantity + quantity, sku.stock)
           if (line.quantity > before) added += 1
         } else {
-          this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity })
+          this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity, minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity), unavailable: !validateCatalogSkuOrderQuantity(sku, quantity).ok })
           added += 1
         }
       })

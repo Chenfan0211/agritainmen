@@ -8,3 +8,10 @@ test-results/
 *.log
 .DS_Store
 .codex-logs/
+
+# Tool / local artifacts
+.superpowers/
+.gstack/
+__pycache__/
+*.pyc
+agritainment-deploy-*.zip

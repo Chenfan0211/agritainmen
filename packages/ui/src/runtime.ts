@@ -34,13 +34,23 @@ export function savePreparedMediaFile(runtime: MediaRuntime, file: PreparedMedia
   return runtime.storage.save(file.blob, purpose, options)
 }
 
-let configuredRuntime: MediaRuntime | null = null
+const mediaRuntimeRegistryKey = Symbol.for('agritainment.ui.mediaRuntime')
+type MediaRuntimeRegistry = { current: MediaRuntime | null }
+
+const mediaRuntimeRegistry = (() => {
+  const globalObject = globalThis as typeof globalThis & Record<symbol, MediaRuntimeRegistry | undefined>
+  return globalObject[mediaRuntimeRegistryKey] ?? (globalObject[mediaRuntimeRegistryKey] = { current: null })
+})()
 
 export function configureMediaRuntime(runtime: MediaRuntime): void {
-  configuredRuntime = runtime
+  mediaRuntimeRegistry.current = runtime
+}
+
+export function isMediaRuntimeConfigured(): boolean {
+  return mediaRuntimeRegistry.current !== null
 }
 
 export function getMediaRuntime(): MediaRuntime {
-  if (!configuredRuntime) throw new Error('媒体 runtime 尚未配置')
-  return configuredRuntime
+  if (!mediaRuntimeRegistry.current) throw new Error('媒体 runtime 尚未配置')
+  return mediaRuntimeRegistry.current
 }

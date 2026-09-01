@@ -14,6 +14,7 @@ if (!globalThis.localStorage) {
   } as unknown as Storage
 }
 import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode, acceptSupplierOrder, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, mergePlatformSupplierAccounts, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, writePlatformDrivers, todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_LIVE, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
+import { defaultAdminAccounts, defaultAdminRoles, readPlatformAdminRoles, seedPlatformAdminSecurity, writePlatformAdminAccounts, writePlatformAdminRoles } from './index'
 
 describe('C端分销商城 helpers', () => {
   beforeEach(() => localStorage.clear())
@@ -418,18 +419,61 @@ describe('validatePricePolicy', () => {
 })
 
 describe('derivePlatformMetrics', () => {
-  it('derives counts and gmv from actual seed data', () => {
-    const m = derivePlatformMetrics({ orders, products, farms, suppliers, afterSales, promoters })
-    expect(m.orderCount).toBe(orders.length)
+  it('keeps entity and after-sale metrics sourced from actual platform data', () => {
+    const m = derivePlatformMetrics({ orders: [], products: [], farms, suppliers, afterSales, promoters })
     expect(m.farmCount).toBe(farms.length)
     expect(m.supplierCount).toBe(suppliers.length)
-    expect(m.gmv).toBeCloseTo(orders.reduce((sum, order) => sum + order.amount, 0), 1)
-    expect(m.orderStats.total).toBe(orders.length)
     expect(m.afterSaleStats.count).toBe(afterSales.length)
-    expect(m.hotProducts).toHaveLength(Math.min(5, products.length))
-    expect(m.hotProducts[0].units).toBe(Math.max(...products.map((p) => p.sales)))
-    expect(m.categoryShares.reduce((sum, c) => sum + c.value, 0)).toBe(products.length)
-    expect(m.dailyTrend.reduce((sum, d) => sum + d.count, 0)).toBe(orders.length)
+  })
+
+  it('includes local date boundaries and excludes invalid order statuses', () => {
+    const metricOrders = [
+      { id: 'O-MON', productName: '苹果', quantity: 1, amount: 10, customer: '甲', channel: 'shop' as const, status: 'pending' as const, createdAt: '2026-08-24T00:00:00', items: [{ productId: 'P1', skuId: 'S1', name: '苹果', skuName: '份', image: '', quantity: 1, price: 10 }] },
+      { id: 'O-TODAY', productName: '苹果', quantity: 2, amount: 20, customer: '乙', channel: 'shop' as const, status: 'delivered' as const, createdAt: '2026-08-30T23:59:59', items: [{ productId: 'P1', skuId: 'S1', name: '苹果', skuName: '份', image: '', quantity: 2, price: 10 }] },
+      { id: 'O-OUTSIDE', productName: '苹果', quantity: 3, amount: 30, customer: '丙', channel: 'shop' as const, status: 'shipping' as const, createdAt: '2026-08-23T23:59:59', items: [{ productId: 'P1', skuId: 'S1', name: '苹果', skuName: '份', image: '', quantity: 3, price: 10 }] },
+      { id: 'O-INVALID', productName: '苹果', quantity: 9, amount: 90, customer: '丁', channel: 'shop' as const, status: 'after-sale' as const, createdAt: '2026-08-25T10:00:00', items: [{ productId: 'P1', skuId: 'S1', name: '苹果', skuName: '份', image: '', quantity: 9, price: 10 }] }
+    ]
+    const product = { ...products[0], id: 'P1', name: '苹果', category: '水果', supplier: '果园', sales: 999 }
+
+    const metrics = derivePlatformMetrics({ orders: metricOrders, products: [product], farms: [], suppliers: [], afterSales: [], promoters: [], filter: { from: '2026-08-24', to: '2026-08-30' } })
+
+    expect(metrics).toMatchObject({ gmv: 30, orderCount: 2, orderStats: { total: 2, pending: 1, shipping: 0 } })
+    expect(metrics.dailyTrend).toEqual([
+      { label: '8/24', amount: 10, count: 1 },
+      { label: '8/30', amount: 20, count: 1 }
+    ])
+  })
+
+  it('aggregates hot products and category GMV from real order lines only', () => {
+    const apple = { ...products[0], id: 'P-APPLE', name: '苹果', category: '水果', supplier: '果园', sales: 999, image: '/apple.png' }
+    const metricOrders = [
+      { id: 'O-LINES', productName: '混合订单', quantity: 3, amount: 35, customer: '甲', channel: 'shop' as const, status: 'shipping' as const, createdAt: '2026-08-30T10:00:00', items: [
+        { productId: 'P-APPLE', skuId: 'A', name: '苹果', skuName: '份', image: '/apple.png', quantity: 2, price: 10 },
+        { productId: 'P-MISSING', skuId: 'M', name: '山货', skuName: '份', image: '/mountain.png', quantity: 1, price: 15 }
+      ] },
+      { id: 'O-LEGACY', productName: '旧订单商品', quantity: 50, amount: 500, customer: '乙', channel: 'shop' as const, status: 'pending' as const, createdAt: '2026-08-30T11:00:00' }
+    ]
+
+    const metrics = derivePlatformMetrics({ orders: metricOrders, products: [apple], farms: [], suppliers: [], afterSales: [], promoters: [], filter: { from: '2026-08-01', to: '2026-08-30' } })
+
+    expect(metrics.gmv).toBe(535)
+    expect(metrics.hotProducts).toEqual([
+      { name: '苹果', supplier: '果园', amount: 20, units: 2, image: '/apple.png' },
+      { name: '山货', supplier: '未知供应商', amount: 15, units: 1, image: '/mountain.png' }
+    ])
+    expect(metrics.categoryShares).toEqual([
+      { name: '水果', value: 20 },
+      { name: '未分类', value: 15 }
+    ])
+  })
+
+  it('accepts an explicit valid status set', () => {
+    const metricOrders = [
+      { id: 'O-PENDING', productName: '苹果', quantity: 1, amount: 10, customer: '甲', channel: 'shop' as const, status: 'pending' as const, createdAt: '2026-08-30T10:00:00' },
+      { id: 'O-DONE', productName: '苹果', quantity: 1, amount: 20, customer: '乙', channel: 'shop' as const, status: 'delivered' as const, createdAt: '2026-08-30T11:00:00' }
+    ]
+    const metrics = derivePlatformMetrics({ orders: metricOrders, products: [], farms: [], suppliers: [], afterSales: [], promoters: [], filter: { from: '2026-08-30', to: '2026-08-30', validStatuses: ['delivered'] } })
+    expect(metrics).toMatchObject({ gmv: 20, orderCount: 1 })
   })
 
   it('computes after-sale settlement and rate from refunds', () => {
@@ -754,15 +798,46 @@ describe('supplier fulfillment helpers', () => {
   })
 })
 
+describe('admin booking role migration', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('grants booking menu and actions to the existing operational roles', () => {
+    const roles = defaultAdminRoles()
+    for (const code of ['super_admin', 'operations', 'reviewer']) {
+      const role = roles.find((item) => item.code === code)!
+      expect(role.menuPermissions).toContain('bookings')
+      expect(role.actionPermissions).toEqual(expect.arrayContaining(['booking.confirm', 'booking.complete', 'booking.cancel']))
+    }
+    expect(roles.find((item) => item.code === 'finance')?.menuPermissions).not.toContain('bookings')
+  })
+
+  it('migrates persisted system roles without changing a custom role', () => {
+    const legacyRoles = defaultAdminRoles().map((role) => ({
+      ...role,
+      menuPermissions: role.menuPermissions.filter((item) => item !== 'bookings'),
+      actionPermissions: role.actionPermissions.filter((item) => !item.startsWith('booking.'))
+    }))
+    const customRole = { ...legacyRoles[4], id: 'AR-CUSTOM', code: 'custom', name: '自定义', system: false, menuPermissions: ['dashboard'] as const satisfies readonly ['dashboard'], actionPermissions: [] }
+    expect(writePlatformAdminRoles([...legacyRoles, { ...customRole, menuPermissions: [...customRole.menuPermissions] }])).toBe(true)
+    expect(writePlatformAdminAccounts(defaultAdminAccounts())).toBe(true)
+
+    expect(seedPlatformAdminSecurity()).toBe(true)
+
+    const migrated = readPlatformAdminRoles()
+    expect(migrated.find((role) => role.code === 'operations')?.menuPermissions).toContain('bookings')
+    expect(migrated.find((role) => role.code === 'reviewer')?.actionPermissions).toContain('booking.confirm')
+    expect(migrated.find((role) => role.code === 'custom')).toMatchObject({ menuPermissions: ['dashboard'], actionPermissions: [] })
+  })
+})
+
 describe('supplier account helpers', () => {
   const createdAt = '2026-08-24T09:00:00.000Z'
 
-  it('builds one default phone account for each supplier with a valid phone', () => {
+  it('builds default phone accounts only for certified suppliers with a valid phone', () => {
     const accounts = buildSupplierAccountSeeds(suppliers.slice(0, 2), createdAt)
 
     expect(accounts).toEqual([
-      { id: 'SA001', supplierId: 'S001', supplierName: suppliers[0].name, account: '13973015588', password: '13973015588', enabled: true, createdAt, updatedAt: createdAt },
-      { id: 'SA002', supplierId: 'S002', supplierName: suppliers[1].name, account: '13787366688', password: '13787366688', enabled: true, createdAt, updatedAt: createdAt }
+      { id: 'SA001', supplierId: 'S002', supplierName: suppliers[1].name, account: '13787366688', password: '13787366688', enabled: true, createdAt, updatedAt: createdAt }
     ])
   })
 
@@ -775,10 +850,11 @@ describe('supplier account helpers', () => {
 
   it('authenticates only cooperating suppliers with matching credentials', () => {
     const accounts = buildSupplierAccountSeeds(suppliers.slice(0, 2), createdAt)
+    const legacyPendingAccount = { id: 'SA-LEGACY', supplierId: 'S001', supplierName: suppliers[0].name, account: '13973015588', password: '13973015588', enabled: true, createdAt, updatedAt: createdAt }
 
     expect(authenticateSupplier(accounts, suppliers, '13787366688', '13787366688')).toMatchObject({ ok: true, supplier: { id: 'S002' } })
     expect(authenticateSupplier(accounts, suppliers, '13787366688', 'wrong')).toEqual({ ok: false, reason: 'invalid-credentials' })
-    expect(authenticateSupplier(accounts, suppliers, '13973015588', '13973015588')).toEqual({ ok: false, reason: 'inactive' })
+    expect(authenticateSupplier([...accounts, legacyPendingAccount], suppliers, '13973015588', '13973015588')).toEqual({ ok: false, reason: 'inactive' })
   })
 })
 

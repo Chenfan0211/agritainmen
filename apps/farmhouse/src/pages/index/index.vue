@@ -2,23 +2,28 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import type { BusinessMediaValue, Booking, FarmExperience, Product, Role, StoreAccount, StoreRole, StorefrontOrder } from '@agritainment/shared'
-import { calcMargin, createPlatformDictionaryCache, displayProductTags, formatNumber, installKeyboardButtonSupport, isExpressDeliverable, mediaValueToImage, money, readPlatformAfterSaleStatus, readCatalogState, readPlatformEntities, readPlatformOrderStatus, subscribePlatformChanges } from '@agritainment/shared'
+import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_EXPERIENCES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, calcMargin, createPlatformDictionaryCache, displayProductTags, formatNumber, installKeyboardButtonSupport, isExpressDeliverable, mediaValueToImage, money, normalizeMinimumOrderQuantity, readPlatformAfterSaleStatus, readPlatformAfterSales, readPlatformRecoveryQueue, readCatalogState, readPlatformEntities, readPlatformOrderStatus, subscribePlatformChanges, validateCatalogSkuOrderQuantity } from '@agritainment/shared'
 import { BusinessImage, ImageUploader } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
 import qrcode from 'qrcode-generator'
 // #endif
-import { useFarmhouseStore, type FoodItem, type Room } from '../../stores/farmhouse'
+import { farmhouseBookingStatusText, farmhouseBookingVerificationError, isActiveBookingStatus, useFarmhouseStore, type FoodItem, type Room } from '../../stores/farmhouse'
 
 type TabKey = 'home' | 'reserve' | 'shop' | 'member'
 type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'design-experiences' | 'staff-admin' | 'orders' | 'bookings' | 'ledger' | 'help' | null
 type SheetKey = 'login' | 'cart' | 'orders' | 'bookings' | 'room-form' | 'food-form' | 'experience-form' | 'share' | 'product' | 'contact' | 'foods' | 'ledger' | 'recharge' | 'identity' | 'help' | 'booking-form' | 'after-sale' | 'service' | 'staff-form' | 'staff-promo' | null
 
 let disposePlatformChanges: (() => void) | null = null
+let disposeStorageSync: (() => void) | null = null
+let disposeVisibilitySync: (() => void) | null = null
+let runtimeFarm: unknown
 
 const store = useFarmhouseStore()
 const dictCache = createPlatformDictionaryCache()
 let disposeKeyboardButtons: () => void = () => undefined
+const platformChangeKeys = [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_EXPERIENCES_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY]
+const refreshSharedState = () => void store.initialize(true, runtimeFarm)
 const activeTab = ref<TabKey>('home')
 const workView = ref<WorkView>(null)
 const verifyKeyword = ref('')
@@ -59,6 +64,19 @@ const serviceBooking = reactive({ date: bookingDates[1], people: 2 })
 const bookingAmounts = reactive<Record<string, string>>({})
 const serviceFee = computed(() => (selectedService.value ? selectedService.value.price * serviceBooking.people : 0))
 const selectedSkuId = ref('')
+const selectedSku = computed(() => selectedProduct.value?.skus.find((sku) => sku.id === selectedSkuId.value) || selectedProduct.value?.skus[0] || null)
+
+function minimumOrderQuantity(sku: Pick<Product['skus'][number], 'minimumOrderQuantity'> | null | undefined) {
+  return normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
+}
+
+function canStartOrder(sku: Pick<Product['skus'][number], 'stock' | 'minimumOrderQuantity'> | null | undefined) {
+  return !!sku && validateCatalogSkuOrderQuantity(sku, minimumOrderQuantity(sku)).ok
+}
+
+function canStartProductOrder(product: Product) {
+  return product.skus.some((sku) => canStartOrder(sku))
+}
 
 const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: 'home', label: '门店', icon: 'house' },
@@ -173,10 +191,10 @@ function submitBooking() {
   toast('预订成功')
 }
 
-function checkout() {
+async function checkout() {
   if (!requireLogin(() => checkout())) return
   const address = deliveryMode.value === 'courier' ? deliveryAddressDraft.value.trim() : ''
-  if (!store.checkout({ deliveryMode: deliveryMode.value, address })) return toast(store.checkoutError)
+  if (!await store.checkout({ deliveryMode: deliveryMode.value, address })) return toast(store.checkoutError)
   sheet.value = null
   workView.value = 'orders'
   toast('订单提交成功')
@@ -490,7 +508,9 @@ function removeFood(id: string) {
 }
 function verifyBooking(id: string) {
   const item = store.bookings.find((booking) => booking.id === id)
-  if (!item || item.status !== 'reserved') return
+  if (!item) return toast('未找到该预约')
+  const statusError = farmhouseBookingVerificationError(item.status)
+  if (statusError) return toast(statusError)
   const amount = Number(bookingAmounts[id] || item.amount || 0)
   if (!Number.isFinite(amount) || amount <= 0) return toast('请填写本次预约实际消费金额')
   uni.showModal({
@@ -498,7 +518,7 @@ function verifyBooking(id: string) {
     content: `确认核销「${item.name}」，实际消费 ¥${amount.toFixed(2)}？核销后状态不可回退。`,
     success: (res) => {
       if (!res.confirm) return
-      if (!store.verifyBooking(id, amount)) return
+      if (!store.verifyBooking(id, amount)) return toast('该预约当前不能核销，请刷新后重试')
       toast('核销成功')
     }
   })
@@ -506,13 +526,13 @@ function verifyBooking(id: string) {
 function setBookingAmount(id: string, event: Event) {
   bookingAmounts[id] = (event.target as HTMLInputElement).value
 }
-function verifyVoucher(id: string) {
-  if (!store.redeemVoucher(id)) return toast('券订单当前不能核销')
+async function verifyVoucher(id: string) {
+  if (!await store.redeemVoucher(id)) return toast('券订单当前不能核销')
   toast('券订单核销成功')
 }
 
-function refundVoucher(id: string) {
-  if (!store.refundVoucher(id)) return toast('券订单当前不能退款')
+async function refundVoucher(id: string) {
+  if (!await store.refundVoucher(id)) return toast('券订单当前不能退款')
   toast('券订单已退款并冲正佣金')
 }
 
@@ -526,6 +546,12 @@ function cancelBooking(id: string) {
 
 const platformOrderStatus = (orderId: string) => readPlatformOrderStatus(orderId)
 const afterSaleStatusOf = (orderId: string) => readPlatformAfterSaleStatus(orderId)
+const afterSaleFailureOf = (orderId: string) => Object.values(readPlatformAfterSales() || {}).find((item) => item.orderId === orderId)?.failureReason
+const afterSaleRetryOf = (orderId: string) => {
+  const operationId = Object.values(readPlatformAfterSales() || {}).find((item) => item.orderId === orderId)?.operationId
+  const task = operationId ? readPlatformRecoveryQueue().find((item) => item.operationId === operationId && item.status === 'pending') : undefined
+  return task ? `恢复重试 ${task.retryCount} 次` : ''
+}
 const stockDrafts = reactive<Record<string, Record<string, number>>>({})
 function ensureStockDrafts() {
   store.selectableProducts.forEach((p) => {
@@ -547,7 +573,7 @@ function toggleListed(productId: string) {
   toast(store.isListed(productId) ? '已上架本店' : '已从本店商城下架')
 }
 function orderTitle(order: StorefrontOrder) {
-  return order.items.map((line) => `${line.name} ×${line.quantity}`).join('、')
+  return order.items.map((line) => `${line.name} ×${line.quantity} · 起订 ${normalizeMinimumOrderQuantity(line.minimumOrderQuantity)} 件`).join('、')
 }
 
 function repeatOrder(id: string) {
@@ -556,8 +582,8 @@ function repeatOrder(id: string) {
   toast('订单商品已加入购物车')
 }
 
-function cancelStorefrontOrder(id: string) {
-  if (!store.cancelStorefrontOrder(id)) return toast(store.checkoutError || '当前订单不能取消')
+async function cancelStorefrontOrder(id: string) {
+  if (!await store.cancelStorefrontOrder(id)) return toast(store.checkoutError || '当前订单不能取消')
   toast('订单已取消，余额和库存已恢复')
 }
 
@@ -566,18 +592,13 @@ function requestStorefrontAfterSale(id: string, type: 'refund' | 'return') {
   afterSaleEvidence.value = []
   sheet.value = 'after-sale'
 }
-function confirmStorefrontAfterSale() {
+async function confirmStorefrontAfterSale() {
   const target = afterSaleTarget.value
   if (!target) return
-  if (!store.requestStorefrontAfterSale(target.id, target.type, afterSaleEvidence.value.length ? afterSaleEvidence.value : undefined)) return toast('当前订单不能申请售后')
+  if (!await store.requestStorefrontAfterSale(target.id, target.type, afterSaleEvidence.value.length ? afterSaleEvidence.value : undefined)) return toast('当前订单不能申请售后')
   sheet.value = null
   afterSaleTarget.value = null
   toast(target.type === 'refund' ? '退款申请已提交' : '退货申请已提交')
-}
-
-function completeStorefrontAfterSale(id: string) {
-  if (!store.completeStorefrontAfterSale(id)) return toast(store.checkoutError || '售后暂不能完成')
-  toast('售后已完成')
 }
 
 onMounted(async () => {
@@ -585,7 +606,6 @@ onMounted(async () => {
   const query = uni.getLaunchOptionsSync().query || {}
   const scenario = query.mock
   if (scenario === 'empty' || scenario === 'failure') store.setMockScenario(scenario)
-  let runtimeFarm: unknown
   // #ifdef H5
   runtimeFarm = query.farm
   // #endif
@@ -599,17 +619,27 @@ onMounted(async () => {
     if (directProduct) {
       const skuId = typeof query.skuId === 'string' && query.skuId ? query.skuId : undefined
       const sku = directProduct.skus.find((item) => item.id === skuId) || (directProduct.skus.length === 1 ? directProduct.skus[0] : undefined)
-      const qty = Math.max(1, Number(query.qty) || 1)
-      if (sku && sku.stock > 0) {
-        const result = store.addToCart(directProduct, sku.id)
-        if (result !== 'out-of-stock') {
-          for (let i = 1; i < qty; i++) store.changeCart(directProduct.id, sku.id, 1)
-          sheet.value = 'cart'
-        } else {
-          toast('套餐库存不足')
+      const explicitQuantity = typeof query.qty === 'string' && query.qty ? Number(query.qty) : undefined
+      if (sku && canStartOrder(sku)) {
+        const explicitQuantityAccepted = (() => {
+          if (explicitQuantity === undefined) return true
+          const validation = validateCatalogSkuOrderQuantity(sku, explicitQuantity)
+          if (validation.ok) return true
+          toast(validation.code === 'below_minimum_order_quantity' ? `套餐起订 ${validation.minimumOrderQuantity} 件` : validation.code === 'insufficient_stock' ? '套餐库存不足' : '请输入有效的购买数量')
+          return false
+        })()
+        if (explicitQuantityAccepted) {
+          const result = store.addToCart(directProduct, sku.id)
+          if (result !== 'out-of-stock') {
+            const initialQuantity = minimumOrderQuantity(sku)
+            if (explicitQuantity === undefined || store.changeCart(directProduct.id, sku.id, explicitQuantity - initialQuantity)) sheet.value = 'cart'
+            else toast(store.checkoutError || '请输入有效的购买数量')
+          } else {
+            toast(store.checkoutError || '套餐库存不足')
+          }
         }
       } else {
-        toast('该套餐暂不可购')
+        toast(sku && sku.stock < minimumOrderQuantity(sku) ? '库存不足起订量' : '该套餐暂不可购')
       }
     } else {
       toast('该套餐暂不可购')
@@ -627,14 +657,27 @@ onMounted(async () => {
       if (!retailDraft[key]) retailDraft[key] = selectedPrice
     })
   })
-})
+  disposePlatformChanges = subscribePlatformChanges(refreshSharedState, platformChangeKeys)
   if (typeof window !== 'undefined') {
-    const onStorage = () => void store.refreshSharedState()
+    const keys = new Set(platformChangeKeys)
+    const onStorage = (event: StorageEvent) => { if (!event.key || keys.has(event.key)) refreshSharedState() }
     window.addEventListener('storage', onStorage)
-    disposePlatformChanges = () => window.removeEventListener('storage', onStorage)
+    disposeStorageSync = () => window.removeEventListener('storage', onStorage)
   }
+  if (typeof document !== 'undefined') {
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshSharedState() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    disposeVisibilitySync = () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }
+})
 
-onBeforeUnmount(() => { disposeKeyboardButtons(); disposePlatformChanges?.(); disposePlatformChanges = null; dictCache.dispose() })
+onBeforeUnmount(() => {
+  disposeKeyboardButtons()
+  disposePlatformChanges?.(); disposePlatformChanges = null
+  disposeStorageSync?.(); disposeStorageSync = null
+  disposeVisibilitySync?.(); disposeVisibilitySync = null
+  dictCache.dispose()
+})
 
 onShareAppMessage(() => ({ title: store.tenant?.name || '石板溪农家乐', path: '/pages/index/index?from=share' }))
 onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
@@ -678,9 +721,9 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view v-for="item in filteredVerifyBookings" :key="item.id" class="verify-item">
             <BusinessImage v-if="item.image" class="verify-emoji" :src="item.image" mode="aspectFit" /><view v-else class="verify-emoji emoji-thumb">🪟</view>
             <view class="verify-main"><text class="item-title">{{ item.name }}</text><small>{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small></view>
-            <span class="verify-status" :class="item.status === 'reserved' ? '' : item.status === 'cancelled' ? 'cancel' : 'ok'">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span>
-            <view v-if="item.status === 'reserved'" class="verify-amount"><text>¥</text><input type="digit" inputmode="decimal" aria-label="实际消费金额" placeholder="实际金额" :value="bookingAmounts[item.id] ?? item.amount ?? ''" @input="setBookingAmount(item.id, $event)" /></view>
-            <button v-if="item.status === 'reserved'" class="verify-btn" @click="verifyBooking(item.id)">核销</button>
+            <span class="verify-status" :class="item.status === 'cancelled' ? 'cancel' : item.status === 'completed' ? 'ok' : ''">{{ farmhouseBookingStatusText(item.status) }}</span>
+            <view v-if="isActiveBookingStatus(item.status)" class="verify-amount"><text>¥</text><input type="digit" inputmode="decimal" aria-label="实际消费金额" placeholder="实际金额" :value="bookingAmounts[item.id] ?? item.amount ?? ''" @input="setBookingAmount(item.id, $event)" /></view>
+            <button v-if="isActiveBookingStatus(item.status)" class="verify-btn" @click="verifyBooking(item.id)">核销</button>
             <span v-else class="verify-done">{{ item.status === 'cancelled' ? '—' : '✓' }}</span>
           </view>
         </view>
@@ -745,7 +788,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></view>
         <view v-if="!filteredOrders.length" class="empty-page"><UiIcon name="package-check" :size="28" /><text>还没有订单，去商城逛逛吧～</text></view>
         <view class="records order-records">
-          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><BusinessImage v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">📦</view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><small v-if="item.delivery?.mode === 'courier'" class="rec-s">{{ item.courier || '快递直发' }}{{ item.trackingNo ? ' ' + item.trackingNo : '' }} · {{ item.delivery?.address }}</small><view class="record-actions"><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button><button v-if="item.status === '待发货'" class="rebuy-button" @click="cancelStorefrontOrder(item.id)">取消订单</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'refund')">申请退款</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'return')">申请退货</button><button v-if="item.status === '退款中' || item.status === '退货中'" class="rebuy-button" @click="completeStorefrontAfterSale(item.id)">完成售后</button></view></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
+          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><BusinessImage v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">📦</view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><small v-if="item.delivery?.mode === 'courier'" class="rec-s">{{ item.courier || '快递直发' }}{{ item.trackingNo ? ' ' + item.trackingNo : '' }} · {{ item.delivery?.address }}</small><small v-if="afterSaleFailureOf(item.id)" class="rec-s">退款失败：{{ afterSaleFailureOf(item.id) }}</small><small v-if="afterSaleRetryOf(item.id)" class="rec-s">{{ afterSaleRetryOf(item.id) }}</small><view class="record-actions"><button class="rebuy-button" @click="repeatOrder(item.id)">再次购买</button><button v-if="item.status === '待发货'" class="rebuy-button" @click="cancelStorefrontOrder(item.id)">取消订单</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'refund')">申请退款</button><button v-if="item.status === '已完成'" class="rebuy-button" @click="requestStorefrontAfterSale(item.id, 'return')">申请退货</button></view></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
         </view>
       </view>
 
@@ -754,7 +797,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="bookingKeyword" placeholder="搜索预订名称 / 日期" /></view>
         <view v-if="!filteredBookings.length" class="empty-page"><UiIcon name="calendar-check" :size="28" /><text>还没有预订，去门店逛逛吧～</text></view>
         <view class="records order-records">
-          <view v-for="item in filteredBookings" :key="item.id" class="rec-line"><BusinessImage v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">🪟</view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="item.status === 'reserved'" class="rebuy-button" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ item.status === 'reserved' ? '已确认' : item.status === 'cancelled' ? '已取消' : '已核销' }}</span></view>
+          <view v-for="item in filteredBookings" :key="item.id" class="rec-line"><BusinessImage v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFit" /><view v-else class="rec-ic emoji-thumb">🪟</view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="isActiveBookingStatus(item.status)" class="rebuy-button" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ farmhouseBookingStatusText(item.status) }}</span></view>
         </view>
       </view>
 
@@ -827,7 +870,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view class="supply-note"><text class="note-emoji">🏬</text><text>带「中台供」标识的商品来自<b>中选科技供应链中台</b>，统一品控、统一履约、价格更优。</text></view>
           <view v-if="activePolicies.length" class="policy-hint">🎯 中台价格策略：<b>{{ activePolicies.map((p) => p.name).join('、') }}</b> 已生效</view>
           <view v-if="visibleProducts.length" class="product-grid">
-             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><BusinessImage class="product-emoji" :src="product.image" mode="aspectFit" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><view class="product-tag-row"><span class="source-tag">{{ displayProductTags(product, 'store')[0] || '门店商品' }}</span><span v-if="isExpressDeliverable(product)" class="express-tag">快递直发</span></view><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
+             <view v-for="product in visibleProducts" :key="product.id" class="product-card"><button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)"><BusinessImage class="product-emoji" :src="product.image" mode="aspectFit" /><text v-if="product.source === 'platform'">中台供</text></button><view class="product-body"><text class="item-title">{{ product.name }}</text><view class="product-tag-row"><span class="source-tag">{{ displayProductTags(product, 'store')[0] || '门店商品' }}</span><span v-if="isExpressDeliverable(product)" class="express-tag">快递直发</span></view><small class="muted">起订 {{ minimumOrderQuantity(product.skus[0]) }} 件 · {{ canStartProductOrder(product) ? `库存 ${product.skus.reduce((sum, sku) => sum + sku.stock, 0)}` : '库存不足起订量' }}</small><view><strong>{{ money(product.price) }}</strong><button :aria-label="`加入${product.name}到购物车`" :disabled="!canStartProductOrder(product)" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button></view></view></view>
           </view><view v-else class="empty-page"><UiIcon name="search" :size="28" /><text>没有找到相关商品</text><small>试试其他关键词或分类</small></view>
         </view>
 
@@ -885,7 +928,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </template>
         </view>
 
-           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }"><BusinessImage :src="item.image" mode="aspectFit" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="cartHasExpress" class="delivery-picker"><text class="delivery-label">配送方式</text><view class="ui-chips"><button :class="{ sel: deliveryMode === 'pickup' }" @click="deliveryMode = 'pickup'">到店自提</button><button :class="{ sel: deliveryMode === 'courier' }" @click="deliveryMode = 'courier'">快递配送</button></view><label v-if="deliveryMode === 'courier'" class="form-field"><text>收货地址</text><input v-model="deliveryAddressDraft" placeholder="省市区 + 详细地址" /></label></view><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" @click="checkout">提交订单</button></view></view>
+           <view v-else-if="sheet === 'cart'" class="sheet-list"><view v-if="!store.cart.length" class="empty">购物车还是空的</view><view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.unavailable }"><BusinessImage :src="item.image" mode="aspectFit" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} · 库存 {{ item.stock }} · 起订 {{ normalizeMinimumOrderQuantity(item.minimumOrderQuantity) }} 件</small><small v-if="item.unavailable" class="stock-warning">低于起订量或库存不足，不可结算</small><strong>{{ money(item.price) }}</strong></view><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view><text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text><view v-if="cartHasExpress" class="delivery-picker"><text class="delivery-label">配送方式</text><view class="ui-chips"><button :class="{ sel: deliveryMode === 'pickup' }" @click="deliveryMode = 'pickup'">到店自提</button><button :class="{ sel: deliveryMode === 'courier' }" @click="deliveryMode = 'courier'">快递配送</button></view><label v-if="deliveryMode === 'courier'" class="form-field"><text>收货地址</text><input v-model="deliveryAddressDraft" placeholder="省市区 + 详细地址" /></label></view><view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view><button class="primary-button" :disabled="store.cartHasUnavailable" @click="checkout">提交订单</button></view></view>
 
            <view v-else-if="sheet === 'room-form'" class="design-form">
             <label class="form-field"><text>包厢名称</text><input v-model="roomForm.name" placeholder="如：观溪雅间" /></label>
@@ -923,7 +966,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 
 
 
-           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><BusinessImage :src="selectedProduct.image" mode="aspectFit" /><text>{{ selectedProduct.name }}</text><small>{{ displayProductTags(selectedProduct, 'store').join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!sku.stock" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!selectedSkuId" @click="addSelectedProduct">加入购物车</button></view></view>
+           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail"><BusinessImage :src="selectedProduct.image" mode="aspectFit" /><text>{{ selectedProduct.name }}</text><small>{{ displayProductTags(selectedProduct, 'store').join(' · ') }}</small><view v-if="selectedProduct.skus.length > 1" class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!canStartOrder(sku)" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }} · 起订 {{ minimumOrderQuantity(sku) }} 件</small><small v-if="!canStartOrder(sku)" class="stock-warning">库存不足起订量</small></button></view><small v-else-if="selectedSku">库存 {{ selectedSku.stock }} · 起订 {{ minimumOrderQuantity(selectedSku) }} 件</small><small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">库存不足起订量</small><view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!canStartOrder(selectedSku)" @click="addSelectedProduct">加入购物车</button></view></view>
            <view v-else-if="sheet === 'booking-form'" class="booking-sheet"><small class="booking-sub">选择日期 / 场次 / 人数，确认后将发送到店提醒</small><view class="booking-section"><text>📅 选择日期</text><view class="ui-chips"><button v-for="item in bookingDates.slice(0, 3)" :key="item" :class="{ sel: booking.date === item }" @click="booking.date = item">{{ item }}</button></view></view><view class="booking-section"><text>🕐 选择场次</text><view class="ui-chips"><button v-for="opt in (bookingSessionOptions.length ? bookingSessionOptions : [{ label: '午市 11:00' }, { label: '晚市 17:30' }])" :key="opt.label" :class="{ sel: booking.session === opt.label }" @click="booking.session = opt.label">{{ opt.label }}</button></view></view><view class="booking-section"><text>👥 用餐人数</text><view class="ui-chips"><button v-for="item in [4,6,8,10,20]" :key="item" :class="{ sel: booking.people === item }" @click="booking.people = item">{{ item }} 人</button></view></view><button class="primary-button" @click="submitBooking">确认预订</button></view>
           <view v-else-if="sheet === 'after-sale' && afterSaleTarget" class="design-form">
             <view class="form-field"><text>售后类型</text><view class="choice-row"><button :class="{ active: afterSaleTarget.type === 'refund' }" @click="afterSaleTarget.type = 'refund'">申请退款</button><button :class="{ active: afterSaleTarget.type === 'return' }" @click="afterSaleTarget.type = 'return'">申请退货</button></view></view>
@@ -961,52 +1004,52 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 .app-shell { width:100%; min-height:100vh; background:var(--farm-bg); padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
 .loading { min-height:100vh;display:grid;place-items:center;color:var(--farm-muted); }
 .page-pad { padding:0 16px; }.tab-page { min-height:100vh;padding-bottom:28px; }.home-page { padding-bottom:25px; }
-.hero { height:248px;position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(15,60,30,.05),rgba(15,40,22,.78)),linear-gradient(135deg,#3c7a45,#1d5a2a 60%,#114a22); }.hero-media { position:absolute;inset:0;width:100%;height:100%; }.hero-shade { position:absolute;inset:0;background:linear-gradient(to bottom,rgba(8,34,22,.14),rgba(8,34,22,.78)); }.hero-content { position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:0 18px 56px;color:#fff; }.location { position:absolute;top:54px;right:16px;display:inline-block;margin:0;padding:5px 12px;font-size:11.5px;font-weight:600;opacity:.95;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:999px;backdrop-filter:blur(6px); }.hero-title { display:block;font-size:23px;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.35); }.hero-sub { display:block;font-size:12px;margin-top:7px;opacity:.9; }
-.store-summary { position:relative;margin:-46px 14px 0;padding:14px;background:#fff;border:1px solid var(--farm-line);border-radius:18px;display:grid;grid-template-columns:54px 1fr auto;gap:12px;align-items:center;box-shadow:0 18px 38px -26px rgba(20,60,30,.5); }.store-summary>image { width:54px;height:54px;border-radius:14px; }.item-title { display:block;font-size:14px;font-weight:800;line-height:1.35; }.rating { display:block;margin-top:4px;color:#9a722b;font-size:10px; }.tag-row { display:flex;gap:4px;margin-top:5px;flex-wrap:wrap; }.tag-row text { padding:3px 5px;border-radius:3px;background:var(--farm-green-soft);color:var(--farm-green);font-size:8px; }.call-button { height:34px;padding:0 10px;border-radius:5px;background:var(--farm-green);color:#fff;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700; }.call-button .ui-icon { filter:brightness(0) invert(1); }
-.quick-grid { margin:14px 14px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:transparent;border:0;border-radius:0; }.quick-grid button { min-height:84px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:11px;color:var(--farm-ink); }.quick-grid .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
-.notice,.security-note,.supply-note { margin:14px 16px;padding:12px;background:#fff9e9;border:1px solid #ecdfbd;border-radius:7px;display:flex;align-items:flex-start;gap:8px;color:#765c27;font-size:10px;line-height:1.5; }.security-note,.supply-note { margin:14px 0;background:var(--farm-green-soft);border-color:#cfe2d6;color:#315e48; }
-.section-head { padding:20px 16px 10px;display:flex;align-items:center;justify-content:space-between; }.section-head>view { display:flex;align-items:center;gap:7px; }.section-head span { width:3px;height:16px;background:var(--farm-green);border-radius:2px; }.section-head text { font-size:15px;font-weight:900; }.section-head button { color:var(--farm-muted);background:transparent;font-size:10px; }.section-head.compact { padding:0 0 12px; }
-.food-scroll { width:100%;overflow-x:auto;overflow-y:hidden; }.food-list { padding:0 16px;display:flex;gap:10px;width:max-content; }.food-card { width:150px;background:#fff;border:1px solid var(--farm-line);border-radius:7px;overflow:hidden;padding-bottom:10px; }.food-card image { width:100%;height:100px;display:block; }.food-card text,.food-card small { display:block;padding:0 10px; }.food-card text { margin-top:9px;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }.food-card small { margin-top:4px;color:var(--farm-muted);font-size:9px; }
-.room-list { padding:0 14px;display:grid;gap:12px; }.room-card { min-height:78px;padding:12px;background:#fff;border:1px solid var(--farm-line);border-radius:16px;display:grid;grid-template-columns:72px 1fr auto;gap:12px;align-items:center; }.room-card image { width:72px;height:58px;border-radius:5px; }.room-card text,.room-card small { display:block; }.room-card text { font-size:12px;font-weight:800; }.room-card small { margin-top:5px;font-size:9px;color:var(--farm-muted); }.room-card button,.small-button { padding:8px 11px;border-radius:5px;background:var(--farm-green);color:#fff;font-size:10px;font-weight:700; }
-.mobile-head { padding-top:calc(20px + env(safe-area-inset-top));padding-bottom:16px; }.page-title { display:block;font-size:18px;font-weight:800; }.page-sub { display:block;margin-top:5px;color:var(--farm-muted);font-size:11px; }.segmented { display:grid;grid-template-columns:repeat(2,1fr);padding:3px;background:#e7e8e2;border-radius:7px;margin-bottom:14px; }.segmented button { height:38px;border-radius:5px;background:transparent;color:var(--farm-muted);font-size:12px;font-weight:700; }.segmented button.active { background:#fff;color:var(--farm-green);box-shadow:0 2px 7px rgba(0,0,0,.07); }
-.reserve-showcase { background:#fff;border:1px solid var(--farm-line);border-radius:8px;overflow:hidden; }.reserve-showcase image { width:100%;height:168px;display:block; }.reserve-showcase view { padding:13px; }.reserve-showcase text,.reserve-showcase small,.reserve-showcase strong { display:block; }.reserve-showcase text { font-size:16px;font-weight:900; }.reserve-showcase small { margin-top:5px;color:var(--farm-muted);font-size:10px; }.reserve-showcase strong { margin-top:8px;color:var(--farm-green);font-size:15px; }
-.booking-form,.role-block,.recharge-options { margin-top:13px;padding:15px;background:#fff;border:1px solid var(--farm-line);border-radius:8px; }.form-group { margin-bottom:17px; }.form-group>text,.recharge-options>text { display:block;margin-bottom:9px;font-size:11px;font-weight:800; }.choice-row { display:flex;gap:7px;flex-wrap:wrap; }.choice-row button { min-height:35px;padding:0 10px;border-radius:5px;background:#f2f3ee;color:var(--farm-muted);font-size:10px;border:1px solid transparent; }.choice-row button.active { background:var(--farm-green-soft);color:var(--farm-green);border-color:#bed7c8;font-weight:700; }.primary-button { width:100%;height:44px;border-radius:6px;background:var(--farm-green);color:#fff;font-weight:800;font-size:13px; }.record-link { width:100%;height:50px;margin-top:13px;padding:0 13px;background:#fff;border:1px solid var(--farm-line);border-radius:7px;display:flex;align-items:center;gap:9px;color:var(--farm-ink);font-size:11px;text-align:left; }.record-link .ui-icon:last-child { margin-left:auto; }
-.referrer-banner{margin:10px 14px 0;padding:9px 12px;border-radius:10px;background:linear-gradient(135deg,#fff3d6,#ffe9b8);border:1px solid #eadcb8;color:#8a5b12;font-size:12px;font-weight:700;text-align:center}.staff-promo-sheet{padding:20px 6px 8px;text-align:center}.staff-promo-sheet .qr-box{width:200px;height:200px;margin:0 auto 14px;border:1px solid var(--farm-line);border-radius:16px;overflow:hidden;display:grid;place-items:center;background:#fff}.staff-promo-sheet .qr-box image{width:100%;height:100%}.staff-promo-title{display:block;font-size:16px;font-weight:900}.staff-promo-sub{display:block;margin-top:6px;color:var(--farm-muted);font-size:10px;line-height:1.6}.staff-promo-link{margin:14px 0 10px;padding:10px;border-radius:8px;background:#f2f4ee;color:var(--farm-muted);font-size:10px;word-break:break-all}.mobile-search { height:42px;padding:0 12px;background:#fff;border:1px solid var(--farm-line);border-radius:7px;display:flex;align-items:center;gap:8px; }.mobile-search input { flex:1;height:100%;font-size:11px; }.chip-scroll { margin:13px -16px 0;width:calc(100% + 32px);white-space:nowrap;overflow-x:auto;overflow-y:hidden; }.chips { width:max-content;padding:0 16px;display:flex;gap:7px; }.chips button { height:34px;padding:0 12px;border-radius:17px;background:#fff;border:1px solid var(--farm-line);font-size:10px;color:var(--farm-muted); }.chips button.active { color:#fff;background:var(--farm-green);border-color:var(--farm-green); }.product-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px;padding:0 14px; }.product-card { min-width:0;background:#fff;border:1px solid var(--farm-line);border-radius:16px;overflow:hidden; }.product-image { height:120px;position:relative; }.product-image image { width:100%;height:100%; }.product-image text { position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:3px;background:var(--farm-green);color:#fff;font-size:8px;font-weight:700; }.product-body { padding:10px; }.product-body .muted { display:block;min-height:27px;margin-top:5px; }.muted { color:var(--farm-muted);font-size:9px; }.product-body>view { margin-top:9px;display:flex;align-items:center;justify-content:space-between; }.product-body strong { color:var(--farm-red);font-size:15px; }.product-body button { width:30px;height:30px;border-radius:50%;background:var(--farm-green);display:grid;place-items:center; }.product-body button .ui-icon { filter:brightness(0) invert(1); }
-.member-page { background:#eef0e9; }.member-hero { padding:calc(28px + env(safe-area-inset-top)) 18px 20px;background:var(--farm-green-deep);color:#fff; }.member-top { display:flex;align-items:center;gap:10px; }.member-avatar { width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center; }.member-avatar .ui-icon { filter:brightness(0) invert(1); }.member-top text,.member-top small { display:block; }.member-top text { font-size:15px;font-weight:800; }.member-top small { font-size:9px;opacity:.75;margin-top:4px; }.balance { margin-top:24px;display:flex;align-items:flex-end;justify-content:space-between; }.balance small,.balance strong { display:block; }.balance small { font-size:10px;opacity:.72; }.balance strong { margin-top:6px;font-size:29px; }.balance button { height:34px;padding:0 14px;border-radius:5px;background:#fff;color:var(--farm-green);font-size:11px;font-weight:800; }.member-stats { margin-top:21px;display:grid;grid-template-columns:repeat(3,1fr); }.member-stats view { text-align:center;border-right:1px solid rgba(255,255,255,.16); }.member-stats view:last-child { border:0; }.member-stats text,.member-stats small { display:block; }.member-stats text { font-size:15px;font-weight:800; }.member-stats small { margin-top:4px;font-size:9px;opacity:.7; }.member-body { padding-top:14px; }.roles { grid-template-columns:repeat(3,1fr);margin:0; }.role-help { display:block;margin-top:11px;color:var(--farm-muted);font-size:9px;line-height:1.5; }
-.promotion { margin-top:12px;padding:14px;background:#fff8e8;border:1px solid #eadcb8;border-radius:8px;display:flex;align-items:center;justify-content:space-between; }.promotion>view { display:grid;grid-template-columns:28px 1fr;column-gap:6px; }.promotion text,.promotion small { display:block; }.promotion text { font-size:12px;font-weight:800; }.promotion small { grid-column:2;margin-top:4px;color:#796a48;font-size:9px; }.promotion button { padding:8px 10px;border-radius:5px;background:var(--farm-gold);color:#fff;font-size:10px;font-weight:700; }.workbench { margin-top:14px;padding:16px;background:linear-gradient(135deg,#3a566f,#243a4f);border:1px solid #2e4760;border-radius:18px;color:#fff;box-shadow:0 20px 40px -24px rgba(20,40,70,.7); }.workbench>button { width:100%;min-height:58px;background:#fff;border:1px solid rgba(255,255,255,.35);border-radius:11px;display:flex;align-items:center;gap:10px;text-align:left;color:#28435c;padding:0 14px;margin-top:11px; }
+.hero { height:248px;position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(15,60,30,.05),rgba(15,40,22,.78)),linear-gradient(135deg,#3c7a45,#1d5a2a 60%,#114a22); }.hero-media { position:absolute;inset:0;width:100%;height:100%; }.hero-shade { position:absolute;inset:0;background:linear-gradient(to bottom,rgba(8,34,22,.14),rgba(8,34,22,.78)); }.hero-content { position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;padding:0 18px 56px;color:#fff; }.location { position:absolute;top:54px;right:16px;display:inline-block;margin:0;padding:5px 12px;font-size:12px;font-weight:600;opacity:.95;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:999px;backdrop-filter:blur(6px); }.hero-title { display:block;font-size:23px;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.35); }.hero-sub { display:block;font-size:12px;margin-top:7px;opacity:.9; }
+.store-summary { position:relative;margin:-46px 14px 0;padding:14px;background:#fff;border:1px solid var(--farm-line);border-radius:18px;display:grid;grid-template-columns:54px 1fr auto;gap:12px;align-items:center;box-shadow:0 18px 38px -26px rgba(20,60,30,.5); }.store-summary>image { width:54px;height:54px;border-radius:14px; }.item-title { display:block;font-size:14px;font-weight:800;line-height:1.35; }.rating { display:block;margin-top:4px;color:#9a722b;font-size:12px; }.tag-row { display:flex;gap:4px;margin-top:5px;flex-wrap:wrap; }.tag-row text { padding:3px 5px;border-radius:3px;background:var(--farm-green-soft);color:var(--farm-green);font-size:12px; }.call-button { height:34px;padding:0 10px;border-radius:5px;background:var(--farm-green);color:#fff;display:flex;align-items:center;gap:5px;font-size:13px;font-weight:700; }.call-button .ui-icon { filter:brightness(0) invert(1); }
+.quick-grid { margin:14px 14px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:transparent;border:0;border-radius:0; }.quick-grid button { min-height:84px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:13px;color:var(--farm-ink); }.quick-grid .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
+.notice,.security-note,.supply-note { margin:14px 16px;padding:12px;background:#fff9e9;border:1px solid #ecdfbd;border-radius:7px;display:flex;align-items:flex-start;gap:8px;color:#765c27;font-size:12px;line-height:1.5; }.security-note,.supply-note { margin:14px 0;background:var(--farm-green-soft);border-color:#cfe2d6;color:#315e48; }
+.section-head { padding:20px 16px 10px;display:flex;align-items:center;justify-content:space-between; }.section-head>view { display:flex;align-items:center;gap:7px; }.section-head span { width:3px;height:16px;background:var(--farm-green);border-radius:2px; }.section-head text { font-size:15px;font-weight:900; }.section-head button { color:var(--farm-muted);background:transparent;font-size:13px; }.section-head.compact { padding:0 0 12px; }
+.food-scroll { width:100%;overflow-x:auto;overflow-y:hidden; }.food-list { padding:0 16px;display:flex;gap:10px;width:max-content; }.food-card { width:150px;background:#fff;border:1px solid var(--farm-line);border-radius:7px;overflow:hidden;padding-bottom:10px; }.food-card image { width:100%;height:100px;display:block; }.food-card text,.food-card small { display:block;padding:0 10px; }.food-card text { margin-top:9px;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }.food-card small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
+.room-list { padding:0 14px;display:grid;gap:12px; }.room-card { min-height:78px;padding:12px;background:#fff;border:1px solid var(--farm-line);border-radius:16px;display:grid;grid-template-columns:72px 1fr auto;gap:12px;align-items:center; }.room-card image { width:72px;height:58px;border-radius:5px; }.room-card text,.room-card small { display:block; }.room-card text { font-size:12px;font-weight:800; }.room-card small { margin-top:5px;font-size:12px;color:var(--farm-muted); }.room-card button,.small-button { padding:8px 11px;border-radius:5px;background:var(--farm-green);color:#fff;font-size:13px;font-weight:700; }
+.mobile-head { padding-top:calc(20px + env(safe-area-inset-top));padding-bottom:16px; }.page-title { display:block;font-size:18px;font-weight:800; }.page-sub { display:block;margin-top:5px;color:var(--farm-muted);font-size:12px; }.segmented { display:grid;grid-template-columns:repeat(2,1fr);padding:3px;background:#e7e8e2;border-radius:7px;margin-bottom:14px; }.segmented button { height:38px;border-radius:5px;background:transparent;color:var(--farm-muted);font-size:13px;font-weight:700; }.segmented button.active { background:#fff;color:var(--farm-green);box-shadow:0 2px 7px rgba(0,0,0,.07); }
+.reserve-showcase { background:#fff;border:1px solid var(--farm-line);border-radius:8px;overflow:hidden; }.reserve-showcase image { width:100%;height:168px;display:block; }.reserve-showcase view { padding:13px; }.reserve-showcase text,.reserve-showcase small,.reserve-showcase strong { display:block; }.reserve-showcase text { font-size:16px;font-weight:900; }.reserve-showcase small { margin-top:5px;color:var(--farm-muted);font-size:12px; }.reserve-showcase strong { margin-top:8px;color:var(--farm-green);font-size:15px; }
+.booking-form,.role-block,.recharge-options { margin-top:13px;padding:15px;background:#fff;border:1px solid var(--farm-line);border-radius:8px; }.form-group { margin-bottom:17px; }.form-group>text,.recharge-options>text { display:block;margin-bottom:9px;font-size:12px;font-weight:800; }.choice-row { display:flex;gap:7px;flex-wrap:wrap; }.choice-row button { min-height:35px;padding:0 10px;border-radius:5px;background:#f2f3ee;color:var(--farm-muted);font-size:13px;border:1px solid transparent; }.choice-row button.active { background:var(--farm-green-soft);color:var(--farm-green);border-color:#bed7c8;font-weight:700; }.primary-button { width:100%;height:44px;border-radius:6px;background:var(--farm-green);color:#fff;font-weight:800;font-size:13px; }.record-link { width:100%;height:50px;margin-top:13px;padding:0 13px;background:#fff;border:1px solid var(--farm-line);border-radius:7px;display:flex;align-items:center;gap:9px;color:var(--farm-ink);font-size:12px;text-align:left; }.record-link .ui-icon:last-child { margin-left:auto; }
+.referrer-banner{margin:10px 14px 0;padding:9px 12px;border-radius:10px;background:linear-gradient(135deg,#fff3d6,#ffe9b8);border:1px solid #eadcb8;color:#8a5b12;font-size:12px;font-weight:700;text-align:center}.staff-promo-sheet{padding:20px 6px 8px;text-align:center}.staff-promo-sheet .qr-box{width:200px;height:200px;margin:0 auto 14px;border:1px solid var(--farm-line);border-radius:16px;overflow:hidden;display:grid;place-items:center;background:#fff}.staff-promo-sheet .qr-box image{width:100%;height:100%}.staff-promo-title{display:block;font-size:16px;font-weight:900}.staff-promo-sub{display:block;margin-top:6px;color:var(--farm-muted);font-size:12px;line-height:1.6}.staff-promo-link{margin:14px 0 10px;padding:10px;border-radius:8px;background:#f2f4ee;color:var(--farm-muted);font-size:12px;word-break:break-all}.mobile-search { height:42px;padding:0 12px;background:#fff;border:1px solid var(--farm-line);border-radius:7px;display:flex;align-items:center;gap:8px; }.mobile-search input { flex:1;height:100%;font-size:13px; }.chip-scroll { margin:13px -16px 0;width:calc(100% + 32px);white-space:nowrap;overflow-x:auto;overflow-y:hidden; }.chips { width:max-content;padding:0 16px;display:flex;gap:7px; }.chips button { height:34px;padding:0 12px;border-radius:17px;background:#fff;border:1px solid var(--farm-line);font-size:13px;color:var(--farm-muted); }.chips button.active { color:#fff;background:var(--farm-green);border-color:var(--farm-green); }.product-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px;padding:0 14px; }.product-card { min-width:0;background:#fff;border:1px solid var(--farm-line);border-radius:16px;overflow:hidden; }.product-image { height:120px;position:relative; }.product-image image { width:100%;height:100%; }.product-image text { position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:3px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:700; }.product-body { padding:10px; }.product-body .muted { display:block;min-height:27px;margin-top:5px; }.muted { color:var(--farm-muted);font-size:12px; }.product-body>view { margin-top:9px;display:flex;align-items:center;justify-content:space-between; }.product-body strong { color:var(--farm-red);font-size:15px; }.product-body button { width:30px;height:30px;border-radius:50%;background:var(--farm-green);display:grid;place-items:center; }.product-body button .ui-icon { filter:brightness(0) invert(1); }
+.member-page { background:#eef0e9; }.member-hero { padding:calc(28px + env(safe-area-inset-top)) 18px 20px;background:var(--farm-green-deep);color:#fff; }.member-top { display:flex;align-items:center;gap:10px; }.member-avatar { width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center; }.member-avatar .ui-icon { filter:brightness(0) invert(1); }.member-top text,.member-top small { display:block; }.member-top text { font-size:15px;font-weight:800; }.member-top small { font-size:12px;opacity:.75;margin-top:4px; }.balance { margin-top:24px;display:flex;align-items:flex-end;justify-content:space-between; }.balance small,.balance strong { display:block; }.balance small { font-size:12px;opacity:.72; }.balance strong { margin-top:6px;font-size:29px; }.balance button { height:34px;padding:0 14px;border-radius:5px;background:#fff;color:var(--farm-green);font-size:13px;font-weight:800; }.member-stats { margin-top:21px;display:grid;grid-template-columns:repeat(3,1fr); }.member-stats view { text-align:center;border-right:1px solid rgba(255,255,255,.16); }.member-stats view:last-child { border:0; }.member-stats text,.member-stats small { display:block; }.member-stats text { font-size:15px;font-weight:800; }.member-stats small { margin-top:4px;font-size:12px;opacity:.7; }.member-body { padding-top:14px; }.roles { grid-template-columns:repeat(3,1fr);margin:0; }.role-help { display:block;margin-top:11px;color:var(--farm-muted);font-size:12px;line-height:1.5; }
+.promotion { margin-top:12px;padding:14px;background:#fff8e8;border:1px solid #eadcb8;border-radius:8px;display:flex;align-items:center;justify-content:space-between; }.promotion>view { display:grid;grid-template-columns:28px 1fr;column-gap:6px; }.promotion text,.promotion small { display:block; }.promotion text { font-size:12px;font-weight:800; }.promotion small { grid-column:2;margin-top:4px;color:#796a48;font-size:12px; }.promotion button { padding:8px 10px;border-radius:5px;background:var(--farm-gold);color:#fff;font-size:13px;font-weight:700; }.workbench { margin-top:14px;padding:16px;background:linear-gradient(135deg,#3a566f,#243a4f);border:1px solid #2e4760;border-radius:18px;color:#fff;box-shadow:0 20px 40px -24px rgba(20,40,70,.7); }.workbench>button { width:100%;min-height:58px;background:#fff;border:1px solid rgba(255,255,255,.35);border-radius:11px;display:flex;align-items:center;gap:10px;text-align:left;color:#28435c;padding:0 14px;margin-top:11px; }
   .mine-list button { width:100%;min-height:58px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;display:flex;align-items:center;gap:10px;text-align:left;color:var(--farm-ink);padding:12px 14px; }.workbench>button>view,.mine-list button>view { flex:1; }.workbench text,.workbench small,.mine-list text,.mine-list small { display:block; }.workbench text { font-size:13px;font-weight:800; }
-  .mine-list text { font-size:11px;font-weight:800; }.workbench small { margin-top:4px;color:#9fb4c6;font-size:9px; }
-  .mine-list small { margin-top:4px;color:var(--farm-muted);font-size:9px; }.mine-list { margin-top:14px;padding:0;background:transparent;border:0;border-radius:0;display:grid;gap:10px; }.mine-list button:first-child { border:0; }.recharge-options { margin-bottom:10px; }.recharge-options .primary-button { margin-top:12px; }
-.sub-head { padding-top:calc(18px + env(safe-area-inset-top));display:flex;align-items:center;gap:11px;min-height:70px; }.sub-head>view { flex:1; }.icon-button { width:38px;height:38px;border-radius:6px;background:#fff;border:1px solid var(--farm-line);display:grid;place-items:center; }.text-button { background:transparent;color:var(--farm-green);font-size:10px;font-weight:700; }.select-list { display:grid;gap:10px;padding-bottom:100px; }.select-item { padding:14px;background:#fff;border:1px solid var(--farm-line);border-radius:16px;display:grid;gap:12px; }.si-head { display:flex;align-items:center;gap:12px; }.si-title { flex:1;min-width:0; }.si-title .item-title { display:block;font-size:14px;font-weight:800;color:#23291f; }.si-sub { display:block;margin-top:4px;font-size:11px;color:var(--farm-muted); }.si-sub b { color:var(--farm-green);font-weight:800; }.si-status { flex:none;padding:3px 9px;border-radius:6px;background:var(--farm-green-soft);color:var(--farm-green);font-size:10px;font-weight:700; }.si-status:not(.listed) { background:#f2f3ee;color:#8a918a; }.si-pricing { display:flex;gap:12px;align-items:flex-end;padding-top:12px;border-top:1px solid #eef0eb; }.si-field { flex:1;min-width:0; }.si-field text { display:block;font-size:10px;color:var(--farm-muted);margin-bottom:6px; }.si-field text span { color:var(--farm-red);font-weight:800; }.si-field input { width:100%;height:38px;padding:0 10px;border:1px solid var(--farm-line);border-radius:8px;background:#fff;font-size:14px;box-sizing:border-box; }.si-margin { flex:0 0 116px;text-align:right; }.si-margin text { display:block;font-size:10px;color:var(--farm-muted);margin-bottom:6px; }.si-margin strong { display:block;font-size:13px;color:var(--farm-green);font-weight:800; }.metric-band { margin:8px 0 14px;display:grid;grid-template-columns:repeat(3,1fr);background:#fff;border:1px solid var(--farm-line);border-radius:8px; }.metric-band view { padding:13px 8px;text-align:center;border-right:1px solid var(--farm-line); }.metric-band view:last-child { border:0; }.metric-band text,.metric-band strong { display:block; }.metric-band text { color:var(--farm-muted);font-size:9px; }.metric-band strong { margin-top:5px;font-size:13px; }
-.tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(66px + env(safe-area-inset-bottom));padding-bottom:calc(8px + env(safe-area-inset-bottom));background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-top:1px solid var(--farm-line);display:grid;grid-template-columns:repeat(4,1fr);z-index:20; }.tabbar button { background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8a918a;font-size:9px; }.tabbar button.active { color:var(--farm-green);font-weight:800; }.tabbar button.active .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
-.cart-bar { position:fixed;left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));height:54px;padding:6px 7px 6px 12px;background:#183a2b;color:#fff;border-radius:8px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:0 8px 25px rgba(0,0,0,.2); }.cart-count { width:36px;height:36px;position:relative;border-radius:50%;background:#fff;display:grid;place-items:center; }.cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:9px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:8px; }.cart-bar>view { flex:1; }.cart-bar small,.cart-bar strong { display:block; }.cart-bar small { opacity:.7;font-size:8px; }.cart-bar strong { font-size:14px; }.cart-bar>button:last-child { height:40px;padding:0 16px;border-radius:6px;background:#d2ae5b;color:#2c271b;font-weight:800;font-size:11px; }
-.sheet-mask { position:fixed;inset:0;background:rgba(14,25,19,.48);z-index:40;display:flex;align-items:flex-end; }.sheet { width:100%;max-height:82vh;overflow-y:auto;background:#fff;border-radius:14px 14px 0 0;padding:8px 16px calc(22px + env(safe-area-inset-bottom)); }.sheet-handle { width:38px;height:4px;border-radius:2px;background:#d8dbd4;margin:0 auto 9px; }.sheet-head { height:46px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #eef0eb; }.sheet-head>text { font-size:16px;font-weight:900; }.sheet-head button { width:34px;height:34px;background:#f2f3ee;border-radius:50%;display:grid;place-items:center; }.sheet-line { min-height:76px;padding:10px 0;border-bottom:1px solid #eef0eb;display:grid;grid-template-columns:54px 1fr auto;gap:9px;align-items:center; }.sheet-line image { width:54px;height:54px;border-radius:6px; }.sheet-line text,.sheet-line strong { display:block; }.sheet-line text { font-size:10px;line-height:1.35; }.sheet-line strong { margin-top:5px;color:var(--farm-red);font-size:11px; }.stepper { height:30px;display:grid;grid-template-columns:28px 28px 28px;border:1px solid var(--farm-line);border-radius:5px;overflow:hidden; }.stepper button,.stepper text { display:grid;place-items:center;background:#fff;font-size:12px;margin:0; }.stepper text { border-left:1px solid var(--farm-line);border-right:1px solid var(--farm-line); }.checkout-summary { padding-top:13px; }.checkout-summary>view { display:flex;justify-content:space-between;margin-bottom:9px;font-size:10px; }.checkout-summary .primary-button { margin-top:8px; }.empty { padding:50px 0;text-align:center;color:var(--farm-muted);font-size:11px; }
-.records { display:grid;gap:9px;padding-top:12px; }.record { padding:13px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px; }.record>view:first-child { display:flex;justify-content:space-between;gap:8px; }.record text,.record small,.record strong { display:block; }.record text { font-size:11px;font-weight:800; }.record span { color:var(--farm-green);font-size:9px;font-weight:700; }.record small { margin-top:6px;color:var(--farm-muted);font-size:9px; }.record strong { margin-top:8px;font-size:12px; }.timeline { margin-top:10px;display:flex;gap:4px; }.timeline span { flex:1;height:4px;border-radius:2px;background:#dfe2dc; }.timeline span.done { background:var(--farm-green); }.outline-button { width:100%;height:34px;margin-top:10px;border-radius:5px;background:#fff;color:var(--farm-green);border:1px solid #bad3c4;font-size:10px;font-weight:700; }.poster>image { width:100%;height:220px;border-radius:8px;margin-top:12px; }.poster>view { margin:-50px 12px 12px;position:relative;padding:14px;background:#fff;border-radius:7px;box-shadow:0 8px 18px rgba(0,0,0,.12); }.poster text,.poster strong,.poster small { display:block; }.poster text { color:var(--farm-green);font-size:12px;font-weight:800; }.poster strong { margin-top:5px;font-size:18px; }.poster small { margin-top:6px;color:var(--farm-muted);font-size:9px; }
-.food-scroll,.chip-scroll{scrollbar-width:none}.food-scroll::-webkit-scrollbar,.chip-scroll::-webkit-scrollbar{display:none}.call-button{height:40px}.section-head button{min-height:40px;padding:0 4px}.room-card button,.small-button{min-height:36px}.choice-row button,.chips button{min-height:38px}.product-body button{width:36px;height:36px}.tabbar button{min-height:48px}.sheet{overscroll-behavior:contain}.empty-page{min-height:230px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--farm-muted)}.empty-page text,.empty-page small{display:block}.empty-page text{margin-top:10px;font-size:12px;font-weight:800}.empty-page small{margin-top:5px;font-size:9px}.food-detail-list,.ledger-list{display:grid;gap:8px;padding-top:12px}.food-detail-list>view{min-height:72px;padding:8px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px;display:grid;grid-template-columns:58px 1fr auto auto;gap:9px;align-items:center}.food-detail-list image{width:58px;height:54px;border-radius:5px}.food-detail-list text,.food-detail-list small{display:block}.food-detail-list text{font-size:11px;font-weight:800}.food-detail-list small{margin-top:4px;color:var(--farm-muted);font-size:8px}.food-detail-list strong{font-size:11px;color:var(--farm-red)}.food-detail-list button{min-height:36px;padding:0 10px;border-radius:5px;background:var(--farm-green);color:#fff;font-size:10px}.ledger-list>view{min-height:62px;padding:11px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px;display:flex;align-items:center;justify-content:space-between;gap:12px}.ledger-list text,.ledger-list small{display:block}.ledger-list text{font-size:11px;font-weight:800}.ledger-list small{margin-top:5px;color:var(--farm-muted);font-size:8px}.ledger-list strong{font-size:12px;white-space:nowrap}.ledger-list strong.recharge{color:var(--farm-green)}.ledger-list strong.consume{color:var(--farm-red)}.promotion-history{margin:12px 0 0!important;box-shadow:none!important;border:1px solid var(--farm-line)!important}.promotion-history .link-text{word-break:break-all;line-height:1.45}
+  .mine-list text { font-size:12px;font-weight:800; }.workbench small { margin-top:4px;color:#9fb4c6;font-size:12px; }
+  .mine-list small { margin-top:4px;color:var(--farm-muted);font-size:12px; }.mine-list { margin-top:14px;padding:0;background:transparent;border:0;border-radius:0;display:grid;gap:10px; }.mine-list button:first-child { border:0; }.recharge-options { margin-bottom:10px; }.recharge-options .primary-button { margin-top:12px; }
+.sub-head { padding-top:calc(18px + env(safe-area-inset-top));display:flex;align-items:center;gap:11px;min-height:70px; }.sub-head>view { flex:1; }.icon-button { width:38px;height:38px;border-radius:6px;background:#fff;border:1px solid var(--farm-line);display:grid;place-items:center; }.text-button { background:transparent;color:var(--farm-green);font-size:13px;font-weight:700; }.select-list { display:grid;gap:10px;padding-bottom:100px; }.select-item { padding:14px;background:#fff;border:1px solid var(--farm-line);border-radius:16px;display:grid;gap:12px; }.si-head { display:flex;align-items:center;gap:12px; }.si-title { flex:1;min-width:0; }.si-title .item-title { display:block;font-size:14px;font-weight:800;color:#23291f; }.si-sub { display:block;margin-top:4px;font-size:12px;color:var(--farm-muted); }.si-sub b { color:var(--farm-green);font-weight:800; }.si-status { flex:none;padding:3px 9px;border-radius:6px;background:var(--farm-green-soft);color:var(--farm-green);font-size:12px;font-weight:700; }.si-status:not(.listed) { background:#f2f3ee;color:#8a918a; }.si-pricing { display:flex;gap:12px;align-items:flex-end;padding-top:12px;border-top:1px solid #eef0eb; }.si-field { flex:1;min-width:0; }.si-field text { display:block;font-size:12px;color:var(--farm-muted);margin-bottom:6px; }.si-field text span { color:var(--farm-red);font-weight:800; }.si-field input { width:100%;height:38px;padding:0 10px;border:1px solid var(--farm-line);border-radius:8px;background:#fff;font-size:14px;box-sizing:border-box; }.si-margin { flex:0 0 116px;text-align:right; }.si-margin text { display:block;font-size:12px;color:var(--farm-muted);margin-bottom:6px; }.si-margin strong { display:block;font-size:13px;color:var(--farm-green);font-weight:800; }.metric-band { margin:8px 0 14px;display:grid;grid-template-columns:repeat(3,1fr);background:#fff;border:1px solid var(--farm-line);border-radius:8px; }.metric-band view { padding:13px 8px;text-align:center;border-right:1px solid var(--farm-line); }.metric-band view:last-child { border:0; }.metric-band text,.metric-band strong { display:block; }.metric-band text { color:var(--farm-muted);font-size:12px; }.metric-band strong { margin-top:5px;font-size:13px; }
+.tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(66px + env(safe-area-inset-bottom));padding-bottom:calc(8px + env(safe-area-inset-bottom));background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-top:1px solid var(--farm-line);display:grid;grid-template-columns:repeat(4,1fr);z-index:20; }.tabbar button { background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8a918a;font-size:13px; }.tabbar button.active { color:var(--farm-green);font-weight:800; }.tabbar button.active .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
+.cart-bar { position:fixed;left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));height:54px;padding:6px 7px 6px 12px;background:#183a2b;color:#fff;border-radius:8px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:0 8px 25px rgba(0,0,0,.2); }.cart-count { width:36px;height:36px;position:relative;border-radius:50%;background:#fff;display:grid;place-items:center; }.cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:9px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:12px; }.cart-bar>view { flex:1; }.cart-bar small,.cart-bar strong { display:block; }.cart-bar small { opacity:.7;font-size:12px; }.cart-bar strong { font-size:14px; }.cart-bar>button:last-child { height:40px;padding:0 16px;border-radius:6px;background:#d2ae5b;color:#2c271b;font-weight:800;font-size:13px; }
+.sheet-mask { position:fixed;inset:0;background:rgba(14,25,19,.48);z-index:40;display:flex;align-items:flex-end; }.sheet { width:100%;max-height:82vh;overflow-y:auto;background:#fff;border-radius:14px 14px 0 0;padding:8px 16px calc(22px + env(safe-area-inset-bottom)); }.sheet-handle { width:38px;height:4px;border-radius:2px;background:#d8dbd4;margin:0 auto 9px; }.sheet-head { height:46px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #eef0eb; }.sheet-head>text { font-size:16px;font-weight:900; }.sheet-head button { width:34px;height:34px;background:#f2f3ee;border-radius:50%;display:grid;place-items:center; }.sheet-line { min-height:76px;padding:10px 0;border-bottom:1px solid #eef0eb;display:grid;grid-template-columns:54px 1fr auto;gap:9px;align-items:center; }.sheet-line image { width:54px;height:54px;border-radius:6px; }.sheet-line text,.sheet-line strong { display:block; }.sheet-line text { font-size:12px;line-height:1.35; }.sheet-line strong { margin-top:5px;color:var(--farm-red);font-size:12px; }.stepper { height:30px;display:grid;grid-template-columns:28px 28px 28px;border:1px solid var(--farm-line);border-radius:5px;overflow:hidden; }.stepper button,.stepper text { display:grid;place-items:center;background:#fff;font-size:13px;margin:0; }.stepper text { border-left:1px solid var(--farm-line);border-right:1px solid var(--farm-line); }.checkout-summary { padding-top:13px; }.checkout-summary>view { display:flex;justify-content:space-between;margin-bottom:9px;font-size:12px; }.checkout-summary .primary-button { margin-top:8px; }.empty { padding:50px 0;text-align:center;color:var(--farm-muted);font-size:12px; }
+.records { display:grid;gap:9px;padding-top:12px; }.record { padding:13px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px; }.record>view:first-child { display:flex;justify-content:space-between;gap:8px; }.record text,.record small,.record strong { display:block; }.record text { font-size:12px;font-weight:800; }.record span { color:var(--farm-green);font-size:12px;font-weight:700; }.record small { margin-top:6px;color:var(--farm-muted);font-size:12px; }.record strong { margin-top:8px;font-size:12px; }.timeline { margin-top:10px;display:flex;gap:4px; }.timeline span { flex:1;height:4px;border-radius:2px;background:#dfe2dc; }.timeline span.done { background:var(--farm-green); }.outline-button { width:100%;height:34px;margin-top:10px;border-radius:5px;background:#fff;color:var(--farm-green);border:1px solid #bad3c4;font-size:13px;font-weight:700; }.poster>image { width:100%;height:220px;border-radius:8px;margin-top:12px; }.poster>view { margin:-50px 12px 12px;position:relative;padding:14px;background:#fff;border-radius:7px;box-shadow:0 8px 18px rgba(0,0,0,.12); }.poster text,.poster strong,.poster small { display:block; }.poster text { color:var(--farm-green);font-size:12px;font-weight:800; }.poster strong { margin-top:5px;font-size:18px; }.poster small { margin-top:6px;color:var(--farm-muted);font-size:12px; }
+.food-scroll,.chip-scroll{scrollbar-width:none}.food-scroll::-webkit-scrollbar,.chip-scroll::-webkit-scrollbar{display:none}.call-button{height:40px}.section-head button{min-height:40px;padding:0 4px}.room-card button,.small-button{min-height:36px}.choice-row button,.chips button{min-height:38px}.product-body button{width:36px;height:36px}.tabbar button{min-height:48px}.sheet{overscroll-behavior:contain}.empty-page{min-height:230px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--farm-muted)}.empty-page text,.empty-page small{display:block}.empty-page text{margin-top:10px;font-size:12px;font-weight:800}.empty-page small{margin-top:5px;font-size:12px}.food-detail-list,.ledger-list{display:grid;gap:8px;padding-top:12px}.food-detail-list>view{min-height:72px;padding:8px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px;display:grid;grid-template-columns:58px 1fr auto auto;gap:9px;align-items:center}.food-detail-list image{width:58px;height:54px;border-radius:5px}.food-detail-list text,.food-detail-list small{display:block}.food-detail-list text{font-size:12px;font-weight:800}.food-detail-list small{margin-top:4px;color:var(--farm-muted);font-size:12px}.food-detail-list strong{font-size:12px;color:var(--farm-red)}.food-detail-list button{min-height:36px;padding:0 10px;border-radius:5px;background:var(--farm-green);color:#fff;font-size:13px}.ledger-list>view{min-height:62px;padding:11px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px;display:flex;align-items:center;justify-content:space-between;gap:12px}.ledger-list text,.ledger-list small{display:block}.ledger-list text{font-size:12px;font-weight:800}.ledger-list small{margin-top:5px;color:var(--farm-muted);font-size:12px}.ledger-list strong{font-size:12px;white-space:nowrap}.ledger-list strong.recharge{color:var(--farm-green)}.ledger-list strong.consume{color:var(--farm-red)}.promotion-history{margin:12px 0 0!important;box-shadow:none!important;border:1px solid var(--farm-line)!important}.promotion-history .link-text{word-break:break-all;line-height:1.45}
 @media(min-width:700px){.app-shell{max-width:430px;margin:0 auto;box-shadow:0 0 0 1px #e1e3dc}.tabbar{left:50%;right:auto;width:430px;transform:translateX(-50%)}.cart-bar{left:50%;right:auto;width:406px;transform:translateX(-50%)}.sheet{max-width:430px;margin:0 auto}.sheet-mask{justify-content:center}}
-.room-card button,.small-button,.choice-row button,.chips button,.outline-button{min-height:40px}.small-button.listed{background:#6f786f}.state-page{min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--farm-muted);text-align:center}.state-page .primary-button{max-width:240px}.recharge-confirm{padding:28px 4px 8px;text-align:center}.recharge-confirm text,.recharge-confirm strong,.recharge-confirm small{display:block}.recharge-confirm text{font-size:14px;font-weight:800}.recharge-confirm strong{margin-top:12px;color:var(--farm-green);font-size:30px}.recharge-confirm small{margin-top:10px;color:var(--farm-muted);font-size:10px;line-height:1.6}.qr-placeholder{width:92px!important;height:92px!important;margin:12px auto!important;border:6px solid #fff!important;outline:1px solid var(--farm-line);background:repeating-linear-gradient(45deg,#173d2b 0 5px,#fff 5px 10px)!important;color:#fff!important;display:grid!important;place-items:center!important;font-size:9px!important;text-shadow:0 1px 2px #000;box-shadow:none!important}
-.product-open{width:100%;padding:0;border-radius:0;background:transparent;display:block}.product-open::after{display:none}.small-button:disabled{opacity:.55}.sheet-line.shortage{background:#fff8f2}.sheet-line small{display:block;margin-top:4px;color:var(--farm-muted)}.cart-error{display:block;margin:10px 0 0;padding:10px;border-radius:6px;background:#fae8e4;color:var(--farm-red);font-size:12px}.stepper{height:40px;grid-template-columns:40px 40px 40px}.stepper button:disabled{background:#eef0eb;color:#a3aaa3}.order-items{margin-top:8px;padding:8px;border-radius:5px;background:#fff}.product-detail{padding-top:12px}.product-detail>image{width:100%;height:210px;border-radius:8px}.product-detail>text,.product-detail>small{display:block}.product-detail>text{margin-top:13px;font-size:17px;font-weight:900}.product-detail>small{margin-top:6px;color:var(--farm-muted)}.sku-options{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}.sku-options button{min-height:56px;padding:11px 14px;border:1px solid #e0e4dd;border-radius:12px;background:#fff;text-align:left;display:flex;flex-direction:column;justify-content:center;transition:border-color .15s,background .15s}.sku-options button text,.sku-options button small{display:block}.sku-options button text{font-size:13px;font-weight:800;color:#23291f}.sku-options button small{margin-top:4px;font-size:10px;color:#8a918a}.sku-options button.active{border-color:var(--farm-green);background:var(--farm-green-soft);box-shadow:0 0 0 1px var(--farm-green)}.sku-options button.active text{color:var(--farm-green)}.sku-options button.active small{color:var(--farm-green)}.sku-options button:disabled{opacity:.5}.product-detail-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:9px;margin-top:15px}.product-detail-actions .outline-button,.product-detail-actions .primary-button{margin:0;height:44px}.app-shell small{font-size:12px!important}.app-shell button,.app-shell input{font-size:13px!important}.app-shell .location,.app-shell .hero-sub,.app-shell .rating,.app-shell .notice,.app-shell .muted,.app-shell .role-help,.app-shell .price-line,.app-shell .pricing text,.app-shell .pricing strong,.app-shell .metric-band text,.app-shell .product-image text,.app-shell .tag-row text,.app-shell .cart-count span,.app-shell .record span{font-size:12px!important}.app-shell button:focus-visible,.app-shell input:focus-visible{outline:3px solid rgba(23,99,63,.28);outline-offset:2px}
+.room-card button,.small-button,.choice-row button,.chips button,.outline-button{min-height:40px}.small-button.listed{background:#6f786f}.state-page{min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--farm-muted);text-align:center}.state-page .primary-button{max-width:240px}.recharge-confirm{padding:28px 4px 8px;text-align:center}.recharge-confirm text,.recharge-confirm strong,.recharge-confirm small{display:block}.recharge-confirm text{font-size:14px;font-weight:800}.recharge-confirm strong{margin-top:12px;color:var(--farm-green);font-size:30px}.recharge-confirm small{margin-top:10px;color:var(--farm-muted);font-size:12px;line-height:1.6}.qr-placeholder{width:92px!important;height:92px!important;margin:12px auto!important;border:6px solid #fff!important;outline:1px solid var(--farm-line);background:repeating-linear-gradient(45deg,#173d2b 0 5px,#fff 5px 10px)!important;color:#fff!important;display:grid!important;place-items:center!important;font-size:12px!important;text-shadow:0 1px 2px #000;box-shadow:none!important}
+.product-open{width:100%;padding:0;border-radius:0;background:transparent;display:block}.product-open::after{display:none}.small-button:disabled{opacity:.55}.sheet-line.shortage{background:#fff8f2}.sheet-line small{display:block;margin-top:4px;color:var(--farm-muted)}.cart-error{display:block;margin:10px 0 0;padding:10px;border-radius:6px;background:#fae8e4;color:var(--farm-red);font-size:12px}.stepper{height:40px;grid-template-columns:40px 40px 40px}.stepper button:disabled{background:#eef0eb;color:#a3aaa3}.order-items{margin-top:8px;padding:8px;border-radius:5px;background:#fff}.product-detail{padding-top:12px}.product-detail>image{width:100%;height:210px;border-radius:8px}.product-detail>text,.product-detail>small{display:block}.product-detail>text{margin-top:13px;font-size:17px;font-weight:900}.product-detail>small{margin-top:6px;color:var(--farm-muted)}.sku-options{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}.sku-options button{min-height:56px;padding:11px 14px;border:1px solid #e0e4dd;border-radius:12px;background:#fff;text-align:left;display:flex;flex-direction:column;justify-content:center;transition:border-color .15s,background .15s}.sku-options button text,.sku-options button small{display:block}.sku-options button text{font-size:13px;font-weight:800;color:#23291f}.sku-options button small{margin-top:4px;font-size:13px;color:#8a918a}.sku-options button.active{border-color:var(--farm-green);background:var(--farm-green-soft);box-shadow:0 0 0 1px var(--farm-green)}.sku-options button.active text{color:var(--farm-green)}.sku-options button.active small{color:var(--farm-green)}.sku-options button:disabled{opacity:.5}.product-detail-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:9px;margin-top:15px}.product-detail-actions .outline-button,.product-detail-actions .primary-button{margin:0;height:44px}.app-shell small{font-size:12px!important}.app-shell button,.app-shell input{font-size:13px!important}.app-shell .location,.app-shell .hero-sub,.app-shell .rating,.app-shell .notice,.app-shell .muted,.app-shell .role-help,.app-shell .price-line,.app-shell .pricing text,.app-shell .pricing strong,.app-shell .metric-band text,.app-shell .product-image text,.app-shell .tag-row text,.app-shell .cart-count span,.app-shell .record span{font-size:12px!important}.app-shell button:focus-visible,.app-shell input:focus-visible{outline:3px solid rgba(23,99,63,.28);outline-offset:2px}
 
 /* ===== 原型 1:1 补充样式 ===== */
-.food-card{position:relative}.food-price{display:flex;align-items:baseline;gap:5px;margin-top:4px;padding:0 10px}.food-price strong{color:var(--farm-red);font-size:14px;font-weight:800}.food-price del{color:#bbb;font-size:10px;font-weight:400}
-.more-button{min-height:32px;padding:0 2px;background:none;border:none;color:var(--farm-green);font-size:11px}
-.service-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;padding-top:4px}.service-grid>view{background:#fff;border:1px solid var(--farm-line);border-radius:10px;padding:13px 8px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:7px}.service-grid>view.s-hover{background:var(--farm-green-soft);transform:scale(.96);transition:transform .12s ease}.service-grid .ui-icon{color:var(--farm-green)}.service-grid text{font-size:11px;font-weight:800}.service-grid small{font-size:9px;color:var(--farm-muted);line-height:1.4}
-.room-card{position:relative}.room-card span{display:block;margin-top:5px;font-size:9px;color:var(--farm-red);font-weight:700}.room-emoji{width:72px;height:58px;border-radius:5px}
+.food-card{position:relative}.food-price{display:flex;align-items:baseline;gap:5px;margin-top:4px;padding:0 10px}.food-price strong{color:var(--farm-red);font-size:14px;font-weight:800}.food-price del{color:#bbb;font-size:12px;font-weight:400}
+.more-button{min-height:32px;padding:0 2px;background:none;border:none;color:var(--farm-green);font-size:13px}
+.service-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;padding-top:4px}.service-grid>view{background:#fff;border:1px solid var(--farm-line);border-radius:10px;padding:13px 8px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:7px}.service-grid>view.s-hover{background:var(--farm-green-soft);transform:scale(.96);transition:transform .12s ease}.service-grid .ui-icon{color:var(--farm-green)}.service-grid text{font-size:12px;font-weight:800}.service-grid small{font-size:12px;color:var(--farm-muted);line-height:1.4}
+.room-card{position:relative}.room-card span{display:block;margin-top:5px;font-size:12px;color:var(--farm-red);font-weight:700}.room-emoji{width:72px;height:58px;border-radius:5px}
 .food-thumb,.room-emoji,.rimg,.ci,.select-emoji,.verify-emoji,.design-emoji,.s-emoji,.rec-ic{display:block;flex-shrink:0}
 .room-form-image{width:64px;height:64px;border-radius:12px;flex-shrink:0}
-.reserve-list{display:grid;gap:9px;padding-top:4px}.reserve-card{background:#fff;border:1px solid var(--farm-line);border-radius:11px;padding:10px;display:grid;grid-template-columns:82px 1fr auto;gap:10px;align-items:center}.reserve-card image{width:82px;height:74px;border-radius:8px}.reserve-card text{display:block;font-size:12.5px;font-weight:900}.reserve-card text span{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:var(--farm-green-soft);color:var(--farm-green);font-size:8.5px;font-weight:700;vertical-align:middle}.reserve-card text span.busy{background:#fae8e4;color:var(--farm-red)}.reserve-card small{display:block;margin-top:4px;color:var(--farm-muted);font-size:9px;line-height:1.5}.reserve-card .sessions{font-size:9px}.reserve-card strong{display:block;margin-top:5px;font-size:11px;color:var(--farm-green)}.reserve-card button{min-height:32px;padding:0 12px;border-radius:6px;background:var(--farm-green);color:#fff;font-size:10px;white-space:nowrap}
-.reserve-note{margin:12px 2px;padding:9px 11px;border-radius:7px;background:var(--farm-green-soft);color:var(--farm-green);font-size:10px;line-height:1.6}
+.reserve-list{display:grid;gap:9px;padding-top:4px}.reserve-card{background:#fff;border:1px solid var(--farm-line);border-radius:11px;padding:10px;display:grid;grid-template-columns:82px 1fr auto;gap:10px;align-items:center}.reserve-card image{width:82px;height:74px;border-radius:8px}.reserve-card text{display:block;font-size:12.5px;font-weight:900}.reserve-card text span{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:var(--farm-green-soft);color:var(--farm-green);font-size:12px;font-weight:700;vertical-align:middle}.reserve-card text span.busy{background:#fae8e4;color:var(--farm-red)}.reserve-card small{display:block;margin-top:4px;color:var(--farm-muted);font-size:12px;line-height:1.5}.reserve-card .sessions{font-size:12px}.reserve-card strong{display:block;margin-top:5px;font-size:12px;color:var(--farm-green)}.reserve-card button{min-height:32px;padding:0 12px;border-radius:6px;background:var(--farm-green);color:#fff;font-size:13px;white-space:nowrap}
+.reserve-note{margin:12px 2px;padding:9px 11px;border-radius:7px;background:var(--farm-green-soft);color:var(--farm-green);font-size:12px;line-height:1.6}
 .dates button{min-width:56px;text-align:center}
-.work-metric-band{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}.work-metric-band>view{background:#fff;border:1px solid var(--farm-line);border-radius:9px;padding:10px 8px;text-align:center}.work-metric-band small{display:block;font-size:9.5px;color:var(--farm-muted)}.work-metric-band strong{display:block;margin-top:5px;font-size:15px;font-weight:900;color:var(--farm-green)}
+.work-metric-band{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}.work-metric-band>view{background:#fff;border:1px solid var(--farm-line);border-radius:9px;padding:10px 8px;text-align:center}.work-metric-band small{display:block;font-size:12px;color:var(--farm-muted)}.work-metric-band strong{display:block;margin-top:5px;font-size:15px;font-weight:900;color:var(--farm-green)}
 
-.member-no{font-size:9px!important;color:rgba(255,255,255,.85)!important;margin-top:2px}
-.identity-row{display:flex;align-items:center;justify-content:space-between;margin:9px 0 2px}.identity-row small{color:rgba(255,255,255,.9);font-size:11px}.identity-row button{min-height:30px;padding:0 14px;border-radius:999px;background:#fff;color:var(--farm-green);font-size:12px;font-weight:700;border:1px solid #bfd9c8}
-.promo-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}.promo-stats>view{background:#f7f8f4;border:1px solid var(--farm-line);border-radius:8px;padding:9px 6px;text-align:center}.promo-stats text{display:block;font-size:9px;color:var(--farm-muted)}.promo-stats strong{display:block;margin-top:4px;font-size:13px;color:var(--farm-green)}
-.promotion{display:block}.promotion>view:first-child{display:grid;grid-template-columns:28px 1fr;column-gap:6px}.promotion>view.promo-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0;width:100%}.promotion>button{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-height:36px;margin-top:4px;padding:0 12px;border-radius:7px;background:var(--farm-green);color:#fff;font-size:10.5px}
-.member-footer{margin:14px 2px 4px;padding-top:12px;border-top:1px dashed var(--farm-line);color:var(--farm-muted);font-size:9px;text-align:center;line-height:1.7}
-.identity-sheet{padding:18px 4px 8px;display:grid;gap:12px}.identity-sheet>text{font-size:14px;font-weight:900}.identity-sheet>small{color:var(--farm-muted);font-size:10px;line-height:1.6}.choice-row.stacked{display:grid;gap:8px}.choice-row.stacked button{min-height:48px;border-radius:8px;justify-content:center;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px}.choice-row.stacked button small{font-size:9px;color:var(--farm-muted);font-weight:400}
-.help-sheet{padding:16px 4px 8px;display:grid;gap:8px}.help-row{display:flex;align-items:center;gap:12px;padding:13px 10px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:8px}.help-row>view{flex:1}.help-row text{display:block;font-size:12px;font-weight:800}.help-row small{display:block;margin-top:4px;color:var(--farm-muted);font-size:9px}
-.poster-meta{text-align:center;padding:8px 0 2px}.poster-meta text{display:block;font-size:15px;font-weight:900}.poster-meta strong{display:block;margin-top:5px;color:var(--farm-green);font-size:20px}.poster-meta small{display:block;margin-top:4px;color:var(--farm-muted);font-size:9.5px}
+.member-no{font-size:12px!important;color:rgba(255,255,255,.85)!important;margin-top:2px}
+.identity-row{display:flex;align-items:center;justify-content:space-between;margin:9px 0 2px}.identity-row small{color:rgba(255,255,255,.9);font-size:12px}.identity-row button{min-height:30px;padding:0 14px;border-radius:999px;background:#fff;color:var(--farm-green);font-size:13px;font-weight:700;border:1px solid #bfd9c8}
+.promo-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}.promo-stats>view{background:#f7f8f4;border:1px solid var(--farm-line);border-radius:8px;padding:9px 6px;text-align:center}.promo-stats text{display:block;font-size:12px;color:var(--farm-muted)}.promo-stats strong{display:block;margin-top:4px;font-size:13px;color:var(--farm-green)}
+.promotion{display:block}.promotion>view:first-child{display:grid;grid-template-columns:28px 1fr;column-gap:6px}.promotion>view.promo-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0;width:100%}.promotion>button{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-height:36px;margin-top:4px;padding:0 12px;border-radius:7px;background:var(--farm-green);color:#fff;font-size:13px}
+.member-footer{margin:14px 2px 4px;padding-top:12px;border-top:1px dashed var(--farm-line);color:var(--farm-muted);font-size:12px;text-align:center;line-height:1.7}
+.identity-sheet{padding:18px 4px 8px;display:grid;gap:12px}.identity-sheet>text{font-size:14px;font-weight:900}.identity-sheet>small{color:var(--farm-muted);font-size:12px;line-height:1.6}.choice-row.stacked{display:grid;gap:8px}.choice-row.stacked button{min-height:48px;border-radius:8px;justify-content:center;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px}.choice-row.stacked button small{font-size:13px;color:var(--farm-muted);font-weight:400}
+.help-sheet{padding:16px 4px 8px;display:grid;gap:8px}.help-row{display:flex;align-items:center;gap:12px;padding:13px 10px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:8px}.help-row>view{flex:1}.help-row text{display:block;font-size:12px;font-weight:800}.help-row small{display:block;margin-top:4px;color:var(--farm-muted);font-size:12px}
+.poster-meta{text-align:center;padding:8px 0 2px}.poster-meta text{display:block;font-size:15px;font-weight:900}.poster-meta strong{display:block;margin-top:5px;color:var(--farm-green);font-size:20px}.poster-meta small{display:block;margin-top:4px;color:var(--farm-muted);font-size:12px}
 
 
 
@@ -1028,7 +1071,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 .choice-row.dates button.active{background:var(--farm-green);color:#fff;border-color:var(--farm-green)}
 .reserve-list{gap:6px}
 .reserve-card{border-color:#efece3}
-.product-image text{border-radius:8px;padding:3px 8px;font-size:10px}
+.product-image text{border-radius:8px;padding:3px 8px;font-size:12px}
 .product-body strong{font-size:15px;color:var(--farm-red)}
 .chips button{color:#23291f}
 .chips button.active{background:#15512f;border-color:#15512f}
@@ -1037,9 +1080,9 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 .member-hero{margin:14px;border-radius:20px;padding:18px;color:#fff;position:relative;overflow:hidden;background:linear-gradient(135deg,#1d6b44,#103f27);box-shadow:0 20px 40px -24px rgba(15,80,40,.7)}
 .member-hero .lv{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:4px 12px;font-size:12px!important;font-weight:700}
 .member-hero .uname{display:block;font-size:18px!important;font-weight:800;margin-top:12px}
-.member-hero .uid{display:block;font-size:11.5px!important;opacity:.8;margin-top:2px}
+.member-hero .uid{display:block;font-size:12px!important;opacity:.8;margin-top:2px}
 .member-hero .mbal{display:flex;gap:24px;margin-top:16px}
-.member-hero .mbal small{display:block;font-size:11px;opacity:.85}
+.member-hero .mbal small{display:block;font-size:12px;opacity:.85}
 .member-hero .mbal strong{display:block;font-size:21px!important;font-weight:800;margin-top:2px;color:#fff}
 .member-hero .recharge{position:absolute;right:16px;bottom:16px;background:#fff;color:var(--farm-green);border-radius:999px;padding:8px 16px;font-size:12px;font-weight:800}
 .promotion{border-color:#f0e2c0;padding:16px}
@@ -1100,8 +1143,8 @@ button, uni-button { text-align: center; }
 
 /* ===== 会员页切换身份独立白条（按截图） ===== */
 .identity-row{display:flex;align-items:center;justify-content:space-between;margin:14px 14px 0;padding:11px 14px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;color:var(--farm-ink);box-shadow:0 2px 8px rgba(26,50,36,.05)}
-.identity-row small{color:var(--farm-muted);font-size:11px}
-.identity-row button{min-height:28px;padding:0 10px;border-radius:6px;background:var(--farm-green);color:#fff;font-size:10px}
+.identity-row small{color:var(--farm-muted);font-size:12px}
+.identity-row button{min-height:28px;padding:0 10px;border-radius:6px;background:var(--farm-green);color:#fff;font-size:13px}
 
 
 /* ===== 海报弹层按截图（深绿底） ===== */
@@ -1126,9 +1169,9 @@ button, uni-button { text-align: center; }
 .rec-ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-size:20px;background:#f1f6ef;flex-shrink:0}
 .rec-b{flex:1;min-width:0}
 .rec-t{display:block;font-size:13.5px!important;font-weight:700;line-height:1.35}
-.rec-s{display:block;font-size:11.5px!important;color:var(--farm-muted);margin-top:2px}
-.rec-st{font-size:11px;color:#b45309;background:#fef3c7;border-radius:6px;padding:3px 9px;font-weight:700;flex-shrink:0}
-.rebuy-button{display:inline-block;margin-top:5px;padding:0;background:none;border:none;color:var(--farm-green);font-size:11px;font-weight:700}
+.rec-s{display:block;font-size:12px!important;color:var(--farm-muted);margin-top:2px}
+.rec-st{font-size:12px;color:#b45309;background:#fef3c7;border-radius:6px;padding:3px 9px;font-weight:700;flex-shrink:0}
+.rebuy-button{display:inline-block;margin-top:5px;padding:0;background:none;border:none;color:var(--farm-green);font-size:13px;font-weight:700}
 .order-records .outline-button{margin-top:14px;font-size:14.5px!important}
 .identity-sheet{padding:4px 2px 8px}
 .identity-sub{display:block;font-size:12.5px!important;color:#8a8a82;margin:4px 0 14px}
@@ -1137,7 +1180,7 @@ button, uni-button { text-align: center; }
 .identity-options button.sel{border-color:var(--farm-green);background:#eef5ef}
 .identity-options button>view{flex:1;min-width:0}
 .identity-options text{display:block;font-size:13.5px!important;font-weight:800}
-.identity-options small{display:block;margin-top:3px;font-size:11.5px!important;color:#8a8a82;font-weight:400}
+.identity-options small{display:block;margin-top:3px;font-size:12px!important;color:#8a8a82;font-weight:400}
 .identity-options span{font-size:14px;font-weight:800;color:#cfcfc7}
 .identity-options button.sel span{color:var(--farm-green)}
 .identity-sheet .outline-button{width:100%;min-height:46px;margin-top:6px;border-radius:13px;font-size:14.5px!important;font-weight:800;background:#f1f1ec;color:#555;border:1px solid #f1f1ec}
@@ -1147,23 +1190,23 @@ button, uni-button { text-align: center; }
 .poster-sheet .outline-button{background:#f1f1ec;color:#555;border:1px solid #f1f1ec}
 .rec-st.ok{color:#1a6b41;background:#eef5ef}
 .rec-st.go{color:#52617f;background:#e9ecf2}
-.rec-st.after{color:#a34339;background:#f9e7e4}.si-local{margin-top:8px;border-top:1px dashed #e5e8e1;padding-top:8px}.si-stock{display:flex;gap:8px;flex-wrap:wrap}.si-stock-sku{display:flex;align-items:center;gap:4px}.si-stock-sku text{font-size:9px;color:var(--farm-muted)}.si-stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:11px}.si-local-actions{display:flex;gap:6px;margin-top:6px}.si-local-actions .si-confirm{margin:0}.si-local-actions .si-confirm.danger{background:#f9e7e4;color:#a34339}
+.rec-st.after{color:#a34339;background:#f9e7e4}.si-local{margin-top:8px;border-top:1px dashed #e5e8e1;padding-top:8px}.si-stock{display:flex;gap:8px;flex-wrap:wrap}.si-stock-sku{display:flex;align-items:center;gap:4px}.si-stock-sku text{font-size:12px;color:var(--farm-muted)}.si-stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:13px}.si-local-actions{display:flex;gap:6px;margin-top:6px}.si-local-actions .si-confirm{margin:0}.si-local-actions .si-confirm.danger{background:#f9e7e4;color:#a34339}
 
 
 /* ===== 预订页 1:1（日期胶囊/包厢/套餐） ===== */
 .cats{display:flex;gap:8px;overflow-x:auto;padding:0 2px 4px;scrollbar-width:none;margin:-4px 0 4px}
 .cats::-webkit-scrollbar{display:none}
-.cats button{flex:0 0 auto;min-height:34px;padding:6px 14px;border-radius:999px;background:#fff;border:1px solid var(--farm-line);color:#566;font-size:12.5px!important;font-weight:600}
+.cats button{flex:0 0 auto;min-height:34px;padding:6px 14px;border-radius:999px;background:#fff;border:1px solid var(--farm-line);color:#566;font-size:13px!important;font-weight:600}
 .cats button.on{background:var(--farm-green);color:#fff;border-color:var(--farm-green);font-weight:700}
 .reserve-list{display:block;padding:0}
 .room{display:flex;gap:12px;background:#fff;border:1px solid var(--farm-line);border-radius:16px;padding:12px;margin:0 0 12px}
 .room .rimg{width:96px;height:78px;border-radius:12px;display:grid;place-items:center;font-size:34px;background:linear-gradient(135deg,#eef6ef,#e0eede);flex-shrink:0}
 .room .rb{flex:1;min-width:0}
 .room .rn{display:flex;align-items:center;gap:6px;font-size:14.5px!important;font-weight:800}
-.room .rn text{font-size:10px!important;border-radius:5px;padding:1px 6px;font-weight:700}
+.room .rn text{font-size:12px!important;border-radius:5px;padding:1px 6px;font-weight:700}
 .room .rn .status-free{color:var(--farm-green);background:var(--farm-green-soft)}
 .room .rn .status-busy{color:#b45309;background:#fef3c7}
-.room .rd{font-size:11.5px!important;color:var(--farm-muted);margin-top:3px}
+.room .rd{font-size:12px!important;color:var(--farm-muted);margin-top:3px}
 .room .rfoot{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
 .booknow{min-height:32px;padding:7px 14px;border-radius:10px;background:linear-gradient(135deg,var(--farm-green),var(--farm-green-deep));color:#fff;font-size:12px!important;font-weight:700}
 .combo-list{display:block;padding:0}
@@ -1171,13 +1214,13 @@ button, uni-button { text-align: center; }
 .combo .ci{width:64px;height:64px;border-radius:14px;background:linear-gradient(135deg,#fff1df,#ffe6c7);display:grid;place-items:center;font-size:30px;flex-shrink:0}
 .combo .cb{flex:1;min-width:0}
 .combo .cn{font-size:14px!important;font-weight:800}
-.combo .cl{font-size:11px!important;color:var(--farm-muted);margin-top:3px}
+.combo .cl{font-size:12px!important;color:var(--farm-muted);margin-top:3px}
 .combo .cprice{color:var(--farm-red);font-weight:800;font-size:14px!important;margin-top:4px}
 .booking-sheet{padding:4px 2px 8px}
 .booking-sub{display:block;font-size:12.5px!important;color:#8a8a82;margin:4px 0 14px;line-height:1.6}
 .booking-section{margin-bottom:14px}
 .booking-section>text{display:block;font-size:12.5px!important;font-weight:700;margin-bottom:8px}
-.booking-sheet .primary-button{width:100%;min-height:46px;border-radius:13px;font-size:14.5px!important;font-weight:800}.service-detail{padding:4px 2px 8px;text-align:center}.service-detail .s-emoji{width:64px;height:64px;margin:8px auto 12px;border-radius:16px;background:var(--farm-green-soft);display:grid;place-items:center;font-size:32px}.service-detail .s-name{font-size:17px;font-weight:900}.service-detail .s-desc{display:block;margin-top:6px;color:var(--farm-muted);font-size:11px;line-height:1.6}.service-detail .s-rows{margin-top:14px;display:grid;gap:8px;text-align:left}.service-detail .s-rows view{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:9px;font-size:11px}.service-detail .s-rows text{color:var(--farm-muted)}.service-detail .s-rows strong{font-weight:800}.service-detail .primary-button,.service-detail .outline-button{width:100%;min-height:46px;margin-top:8px;border-radius:13px;font-size:14.5px!important;font-weight:800}.service-detail .s-order{margin-top:14px;text-align:left}.service-detail .s-order>text{display:block;margin-bottom:8px;font-size:11px;font-weight:800}.service-detail .s-order .ui-chips{margin-bottom:0}.service-detail .s-fee{margin-top:12px;padding:11px 13px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:9px;display:flex;align-items:center;justify-content:space-between;font-size:11px}.service-detail .s-fee text{color:var(--farm-muted)}.service-detail .s-fee strong{color:var(--farm-red);font-weight:800}
+.booking-sheet .primary-button{width:100%;min-height:46px;border-radius:13px;font-size:14.5px!important;font-weight:800}.service-detail{padding:4px 2px 8px;text-align:center}.service-detail .s-emoji{width:64px;height:64px;margin:8px auto 12px;border-radius:16px;background:var(--farm-green-soft);display:grid;place-items:center;font-size:32px}.service-detail .s-name{font-size:17px;font-weight:900}.service-detail .s-desc{display:block;margin-top:6px;color:var(--farm-muted);font-size:12px;line-height:1.6}.service-detail .s-rows{margin-top:14px;display:grid;gap:8px;text-align:left}.service-detail .s-rows view{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:9px;font-size:12px}.service-detail .s-rows text{color:var(--farm-muted)}.service-detail .s-rows strong{font-weight:800}.service-detail .primary-button,.service-detail .outline-button{width:100%;min-height:46px;margin-top:8px;border-radius:13px;font-size:14.5px!important;font-weight:800}.service-detail .s-order{margin-top:14px;text-align:left}.service-detail .s-order>text{display:block;margin-bottom:8px;font-size:12px;font-weight:800}.service-detail .s-order .ui-chips{margin-bottom:0}.service-detail .s-fee{margin-top:12px;padding:11px 13px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:9px;display:flex;align-items:center;justify-content:space-between;font-size:12px}.service-detail .s-fee text{color:var(--farm-muted)}.service-detail .s-fee strong{color:var(--farm-red);font-weight:800}
 
 /* ===== 分销推广区 1:1（原型 promo） ===== */
 .promotion{display:block;margin:12px 16px 0;border-radius:18px;padding:16px;background:linear-gradient(135deg,#fff6e9,#fff);border:1px solid #f3e0bd}
@@ -1186,14 +1229,14 @@ button, uni-button { text-align: center; }
 .promotion>view:first-child small{display:block;margin-top:6px;font-size:12px!important;color:#8a7340;line-height:1.6}
 .promotion .promo-stats{display:flex;gap:10px;margin:12px 0 0;width:100%}
 .promotion .promo-stats>view{flex:1;background:#fff;border:1px solid #f1e3c4;border-radius:12px;padding:10px 6px;text-align:center}
-.promotion .promo-stats text{display:block;font-size:10.5px!important;color:var(--farm-muted)}
+.promotion .promo-stats text{display:block;font-size:12px!important;color:var(--farm-muted)}
 .promotion .promo-stats strong{display:block;margin-top:2px;font-size:18px!important;font-weight:800;color:#c2410c}
 .promotion>button{width:100%;min-height:44px;margin-top:12px;padding:0 12px;background:#a8542b;color:#fff;border-radius:12px;font-size:13px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 
 /* ===== 商城 1:1（提示条/副标题） ===== */
 .supply-note{background:#fff9e9!important;border-color:#ecdfbd!important;color:#765c27!important}
 .supply-note .note-emoji{font-size:18px;line-height:1;flex-shrink:0}
-.policy-hint{margin:10px 0;padding:9px 12px;border-radius:7px;background:var(--farm-green-soft);border:1px solid #cfe2d6;color:#315e48;font-size:11px;font-weight:700;text-align:left}.policy-hint b{color:var(--farm-green)}
+.policy-hint{margin:10px 0;padding:9px 12px;border-radius:7px;background:var(--farm-green-soft);border:1px solid #cfe2d6;color:#315e48;font-size:12px;font-weight:700;text-align:left}.policy-hint b{color:var(--farm-green)}
 .supply-note b{color:#9a6b1f;font-weight:800}
 .shop-page .muted{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workbench .section-head text{color:#fff}
@@ -1203,7 +1246,7 @@ button, uni-button { text-align: center; }
 
 /* ===== 1:1 复核调整（对照原型） ===== */
 .quick-grid .ui-icon { width:19px;height:19px; }
-.source-tag { display:inline-block;margin-top:5px;padding:1px 6px;border:1px solid #cdebd4;border-radius:5px;background:var(--farm-green-soft);color:var(--farm-green);font-size:10px;font-weight:600; }
+.source-tag { display:inline-block;margin-top:5px;padding:1px 6px;border:1px solid #cdebd4;border-radius:5px;background:var(--farm-green-soft);color:var(--farm-green);font-size:12px;font-weight:600; }
 
 
 /* ===== 按钮组靠左修复（uni-button 默认 margin:0 auto 会摊开） ===== */
@@ -1245,7 +1288,7 @@ button, uni-button { text-align: center; }
 .login-sheet-title{font-size:17px;font-weight:800;color:var(--farm-ink)}
 .login-sheet-sub{font-size:12px;color:var(--farm-muted);line-height:1.7;margin-bottom:6px}
 .login-sheet .primary-button{width:100%;min-height:46px}
-.login-sheet-tip{font-size:10.5px;color:#b3b3ab;margin-top:6px}
+.login-sheet-tip{font-size:12px;color:#b3b3ab;margin-top:6px}
 .login-sheet .login-roles{margin:2px 0 2px;width:100%}
 .login-sheet .login-role-help{margin:0 0 4px}
 .logout-help{color:#c0392b}
@@ -1262,19 +1305,19 @@ button, uni-button { text-align: center; }
 .design-emoji{width:64px;height:64px;border-radius:12px;background:var(--farm-green-soft);display:grid;place-items:center;font-size:26px;flex-shrink:0}
 .design-upload-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .design-upload-actions{display:flex;gap:6px;flex-wrap:wrap}
-.design-upload-btn{min-height:30px;padding:0 10px;border:1px solid #e5e1d6;border-radius:6px;background:#fff;color:var(--farm-green,#17633f);font-size:11px;margin:0}
+.design-upload-btn{min-height:30px;padding:0 10px;border:1px solid #e5e1d6;border-radius:6px;background:#fff;color:var(--farm-green,#17633f);font-size:13px;margin:0}
 .design-upload-btn.danger{color:#b23a2c}
 .verify-main,.design-main{flex:1;min-width:0}
-.verify-main small,.design-main small{display:block;margin-top:3px;color:var(--farm-muted);font-size:10.5px;line-height:1.5}
-.verify-status{font-size:11px;font-weight:700;color:var(--farm-green);white-space:nowrap}
+.verify-main small,.design-main small{display:block;margin-top:3px;color:var(--farm-muted);font-size:12px;line-height:1.5}
+.verify-status{font-size:12px;font-weight:700;color:var(--farm-green);white-space:nowrap}
 .verify-status.cancel{color:var(--farm-muted)}
 .verify-status.ok{color:#2e8b57}
 .verify-amount{width:92px;height:32px;display:flex;align-items:center;padding:0 8px;border:1px solid var(--farm-line);border-radius:8px;background:#fff;color:var(--farm-muted);font-size:12px}
-.verify-amount input{min-width:0;flex:1;height:30px;padding:0 0 0 3px;border:0;background:transparent;color:var(--farm-ink);font-size:12px}
-.verify-btn{min-height:30px;padding:0 12px;border-radius:8px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.verify-amount input{min-width:0;flex:1;height:30px;padding:0 0 0 3px;border:0;background:transparent;color:var(--farm-ink);font-size:13px}
+.verify-btn{min-height:30px;padding:0 12px;border-radius:8px;background:var(--farm-green);color:#fff;font-size:13px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
 .verify-done{color:var(--farm-muted);font-size:12px;font-weight:700;width:34px;text-align:center}
 .design-actions{display:flex;gap:6px;flex-shrink:0}
-.design-actions button{min-height:28px;padding:0 10px;border-radius:7px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.design-actions button{min-height:28px;padding:0 10px;border-radius:7px;font-size:13px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
 .design-edit{background:var(--farm-green-soft);color:var(--farm-green)}
 .design-del{background:#fae8e4;color:var(--farm-red)}
 .design-form{padding:6px 2px 8px}
@@ -1282,7 +1325,7 @@ button, uni-button { text-align: center; }
 .design-form .form-field>text{font-size:12px;font-weight:700;color:#5a6a60}
 .design-form .form-field input{height:44px;border:1px solid var(--farm-line);border-radius:10px;padding:0 12px;font-size:13px;background:#fafcfb}
 .design-form .choice-row{display:flex;gap:8px}
-.design-form .choice-row button{flex:1;min-height:40px;border:1px solid var(--farm-line);border-radius:9px;font-size:12px;font-weight:700;color:var(--farm-muted)}
+.design-form .choice-row button{flex:1;min-height:40px;border:1px solid var(--farm-line);border-radius:9px;font-size:13px;font-weight:700;color:var(--farm-muted)}
 .design-form .choice-row button.active{background:var(--farm-green-soft);border-color:var(--farm-green);color:var(--farm-green)}
 .design-form .primary-button{width:100%;min-height:46px}
 
@@ -1290,17 +1333,17 @@ button, uni-button { text-align: center; }
 
 /* ===== 列表搜索 / 菜品空占位 / 收货地址编辑 ===== */
 .list-search{display:flex;align-items:center;gap:8px;margin:12px 0;padding:0 12px;height:40px;background:#fff;border:1px solid var(--farm-line);border-radius:8px}
-.list-search input{flex:1;height:100%;font-size:12px}
+.list-search input{flex:1;height:100%;font-size:13px}
 .design-emoji.empty-box{background:#f2f4ee}
 .address-edit-row{align-items:flex-start}
 .address-edit-row .help-edit{flex:1;min-width:0}
 .address-edit-row .help-edit text{display:block;font-size:12px;font-weight:800}
-.address-edit-row .help-edit input{width:100%;height:36px;margin-top:6px;padding:0 10px;border:1px solid var(--farm-line);border-radius:7px;font-size:12px;background:#fff}
-.address-save{min-height:32px;padding:0 12px;border-radius:7px;background:var(--farm-green);color:#fff;font-size:11px;font-weight:700;flex:none;display:inline-flex;align-items:center;justify-content:center;margin:0}
+.address-edit-row .help-edit input{width:100%;height:36px;margin-top:6px;padding:0 10px;border:1px solid var(--farm-line);border-radius:7px;font-size:13px;background:#fff}
+.address-save{min-height:32px;padding:0 12px;border-radius:7px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:700;flex:none;display:inline-flex;align-items:center;justify-content:center;margin:0}
 .address-save::after{border:none;background:none}
 
 .product-tag-row{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
-.express-tag{font-size:10px;padding:1px 7px;border-radius:9px;background:#eaf3ff;color:#35658f}
+.express-tag{font-size:12px;padding:1px 7px;border-radius:9px;background:#eaf3ff;color:#35658f}
 .delivery-picker{padding:12px 16px;border-bottom:1px solid #e9eeea}
 .delivery-label{display:block;font-size:12px;font-weight:800;margin-bottom:8px}
 .store-summary>.business-image{width:54px;height:54px;border-radius:14px}.food-card .business-image{width:100%;height:100px}.room-card .business-image{width:72px;height:58px;border-radius:5px}.reserve-card .business-image{width:82px;height:74px;border-radius:8px}.sheet-line>.business-image{width:54px;height:54px;border-radius:6px}.product-detail>.business-image{width:100%;height:210px;border-radius:8px}.food-detail-list .business-image{width:58px;height:54px;border-radius:5px}

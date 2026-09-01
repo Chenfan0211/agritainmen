@@ -9,7 +9,7 @@ import { chromium } from '@playwright/test'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const iconsDir = join(root, 'apps', 'supplier', 'src', 'static', 'icons')
-const names = ['calendar-check', 'check', 'chevron-right', 'layout-dashboard', 'list-tree', 'map-pin', 'package', 'package-check', 'search', 'user-round', 'users', 'x']
+const names = ['calendar-check', 'check', 'chevron-left', 'chevron-right', 'layout-dashboard', 'list-tree', 'map-pin', 'navigation', 'package', 'package-check', 'search', 'user-round', 'users', 'x']
 const size = 64
 const color = '#1f2a22'
 

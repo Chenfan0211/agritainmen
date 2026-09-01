@@ -25,7 +25,9 @@ async function login(page: Page) {
 }
 
 async function syncSupplierShipping(page: Page, subIndex: number) {
-  await page.evaluate((index) => {
+  const supplierStatePage = await page.context().newPage()
+  await supplierStatePage.goto(userUrl)
+  await supplierStatePage.evaluate((index) => {
     const orderState = JSON.parse(localStorage.getItem('agritainment-platform-c-orders') || '{}')
     const order = Object.values(orderState)[0] as { subOrders: Array<{ id: string }> }
     const sub = order.subOrders[index]
@@ -40,8 +42,7 @@ async function syncSupplierShipping(page: Page, subIndex: number) {
     platformOrders[supplierOrder.id] = supplierOrder
     localStorage.setItem('agritainment-platform-orders', JSON.stringify(platformOrders))
   }, subIndex)
-  await page.reload()
-  await expect(page.locator('.c-mall')).toBeVisible()
+  await supplierStatePage.close()
   await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
 }
 
@@ -100,11 +101,12 @@ test('user C mall covers pricing, checkout, fulfillment, commission and live ent
   await expect(page.locator('.logistics-content')).toContainText('运输中')
   await page.locator('.sheet-head uni-button').click({ force: true })
   await refreshedFirstSub.locator('.primary-small').filter({ hasText: '确认收货' }).click()
+  await expect(refreshedFirstSub).toContainText('已收货')
   await syncSupplierShipping(page, 1)
   const receivedOrder = page.locator('.order-card').first()
   const receivedSecondSub = receivedOrder.locator('.sub-order').nth(1)
   await receivedSecondSub.locator('.primary-small').filter({ hasText: '确认收货' }).click()
-  await expect(receivedOrder).toContainText('已收货')
+  await expect(receivedSecondSub).toContainText('已收货')
   const level2Commissions = await page.evaluate(() => {
     const records = JSON.parse(localStorage.getItem('agritainment-platform-c-commissions') || '[]') as Array<{ beneficiaryId: string; amount: number; status: string }>
     return records.filter((item) => item.beneficiaryId === 'T002')
@@ -114,6 +116,7 @@ test('user C mall covers pricing, checkout, fulfillment, commission and live ent
   expect(level2Commissions.every((item) => item.status === 'available')).toBe(true)
   await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
   await receivedOrder.locator('.sub-order').nth(0).locator('.outline-small').filter({ hasText: '申请售后' }).click()
+  await page.locator('.primary-btn').filter({ hasText: '提交售后申请' }).click()
   await expect(receivedOrder).toContainText('部分售后')
   await page.reload()
   await expect(page.locator('.c-mall')).toBeVisible()
@@ -260,6 +263,8 @@ test('paid and shipped sub-order after-sale apply different inventory rules', as
   const paidSub = order.locator('.sub-order').nth(0)
   const shippedSub = order.locator('.sub-order').nth(1)
   await paidSub.locator('.outline-small').filter({ hasText: '申请售后' }).click()
+  await page.locator('.primary-btn').filter({ hasText: '提交售后申请' }).click()
+  await expect(paidSub).toContainText('售后处理中')
   const stockAfterPaidAfterSale = await page.evaluate((key) => {
     const state = JSON.parse(localStorage.getItem(key) || '{}')
     return state.products.flatMap((product: { skus: { id: string; stock: number }[] }) => product.skus).map((sku: { id: string; stock: number }) => [sku.id, sku.stock])
@@ -274,6 +279,8 @@ test('paid and shipped sub-order after-sale apply different inventory rules', as
     return state.products.flatMap((product: { skus: { id: string; stock: number }[] }) => product.skus).map((sku: { id: string; stock: number }) => [sku.id, sku.stock])
   }, inventoryKey)
   await refreshedShippedSub.locator('.outline-small').filter({ hasText: '申请售后' }).click()
+  await page.locator('.primary-btn').filter({ hasText: '提交售后申请' }).click()
+  await expect(refreshedShippedSub).toContainText('售后处理中')
   const stockAfterShippedAfterSale = await page.evaluate((key) => {
     const state = JSON.parse(localStorage.getItem(key) || '{}')
     return state.products.flatMap((product: { skus: { id: string; stock: number }[] }) => product.skus).map((sku: { id: string; stock: number }) => [sku.id, sku.stock])

@@ -9,6 +9,7 @@ export default defineConfig({
   reporter: 'list',
   use: {
     browserName: 'chromium',
+    baseURL: 'http://127.0.0.1:8791',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure'
   },

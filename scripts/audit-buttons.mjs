@@ -21,7 +21,7 @@ for (const file of files) {
         continue
       }
       if (/\bstore\./.test(binding)) matrix.store += 1
-      else if (/^(open|close|choose|select|enter|recharge|checkout|submit|share|withdraw|export|batch|copy|repeat|progress|audit|toggle|join|watch|list|retry|save|detail|confirm|add|book|makePhoneCall|markAllRead|go|advance|switch|back|login|logout|send|wechat|require|remove|edit|verify|design|cancel|commit)[A-Z\w]*(\s*\(|$)/.test(binding)) matrix.surface += 1
+      else if (/^(open|close|clear|choose|select|enter|recharge|checkout|submit|share|withdraw|export|batch|copy|repeat|progress|audit|toggle|join|watch|list|retry|save|set|detail|confirm|add|book|makePhoneCall|markAllRead|go|advance|switch|back|login|logout|send|wechat|require|request|remove|resume|edit|verify|design|cancel|commit|restore|refund|complete)[A-Z\w]*(\s*\(|$)/.test(binding)) matrix.surface += 1
       else if (/\b[a-zA-Z_$][\w$]*\s*=|\+\+|--/.test(binding)) matrix.localState += 1
       else {
         const line = source.slice(0, match.index).split('\n').length

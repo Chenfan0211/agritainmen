@@ -1,3 +1,5 @@
+@use "../../../../packages/ui/src/typography.scss";
+
 :root {
   --union-red: #b03a2e;
   --union-red-deep: #9d2535;
@@ -7,7 +9,7 @@
   --union-bg: #f7f3f2;
   --union-panel: #ffffff;
   --union-ink: #2a2424;
-  --union-muted: #7e7373;
+  --union-muted: #6c6262;
   --union-line: #e7dddd;
 }
 
@@ -16,12 +18,14 @@ page, body, #app {
   margin:0;
   background:var(--union-bg);
   color:var(--union-ink);
-  font-family:Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-family:var(--font-ui);
+  font-size:var(--text-body);
+  line-height:var(--line-body);
   letter-spacing:0;
 }
 
 * { box-sizing:border-box; }
-button, input { font:inherit;letter-spacing:0; }
+button, input, select, textarea { font:inherit;letter-spacing:0; }
 button { border:0;transition:background-color .16s ease,color .16s ease,border-color .16s ease,opacity .16s ease,transform .12s ease; }
 button:not(:disabled):active { transform:scale(.98); }
 button:disabled { opacity:.48;pointer-events:none; }

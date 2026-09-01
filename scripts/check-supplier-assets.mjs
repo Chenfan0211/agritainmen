@@ -9,7 +9,7 @@ const generatedIconsScript = join(root, 'scripts', 'svg-icons-to-png.mjs')
 const mpDist = join(supplierRoot, 'dist', 'build', 'mp-weixin')
 const h5Dist = join(supplierRoot, 'dist', 'build', 'h5')
 
-const expectedIcons = ['calendar-check', 'check', 'chevron-right', 'layout-dashboard', 'list-tree', 'map-pin', 'package', 'package-check', 'search', 'user-round', 'users', 'x']
+const expectedIcons = ['calendar-check', 'check', 'chevron-left', 'chevron-right', 'layout-dashboard', 'list-tree', 'map-pin', 'navigation', 'package', 'package-check', 'search', 'user-round', 'users', 'x']
 const removedSvgs = ['arrow-left', 'arrow-right', 'badge-dollar-sign', 'badge-percent', 'bell-ring', 'bell', 'calendar-days', 'chart-no-axes-combined', 'chevron-down', 'credit-card', 'crown', 'door-open', 'download', 'factory', 'headset', 'house', 'link', 'megaphone', 'package-plus', 'phone', 'play', 'plus', 'radio', 'shield-check', 'shopping-bag', 'shopping-cart', 'sprout', 'store', 'tags', 'trophy', 'truck', 'user-round-check', 'utensils']
 
 function fail(message) {
@@ -49,7 +49,7 @@ for (const name of expectedIcons) {
 
 const supplierSource = filesUnder(join(supplierRoot, 'src')).filter((path) => /\.(vue|ts)$/.test(path)).map((path) => readFileSync(path, 'utf8')).join('\n')
 const staticIcons = [...supplierSource.matchAll(/UiIcon\s+name="([^"]+)"/g)].map((match) => match[1])
-const dynamicIcons = [...supplierSource.matchAll(/icon:\s*'([^']+)'/g)].map((match) => match[1])
+const dynamicIcons = [...supplierSource.matchAll(/icon:\s*'([^']+)'/g)].map((match) => match[1]).filter((name) => name !== 'none')
 const usedIcons = [...staticIcons, ...dynamicIcons]
 for (const name of [...new Set(usedIcons)]) {
   if (!existsSync(join(sourceIcons, `${name}.png`))) fail(`UiIcon 使用了不存在的 PNG: ${name}`)
@@ -66,7 +66,7 @@ const mpIconFiles = mpFiles.filter((path) => /[/\\]static[/\\]icons[/\\][^/\\]+\
 const expectedIconFiles = expectedIcons.flatMap((name) => [`${name}.png`, `${name}.svg`]).sort()
 const actualIconFiles = mpIconFiles.map((path) => basename(path)).sort()
 if (JSON.stringify(actualIconFiles) !== JSON.stringify(expectedIconFiles)) {
-  fail('MP 产物 static/icons 应为 12 PNG + 12 SVG')
+  fail(`MP 产物 static/icons 应为 ${expectedIconFiles.length} 个 PNG/SVG`)
 }
 
 const h5Css = filesContaining(h5Dist, '.css', 'safe-area-inset-top')

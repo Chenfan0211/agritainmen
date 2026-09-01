@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { BusinessMediaValue, FarmStore, LiveRoom, Product } from '@agritainment/shared'
-import { buildPortalUrl, createId, createPlatformDictionaryCache, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount, subscribePlatformChanges } from '@agritainment/shared'
+import { PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_LIVES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, buildPortalUrl, createId, createPlatformDictionaryCache, formatNumber, installKeyboardButtonSupport, money, pendingShareAmount, subscribePlatformChanges } from '@agritainment/shared'
 import { BusinessImage, ImageUploader, getMediaRuntime } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 // #ifdef H5
@@ -13,7 +13,12 @@ import { userPortalBase } from '../../config/portal'
 type SheetKey = 'login' | 'create-live' | 'share' | 'shares' | 'bound-users' | null
 
 let disposePlatformChanges: (() => void) | null = null
+let disposeStorageSync: (() => void) | null = null
+let disposeVisibilitySync: (() => void) | null = null
+let disposeKeyboardButtons: (() => void) | null = null
 const store = usePromoterStore()
+const platformChangeKeys = [PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_LIVES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY]
+const refreshSharedState = () => void store.refreshSharedState()
 const sheet = ref<SheetKey>(null)
 const loginPhone = ref('13800000000')
 const loginPassword = ref('123456')
@@ -156,17 +161,27 @@ function confirmRemoveLive(room: LiveRoom) {
 }
 
 onMounted(async () => {
-  installKeyboardButtonSupport()
+  disposeKeyboardButtons = installKeyboardButtonSupport()
   await store.initialize()
+  disposePlatformChanges = subscribePlatformChanges(refreshSharedState, platformChangeKeys)
   if (typeof window !== 'undefined') {
-    const onStorage = () => void store.refreshSharedState()
+    const keys = new Set(platformChangeKeys)
+    const onStorage = (event: StorageEvent) => { if (!event.key || keys.has(event.key)) refreshSharedState() }
     window.addEventListener('storage', onStorage)
-    disposePlatformChanges = () => window.removeEventListener('storage', onStorage)
+    disposeStorageSync = () => window.removeEventListener('storage', onStorage)
+  }
+  if (typeof document !== 'undefined') {
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshSharedState() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    disposeVisibilitySync = () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }
 })
 
 onBeforeUnmount(() => {
+  disposeKeyboardButtons?.(); disposeKeyboardButtons = null
   disposePlatformChanges?.(); disposePlatformChanges = null
+  disposeStorageSync?.(); disposeStorageSync = null
+  disposeVisibilitySync?.(); disposeVisibilitySync = null
   dictCache.dispose()
 })
 </script>
@@ -260,21 +275,21 @@ onBeforeUnmount(() => {
 .login-card{width:100%;max-width:340px;background:#fff;border:1px solid #efe6e6;border-radius:18px;padding:26px 22px;display:flex;flex-direction:column;gap:10px}
 .login-icon{width:64px;height:64px;border-radius:18px;background:#fdeef1;font-size:32px;margin:0 auto}
 .login-title{font-size:18px;font-weight:900;text-align:center;margin-top:6px}
-.login-sub{text-align:center;color:#8a7d80;font-size:11px}
+.login-sub{text-align:center;color:#8a7d80;font-size:12px}
 .login-field{display:flex;flex-direction:column;gap:6px;margin-top:6px}
-.login-field text{font-size:11px;font-weight:700}
+.login-field text{font-size:12px;font-weight:700}
 .login-field input{height:42px;border:1px solid #eee;border-radius:8px;padding:0 12px;font-size:13px}
 .primary-button{height:44px;border-radius:10px;background:#c83245;color:#fff;font-weight:800;font-size:14px;margin-top:8px;display:flex;align-items:center;justify-content:center;text-align:center}
-.login-hint{text-align:center;color:#b5a8ab;font-size:10px;margin-top:4px}
+.login-hint{text-align:center;color:#b5a8ab;font-size:12px;margin-top:4px}
 .promoter-head{background:linear-gradient(135deg,#3a566f,#243a4f);color:#fff;padding:28px 18px 22px}
 .head-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.head-share-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:30px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:11px;font-weight:700;flex:none;transition:background .15s ease,transform .15s ease}
+.head-share-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:30px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);color:#fff;font-size:13px;font-weight:700;flex:none;transition:background .15s ease,transform .15s ease}
 .head-share-btn:active{background:rgba(255,255,255,.26);transform:translateY(-1px)}
 .profile{display:flex;align-items:center;gap:12px}
 .pav{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.16);font-size:26px}
 .pname{font-size:17px;font-weight:900;display:block}
-.plv{font-size:10px;opacity:.8;display:block;margin-top:4px}
-.vip{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#e8b13f;color:#4a2f00;font-size:9px}
+.plv{font-size:12px;opacity:.8;display:block;margin-top:4px}
+.vip{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#e8b13f;color:#4a2f00;font-size:12px}
 .wallet-card{margin:14px 14px 0;padding:14px;background:#fff;border:1px solid #efe6e6;border-radius:14px}
 .wallet-top{display:flex;align-items:center;justify-content:space-between}
 .wallet-top small,.wallet-top strong{display:block}
@@ -283,28 +298,28 @@ onBeforeUnmount(() => {
 .wallet-stats{display:grid;grid-template-columns:repeat(3,1fr);margin-top:14px;text-align:center}
 .wallet-stats text,.wallet-stats small{display:block}
 .wallet-stats text{font-size:15px;font-weight:800}
-.wallet-stats small{color:#8a7d80;font-size:9px;margin-top:3px}
-.wallet-stats .settled-tag{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;background:#e8f3ec;color:#17633f;font-size:8px;font-weight:700}
+.wallet-stats small{color:#8a7d80;font-size:12px;margin-top:3px}
+.wallet-stats .settled-tag{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;background:#e8f3ec;color:#17633f;font-size:12px;font-weight:700}
 .quick-tools{margin:14px 14px 0;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.quick-tools button{background:#fff;border:1px solid #efe6e6;border-radius:14px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;font-size:11px;font-weight:800;color:#3a566f;box-shadow:0 6px 16px -12px rgba(58,86,111,.45);transition:transform .15s ease,box-shadow .15s ease}
+.quick-tools button{background:#fff;border:1px solid #efe6e6;border-radius:14px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;font-size:13px;font-weight:800;color:#3a566f;box-shadow:0 6px 16px -12px rgba(58,86,111,.45);transition:transform .15s ease,box-shadow .15s ease}
 .quick-tools button:active{transform:translateY(-1px) scale(.98);box-shadow:0 10px 20px -12px rgba(58,86,111,.55)}
 .section-head{display:flex;align-items:center;justify-content:space-between;margin:20px 16px 10px}
 .section-head span{width:4px;height:14px;border-radius:2px;background:#c83245;display:inline-block}
 .section-head>view{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:900}
-.section-head small{color:#8a7d80;font-size:10px}
-.empty{min-height:90px;display:grid;place-items:center;color:#8a7d80;font-size:11px;margin:0 16px}
+.section-head small{color:#8a7d80;font-size:12px}
+.empty{min-height:90px;display:grid;place-items:center;color:#8a7d80;font-size:12px;margin:0 16px}
 .live-list{display:grid;gap:12px;padding:0 14px}
 .live-card{background:#fff;border:1px solid #efe6e6;border-radius:14px;overflow:hidden}
 .live-cover{width:100%;height:140px;display:block}
 .live-body{padding:11px 12px}
 .live-title-row{display:flex;align-items:center;gap:8px}
 .live-title{font-size:14px;font-weight:900;flex:1;min-width:0}
-.live-title-row span{flex:none;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:700}
+.live-title-row span{flex:none;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700}
 .live-title-row span.live{background:#fdeef1;color:#c83245}
 .live-title-row span.preview{background:#eef3f8;color:#45658d}
-.live-meta{display:block;color:#8a7d80;font-size:10px;margin-top:5px}
+.live-meta{display:block;color:#8a7d80;font-size:12px;margin-top:5px}
 .live-actions{display:flex;gap:8px;margin-top:10px}
-.live-actions .mini{min-height:34px;padding:0 10px;border-radius:8px;background:#f4f0ee;font-size:10px;font-weight:700;flex:1;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1;transition:filter .15s ease}
+.live-actions .mini{min-height:34px;padding:0 10px;border-radius:8px;background:#f4f0ee;font-size:13px;font-weight:700;flex:1;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.35;transition:filter .15s ease}
 .live-actions .mini:active{filter:brightness(.94)}
 .live-actions .mini::after{border:none}
 .live-actions .mini.accent{background:#3a566f;color:#fff}
@@ -315,43 +330,43 @@ onBeforeUnmount(() => {
 .sheet-head button{width:30px;height:30px;border-radius:50%;background:#f4f0ee;display:grid;place-items:center}
 .create-live,.share-sheet,.data-list{padding:4px 16px 22px;overflow-y:auto}
 .field{display:flex;flex-direction:column;gap:8px;margin-top:12px}
-.field>text{font-size:11px;font-weight:800;color:#4a3f42}
+.field>text{font-size:12px;font-weight:800;color:#4a3f42}
 .field input{height:42px;border:1px solid #eee;border-radius:8px;padding:0 12px;font-size:13px}
 .cover-row{display:flex;gap:8px;overflow-x:auto}
 .cover-row image{width:64px;height:64px;border-radius:10px;border:2px solid transparent;flex:none}
 .cover-row image.active{border-color:#c83245}
-.cover-row image.uploaded{border-color:#17633f;background:#f0f6f0}.upload-btn{margin-top:8px;min-height:32px;padding:0 12px;border:1px solid #e5d8da;border-radius:8px;background:#fff7f8;color:#c83245;font-size:11px;font-weight:700;align-self:flex-start;display:flex;align-items:center;justify-content:center}
+.cover-row image.uploaded{border-color:#17633f;background:#f0f6f0}.upload-btn{margin-top:8px;min-height:32px;padding:0 12px;border:1px solid #e5d8da;border-radius:8px;background:#fff7f8;color:#c83245;font-size:13px;font-weight:700;align-self:flex-start;display:flex;align-items:center;justify-content:center}
 .chips{display:flex;gap:8px}
-.chips button{min-height:34px;padding:0 14px;border-radius:17px;background:#f4f0ee;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+.chips button{min-height:34px;padding:0 14px;border-radius:17px;background:#f4f0ee;font-size:13px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;text-align:center}
 .chips button.active{background:#c83245;color:#fff}
 .farm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .farm-option{border:1px solid #eee;border-radius:10px;overflow:hidden;position:relative;text-align:center}
 .farm-option image{width:100%;height:52px;display:block}
-.farm-option text{display:block;padding:5px 4px;font-size:9px;font-weight:700}
+.farm-option text{display:block;padding:5px 4px;font-size:12px;font-weight:700}
 .farm-option.active{border-color:#c83245;background:#fdeef1}
 .pkg-grid{display:grid;gap:8px}
 .pkg-option{display:flex;align-items:center;gap:10px;border:1px solid #eee;border-radius:10px;padding:8px}
 .pkg-option image{width:44px;height:44px;border-radius:8px;flex:none}
 .pkg-option text{font-size:12px;font-weight:800;display:block}
-.pkg-option small{color:#c83245;font-size:10px;display:block;margin-top:2px}
+.pkg-option small{color:#c83245;font-size:12px;display:block;margin-top:2px}
 .pkg-option.active{border-color:#c83245;background:#fdeef1}
-.pkg-empty{color:#8a7d80;font-size:10px;padding:8px 0}
+.pkg-empty{color:#8a7d80;font-size:12px;padding:8px 0}
 .share-sheet{text-align:center}
 .qr-box{width:220px;height:220px;margin:10px auto 14px;border:1px solid #eee;border-radius:16px;overflow:hidden;display:grid;place-items:center}
 .qr-box image{width:100%;height:100%}
 .share-title{font-size:16px;font-weight:900;display:block}
-.share-sub{color:#8a7d80;font-size:10px;display:block;margin-top:6px}
-.share-link{margin:14px 0 10px;padding:10px;border-radius:8px;background:#f4f0ee;font-size:10px;word-break:break-all;color:#5a4d50}
-.qr-placeholder{width:160px;height:160px;display:grid;place-items:center;background:repeating-linear-gradient(45deg,#fdeef1 0 5px,#fff 5px 10px);color:#c83245;font-size:10px;border-radius:8px}
+.share-sub{color:#8a7d80;font-size:12px;display:block;margin-top:6px}
+.share-link{margin:14px 0 10px;padding:10px;border-radius:8px;background:#f4f0ee;font-size:12px;word-break:break-all;color:#5a4d50}
+.qr-placeholder{width:160px;height:160px;display:grid;place-items:center;background:repeating-linear-gradient(45deg,#fdeef1 0 5px,#fff 5px 10px);color:#c83245;font-size:12px;border-radius:8px}
 .data-list{display:grid;gap:8px}
 .data-list>view{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;background:#f8f4f4;border-radius:10px;padding:10px}
 .data-avatar{width:36px;height:36px;border-radius:50%;background:#fdeef1;display:grid;place-items:center;color:#c83245}
 .data-list text,.data-list small{display:block}
 .data-list text{font-size:12px;font-weight:800}
-.data-list small{color:#8a7d80;font-size:9px;margin-top:3px}
+.data-list small{color:#8a7d80;font-size:12px;margin-top:3px}
 .data-list strong{font-size:12px;font-weight:800}
 .data-list strong.income{color:#17633f}
-.data-list span{padding:3px 7px;border-radius:4px;font-size:9px;font-weight:700}
+.data-list span{padding:3px 7px;border-radius:4px;font-size:12px;font-weight:700}
 .data-list span.bound{background:#e8f3ec;color:#17633f}
 .data-list span.pending{background:#fff3d6;color:#8a5b12}
 @media(min-width:700px){.app-shell{max-width:430px;margin:0 auto;box-shadow:0 0 0 1px #e4dcdc}.sheet-mask{justify-content:center}.sheet{max-width:430px}}

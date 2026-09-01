@@ -55,7 +55,7 @@ function go(n: number) {
   justify-content: space-between;
   gap: 12px;
   background: #fafbf8;
-  font-size: 12px;
+  font-size: 13px;
 }
 .pg-total { color: var(--admin-muted); white-space: nowrap; }
 .pg-btns { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -68,8 +68,8 @@ function go(n: number) {
   border-radius: 6px;
   background: #fff;
   color: var(--admin-ink);
-  font-size: 12px;
-  line-height: 1;
+  font-size: 13px;
+  line-height: 1.35;
   cursor: pointer;
   display: inline-flex;
   align-items: center;

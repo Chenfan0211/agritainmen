@@ -19,7 +19,7 @@ node scripts/serve-single-origin.mjs
 - `/user/`：中选科技商城
 - `/supplier/`：中选科技供应商配送工作台
 
-8791-8798 只用于单端开发预览。生产部署设置 `VITE_PORTAL_ORIGIN`，不得使用 `127.0.0.1`、`localhost` 或 `demo.local`。
+8791-8798 只用于单端开发预览。不同端口即使使用同一台浏览器，`localStorage` 也不共享；涉及跨端共享数据的联调必须通过 `pnpm dev:single-origin` 启动的同源入口进行。生产部署设置 `VITE_PORTAL_ORIGIN`，不得使用 `127.0.0.1`、`localhost` 或 `demo.local`。
 
 同源产物位于 `apps/*/dist/single-origin/*`。静态资源使用 `/{app}/static/*` 路径，服务器只需按应用前缀提供普通静态文件，不需要实现 `/static/*` 跨应用回退。
 

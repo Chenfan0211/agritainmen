@@ -43,17 +43,37 @@ describe('cross-app media runtime wiring', () => {
     const packageJson = JSON.parse(read(`apps/${appName}/package.json`)) as { dependencies?: Record<string, string> }
     const tsconfig = read(`apps/${appName}/tsconfig.json`)
     const main = read(`apps/${appName}/src/main.ts`)
+    const runtime = read(`apps/${appName}/src/media-runtime.ts`)
 
     expect(packageJson.dependencies?.['@agritainment/ui']).toBe('workspace:*')
     expect(tsconfig).toContain('../../packages/ui/src/**/*.vue')
-    expect(main).toContain('configureMediaRuntime')
-    expect(main).toContain('createH5MediaRuntime')
+    expect(main).toContain("import './media-runtime'")
+    expect(runtime).toContain('configureMediaRuntime')
+    expect(runtime).toContain('createH5MediaRuntime')
+  })
+
+  it.each(['user', 'supplier'] as const)('%s 在 createApp 前完成 H5 runtime 配置', (appName) => {
+    const main = read(`apps/${appName}/src/main.ts`)
+    const runtime = read(`apps/${appName}/src/media-runtime.ts`)
+    const runtimeConfigIndex = runtime.indexOf('configureMediaRuntime(h5MediaRuntime)')
+    expect(runtimeConfigIndex).toBeGreaterThanOrEqual(0)
+    expect(main.indexOf("import './media-runtime'")).toBeLessThan(main.indexOf('import App from'))
+    expect(runtime).toContain('const h5MediaRuntime = createH5MediaRuntime()')
+    expect(runtime).toContain('configureMediaRuntime(h5MediaRuntime)')
+  })
+
+  it.each([...miniProgramApps])('%s 的 H5 configure 与 H5 runtime 使用同一入口', (appName) => {
+    const main = read(`apps/${appName}/src/main.ts`)
+    const runtime = read(`apps/${appName}/src/media-runtime.ts`)
+    expect(main).toContain("import './media-runtime'")
+    expect(runtime).toMatch(/#ifdef H5[\s\S]*import \{ configureMediaRuntime, createH5MediaRuntime \} from '@agritainment\/ui\/h5'/)
+    expect(runtime).toMatch(/#ifdef MP-WEIXIN[\s\S]*import \{ configureMediaRuntime as configureMiniProgramMediaRuntime \} from '@agritainment\/ui'/)
   })
 
   it.each([...miniProgramApps])('%s 将 H5 与小程序 runtime import 放在独立条件入口', (appName) => {
-    const main = read(`apps/${appName}/src/main.ts`)
-    expect(main).toMatch(/#ifdef H5[\s\S]*?from '@agritainment\/ui\/h5'[\s\S]*?#endif/)
-    expect(main).toMatch(/#ifdef MP-WEIXIN[\s\S]*?from '@agritainment\/ui\/mp'[\s\S]*?#endif/)
+    const runtime = read(`apps/${appName}/src/media-runtime.ts`)
+    expect(runtime).toMatch(/#ifdef H5[\s\S]*?from '@agritainment\/ui\/h5'[\s\S]*?#endif/)
+    expect(runtime).toMatch(/#ifdef MP-WEIXIN[\s\S]*?from '@agritainment\/ui\/mp'[\s\S]*?#endif/)
   })
 
   it.each([...miniProgramApps])('%s 从 app 内依赖路径解析共享 UI，避免 MP chunk 越过 input root', (appName) => {

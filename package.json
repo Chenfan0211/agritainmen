@@ -24,6 +24,8 @@
     "test:e2e:user": "playwright test --config playwright.user.config.ts",
     "test:e2e:dashboard": "playwright test --config playwright.dashboard.config.ts",
     "test:e2e:integration": "playwright test --config playwright.integration.config.ts",
+    "test:e2e:operational-report": "playwright test --config playwright.operational-report.config.ts",
+    "audit:typography": "node scripts/audit-typography.mjs",
     "audit:buttons": "node scripts/audit-buttons.mjs",
     "check:supplier-assets": "node scripts/check-supplier-assets.mjs",
     "dev:store": "pnpm --filter @agritainment/store dev:h5",
@@ -35,6 +37,8 @@
     "dev:supplier": "pnpm --filter @agritainment/supplier dev:h5",
     "build:supplier": "pnpm --filter @agritainment/supplier build:mp-weixin",
     "build:single-origin": "node scripts/build-single-origin.mjs",
+    "serve:single-origin": "node scripts/serve-single-origin.mjs",
+    "dev:single-origin": "pnpm build:single-origin && pnpm serve:single-origin",
     "check:single-origin": "node scripts/check-single-origin-assets.mjs"
   },
   "devDependencies": {

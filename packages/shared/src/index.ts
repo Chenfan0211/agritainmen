@@ -23,6 +23,7 @@ export interface Sku {
   image?: string
   level1Amount?: number
   level2Amount?: number
+  minimumOrderQuantity?: number
 }
 
 export interface Member {
@@ -167,6 +168,7 @@ export interface CatalogSku {
   stock: number
   level1Amount: number
   level2Amount: number
+  minimumOrderQuantity?: number
   status?: 'active' | 'retired'
 }
 
@@ -253,8 +255,904 @@ export const PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY = 'agritainment-platf
 export const PLATFORM_PRICING_DEFAULTS_STORAGE_KEY = 'agritainment-platform-pricing-defaults'
 export const PLATFORM_SHARE_CONFIG_STORAGE_KEY = 'agritainment-platform-share-config'
 export const PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY = 'agritainment-platform-catalog-transaction-journal'
+export const PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY = 'agritainment-platform-catalog-product-submissions'
+export const PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY = 'agritainment-platform-driver-store-scopes'
+export const PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY = 'agritainment-platform-daily-delivery-routes'
+export const PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY = 'agritainment-platform-transaction-journal'
+export const PLATFORM_RECOVERY_QUEUE_STORAGE_KEY = 'agritainment-platform-recovery-queue'
+export const PLATFORM_AUDIT_LOG_STORAGE_KEY = 'agritainment-platform-audit-log'
+export const PLATFORM_ADMIN_ROLES_STORAGE_KEY = 'agritainment-platform-admin-roles'
+export const PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY = 'agritainment-platform-admin-accounts'
 export const CATALOG_SCHEMA_VERSION = 2
 export const STORE_CATALOG_SELECTION_SCHEMA_VERSION = 1
+export const CATALOG_PRODUCT_SUBMISSION_SCHEMA_VERSION = 1
+export const DRIVER_STORE_SCOPE_SCHEMA_VERSION = 1
+export const DAILY_DELIVERY_ROUTE_SCHEMA_VERSION = 1
+
+export type PlatformJournalStatus = 'prepared' | 'committed' | 'aborted' | 'recovery-pending'
+export interface PlatformJournalEntry {
+  operationId: string
+  collections: string[]
+  original: unknown
+  target: unknown
+  recoveryHandlerKey?: StoredPlatformRecoveryHandlerKey
+  recoverySchema?: string
+  completedSteps: string[]
+  status: PlatformJournalStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export type CatalogProductSubmissionKind = 'create' | 'update'
+export type CatalogProductSubmissionStatus = 'pending' | 'approved' | 'rejected'
+
+export interface CatalogProductSubmission {
+  id: string
+  productId: string
+  source: 'supplier' | 'admin'
+  supplierId?: string
+  kind: CatalogProductSubmissionKind
+  status: CatalogProductSubmissionStatus
+  draft: CatalogProduct
+  baseCatalogRevision: number
+  baseProductFingerprint?: string
+  submittedBy: string
+  submittedAt: string
+  reviewedBy?: string
+  reviewedAt?: string
+  reviewNote?: string
+}
+
+export interface CatalogProductSubmissionState {
+  schemaVersion: number
+  revision: number
+  submissions: CatalogProductSubmission[]
+  updatedAt: string
+}
+
+export interface DriverStoreScope {
+  supplierId: string
+  driverId: string
+  storeIds: string[]
+  updatedAt: string
+}
+
+export interface DriverStoreScopeState {
+  schemaVersion: number
+  revision: number
+  scopes: DriverStoreScope[]
+  updatedAt: string
+}
+
+export interface RouteStop {
+  storeId: string
+  storeName: string
+  address: string
+  longitude?: number
+  latitude?: number
+  orderIds: string[]
+  completedOrderIds?: string[]
+  completedAt?: string
+}
+
+export interface DeliveryRouteOrder {
+  orderId: string
+  storeId: string
+  storeName: string
+  address: string
+  longitude?: number
+  latitude?: number
+}
+
+export interface RouteOrigin {
+  longitude: number
+  latitude: number
+}
+
+export interface RouteOptimizationInput {
+  origin: RouteOrigin
+  stops: readonly RouteStop[]
+  averageSpeedKmh?: number
+  serviceMinutesPerStop?: number
+}
+
+export interface RouteSegment {
+  fromId: string
+  toStoreId: string
+  distanceKm: number
+}
+
+export interface RouteOptimizationOutput {
+  orderedStops: RouteStop[]
+  segments: RouteSegment[]
+  totalDistanceKm: number
+  estimatedDurationMinutes: number
+  provider: string
+  warnings: string[]
+}
+
+export interface DailyDeliveryRoute {
+  id: string
+  supplierId: string
+  driverId: string
+  deliveryDate: string
+  status: 'draft' | 'published' | 'stale' | 'completed'
+  stops: RouteStop[]
+  totalDistanceKm: number
+  estimatedDurationMinutes: number
+  sourceOrderIds: string[]
+  provider: string
+  segments?: RouteSegment[]
+  warnings?: string[]
+  origin?: RouteOrigin
+  scopeStoreIds?: string[]
+  baselineRevisions?: { routes: number; orders: number; scopes: number; entities: number }
+  generatedAt: string
+  publishedAt?: string
+  completedAt?: string
+}
+
+export interface DailyDeliveryRouteState {
+  schemaVersion: number
+  revision: number
+  routes: DailyDeliveryRoute[]
+  updatedAt: string
+}
+export interface PlatformRecoveryTask {
+  id: string
+  operationId: string
+  failedStep: string
+  reason: string
+  handlerKey?: StoredPlatformRecoveryHandlerKey
+  retryCount: number
+  lastError?: string
+  createdAt: string
+  status: 'pending' | 'resolved'
+  resolvedAt?: string
+  resolvedBy?: string
+  resolutionNote?: string
+}
+
+export type WriteResult<T = void> =
+  | { ok: true; value?: T; operationId?: string }
+  | { ok: false; code: string; message: string; operationId?: string; failedStep?: string; recoveryQueued?: boolean; fatal?: boolean }
+export const PLATFORM_PRODUCTION_RECOVERY_HANDLER_KEYS = [
+  'user-receipt-v1', 'user-after-sale-v1', 'user-payment-v1', 'user-payment-confirmation-v1', 'user-package-v1',
+  'store-order-v1', 'store-return-completion-v1',
+  'farmhouse-refund-v1', 'farmhouse-voucher-v1',
+  'supplier-commit-v1', 'supplier-fulfillment-sync-v1',
+  'admin-fulfillment-v1', 'admin-settlement-v1', 'admin-after-sale-v1',
+  'user-commerce-recovery-v1', 'farmhouse-commerce-recovery-v1', 'admin-commission-rule-v1',
+  'admin-supplier-settlement-v1', 'admin-commission-settlement-v1', 'admin-booking-v1',
+  'admin-failure-audit-v1',
+  'catalog-product-review-v1', 'alliance-withdrawal-v1'
+] as const
+/** Stable keys accepted by new production recovery registrations. */
+export type PlatformProductionRecoveryHandlerKey = typeof PLATFORM_PRODUCTION_RECOVERY_HANDLER_KEYS[number]
+/** Legacy journal snapshots may contain custom string keys and remain readable. */
+export type PlatformRecoveryHandlerKey = PlatformProductionRecoveryHandlerKey
+type StoredPlatformRecoveryHandlerKey = PlatformRecoveryHandlerKey | (string & {})
+
+export interface RepositorySnapshot<T = unknown> { revision: number; updatedAt: string; data: T }
+
+export interface PlatformTransactionStep {
+  key: string
+  apply: () => boolean
+  rollback?: () => boolean
+}
+
+export interface PlatformTransactionSpec {
+  operationId: string
+  collections: string[]
+  original?: unknown
+  target?: unknown
+  recoveryHandlerKey?: string
+  recoverySchema?: string
+  revisionChecks?: Array<{ key: string; expectedRevision: number }>
+  steps: PlatformTransactionStep[]
+}
+
+export interface LockedPlatformTransactionSpec<T> extends PlatformTransactionSpec {
+  recoveryHandlerKey?: PlatformRecoveryHandlerKey
+  lockCollections?: string[]
+  validate?: () => boolean
+  value?: T
+}
+
+export interface LockedPlatformMutationBuildResult<T> {
+  targetSnapshots: Record<string, unknown>
+  steps: PlatformTransactionStep[]
+  value?: T
+}
+
+export interface LockedPlatformMutationSpec<T> {
+  operationId: string
+  collectionKeys: string[]
+  revisionChecks: Record<string, number>
+  recoveryHandlerKey: PlatformRecoveryHandlerKey
+  recoverySchema?: string
+  build: (currentSnapshots: Record<string, unknown>, revisions: Record<string, number>) => LockedPlatformMutationBuildResult<T>
+}
+
+export interface PlatformRecoveryHandler {
+  execute: (task: PlatformRecoveryTask, journal: PlatformJournalEntry) => boolean | Promise<boolean>
+  readSnapshot: (task: PlatformRecoveryTask, journal: PlatformJournalEntry) => unknown | Promise<unknown>
+}
+export interface PlatformRecoveryHandlerRegistration {
+  key: PlatformRecoveryHandlerKey
+  handler: PlatformRecoveryHandler
+}
+
+/** Creates a typed production registration without inventing a generic snapshot recovery handler. */
+export function createPlatformProductionRecoveryHandlerRegistration(key: PlatformProductionRecoveryHandlerKey, handler: PlatformRecoveryHandler): PlatformRecoveryHandlerRegistration {
+  return { key, handler }
+}
+
+export function createStrictSnapshotRecoveryHandlerRegistration<T extends object, TToken>(input: {
+  key: PlatformProductionRecoveryHandlerKey
+  fields: readonly (keyof T)[]
+  validateJournal: (journal: PlatformJournalEntry) => boolean
+  readStable: (journal: PlatformJournalEntry) => { snapshot: T; token: TToken } | null
+  isStillStable: (token: TToken, journal: PlatformJournalEntry) => boolean
+  writeSnapshot: (snapshot: T, rollback: T, journal: PlatformJournalEntry) => boolean
+}): PlatformRecoveryHandlerRegistration {
+  const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
+  return createPlatformProductionRecoveryHandlerRegistration(input.key, {
+    execute: (task, journal) => {
+      if (task.handlerKey !== input.key || !input.validateJournal(journal)) return false
+      const original = journal.original as T
+      const target = journal.target as T
+      const stable = input.readStable(journal)
+      if (!stable) return false
+      if (input.fields.some((field) => !same(stable.snapshot[field], original[field]) && !same(stable.snapshot[field], target[field]))) return false
+      const desired = journal.status === 'committed' ? target : original
+      if (same(stable.snapshot, desired)) return true
+      if (!input.isStillStable(stable.token, journal)) return false
+      return input.writeSnapshot(desired, stable.snapshot, journal)
+    },
+    readSnapshot: (task, journal) => task.handlerKey === input.key && input.validateJournal(journal) ? input.readStable(journal)?.snapshot || null : null
+  })
+}
+
+const platformRecoveryHandlers = new Map<string, PlatformRecoveryHandler>()
+
+export function registerPlatformRecoveryHandler(handlerKey: string, handler: PlatformRecoveryHandler): () => void {
+  const key = handlerKey?.trim()
+  if (!key || !handler || typeof handler.execute !== 'function' || typeof handler.readSnapshot !== 'function') return () => undefined
+  platformRecoveryHandlers.set(key, handler)
+  return () => { if (platformRecoveryHandlers.get(key) === handler) platformRecoveryHandlers.delete(key) }
+}
+
+/** Registers production handlers once, preserving handlers registered by tests or other modules. */
+export function initializePlatformRecoveryHandlers(handlers: readonly PlatformRecoveryHandlerRegistration[]): void {
+  handlers.forEach(({ key, handler }) => {
+    const handlerKey = key?.trim()
+    if (!handlerKey || platformRecoveryHandlers.has(handlerKey) || !handler || typeof handler.execute !== 'function' || typeof handler.readSnapshot !== 'function') return
+    platformRecoveryHandlers.set(handlerKey, handler)
+  })
+}
+
+export interface PlatformTransactionRunResult {
+  ok: boolean
+  operationId: string
+  failedStep?: string
+  reason?: string
+  recoveryQueued?: boolean
+  fatal?: boolean
+}
+
+type BrowserLockManager = {
+  request<T>(name: string, callback: () => Promise<T> | T): Promise<T>
+}
+
+const platformCollectionMutexes = new Map<string, Promise<void>>()
+
+function normalizePlatformTransactionCollections(collections: readonly string[]): string[] {
+  return [...new Set(collections.map((key) => key.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right))
+}
+
+function revisionChecksPass(revisionChecks?: readonly { key: string; expectedRevision: number }[]): boolean {
+  return !revisionChecks?.some(({ key, expectedRevision }) => !key?.trim() || !Number.isInteger(expectedRevision) || readPlatformCollectionRevision(key) !== expectedRevision)
+}
+
+function missingPlatformTransactionRevisionCheck(collections: readonly string[], revisionChecks?: readonly { key: string; expectedRevision: number }[]): string | undefined {
+  const internalCollections = new Set([PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY])
+  const seenRevisionKeys = new Set<string>()
+  const checkedCollections = new Set<string>()
+  for (const { key, expectedRevision } of revisionChecks || []) {
+    const normalizedKey = key?.trim()
+    if (!normalizedKey || normalizedKey !== key || seenRevisionKeys.has(normalizedKey)) return normalizedKey || key || 'invalid-revision-check'
+    seenRevisionKeys.add(normalizedKey)
+    if (Number.isInteger(expectedRevision)) checkedCollections.add(key)
+  }
+  return normalizePlatformTransactionCollections(collections).find((key) => !internalCollections.has(key) && !checkedCollections.has(key))
+}
+
+async function withFallbackPlatformCollectionLock<T>(key: string, action: () => Promise<T>): Promise<T> {
+  const previous = platformCollectionMutexes.get(key) ?? Promise.resolve()
+  let release: () => void = () => undefined
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  const tail = previous.then(() => barrier)
+  platformCollectionMutexes.set(key, tail)
+  await previous
+  try {
+    return await action()
+  } finally {
+    release()
+    if (platformCollectionMutexes.get(key) === tail) platformCollectionMutexes.delete(key)
+  }
+}
+
+async function withLockedPlatformCollections<T>(collections: readonly string[], action: () => Promise<T>): Promise<T> {
+  const lockManager = typeof navigator === 'undefined'
+    ? undefined
+    : (navigator as Navigator & { locks?: BrowserLockManager }).locks
+  const acquire = async (index: number): Promise<T> => {
+    if (index >= collections.length) return action()
+    const next = () => acquire(index + 1)
+    return lockManager
+      ? lockManager.request(`agritainment-platform:${collections[index]}`, next)
+      : withFallbackPlatformCollectionLock(collections[index], next)
+  }
+  return acquire(0)
+}
+
+function transactionFailureMessage(reason?: string): string {
+  if (reason === 'revision-conflict') return '数据已更新，请刷新后重试'
+  return '事务未完成，请重试或在恢复中心处理'
+}
+
+function toLockedTransactionWriteResult<T>(result: PlatformTransactionRunResult, value?: T): WriteResult<T> {
+  if (result.ok) return { ok: true, value, operationId: result.operationId }
+  return {
+    ok: false,
+    code: result.reason === 'revision-conflict' ? 'revision_conflict' : (result.reason || 'transaction-failed').replace(/-/g, '_'),
+    message: transactionFailureMessage(result.reason),
+    operationId: result.operationId,
+    failedStep: result.failedStep,
+    recoveryQueued: result.recoveryQueued,
+    fatal: result.fatal
+  }
+}
+
+/** Async transaction entry point that serializes all participating local collections. */
+export async function runLockedPlatformTransaction<T>(input: LockedPlatformTransactionSpec<T>): Promise<WriteResult<T>> {
+  const transactionCollections = normalizePlatformTransactionCollections([
+    ...(input.collections || []),
+    PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY,
+    PLATFORM_RECOVERY_QUEUE_STORAGE_KEY
+  ])
+  const lockedCollections = normalizePlatformTransactionCollections([...transactionCollections, ...(input.lockCollections || [])])
+  return withLockedPlatformCollections(lockedCollections, async () => {
+    const missingRevisionCheck = missingPlatformTransactionRevisionCheck(input.collections || [], input.revisionChecks)
+    if (missingRevisionCheck) {
+      return { ok: false, code: 'missing_revision_check', message: `事务集合缺少 revision check：${missingRevisionCheck}`, operationId: input.operationId }
+    }
+    if (!revisionChecksPass(input.revisionChecks)) {
+      return { ok: false, code: 'revision_conflict', message: transactionFailureMessage('revision-conflict'), operationId: input.operationId }
+    }
+    if (input.validate && !input.validate()) {
+      return { ok: false, code: 'validation_failed', message: '数据状态已变化，请刷新后重试', operationId: input.operationId }
+    }
+    return toLockedTransactionWriteResult(runPlatformTransaction({ ...input, collections: transactionCollections }), input.value)
+  })
+}
+
+/** Builds all mutation snapshots only after every participating collection lock is held. */
+export async function runLockedPlatformMutation<T>(input: LockedPlatformMutationSpec<T>): Promise<WriteResult<T>> {
+  const collections = normalizePlatformTransactionCollections(input.collectionKeys || [])
+  if (!collections.length) return { ok: false, code: 'invalid_input', message: '事务集合不能为空', operationId: input.operationId }
+  const transactionCollections = normalizePlatformTransactionCollections([
+    ...collections,
+    PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY,
+    PLATFORM_RECOVERY_QUEUE_STORAGE_KEY
+  ])
+  const revisionChecks = Object.entries(input.revisionChecks || {}).map(([key, expectedRevision]) => ({ key, expectedRevision }))
+  return withLockedPlatformCollections(transactionCollections, async () => {
+    const missingRevisionCheck = missingPlatformTransactionRevisionCheck(collections, revisionChecks)
+    if (missingRevisionCheck) {
+      return { ok: false, code: 'missing_revision_check', message: `事务集合缺少 revision check：${missingRevisionCheck}`, operationId: input.operationId }
+    }
+    if (!revisionChecksPass(revisionChecks)) {
+      return { ok: false, code: 'revision_conflict', message: transactionFailureMessage('revision-conflict'), operationId: input.operationId }
+    }
+    const revisions = Object.fromEntries(collections.map((key) => [key, readPlatformCollectionRevision(key)]))
+    const currentSnapshots = Object.fromEntries(collections.map((key) => [key, cloneSeed(readPlatformJson<unknown>(key))]))
+    let mutation: LockedPlatformMutationBuildResult<T>
+    try {
+      mutation = input.build(currentSnapshots, revisions)
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'mutation_build_failed',
+        message: error instanceof Error && error.message ? error.message : '事务目标构建失败',
+        operationId: input.operationId
+      }
+    }
+    if (!mutation || !mutation.targetSnapshots || !mutation.steps?.length
+      || collections.some((key) => !Object.prototype.hasOwnProperty.call(mutation.targetSnapshots, key))) {
+      return { ok: false, code: 'mutation_build_failed', message: '事务目标构建失败', operationId: input.operationId }
+    }
+    return toLockedTransactionWriteResult(runPlatformTransaction({
+      operationId: input.operationId,
+      collections: transactionCollections,
+      original: currentSnapshots,
+      target: mutation.targetSnapshots,
+      recoveryHandlerKey: input.recoveryHandlerKey,
+      recoverySchema: input.recoverySchema,
+      revisionChecks,
+      steps: mutation.steps
+    }), mutation.value)
+  })
+}
+
+export async function runLockedPlatformCollectionTask<T>(input: {
+  collections: readonly string[]
+  revisionChecks?: Array<{ key: string; expectedRevision: number }>
+  execute: () => T | Promise<T>
+}): Promise<WriteResult<T>> {
+  const collections = normalizePlatformTransactionCollections(input.collections || [])
+  if (!collections.length || typeof input.execute !== 'function') return { ok: false, code: 'invalid_input', message: '锁任务参数无效' }
+  return withLockedPlatformCollections(collections, async () => {
+    if (!revisionChecksPass(input.revisionChecks)) return { ok: false, code: 'revision_conflict', message: transactionFailureMessage('revision-conflict') }
+    try {
+      return { ok: true, value: await input.execute() }
+    } catch (error) {
+      return { ok: false, code: 'task_failed', message: error instanceof Error && error.message ? error.message : '锁任务执行失败' }
+    }
+  })
+}
+
+/** Best-effort multi-collection transaction for localStorage-backed demo data. */
+export function runPlatformTransaction(input: PlatformTransactionSpec): PlatformTransactionRunResult {
+  const { operationId, collections, original, target, recoveryHandlerKey, recoverySchema, revisionChecks, steps } = input
+  if (!operationId?.trim() || !collections?.length || !steps?.length) return { ok: false, operationId, reason: 'invalid-transaction' }
+  if (!revisionChecksPass(revisionChecks)) {
+    return { ok: false, operationId, reason: 'revision-conflict' }
+  }
+  if (!preparePlatformJournal({ operationId, collections, original: original ?? {}, target: target ?? {}, recoveryHandlerKey, recoverySchema })) return { ok: false, operationId, reason: 'journal-prepare-failed' }
+  const applied: PlatformTransactionStep[] = []
+
+  const rollbackSteps = (doneSteps: PlatformTransactionStep[]): boolean => {
+    let rollbackOk = true
+    for (const done of [...doneSteps].reverse()) {
+      if (!done.rollback) {
+        rollbackOk = false
+        continue
+      }
+      try {
+        if (!done.rollback()) rollbackOk = false
+      } catch {
+        rollbackOk = false
+      }
+    }
+    return rollbackOk
+  }
+
+  const queueRecovery = (failedStep: string, reason: string): boolean => enqueuePlatformRecovery({ operationId, failedStep, reason, handlerKey: readPlatformJournal()[operationId]?.recoveryHandlerKey || recoveryHandlerKey })
+
+  for (const step of steps) {
+    const failedStep = step?.key || 'unknown'
+    let appliedOk = false
+    let applyThrew = false
+    try {
+      appliedOk = !!step?.key && step.apply()
+    } catch {
+      applyThrew = true
+    }
+    if (!appliedOk) {
+      const rollbackOk = rollbackSteps(step?.rollback ? [...applied, step] : applied)
+      const journalOk = resolvePlatformJournal(operationId, rollbackOk ? 'aborted' : 'recovery-pending')
+      const recoveryQueued = !rollbackOk || !journalOk ? queueRecovery(failedStep, !rollbackOk ? 'transaction rollback failed' : 'journal status write failed') : undefined
+      return { ok: false, operationId, failedStep, reason: recoveryQueued === false ? 'recovery-queue-write-failed' : applyThrew ? 'step-threw' : 'step-failed', recoveryQueued, fatal: recoveryQueued === false || undefined }
+    }
+    applied.push(step)
+    if (!markPlatformJournalStep(operationId, step.key)) {
+      const rollbackOk = rollbackSteps(applied)
+      resolvePlatformJournal(operationId, rollbackOk ? 'aborted' : 'recovery-pending')
+      const recoveryQueued = queueRecovery(step.key, rollbackOk ? 'journal step write failed after rollback' : 'journal step write and rollback failed')
+      return { ok: false, operationId, failedStep: step.key, reason: recoveryQueued ? 'journal-step-write-failed' : 'recovery-queue-write-failed', recoveryQueued, fatal: recoveryQueued === false || undefined }
+    }
+  }
+  if (!resolvePlatformJournal(operationId, 'committed')) {
+    const rollbackOk = rollbackSteps(applied)
+    resolvePlatformJournal(operationId, rollbackOk ? 'aborted' : 'recovery-pending')
+    const recoveryQueued = queueRecovery('journal', rollbackOk ? 'journal commit write failed after rollback' : 'journal commit write and rollback failed')
+    return { ok: false, operationId, failedStep: 'journal', reason: recoveryQueued ? 'journal-resolve-failed' : 'recovery-queue-write-failed', recoveryQueued, fatal: recoveryQueued === false || undefined }
+  }
+  return { ok: true, operationId }
+}
+
+export function resolvePlatformRecoveryTask(id: string, verification?: { resolvedBy: string; note: string; outcome: 'committed' | 'aborted'; audit?: () => boolean }): boolean {
+  if (!id?.trim()) return false
+  const queue = readPlatformRecoveryQueue()
+  const index = queue.findIndex((task) => task.id === id)
+  if (index < 0 || queue[index].status !== 'pending') return false
+  const task = queue[index]
+  if (task.handlerKey && platformRecoveryHandlers.has(task.handlerKey)) return false
+  if (!verification?.resolvedBy?.trim() || !verification.note?.trim() || !['committed', 'aborted'].includes(verification.outcome)) return false
+  const journal = readPlatformJournal()[task.operationId]
+  if (journal && !resolvePlatformJournal(task.operationId, verification.outcome)) return false
+  queue[index] = { ...task, status: 'resolved', resolvedAt: new Date().toISOString(), resolvedBy: verification.resolvedBy.trim(), resolutionNote: verification.note.trim() }
+  if (!writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, queue)) {
+    if (journal) resolvePlatformJournal(task.operationId, 'recovery-pending')
+    return false
+  }
+  let auditOk = true
+  try { auditOk = verification.audit ? verification.audit() : true } catch { auditOk = false }
+  if (auditOk) return true
+  queue[index] = { ...task, lastError: 'audit-log-failed' }
+  const queueRestored = writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, queue)
+  const journalRestored = journal ? resolvePlatformJournal(task.operationId, 'recovery-pending') : true
+  if (!queueRestored || !journalRestored) enqueuePlatformRecovery({ operationId: task.operationId, failedStep: 'recovery-audit', reason: 'recovery audit rollback failed' })
+  return false
+}
+
+export async function retryPlatformRecoveryTask(id: string, resolvedBy: string, audit?: () => boolean): Promise<WriteResult<PlatformRecoveryTask>> {
+  if (!id?.trim() || !resolvedBy?.trim()) return { ok: false, code: 'invalid-input', message: '恢复任务和操作人不能为空' }
+  let hintedCollections: string[] | undefined
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!hintedCollections) {
+      const hintedTask = readPlatformRecoveryQueue().find((task) => task.id === id)
+      const hintedJournal = hintedTask ? readPlatformJournal()[hintedTask.operationId] : undefined
+      hintedCollections = normalizePlatformTransactionCollections([
+        PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY,
+        PLATFORM_RECOVERY_QUEUE_STORAGE_KEY,
+        ...(hintedJournal?.collections || [])
+      ])
+    }
+    const lockedCollections = hintedCollections
+    const result = await withLockedPlatformCollections(lockedCollections, async (): Promise<WriteResult<PlatformRecoveryTask> | { retryWith: string[] }> => {
+      const queue = readPlatformRecoveryQueue()
+      const index = queue.findIndex((task) => task.id === id)
+      if (index < 0) return { ok: false, code: 'not-found', message: '恢复任务不存在' }
+      const task = queue[index]
+      if (task.status !== 'pending') return { ok: false, code: 'already-resolved', message: '恢复任务已处理' }
+      if (!task.handlerKey) return { ok: false, code: 'manual-verification-required', message: '旧恢复任务需人工核验并填写处理说明' }
+      const handler = platformRecoveryHandlers.get(task.handlerKey)
+      if (!handler) return { ok: false, code: 'handler-not-registered', message: '恢复处理器尚未加载' }
+      const journal = readPlatformJournal()[task.operationId]
+      if (!journal) return { ok: false, code: 'journal-not-found', message: '事务快照不存在，需人工核验' }
+      const requiredCollections = normalizePlatformTransactionCollections([
+        PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY,
+        PLATFORM_RECOVERY_QUEUE_STORAGE_KEY,
+        ...journal.collections
+      ])
+      if (requiredCollections.some((key) => !lockedCollections.includes(key))) return { retryWith: requiredCollections }
+
+      let code = 'handler-failed'
+      let snapshot: unknown
+      let executed = false
+      try {
+        executed = await handler.execute(task, journal)
+        if (executed) snapshot = await handler.readSnapshot(task, journal)
+      } catch (error) {
+        code = error instanceof Error && error.message ? error.message : 'handler-threw'
+      }
+      let matchesOriginal = false
+      let matchesTarget = false
+      if (executed) {
+        try {
+          const serialized = JSON.stringify(snapshot)
+          matchesOriginal = serialized === JSON.stringify(journal.original)
+          matchesTarget = serialized === JSON.stringify(journal.target)
+          if (!matchesOriginal && !matchesTarget) code = 'snapshot-mismatch'
+        } catch {
+          code = 'snapshot-unreadable'
+        }
+      }
+
+      const retried: PlatformRecoveryTask = { ...task, retryCount: task.retryCount + 1 }
+      if (!matchesOriginal && !matchesTarget) {
+        queue[index] = { ...retried, lastError: code }
+        if (!writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, queue)) return { ok: false, code: 'recovery-update-failed', message: '恢复结果无法保存' }
+        return { ok: false, code, message: code === 'snapshot-mismatch' ? '恢复后数据与原始及目标快照均不一致' : '恢复处理器执行失败' }
+      }
+
+      const nextJournalStatus: PlatformJournalStatus = matchesOriginal ? 'aborted' : 'committed'
+      if (!resolvePlatformJournal(task.operationId, nextJournalStatus)) {
+        queue[index] = { ...retried, lastError: 'journal-resolve-failed' }
+        writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, queue)
+        return { ok: false, code: 'journal-resolve-failed', message: '恢复数据已确认，但事务状态无法保存' }
+      }
+      const resolved: PlatformRecoveryTask = { ...retried, status: 'resolved', lastError: undefined, resolvedAt: new Date().toISOString(), resolvedBy: resolvedBy.trim() }
+      queue[index] = resolved
+      if (!writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, queue)) return { ok: false, code: 'recovery-update-failed', message: '恢复任务状态无法保存' }
+      let auditOk = true
+      try { auditOk = audit ? audit() : true } catch { auditOk = false }
+      if (!auditOk) {
+        queue[index] = { ...retried, status: 'pending', lastError: 'audit-log-failed' }
+        const queueRestored = writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, queue)
+        const journalRestored = resolvePlatformJournal(task.operationId, 'recovery-pending')
+        if (!queueRestored || !journalRestored) enqueuePlatformRecovery({ operationId: task.operationId, failedStep: 'recovery-audit', reason: 'recovery audit rollback failed' })
+        return { ok: false, code: 'audit-log-failed', message: '恢复成功日志无法保存' }
+      }
+      return { ok: true, value: resolved }
+    })
+    if ('retryWith' in result) {
+      hintedCollections = result.retryWith
+      continue
+    }
+    return result
+  }
+  return { ok: false, code: 'recovery-lock-set-changed', message: '恢复事务集合持续变化，请重试' }
+}
+export type AdminMenuKey = 'dashboard' | 'reports' | 'bookings' | 'suppliers' | 'products' | 'categories' | 'routes' | 'prices' | 'orders' | 'afterSales' | 'farms' | 'promoters' | 'commissions' | 'dict' | 'logs' | 'roles' | 'accounts'
+export type AdminPermissionCode = string
+
+export interface AdminRole {
+  id: string
+  code: string
+  name: string
+  menuPermissions: AdminMenuKey[]
+  actionPermissions: AdminPermissionCode[]
+  enabled: boolean
+  system: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminAccount {
+  id: string
+  account: string
+  password: string
+  name: string
+  roleId: string
+  enabled: boolean
+  lastLoginAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export const ADMIN_SUPER_ROLE_ID = 'AR-SUPER'
+export const ADMIN_SUPER_ACCOUNT_ID = 'AA-SUPER'
+const ADMIN_SEED_AT = '2026-08-29T00:00:00.000Z'
+
+export const ALL_ADMIN_MENU_KEYS: AdminMenuKey[] = ['dashboard', 'reports', 'bookings', 'suppliers', 'products', 'categories', 'routes', 'prices', 'orders', 'afterSales', 'farms', 'promoters', 'commissions', 'dict', 'logs', 'roles', 'accounts']
+export const ALL_ADMIN_ACTION_PERMISSIONS: AdminPermissionCode[] = [
+  'supplier.create', 'supplier.update', 'supplier.audit', 'supplier.pause', 'supplier.account.update', 'supplier.account.freeze',
+  'product.create', 'product.update', 'product.audit', 'product.status', 'category.manage', 'route.manage', 'price.manage',
+  'order.ship', 'order.confirm', 'afterSale.manage', 'farm.manage', 'storeAccount.manage', 'promoter.manage',
+  'commission.manage', 'withdrawal.review', 'dictionary.manage', 'report.export', 'recovery.resolve', 'audit.export',
+  'booking.confirm', 'booking.complete', 'booking.cancel',
+  'admin.role.create', 'admin.role.update', 'admin.role.permissions', 'admin.account.create', 'admin.account.update', 'admin.account.status'
+]
+
+export function defaultAdminRoles(): AdminRole[] {
+  const make = (id: string, code: string, name: string, menuPermissions: AdminMenuKey[], actionPermissions: AdminPermissionCode[], system = true): AdminRole => ({ id, code, name, menuPermissions, actionPermissions, enabled: true, system, createdAt: ADMIN_SEED_AT, updatedAt: ADMIN_SEED_AT })
+  return [
+    make(ADMIN_SUPER_ROLE_ID, 'super_admin', '超级管理员', [...ALL_ADMIN_MENU_KEYS], [...ALL_ADMIN_ACTION_PERMISSIONS]),
+    make('AR-OPERATIONS', 'operations', '运营', ['dashboard', 'reports', 'bookings', 'suppliers', 'products', 'categories', 'routes', 'prices', 'orders', 'afterSales', 'farms', 'promoters'], ['supplier.create', 'supplier.update', 'supplier.pause', 'supplier.account.update', 'supplier.account.freeze', 'product.create', 'product.update', 'product.status', 'category.manage', 'route.manage', 'price.manage', 'order.ship', 'order.confirm', 'afterSale.manage', 'farm.manage', 'promoter.manage', 'report.export', 'booking.confirm', 'booking.complete', 'booking.cancel']),
+    make('AR-REVIEWER', 'reviewer', '审核', ['dashboard', 'bookings', 'suppliers', 'products', 'afterSales'], ['supplier.audit', 'product.audit', 'product.status', 'afterSale.manage', 'booking.confirm', 'booking.complete', 'booking.cancel']),
+    make('AR-FINANCE', 'finance', '财务', ['dashboard', 'reports', 'orders', 'afterSales', 'commissions'], ['commission.manage', 'withdrawal.review', 'report.export']),
+    make('AR-VIEWER', 'viewer', '只读', ['dashboard', 'reports'], [])
+  ]
+}
+
+export function defaultAdminAccounts(): AdminAccount[] {
+  return [{ id: ADMIN_SUPER_ACCOUNT_ID, account: 'admin', password: '123456', name: '超级管理员', roleId: ADMIN_SUPER_ROLE_ID, enabled: true, createdAt: ADMIN_SEED_AT, updatedAt: ADMIN_SEED_AT }]
+}
+
+export function readPlatformAdminRoles(): AdminRole[] {
+  const saved = readPlatformJson<AdminRole[]>(PLATFORM_ADMIN_ROLES_STORAGE_KEY)
+  return Array.isArray(saved) ? cloneSeed(saved) : []
+}
+
+export function writePlatformAdminRoles(roles: AdminRole[]): boolean {
+  if (!Array.isArray(roles) || !roles.length || new Set(roles.map((role) => role.id)).size !== roles.length || new Set(roles.map((role) => role.code)).size !== roles.length) return false
+  if (roles.some((role) => !role.id?.trim() || !role.code?.trim() || !role.name?.trim() || !Array.isArray(role.menuPermissions) || !Array.isArray(role.actionPermissions))) return false
+  return writePlatformJson(PLATFORM_ADMIN_ROLES_STORAGE_KEY, roles)
+}
+
+export function readPlatformAdminAccounts(): AdminAccount[] {
+  const saved = readPlatformJson<AdminAccount[]>(PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY)
+  return Array.isArray(saved) ? cloneSeed(saved) : []
+}
+
+export function writePlatformAdminAccounts(accounts: AdminAccount[]): boolean {
+  if (!Array.isArray(accounts) || !accounts.length || new Set(accounts.map((item) => item.id)).size !== accounts.length || new Set(accounts.map((item) => item.account)).size !== accounts.length) return false
+  if (accounts.some((item) => !item.id?.trim() || !item.account?.trim() || !item.password || !item.name?.trim() || !item.roleId?.trim())) return false
+  return writePlatformJson(PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, accounts)
+}
+
+export function seedPlatformAdminSecurity(): boolean {
+  const existingRoles = readPlatformAdminRoles()
+  const existingAccounts = readPlatformAdminAccounts()
+  const defaults = defaultAdminRoles()
+  const bookingMenus = new Set(['super_admin', 'operations', 'reviewer'])
+  const productAuditRoles = new Set(['super_admin', 'reviewer'])
+  const roles = existingRoles.length ? existingRoles.map((role) => {
+    if (!role.system || (!bookingMenus.has(role.code) && !productAuditRoles.has(role.code))) return role
+    return {
+      ...role,
+      menuPermissions: [...new Set([...role.menuPermissions, ...(bookingMenus.has(role.code) ? ['bookings' as AdminMenuKey] : []), ...(productAuditRoles.has(role.code) ? ['products' as AdminMenuKey] : [])])],
+      actionPermissions: [...new Set([...role.actionPermissions, ...(bookingMenus.has(role.code) ? ['booking.confirm', 'booking.complete', 'booking.cancel'] : []), ...(productAuditRoles.has(role.code) ? ['product.audit'] : [])])]
+    }
+  }) : defaults
+  const accounts = existingAccounts.length ? existingAccounts : defaultAdminAccounts()
+  if (existingRoles.length && existingAccounts.length && JSON.stringify(roles) === JSON.stringify(existingRoles)) return true
+  const result = runPlatformTransaction({
+    operationId: createId('ADMIN-SECURITY-SEED'),
+    collections: [PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY],
+    original: { roles: existingRoles, accounts: existingAccounts },
+    target: { roles, accounts },
+    steps: [
+      { key: 'admin-roles', apply: () => writePlatformAdminRoles(roles), rollback: () => existingRoles.length ? writePlatformAdminRoles(existingRoles) : (clearPlatformJson(PLATFORM_ADMIN_ROLES_STORAGE_KEY), true) },
+      { key: 'admin-accounts', apply: () => writePlatformAdminAccounts(accounts), rollback: () => existingAccounts.length ? writePlatformAdminAccounts(existingAccounts) : (clearPlatformJson(PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY), true) }
+    ]
+  })
+  return result.ok
+}
+
+export function authenticateAdmin(accounts: AdminAccount[], roles: AdminRole[], account: string, password: string): { ok: true; account: AdminAccount; role: AdminRole } | { ok: false; reason: 'invalid-credentials' | 'inactive' } {
+  const found = accounts.find((item) => item.account === account.trim())
+  if (!found || found.password !== password) return { ok: false, reason: 'invalid-credentials' }
+  const role = roles.find((item) => item.id === found.roleId)
+  if (!found.enabled || !role?.enabled) return { ok: false, reason: 'inactive' }
+  return { ok: true, account: found, role }
+}
+
+export function hasAdminMenu(role: AdminRole | undefined, menu: AdminMenuKey): boolean {
+  return !!role?.enabled && (role.id === ADMIN_SUPER_ROLE_ID || role.menuPermissions.includes(menu))
+}
+
+export function hasAdminPermission(role: AdminRole | undefined, permission: AdminPermissionCode): boolean {
+  return !!role?.enabled && (role.id === ADMIN_SUPER_ROLE_ID || role.actionPermissions.includes(permission))
+}
+
+export interface PlatformAuditLogEntry {
+  id: string
+  module: string
+  action: string
+  actorId: string
+  actorName?: string
+  actorRole?: string
+  targetType?: string
+  targetId?: string
+  result: 'success' | 'failure'
+  reason?: string
+  operationId?: string
+  metadata?: unknown
+  createdAt: string
+}
+
+export function readPlatformAuditLogs(): PlatformAuditLogEntry[] {
+  const saved = readPlatformJson<PlatformAuditLogEntry[]>(PLATFORM_AUDIT_LOG_STORAGE_KEY)
+  return Array.isArray(saved) ? cloneSeed(saved).map((entry) => ({ ...entry, module: entry.module || entry.action.split('.')[0] || 'system', result: entry.result || 'success' })) : []
+}
+
+export function createPlatformAuditLogEntry(input: Omit<PlatformAuditLogEntry, 'id' | 'createdAt'>): PlatformAuditLogEntry | null {
+  if (!input?.action?.trim() || !input.actorId?.trim()) return null
+  const maskPhone = (value: unknown): unknown => typeof value === 'string' && /^1\d{10}$/.test(value.trim())
+    ? `${value.trim().slice(0, 3)}****${value.trim().slice(-4)}`
+    : value
+  const sanitizeText = (value: string): string => value
+    .replace(/(^|\D)(\d{17}[\dXx])(?=\D|$)/g, (_match, prefix: string) => `${prefix}[REDACTED]`)
+    .replace(/(^|\D)(1\d{10})(?=\D|$)/g, (_match, prefix: string, phone: string) => `${prefix}${phone.slice(0, 3)}****${phone.slice(-4)}`)
+  const sanitize = (value: unknown, key = ''): unknown => {
+    if (/password|credential|token|secret|phone|mobile|idcard|identitynumber|certificatenumber|licensenumber|permitnumber/i.test(key)) return '[REDACTED]'
+    if (/account|actorid|actorname|targetid/i.test(key)) {
+      const masked = maskPhone(value)
+      return typeof masked === 'string' ? sanitizeText(masked) : masked
+    }
+    if (Array.isArray(value)) return value.map((item) => sanitize(item))
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([nestedKey, nestedValue]) => [nestedKey, sanitize(nestedValue, nestedKey)]))
+    return typeof value === 'string' ? sanitizeText(value) : value
+  }
+  const entry: PlatformAuditLogEntry = {
+    ...input,
+    actorId: sanitize(input.actorId, 'actorId') as string,
+    actorName: sanitize(input.actorName, 'actorName') as string | undefined,
+    targetId: sanitize(input.targetId, 'targetId') as string | undefined,
+    reason: sanitize(input.reason, 'reason') as string | undefined,
+    metadata: sanitize(input.metadata),
+    id: createId('AUDIT'),
+    createdAt: new Date().toISOString()
+  }
+  return entry
+}
+
+export function appendPlatformAuditLog(input: Omit<PlatformAuditLogEntry, 'id' | 'createdAt'>): boolean {
+  const entry = createPlatformAuditLogEntry(input)
+  return !!entry && writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, [entry, ...readPlatformAuditLogs()].slice(0, 1000))
+}
+
+export function readPlatformJournal(): Record<string, PlatformJournalEntry> {
+  const saved = readPlatformJson<Record<string, PlatformJournalEntry>>(PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY)
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {}
+  return cloneSeed(saved)
+}
+
+export function readPendingPlatformJournals(): PlatformJournalEntry[] {
+  return Object.values(readPlatformJournal()).filter((entry) => entry.status === 'prepared' || entry.status === 'recovery-pending').sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
+export function preparePlatformJournal(input: { operationId: string; collections: string[]; original: unknown; target: unknown; recoveryHandlerKey?: StoredPlatformRecoveryHandlerKey; recoverySchema?: string }): boolean {
+  if (!input?.operationId?.trim() || !Array.isArray(input.collections) || !input.collections.length) return false
+  const recoveryHandlerKey = input.recoveryHandlerKey?.trim() || undefined
+  const recoverySchema = input.recoverySchema?.trim() || undefined
+  const journals = readPlatformJournal()
+  const existing = journals[input.operationId]
+  if (existing) {
+    const matches = JSON.stringify(existing.original) === JSON.stringify(input.original) && JSON.stringify(existing.target) === JSON.stringify(input.target) && JSON.stringify(existing.collections) === JSON.stringify(input.collections) && existing.recoveryHandlerKey === recoveryHandlerKey && existing.recoverySchema === recoverySchema
+    if (!matches) return false
+    if (existing.status !== 'aborted') return true
+    existing.status = 'prepared'
+    existing.completedSteps = []
+    existing.updatedAt = new Date().toISOString()
+    return writePlatformJson(PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, journals)
+  }
+  const now = new Date().toISOString()
+  journals[input.operationId] = { operationId: input.operationId, collections: [...new Set(input.collections.filter(Boolean))], original: cloneSeed(input.original), target: cloneSeed(input.target), recoveryHandlerKey, recoverySchema, completedSteps: [], status: 'prepared', createdAt: now, updatedAt: now }
+  return writePlatformJson(PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, journals)
+}
+
+export function markPlatformJournalStep(operationId: string, step: string): boolean {
+  if (!operationId?.trim() || !step?.trim()) return false
+  const journals = readPlatformJournal()
+  const entry = journals[operationId]
+  if (!entry || entry.status !== 'prepared') return false
+  if (!entry.completedSteps.includes(step)) entry.completedSteps.push(step)
+  entry.updatedAt = new Date().toISOString()
+  return writePlatformJson(PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, journals)
+}
+
+export function resolvePlatformJournal(operationId: string, status: PlatformJournalStatus): boolean {
+  const journals = readPlatformJournal()
+  const entry = journals[operationId]
+  const canResolveRecovery = entry?.status === 'recovery-pending' && (status === 'aborted' || status === 'committed')
+  if (!entry || (entry.status !== 'prepared' && entry.status !== status && !canResolveRecovery && !(status === 'recovery-pending' && (entry.status === 'committed' || entry.status === 'aborted')))) return false
+  entry.status = status
+  entry.updatedAt = new Date().toISOString()
+  return writePlatformJson(PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, journals)
+}
+
+export function enqueuePlatformRecovery(input: { operationId: string; failedStep: string; reason: string; handlerKey?: string }): boolean {
+  if (!input?.operationId?.trim() || !input.failedStep?.trim() || !input.reason?.trim()) return false
+  const existing = readPlatformJson<PlatformRecoveryTask[]>(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY)
+  const queue = Array.isArray(existing) ? existing : []
+  const duplicate = queue.find((task) => task.operationId === input.operationId && task.failedStep === input.failedStep && task.status === 'pending')
+  if (duplicate) {
+    if (input.handlerKey?.trim() && !duplicate.handlerKey) {
+      duplicate.handlerKey = input.handlerKey.trim()
+      return writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, queue)
+    }
+    return true
+  }
+  const task: PlatformRecoveryTask = { id: createId('REC'), operationId: input.operationId, failedStep: input.failedStep, reason: input.reason.trim(), handlerKey: input.handlerKey?.trim() || undefined, retryCount: 0, createdAt: new Date().toISOString(), status: 'pending' }
+  return writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, [...queue, task])
+}
+
+export function readPlatformRecoveryQueue(): PlatformRecoveryTask[] {
+  const saved = readPlatformJson<PlatformRecoveryTask[]>(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY)
+  return Array.isArray(saved) ? cloneSeed(saved).map((task) => ({ ...task, retryCount: Number.isInteger(task.retryCount) && task.retryCount >= 0 ? task.retryCount : 0 })) : []
+}
+
+export interface PlatformRecoveryReconciliationOptions {
+  handlerKey?: PlatformRecoveryHandlerKey
+  /** Explicit migration guard for legacy journals that do not declare an owner. */
+  matches?: (journal: PlatformJournalEntry) => boolean
+}
+
+/** Ensures owned journals have recovery tasks without assigning an owner to unrelated legacy journals. */
+export function reconcilePendingPlatformTransactions(input?: PlatformRecoveryHandlerKey | PlatformRecoveryReconciliationOptions): WriteResult<number> {
+  const options: PlatformRecoveryReconciliationOptions = typeof input === 'string' ? { handlerKey: input } : input || {}
+  const pendingOperationIds = new Set(readPlatformRecoveryQueue().filter((task) => task.status === 'pending').map((task) => task.operationId))
+  let created = 0
+  for (const journal of readPendingPlatformJournals()) {
+    if (pendingOperationIds.has(journal.operationId)) continue
+    const handlerKey = journal.recoveryHandlerKey || (options.handlerKey && options.matches?.(journal) ? options.handlerKey : undefined)
+    if (!handlerKey) continue
+    if (!enqueuePlatformRecovery({ operationId: journal.operationId, failedStep: 'reconciliation', reason: 'pending transaction requires recovery reconciliation', handlerKey })) {
+      return { ok: false, code: 'recovery-queue-write-failed', message: '恢复任务无法保存' }
+    }
+    pendingOperationIds.add(journal.operationId)
+    created += 1
+  }
+  return { ok: true, value: created }
+}
+
+export * from './providers'
 
 export const CHANNEL_TAG_STORE = '门店商品'
 export const CHANNEL_TAG_LIVE = '直播平台商品'
@@ -315,6 +1213,13 @@ export interface SupplierQualification {
   attachments?: SupplierQualificationAttachment[]
 }
 
+export interface SupplierWarehouse {
+  address: string
+  longitude?: number
+  latitude?: number
+  coordinateSystem: 'GCJ-02'
+}
+
 export interface Supplier {
   id: string
   name: string
@@ -326,7 +1231,11 @@ export interface Supplier {
   coop?: boolean
   emoji?: string
   contactPhone?: string
+  warehouse?: SupplierWarehouse
   qualification: SupplierQualification
+  cooperationPauseReason?: string
+  cooperationPausedAt?: string
+  cooperationPausedBy?: string
 }
 
 export interface Category {
@@ -424,6 +1333,17 @@ export interface OrderFlowEvent {
   note?: string
 }
 
+export interface FulfillmentEvent {
+  id: string
+  orderId: string
+  subOrderId?: string
+  from: string
+  to: string
+  operatorId: string
+  operatorRole: string
+  createdAt: string
+}
+
 export interface ShortageItem {
   skuId: string
   name: string
@@ -485,6 +1405,8 @@ export interface Order {
   quantity: number
   amount: number
   customer: string
+  storeId?: string
+  storeName?: string
   channel: 'shop' | 'live' | 'purchase'
   status: OrderStatus
   createdAt: string
@@ -496,6 +1418,7 @@ export interface Order {
   items?: OrderItem[]
   supplierFulfillment?: SupplierFulfillment
   supplierOrderLink?: SupplierOrderLink
+  fulfillmentEvents?: FulfillmentEvent[]
 }
 
 export interface Booking {
@@ -505,7 +1428,7 @@ export interface Booking {
   date: string
   session: string
   people: number
-  status: 'reserved' | 'completed' | 'cancelled'
+  status: 'reserved' | 'confirmed' | 'completed' | 'cancelled'
   emoji?: string
   image?: string
   amount?: number
@@ -544,6 +1467,13 @@ export interface AfterSale {
   refundMethod?: 'return' | 'only'
   refundMode?: 'full' | 'ratio' | 'custom'
   history?: Array<{ time: string; action: string; operator: string }>
+  sourcePortal?: string
+  masterOrderId?: string
+  subOrderId?: string
+  supplierOrderId?: string
+  operationId?: string
+  providerRefundId?: string
+  failureReason?: string
 }
 
 export interface Promoter {
@@ -586,11 +1516,151 @@ export interface OrderItem {
   image: string
   quantity: number
   price: number
+  minimumOrderQuantity?: number
   deliveryMode?: 'pickup' | 'courier'
+}
+
+export type OperationalReportDimension = 'day' | 'store' | 'supplier' | 'category'
+export interface OperationalReportFilter {
+  from: string
+  to: string
+  store?: string
+  supplierId?: string
+  category?: string
+}
+export interface OperationalReportRow {
+  key: string
+  label: string
+  orderCount: number
+  itemCount: number
+  gmv: number
+}
+
+function reportLocalDate(value: string): string {
+  const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/)
+  if (match) return match[1]
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export interface OperationalReportSummary {
+  orderCount: number
+  itemCount: number
+  gmv: number
+}
+
+function validReportDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00`)
+  return !Number.isNaN(date.getTime()) && `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` === value
+}
+
+function reportStoreName(order: Order): string {
+  return order.storeName?.trim() || order.customer || '未知门店'
+}
+
+function reportStoreMatch(value: string): string {
+  return String(value || '').trim().replace(/\s*[·•-]?\s*门店\s*$/, '').trim()
+}
+
+interface AllocatedOrderLine {
+  item: OrderItem
+  product?: Product
+  supplierId?: string
+  supplierLabel: string
+  category: string
+  quantity: number
+  amount: number
+}
+
+function allocateOrderLines(order: Order, productMap: Map<string, Product>): AllocatedOrderLine[] {
+  if (!Array.isArray(order.items)) return []
+  return order.items.map((item) => {
+    const product = productMap.get(item.productId)
+    const quantity = Math.max(0, Number(item.quantity) || 0)
+    const price = Math.max(0, Number(item.price) || 0)
+    const supplierId = product?.supplierId || order.supplierId
+    return {
+      item,
+      product,
+      supplierId,
+      supplierLabel: product?.supplierName || product?.supplier || '未知供应商',
+      category: product?.category || '未分类',
+      quantity,
+      amount: round2(price * quantity)
+    }
+  }).filter((line) => line.quantity > 0)
+}
+
+export function aggregateOperationalReport(orders: Order[], products: Product[], filter: OperationalReportFilter, dimension: OperationalReportDimension): OperationalReportRow[] {
+  if (!validReportDate(filter.from) || !validReportDate(filter.to) || filter.from > filter.to) return []
+  const validStatuses = new Set<OrderStatus>(['pending', 'shipping', 'delivered'])
+  const productMap = new Map(products.map((product) => [product.id, product]))
+  const grouped = new Map<string, { label: string; itemCount: number; gmv: number; orderIds: Set<string> }>()
+  const add = (key: string, label: string, order: Order, itemCount: number, gmv: number) => {
+    const current = grouped.get(key) || { label, itemCount: 0, gmv: 0, orderIds: new Set<string>() }
+    current.itemCount += Math.max(0, Number(itemCount) || 0)
+    current.gmv += Number(gmv) || 0
+    current.orderIds.add(order.id)
+    grouped.set(key, current)
+  }
+  [...new Map(orders.filter((order) => order?.id).map((order) => [order.id, order])).values()].filter((order) => {
+    const date = reportLocalDate(order.createdAt)
+    if (!order?.id || !validStatuses.has(order.status) || !date || date < filter.from || date > filter.to) return false
+    if (filter.store && order.storeId !== filter.store && reportStoreMatch(reportStoreName(order)) !== reportStoreMatch(filter.store)) return false
+    if ((filter.supplierId || filter.category) && Array.isArray(order.items) && order.items.length) {
+      const matchesLine = order.items.some((item) => {
+        const product = productMap.get(item.productId)
+        return (!filter.supplierId || (product?.supplierId || order.supplierId) === filter.supplierId) && (!filter.category || (product?.category || '未分类') === filter.category)
+      })
+      if (!matchesLine) return false
+    } else if ((filter.supplierId || filter.category) && !order.items?.length) return false
+    return true
+  }).forEach((order) => {
+    const items = Array.isArray(order.items) ? order.items : []
+    if (dimension === 'day' || dimension === 'store') {
+      const key = dimension === 'day' ? reportLocalDate(order.createdAt) : (order.storeId || reportStoreName(order))
+      const label = dimension === 'day' ? key : reportStoreName(order)
+      const selectedItems = items.filter((item) => {
+        const product = productMap.get(item.productId)
+        return (!filter.supplierId || (product?.supplierId || order.supplierId) === filter.supplierId) && (!filter.category || (product?.category || '未分类') === filter.category)
+      })
+      const hasLineFilters = !!filter.supplierId || !!filter.category
+      const itemCount = selectedItems.length ? selectedItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0) : (!items.length && !hasLineFilters ? order.quantity : 0)
+      const gmv = !hasLineFilters ? order.amount : (selectedItems.length ? selectedItems.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0) : 0)
+      if (itemCount > 0 || gmv > 0) add(key, label, order, itemCount, gmv)
+      return
+    }
+    const lines = allocateOrderLines(order, productMap)
+    const selectedLines = lines.length ? lines.filter((line) => {
+      if (filter.supplierId && line.supplierId !== filter.supplierId) return false
+      if (filter.category && line.category !== filter.category) return false
+      return true
+    }) : (!filter.supplierId && !filter.category ? [{ item: null, supplierId: undefined, supplierLabel: '未知供应商', category: '未分类', quantity: Number(order.quantity), amount: Number(order.amount) }] : [])
+    selectedLines.forEach((line) => {
+      const isSupplier = dimension === 'supplier'
+      const key = isSupplier ? (line.supplierId || 'unknown-supplier') : (line.category === '未分类' ? 'uncategorized' : line.category)
+      const label = isSupplier ? line.supplierLabel : line.category
+      const quantity = line.item ? line.quantity : Number(order.quantity)
+      const amount = line.item && Number.isFinite(line.amount) ? line.amount : Number(order.amount)
+      add(key, label, order, quantity, amount)
+    })
+  })
+  return [...grouped.entries()].map(([key, value]) => ({ key, label: value.label, orderCount: value.orderIds.size, itemCount: value.itemCount, gmv: round2(value.gmv) })).sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+}
+
+export function summarizeOperationalReport(orders: Order[], products: Product[], filter: OperationalReportFilter): OperationalReportSummary {
+  const rows = aggregateOperationalReport(orders, products, filter, 'day')
+  return {
+    orderCount: rows.reduce((sum, row) => sum + row.orderCount, 0),
+    itemCount: rows.reduce((sum, row) => sum + row.itemCount, 0),
+    gmv: round2(rows.reduce((sum, row) => sum + row.gmv, 0))
+  }
 }
 
 export interface StorefrontOrder {
   id: string
+  customerUserId?: string
   amount: number
   itemCount: number
   items: OrderItem[]
@@ -623,6 +1693,7 @@ export interface CommissionSettlementRecord {
   id: string
   promoterIds: string[]
   amount: number
+  status?: string
   createdAt: string
   items: Array<{ promoterId: string; promoterName: string; amount: number }>
 }
@@ -1360,6 +2431,12 @@ export interface DerivedPlatformMetrics {
   dailyTrend: Array<{ label: string; amount: number; count: number }>
 }
 
+export interface DashboardMetricsFilter {
+  from?: string
+  to?: string
+  validStatuses?: OrderStatus[]
+}
+
 export function derivePlatformMetrics(input: {
   orders: Order[]
   products: Product[]
@@ -1367,13 +2444,27 @@ export function derivePlatformMetrics(input: {
   suppliers: Supplier[]
   afterSales: AfterSale[]
   promoters: Promoter[]
+  filter?: DashboardMetricsFilter
 }): DerivedPlatformMetrics {
-  const { orders, products, farms, suppliers, afterSales, promoters } = input
-  const gmv = Math.round(orders.reduce((sum, order) => sum + order.amount, 0) * 100) / 100
+  const { orders, products, farms, suppliers, afterSales, promoters, filter } = input
+  const validStatuses = new Set<OrderStatus>(filter?.validStatuses ?? ['pending', 'shipping', 'delivered'])
+  const hasInvalidRange = !!filter && (
+    (!!filter.from && !validReportDate(filter.from)) ||
+    (!!filter.to && !validReportDate(filter.to)) ||
+    (!!filter.from && !!filter.to && filter.from > filter.to)
+  )
+  const metricOrders = hasInvalidRange ? [] : [...new Map(orders.filter((order) => order?.id).map((order) => [order.id, order])).values()].filter((order) => {
+    const date = reportLocalDate(order.createdAt)
+    if (!validStatuses.has(order.status) || !date) return false
+    if (filter?.from && date < filter.from) return false
+    if (filter?.to && date > filter.to) return false
+    return true
+  })
+  const gmv = round2(metricOrders.reduce((sum, order) => sum + order.amount, 0))
   const orderStats = {
-    total: orders.length,
-    pending: orders.filter((order) => order.status === 'pending').length,
-    shipping: orders.filter((order) => order.status === 'shipping').length,
+    total: metricOrders.length,
+    pending: metricOrders.filter((order) => order.status === 'pending').length,
+    shipping: metricOrders.filter((order) => order.status === 'shipping').length,
   }
   const resolved = afterSales.filter((afterSale) => afterSale.status === 'refunded').length
   const afterSaleStats = {
@@ -1399,17 +2490,29 @@ export function derivePlatformMetrics(input: {
     liveSessions: promoters.filter((promoter) => promoter.type === '主播').length,
     lockedFans: promoters.reduce((sum, promoter) => sum + promoter.fans, 0),
   }
-  const hotProducts = [...products]
-    .filter((product) => product.status === 'active')
-    .sort((a, b) => b.sales - a.sales)
+  const productMap = new Map(products.map((product) => [product.id, product]))
+  const productSales = new Map<string, { name: string; supplier: string; amount: number; units: number; image: string }>()
+  const categorySales = new Map<string, number>()
+  metricOrders.forEach((order) => allocateOrderLines(order, productMap).forEach((line) => {
+    const current = productSales.get(line.item.productId) || {
+      name: line.product?.name || line.item.name || '未知商品',
+      supplier: line.supplierLabel,
+      amount: 0,
+      units: 0,
+      image: mediaValueToImage(line.product?.image || line.item.image)
+    }
+    current.amount = round2(current.amount + line.amount)
+    current.units += line.quantity
+    productSales.set(line.item.productId, current)
+    categorySales.set(line.category, round2((categorySales.get(line.category) || 0) + line.amount))
+  }))
+  const hotProducts = [...productSales.values()]
+    .sort((a, b) => b.units - a.units || b.amount - a.amount || a.name.localeCompare(b.name, 'zh-CN'))
     .slice(0, 5)
-    .map((product) => ({ name: product.name, supplier: product.supplier, amount: Math.round(product.sales * product.price), units: product.sales, image: mediaValueToImage(product.image) }))
-  const categoryCount = new Map<string, number>()
-  products.forEach((product) => categoryCount.set(product.category, (categoryCount.get(product.category) || 0) + 1))
-  const categoryShares = [...categoryCount.entries()].map(([name, value]) => ({ name, value }))
+  const categoryShares = [...categorySales.entries()].map(([name, value]) => ({ name, value }))
   const dayMap = new Map<string, { amount: number; count: number }>()
-  orders.forEach((order) => {
-    const date = (order.createdAt || '').slice(0, 10)
+  metricOrders.forEach((order) => {
+    const date = reportLocalDate(order.createdAt)
     if (!date) return
     const current = dayMap.get(date) || { amount: 0, count: 0 }
     current.amount += order.amount
@@ -1420,7 +2523,7 @@ export function derivePlatformMetrics(input: {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, value]) => ({ label: `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`, amount: round2(value.amount), count: value.count }))
   return {
-    gmv, farmCount: farms.length, supplierCount: suppliers.length, orderCount: orders.length,
+    gmv, farmCount: farms.length, supplierCount: suppliers.length, orderCount: metricOrders.length,
     pendingCommission: promoterStats.pendingCommission, orderStats, afterSaleStats, farmStats, promoterStats,
     hotProducts, categoryShares, dailyTrend,
   }
@@ -1652,6 +2755,11 @@ export function persistedEnvelope<T>(state: T, keys?: readonly (keyof T)[], vers
 
 export const purchaseSteps: PurchaseStatus[] = ['submitted', 'accepted', 'shipped', 'delivering', 'received', 'completed']
 
+export function canTransitionPurchaseStatus(from: PurchaseStatus, to: PurchaseStatus): boolean {
+  if (from === to) return true
+  return purchaseSteps.indexOf(to) === purchaseSteps.indexOf(from) + 1 || (to === 'cancelled' && !['received', 'completed', 'cancelled'].includes(from))
+}
+
 export function nextPurchaseStatus(status: PurchaseStatus): PurchaseStatus {
   return purchaseSteps[Math.min(purchaseSteps.indexOf(status) + 1, purchaseSteps.length - 1)]
 }
@@ -1764,13 +2872,14 @@ export function readPlatformMedia(): PlatformMedia | null {
   return null
 }
 
-export function writePlatformMedia(media: PlatformMedia): void {
+export function writePlatformMedia(media: PlatformMedia): boolean {
   const storage = platformMediaStorage()
-  if (!storage) return
+  if (!storage) return false
   try {
     storage.write(JSON.stringify(media))
+    return true
   } catch {
-    // 存储失败不阻断业务
+    return false
   }
 }
 
@@ -1874,23 +2983,29 @@ export interface ShareRecord {
 interface PlatformJsonStorage {
   read: (key: string) => unknown
   write: (key: string, value: unknown) => void
+  remove?: (key: string) => void
 }
+
+const PLATFORM_REVISION_SIDECAR_SUFFIX = ':revision'
+
+function platformRevisionSidecarKey(key: string): string { return `${key}${PLATFORM_REVISION_SIDECAR_SUFFIX}` }
+function isPlatformRevisionSidecar(key: string): boolean { return key.endsWith(PLATFORM_REVISION_SIDECAR_SUFFIX) }
 
 function platformJsonStorage(): PlatformJsonStorage | null {
   try {
     const scope = globalThis as { localStorage?: Storage }
     const storage = scope.localStorage
     if (storage && typeof storage.getItem === 'function' && typeof storage.setItem === 'function') {
-      return { read: (key) => storage.getItem(key), write: (key, value) => storage.setItem(key, String(value)) }
+      return { read: (key) => storage.getItem(key), write: (key, value) => storage.setItem(key, String(value)), remove: (key) => storage.removeItem(key) }
     }
   } catch {
     // 无 localStorage 时继续尝试 uni
   }
   try {
-    const scope = globalThis as { uni?: { getStorageSync?: (key: string) => unknown; setStorageSync?: (key: string, value: unknown) => void } }
+    const scope = globalThis as { uni?: { getStorageSync?: (key: string) => unknown; setStorageSync?: (key: string, value: unknown) => void; removeStorageSync?: (key: string) => void } }
     const uniRef = scope.uni
     if (uniRef?.getStorageSync && uniRef.setStorageSync) {
-      return { read: (key) => uniRef.getStorageSync!(key), write: (key, value) => uniRef.setStorageSync!(key, value) }
+      return { read: (key) => uniRef.getStorageSync!(key), write: (key, value) => uniRef.setStorageSync!(key, value), remove: uniRef.removeStorageSync ? (key) => uniRef.removeStorageSync!(key) : undefined }
     }
   } catch {
     // 忽略
@@ -1898,7 +3013,7 @@ function platformJsonStorage(): PlatformJsonStorage | null {
   return null
 }
 
-function readPlatformJson<T>(key: string, fallback: T | null = null): T | null {
+export function readPlatformJson<T>(key: string, fallback: T | null = null): T | null {
   const storage = platformJsonStorage()
   if (!storage) return fallback
   try {
@@ -1919,16 +3034,66 @@ function notifyPlatformChange(key: string, source: string): void {
   platformChangeListeners.forEach((listener) => { try { listener(event) } catch { /* ignore */ } })
 }
 
-function writePlatformJson(key: string, value: unknown): boolean {
-  const storage = platformJsonStorage()
-  if (!storage) return false
+function readPlatformRevisionSidecar(key: string): number | null {
+  const saved = readPlatformJson<unknown>(platformRevisionSidecarKey(key))
+  return Number.isInteger(saved) && (saved as number) >= 0 ? saved as number : null
+}
+
+function restorePlatformStorageValue(storage: PlatformJsonStorage, key: string, value: unknown): void {
   try {
-    storage.write(key, JSON.stringify(value))
-    notifyPlatformChange(key, 'write')
+    if (value == null && storage.remove) storage.remove(key)
+    else storage.write(key, value == null ? JSON.stringify(null) : value)
+  } catch {
+    // A failed restore remains observable through the original false return value.
+  }
+}
+
+/** Reads the concurrency revision for a raw platform JSON collection. */
+export function readPlatformCollectionRevision(key: string): number {
+  if (!key?.trim() || isPlatformRevisionSidecar(key)) return 0
+  return readPlatformRevisionSidecar(key) ?? readVersionedRecord(key)?.revision ?? 0
+}
+
+/** Writes a raw platform JSON collection and advances its sidecar revision. */
+export function writePlatformJson(key: string, value: unknown, expectedRevision?: number): boolean {
+  const storage = platformJsonStorage()
+  const normalizedKey = key?.trim()
+  if (!storage || !normalizedKey) return false
+  let previousPayload: unknown
+  let previousSidecar: unknown
+  let sidecarKey = ''
+  let restoreRequired = false
+  try {
+    const currentRevision = readPlatformCollectionRevision(normalizedKey)
+    if (expectedRevision !== undefined && (!Number.isInteger(expectedRevision) || currentRevision !== expectedRevision)) return false
+    previousPayload = storage.read(normalizedKey)
+    sidecarKey = platformRevisionSidecarKey(normalizedKey)
+    previousSidecar = !isPlatformRevisionSidecar(normalizedKey) ? storage.read(sidecarKey) : null
+    restoreRequired = true
+    storage.write(normalizedKey, JSON.stringify(value))
+    if (!isPlatformRevisionSidecar(normalizedKey)) {
+      storage.write(sidecarKey, JSON.stringify(currentRevision + 1))
+    }
+    notifyPlatformChange(normalizedKey, 'write')
     return true
   } catch {
+    if (restoreRequired) {
+      restorePlatformStorageValue(storage, normalizedKey, previousPayload)
+      if (!isPlatformRevisionSidecar(normalizedKey)) restorePlatformStorageValue(storage, sidecarKey, previousSidecar)
+    }
     return false
   }
+}
+
+/** Restores an original collection only while the current payload still belongs to the transaction. */
+export function rollbackPlatformCollectionSnapshot(key: string, original: unknown, target: unknown): boolean {
+  const same = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right)
+  const current = readPlatformJson<unknown>(key)
+  if (same(current, original)) return true
+  if (!same(current, target)) return false
+  if (original !== null) return writePlatformJson(key, cloneSeed(original))
+  clearPlatformJson(key)
+  return readPlatformJson(key) === null
 }
 
 export function clearPlatformJson(key: string): void {
@@ -1936,6 +3101,7 @@ export function clearPlatformJson(key: string): void {
     const scope = globalThis as { localStorage?: Storage }
     if (scope.localStorage && typeof scope.localStorage.removeItem === 'function') {
       scope.localStorage.removeItem(key)
+      if (!isPlatformRevisionSidecar(key)) scope.localStorage.removeItem(platformRevisionSidecarKey(key))
       return
     }
   } catch {
@@ -1944,6 +3110,7 @@ export function clearPlatformJson(key: string): void {
   try {
     const uniRef = (globalThis as unknown as { uni?: { removeStorageSync?: (key: string) => void } }).uni
     uniRef?.removeStorageSync?.(key)
+    if (!isPlatformRevisionSidecar(key)) uniRef?.removeStorageSync?.(platformRevisionSidecarKey(key))
   } catch {
     // 忽略
   }
@@ -1982,10 +3149,13 @@ export function writePlatformLive(room: LiveRoom): boolean {
   if (written) writePlatformJson(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY, new Date().toISOString())
   return written
 }
-export function removePlatformLive(id: string): void {
+export function removePlatformLive(id: string): boolean {
+  if (!id?.trim()) return false
   const lives = readPlatformLives() ?? {}
   lives[id] = null
-  if (writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, lives)) writePlatformJson(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY, new Date().toISOString())
+  if (!writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, lives)) return false
+  writePlatformJson(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY, new Date().toISOString())
+  return true
 }
 export function mergePlatformLives(rooms: LiveRoom[]): LiveRoom[] {
   const published = readPlatformLives()
@@ -2008,6 +3178,9 @@ export function mergePlatformLives(rooms: LiveRoom[]): LiveRoom[] {
 export function readUserBindings(): Record<string, UserBinding> | null {
   const bindings = readPlatformJson<Record<string, UserBinding>>(PLATFORM_BINDINGS_STORAGE_KEY)
   return bindings && typeof bindings === 'object' ? bindings : null
+}
+export function writeUserBindings(bindings: Record<string, UserBinding>): boolean {
+  return !!bindings && writePlatformJson(PLATFORM_BINDINGS_STORAGE_KEY, bindings)
 }
 export function upsertUserBinding(binding: UserBinding): boolean {
   if (!binding?.userId) return false
@@ -2080,12 +3253,12 @@ export function writeShareRecords(records: ShareRecord[]): boolean {
 }
 
 /** 按 id 批量标记分成已结算 */
-export function markShareSettled(ids: string[]): void {
+export function markShareSettled(ids: string[]): boolean {
   const records = readShareRecords() ?? []
   const idSet = new Set(ids)
   let changed = false
   records.forEach((item) => { if (idSet.has(item.id) && !item.settled) { item.settled = true; item.status = 'settled'; changed = true } })
-  if (changed) writeShareRecords(records)
+  return !changed || writeShareRecords(records)
 }
 
 /** 推客未结算分成求和（佣金结算口径） */
@@ -2129,7 +3302,7 @@ export function seedPlatformDemoData(): void {
 // ===== 中台主数据发布：admin 维护的商品/门店/供应商/价格策略/品类全字段发布，其他应用读取覆盖 =====
 export const PLATFORM_ENTITIES_STORAGE_KEY = 'agritainment-platform-entities'
 
-export type PlatformEntityKind = 'products' | 'farms' | 'suppliers' | 'policies' | 'categories'
+export type PlatformEntityKind = 'products' | 'farms' | 'suppliers' | 'policies' | 'categories' | 'promoters'
 
 export interface PlatformEntities {
   products?: Record<string, Product>
@@ -2137,6 +3310,7 @@ export interface PlatformEntities {
   suppliers?: Record<string, Supplier>
   policies?: Record<string, PricePolicy>
   categories?: Record<string, Category>
+  promoters?: Record<string, Promoter>
   deliverDate?: string
   updatedAt: string
 }
@@ -2146,26 +3320,36 @@ export function readPlatformEntities(): PlatformEntities | null {
   return entities && typeof entities === 'object' ? entities : null
 }
 
-export function writePlatformEntities(entities: PlatformEntities): void {
-  writePlatformJson(PLATFORM_ENTITIES_STORAGE_KEY, entities)
+export function writePlatformEntities(entities: PlatformEntities): boolean {
+  return writePlatformJson(PLATFORM_ENTITIES_STORAGE_KEY, entities)
 }
 
 /** 按 id 整体覆盖某类实体快照（无删除语义：商品/门店用上下架/停用表达业务状态） */
-export function upsertPlatformEntity(kind: PlatformEntityKind, id: string, entity: unknown): PlatformEntities {
+export function upsertPlatformEntity(kind: PlatformEntityKind, id: string, entity: unknown): boolean {
+  if (!id || !entity || typeof entity !== 'object') return false
   const base = readPlatformEntities() ?? { updatedAt: '' }
   const map = { ...((base[kind] as Record<string, unknown> | undefined) || {}) }
   map[id] = entity
   const next: PlatformEntities = { ...base, [kind]: map, updatedAt: new Date().toISOString() }
-  writePlatformEntities(next)
-  return next
+  return writePlatformEntities(next) && JSON.stringify(readPlatformEntities()?.[kind]?.[id]) === JSON.stringify(entity)
+}
+
+export function removePlatformEntity(kind: PlatformEntityKind, id: string): boolean {
+  if (!id) return false
+  const base = readPlatformEntities() ?? { updatedAt: '' }
+  const map = { ...((base[kind] as Record<string, unknown> | undefined) || {}) }
+  map[id] = null
+  const next: PlatformEntities = { ...base, [kind]: map, updatedAt: new Date().toISOString() }
+  return writePlatformEntities(next) && (readPlatformEntities()?.[kind] as Record<string, unknown> | undefined)?.[id] === null
 }
 
 /** 平台实体覆盖种子：按 id 整体替换，追加平台独有实体；无记录保持种子 */
-export function mergePlatformEntities<T extends { id: string }>(list: T[], map: Record<string, T> | undefined): T[] {
+export function mergePlatformEntities<T extends { id: string }>(list: T[], map: Record<string, T | null> | undefined): T[] {
   if (!map) return list
   const existing = new Set(list.map((item) => item.id))
-  const merged = list.map((item) => (map[item.id] ? { ...item, ...map[item.id] } : item))
+  const merged = list.filter((item) => map[item.id] !== null).map((item) => (map[item.id] ? { ...item, ...map[item.id] } : item))
   for (const entity of Object.values(map)) {
+    if (!entity) continue
     if (!existing.has(entity.id)) merged.push(entity)
   }
   return merged
@@ -2199,6 +3383,17 @@ export function writePlatformOrder(order: Order): boolean {
   const orders = readPlatformOrders() ?? {}
   return writePlatformJson(PLATFORM_ORDERS_STORAGE_KEY, { ...orders, [order.id]: order })
 }
+
+export function readPlatformPromoters(): Record<string, Promoter> {
+  return readPlatformEntities()?.promoters || {}
+}
+
+export function persistPlatformEntity(kind: PlatformEntityKind, id: string, entity: unknown): boolean {
+  return upsertPlatformEntity(kind, id, entity)
+}
+export function writePlatformOrders(orders: Record<string, Order>): boolean {
+  return writePlatformJson(PLATFORM_ORDERS_STORAGE_KEY, orders)
+}
 export function mergePlatformOrders(defaults: Order[], published: Record<string, Order> | null): Order[] {
   if (!published) return defaults
   const byId = new Map(defaults.map((item) => [item.id, item]))
@@ -2215,6 +3410,13 @@ export function readPlatformAfterSales(): Record<string, AfterSale> | null {
 export function writePlatformAfterSale(work: AfterSale): boolean {
   const works = readPlatformAfterSales() ?? {}
   return writePlatformJson(PLATFORM_AFTERSALES_STORAGE_KEY, { ...works, [work.id]: work })
+}
+export function writePlatformAfterSales(works: Record<string, AfterSale> | null): boolean {
+  if (works === null) {
+    clearPlatformJson(PLATFORM_AFTERSALES_STORAGE_KEY)
+    return readPlatformAfterSales() === null
+  }
+  return !!works && writePlatformJson(PLATFORM_AFTERSALES_STORAGE_KEY, works)
 }
 export function mergePlatformAfterSales(defaults: AfterSale[], published: Record<string, AfterSale> | null): AfterSale[] {
   if (!published) return defaults
@@ -2265,10 +3467,18 @@ export function readPlatformCommissionSettlement(promoterId: string): PlatformCo
   return settlements?.[promoterId] || null
 }
 
-export function writePlatformCommissionSettlement(promoterId: string, payload: PlatformCommissionSettlement): void {
-  const settlements = readPlatformJson<Record<string, PlatformCommissionSettlement>>(PLATFORM_SETTLEMENTS_STORAGE_KEY) || {}
+export function writePlatformCommissionSettlement(promoterId: string, payload: PlatformCommissionSettlement): boolean {
+  if (!promoterId?.trim() || !payload || !Number.isFinite(Number(payload.commission))) return false
+  const settlements = { ...(readPlatformJson<Record<string, PlatformCommissionSettlement>>(PLATFORM_SETTLEMENTS_STORAGE_KEY) || {}) }
   settlements[promoterId] = payload
-  writePlatformJson(PLATFORM_SETTLEMENTS_STORAGE_KEY, settlements)
+  return writePlatformJson(PLATFORM_SETTLEMENTS_STORAGE_KEY, settlements)
+}
+export function readPlatformCommissionSettlements(): Record<string, PlatformCommissionSettlement> {
+  const settlements = readPlatformJson<Record<string, PlatformCommissionSettlement>>(PLATFORM_SETTLEMENTS_STORAGE_KEY)
+  return settlements && typeof settlements === 'object' ? settlements : {}
+}
+export function writePlatformCommissionSettlements(settlements: Record<string, PlatformCommissionSettlement>): boolean {
+  return writePlatformJson(PLATFORM_SETTLEMENTS_STORAGE_KEY, settlements)
 }
 
 
@@ -2278,8 +3488,8 @@ export function readPlatformStoreAccounts(): StoreAccount[] | null {
   const accounts = readPlatformJson<StoreAccount[]>(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY)
   return Array.isArray(accounts) ? accounts : null
 }
-export function writePlatformStoreAccounts(accounts: StoreAccount[]): void {
-  writePlatformJson(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, accounts)
+export function writePlatformStoreAccounts(accounts: StoreAccount[]): boolean {
+  return writePlatformJson(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, accounts)
 }
 export function mergePlatformStoreAccounts(defaults: StoreAccount[], published: StoreAccount[] | null): StoreAccount[] {
   if (!published) return defaults
@@ -2354,10 +3564,10 @@ export function readUserLinks(): Record<string, string> | null {
   const links = readPlatformJson<Record<string, string>>(PLATFORM_USER_LINKS_STORAGE_KEY)
   return links && typeof links === 'object' ? links : null
 }
-export function writeUserLink(openid: string, userId: string): void {
-  if (!openid || !userId) return
+export function writeUserLink(openid: string, userId: string): boolean {
+  if (!openid?.trim() || !userId?.trim()) return false
   const links = readUserLinks() ?? {}
-  writePlatformJson(PLATFORM_USER_LINKS_STORAGE_KEY, { ...links, [openid]: userId })
+  return writePlatformJson(PLATFORM_USER_LINKS_STORAGE_KEY, { ...links, [openid]: userId })
 }
 export function resolveUserIdByOpenid(openid: string): string {
   if (!openid) return ''
@@ -2385,8 +3595,8 @@ export function readPlatformDrivers(): DriverAccount[] | null {
   const drivers = readPlatformJson<DriverAccount[]>(PLATFORM_DRIVERS_STORAGE_KEY)
   return Array.isArray(drivers) ? drivers : null
 }
-export function writePlatformDrivers(drivers: DriverAccount[]): void {
-  writePlatformJson(PLATFORM_DRIVERS_STORAGE_KEY, drivers)
+export function writePlatformDrivers(drivers: DriverAccount[]): boolean {
+  return writePlatformJson(PLATFORM_DRIVERS_STORAGE_KEY, drivers)
 }
 export function mergePlatformDrivers(defaults: DriverAccount[], published: DriverAccount[] | null): DriverAccount[] {
   if (!published) return defaults
@@ -2484,6 +3694,10 @@ function flowEvent(action: string, operator: string, note?: string): OrderFlowEv
   return event
 }
 
+function fulfillmentEvent(orderId: string, from: string, to: string, operatorId: string, operatorRole: string, subOrderId?: string): FulfillmentEvent {
+  return { id: createId('FUL'), orderId, subOrderId, from, to, operatorId, operatorRole, createdAt: new Date().toISOString() }
+}
+
 function logisticsEvent(title: string, detail: string): LogisticsEvent {
   return { time: new Date().toISOString(), title, detail }
 }
@@ -2496,6 +3710,7 @@ export function acceptSupplierOrder(order: Order, operator: string): Order | nul
     ...order,
     status: 'pending',
     flow: [...(order.flow || []), flowEvent('中台已接单 · 供应商已接单，备货中', operator)],
+    fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, 'submitted', 'accepted', operator, 'supplier')],
     supplierFulfillment: { ...fulfillment, status: 'accepted', updatedAt: now }
   }
 }
@@ -2510,6 +3725,7 @@ export function assignSupplierDriver(order: Order, driver: DriverAccount, operat
     ...order,
     status: 'shipping',
     flow: [...(order.flow || []), flowEvent(`已发货 · 已指派司机 ${driver.name} 配送`, operator)],
+    fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, 'accepted', 'shipped', operator, 'supplier')],
     supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'driver', driverId: driver.id, driverName: driver.name, deliverDate: todayString(), updatedAt: now }
   }
 }
@@ -2525,6 +3741,7 @@ export function reassignSupplierDriver(order: Order, driver: DriverAccount, oper
     ...order,
     status: 'shipping',
     flow: [...(order.flow || []), flowEvent(`改派司机 · ${driver.name}（原 ${fulfillment.driverName || '未指派'}）`, operator)],
+    fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, fulfillment.status, fulfillment.status, operator, 'supplier')],
     supplierFulfillment: { ...fulfillment, driverId: driver.id, driverName: driver.name, updatedAt: now }
   }
 }
@@ -2539,6 +3756,7 @@ export function shipSupplierCourier(order: Order, trackingNo: string, operator: 
     status: 'shipping',
     trackingNo: trackingNo.trim(),
     flow: [...(order.flow || []), flowEvent(`已发货 · 快递直发，运单 ${trackingNo.trim()}`, operator)],
+    fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, 'accepted', 'shipped', operator, 'supplier')],
     logistics: [...(order.logistics || []), logisticsEvent('商品已发货', `快递已揽收，运单号 ${trackingNo.trim()}`)],
     supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'courier', trackingNo: trackingNo.trim(), deliverDate: todayString(), updatedAt: now }
   }
@@ -2559,6 +3777,7 @@ export function handoverSupplierOut(order: Order, actuals: Record<string, number
     ...order,
     status: 'shipping',
     flow,
+    fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, 'shipped', 'delivering', operator.id, operator.role)],
     logistics: fulfillment.shipType === 'courier' ? [...(order.logistics || []), logisticsEvent('运输中', '包裹已进入模拟运输流程')] : order.logistics,
     supplierFulfillment: { ...fulfillment, status: 'delivering', shortages, handovers: [...fulfillment.handovers, handover], updatedAt: now }
   }
@@ -2575,6 +3794,7 @@ export function handoverSupplierIn(order: Order, operator: { id: string; name: s
     ...order,
     status: 'delivered',
     flow: [...(order.flow || []), flowEvent(`到店交接完成 · 司机 ${operator.name} 已与门店交接`, operator.name)],
+    fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, 'delivering', 'received', operator.id, operator.role)],
     supplierFulfillment: { ...fulfillment, status: 'received', handovers: [...fulfillment.handovers, handover], updatedAt: now }
   }
 }
@@ -2587,6 +3807,7 @@ export function confirmCourierDelivered(order: Order, operator: { id: string; na
     ...order,
     status: 'delivered',
     flow: [...(order.flow || []), flowEvent('已签收 · 快递送达门店', operator.name)],
+    fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, 'delivering', 'received', operator.id, operator.role)],
     logistics: [...(order.logistics || []), logisticsEvent('已签收', '包裹已由收货方签收')],
     supplierFulfillment: { ...fulfillment, status: 'received', updatedAt: now }
   }
@@ -2624,6 +3845,7 @@ export interface CProductSku {
   basePrice: number
   level1Commission: number
   level2Commission: number
+  minimumOrderQuantity?: number
 }
 
 export interface CProduct {
@@ -2710,8 +3932,36 @@ function channelFromLegacy(input: { channels?: { store?: boolean; live?: boolean
   return channels.store && channels.live ? 'all' : channels.live ? 'live' : 'store'
 }
 
+export function normalizeMinimumOrderQuantity(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : 1
+}
+
+export type CatalogSkuOrderQuantityValidation =
+  | { ok: true; minimumOrderQuantity: number; availableStock: number }
+  | { ok: false; code: 'invalid_quantity' | 'below_minimum_order_quantity' | 'insufficient_stock'; minimumOrderQuantity: number; availableStock: number }
+
+export function validateCatalogSkuOrderQuantity(
+  sku: Pick<CatalogSku, 'stock' | 'minimumOrderQuantity'>,
+  quantity: number
+): CatalogSkuOrderQuantityValidation {
+  const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)
+  const availableStock = Number.isFinite(sku.stock) ? Math.max(0, Math.floor(sku.stock)) : 0
+  if (!Number.isInteger(quantity) || quantity < 1) return { ok: false, code: 'invalid_quantity', minimumOrderQuantity, availableStock }
+  if (quantity < minimumOrderQuantity) return { ok: false, code: 'below_minimum_order_quantity', minimumOrderQuantity, availableStock }
+  if (quantity > availableStock) return { ok: false, code: 'insufficient_stock', minimumOrderQuantity, availableStock }
+  return { ok: true, minimumOrderQuantity, availableStock }
+}
+
+export function canOrderCatalogSku(sku: Pick<CatalogSku, 'stock' | 'minimumOrderQuantity'>, quantity: number): boolean {
+  return validateCatalogSkuOrderQuantity(sku, quantity).ok
+}
+
+function normalizeCatalogSku(sku: CatalogSku): CatalogSku {
+  return { ...sku, minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity), status: sku.status === 'retired' ? 'retired' : 'active' }
+}
+
 function catalogSkuIsValid(sku: CatalogSku): boolean {
-  return !!sku.id && !!sku.name && (!sku.status || sku.status === 'active' || sku.status === 'retired') && [sku.retailPrice, sku.cost, sku.stock, sku.level1Amount, sku.level2Amount].every((value) => Number.isFinite(value) && value >= 0) && sku.retailPrice >= sku.level1Amount + sku.level2Amount
+  return !!sku.id && !!sku.name && (!sku.status || sku.status === 'active' || sku.status === 'retired') && [sku.retailPrice, sku.cost, sku.stock, sku.level1Amount, sku.level2Amount].every((value) => Number.isFinite(value) && value >= 0) && Number.isInteger(sku.minimumOrderQuantity) && Number(sku.minimumOrderQuantity) >= 1 && sku.retailPrice >= sku.level1Amount + sku.level2Amount
 }
 
 function catalogProductIsValid(product: CatalogProduct): boolean {
@@ -2733,7 +3983,7 @@ function legacyDistributionAmounts(retailPrice: number, level1Amount: number, le
 
 export function catalogProductToProduct(product: CatalogProduct): Product {
   const channels = catalogChannelFlags(product.channel)
-  const skus: Sku[] = product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({ id: sku.id, name: sku.name, image: mediaValueToImage(sku.image), price: sku.retailPrice, cost: sku.cost, stock: sku.stock, level1Amount: sku.level1Amount, level2Amount: sku.level2Amount }))
+  const skus: Sku[] = product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({ id: sku.id, name: sku.name, image: mediaValueToImage(sku.image), price: sku.retailPrice, cost: sku.cost, stock: sku.stock, level1Amount: sku.level1Amount, level2Amount: sku.level2Amount, minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity) }))
   return {
     id: product.id, name: product.name, category: product.category,
     price: skus.length ? Math.min(...skus.map((sku) => sku.price)) : 0,
@@ -2773,7 +4023,8 @@ export function catalogProductToCProduct(product: CatalogProduct): CProduct {
     skus: product.skus.filter((sku) => sku.status !== 'retired').map((sku) => ({
       id: sku.id, name: sku.name, image: mediaValueToImage(sku.image), stock: sku.stock,
       basePrice: round2(sku.retailPrice - sku.level1Amount - sku.level2Amount),
-      level1Commission: sku.level1Amount, level2Commission: sku.level2Amount
+      level1Commission: sku.level1Amount, level2Commission: sku.level2Amount,
+      minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)
     }))
   }
 }
@@ -2791,7 +4042,7 @@ export function migrateLegacyCatalog(storeProducts: Product[], liveProducts: CPr
     skus: (product.skus.length ? product.skus : [{ id: `${product.id}-DEFAULT`, name: product.spec || '默认规格', price: product.price, cost: product.cost, stock: product.stock }]).map((sku) => ({
       id: sku.id, name: sku.name, image: sku.image || product.image,
       retailPrice: round2(sku.price), cost: round2(sku.cost), stock: Math.max(0, Math.floor(sku.stock)),
-      status: 'active',
+      status: 'active', minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity),
       ...legacyDistributionAmounts(sku.price, sku.level1Amount ?? defaults.level1Amount, sku.level2Amount ?? defaults.level2Amount)
     }))
   }))
@@ -2808,7 +4059,7 @@ export function migrateLegacyCatalog(storeProducts: Product[], liveProducts: CPr
       id: sku.id, name: sku.name, image: sku.image || product.image,
       retailPrice: round2(sku.basePrice + sku.level1Commission + sku.level2Commission),
       cost: round2(sku.basePrice), stock: Math.max(0, Math.floor(sku.stock)),
-      status: 'active',
+      status: 'active', minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity),
       level1Amount: round2(sku.level1Commission), level2Amount: round2(sku.level2Commission)
     }))
   }))
@@ -2818,12 +4069,13 @@ export function migrateLegacyCatalog(storeProducts: Product[], liveProducts: CPr
 function normalizeCatalogState(value: unknown): CatalogState | null {
   const state = value as Partial<CatalogState> | null
   if (!state || (state.schemaVersion !== 1 && state.schemaVersion !== CATALOG_SCHEMA_VERSION) || !Number.isInteger(state.revision) || Number(state.revision) < 0 || !Array.isArray(state.products)) return null
+  if (state.products.some((product) => !product || !Array.isArray(product.skus))) return null
   return {
     schemaVersion: CATALOG_SCHEMA_VERSION,
     revision: Number(state.revision),
     products: cloneSeed(state.products).map((product) => ({
       ...product,
-      skus: product.skus.map((sku) => ({ ...sku, status: sku.status === 'retired' ? 'retired' : 'active' }))
+      skus: product.skus.map(normalizeCatalogSku)
     })),
     appliedOperations: state.appliedOperations && typeof state.appliedOperations === 'object' ? cloneSeed(state.appliedOperations) : {}
   }
@@ -2879,19 +4131,693 @@ export function writeCatalogState(state: CatalogState, expectedRevision?: number
 
 export function saveCatalogProduct(product: CatalogProduct, expectedRevision: number): CatalogState | null {
   const current = readCatalogState()
-  if (!current || current.revision !== expectedRevision || !catalogProductIsValid(product)) return null
+  if (!current || current.revision !== expectedRevision) return null
   const normalized: CatalogProduct = {
     ...product,
     image: normalizeMediaReference(product.image) || product.image,
     images: (product.images || []).map((img) => normalizeMediaReference(img) || img),
-    skus: product.skus.map((sku) => ({ ...sku, image: normalizeMediaReference(sku.image) || sku.image }))
+    skus: product.skus.map((sku) => normalizeCatalogSku({ ...sku, image: normalizeMediaReference(sku.image) || sku.image }))
+  }
+  if (!catalogProductIsValid(normalized)) return null
+  const returned: CatalogProduct = {
+    ...normalized,
+    skus: normalized.skus.map((sku, index) => {
+      const result = { ...sku }
+      if (product.skus[index].minimumOrderQuantity === undefined) delete result.minimumOrderQuantity
+      if (product.skus[index].status === undefined) delete result.status
+      return result
+    })
   }
   const next = cloneSeed(current)
   const index = next.products.findIndex((item) => item.id === product.id)
-  if (index >= 0) next.products[index] = cloneSeed(normalized)
-  else next.products.unshift(cloneSeed(normalized))
+  if (index >= 0) next.products[index] = cloneSeed(returned)
+  else next.products.unshift(cloneSeed(returned))
   next.revision += 1
   return writeCatalogState(next, expectedRevision) ? next : null
+}
+
+function validIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
+}
+
+function writeFailure(code: string, message: string): WriteResult<never> {
+  return { ok: false, code, message }
+}
+
+function normalizeSubmittedProduct(value: unknown): CatalogProduct | null {
+  const normalized = normalizeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [value] })
+  const product = normalized?.products[0]
+  return product && catalogProductIsValid(product) ? product : null
+}
+
+function canonicalFingerprintValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalFingerprintValue)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.keys(value as Record<string, unknown>).sort().flatMap((key) => {
+    const nested = (value as Record<string, unknown>)[key]
+    return nested === undefined ? [] : [[key, canonicalFingerprintValue(nested)]]
+  }))
+}
+
+function catalogProductFingerprint(product: CatalogProduct): string {
+  return JSON.stringify(canonicalFingerprintValue(product))
+}
+
+function normalizeCatalogProductSubmissionState(value: unknown): CatalogProductSubmissionState | null {
+  const state = value as Partial<CatalogProductSubmissionState> | null
+  if (!state || state.schemaVersion !== CATALOG_PRODUCT_SUBMISSION_SCHEMA_VERSION || !Number.isInteger(state.revision) || Number(state.revision) < 0 || !Array.isArray(state.submissions) || !validIsoTimestamp(state.updatedAt)) return null
+  const submissions: CatalogProductSubmission[] = []
+  const ids = new Set<string>()
+  const pendingProductIds = new Set<string>()
+  for (const candidate of state.submissions) {
+    if (!candidate || !candidate.id?.trim() || ids.has(candidate.id) || !candidate.productId?.trim() || (candidate.source !== 'supplier' && candidate.source !== 'admin') || (candidate.source === 'supplier' && !candidate.supplierId?.trim()) || (candidate.kind !== 'create' && candidate.kind !== 'update') || (candidate.status !== 'pending' && candidate.status !== 'approved' && candidate.status !== 'rejected') || !Number.isInteger(candidate.baseCatalogRevision) || candidate.baseCatalogRevision < 0 || (candidate.baseProductFingerprint !== undefined && !candidate.baseProductFingerprint.trim()) || !candidate.submittedBy?.trim() || !validIsoTimestamp(candidate.submittedAt)) return null
+    const draft = normalizeSubmittedProduct(candidate.draft)
+    if (!draft || draft.id !== candidate.productId || (candidate.source === 'supplier' && draft.supplierId !== candidate.supplierId)) return null
+    if (candidate.status === 'pending') {
+      if (pendingProductIds.has(candidate.productId)) return null
+      pendingProductIds.add(candidate.productId)
+    } else if (!candidate.reviewedBy?.trim() || !validIsoTimestamp(candidate.reviewedAt)) return null
+    ids.add(candidate.id)
+    submissions.push({
+      ...cloneSeed(candidate), draft,
+      reviewNote: candidate.reviewNote?.trim() || undefined
+    })
+  }
+  return { schemaVersion: CATALOG_PRODUCT_SUBMISSION_SCHEMA_VERSION, revision: Number(state.revision), submissions, updatedAt: state.updatedAt }
+}
+
+export function readCatalogProductSubmissionState(): CatalogProductSubmissionState | null {
+  const normalized = normalizeCatalogProductSubmissionState(readPlatformJson<unknown>(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY))
+  return normalized ? cloneSeed(normalized) : null
+}
+
+export function readCatalogProductSubmissions(): CatalogProductSubmission[] {
+  return readCatalogProductSubmissionState()?.submissions ?? []
+}
+
+export function writeCatalogProductSubmissionState(next: CatalogProductSubmissionState, expectedRevision: number): boolean {
+  const raw = readPlatformJson<unknown>(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY)
+  const current = normalizeCatalogProductSubmissionState(raw)
+  if ((raw !== null && !current) || !Number.isInteger(expectedRevision) || (current?.revision ?? 0) !== expectedRevision || next.revision !== expectedRevision + 1) return false
+  const normalized = normalizeCatalogProductSubmissionState(next)
+  if (!normalized) return false
+  if (current && Date.parse(normalized.updatedAt) <= Date.parse(current.updatedAt)) return false
+  return writePlatformJson(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, cloneSeed(normalized))
+}
+
+export interface CatalogProductAuditInput {
+  module: string
+  action: string
+  actorId: string
+  actorName?: string
+  actorRole?: string
+  targetType?: string
+  targetId?: string
+  metadata?: unknown
+}
+
+type CatalogProductAuditTransaction = {
+  revision: number
+  original: PlatformAuditLogEntry[]
+  target: PlatformAuditLogEntry[]
+}
+
+function createCatalogProductAuditTransaction(audit: CatalogProductAuditInput | undefined, operationId: string): CatalogProductAuditTransaction | null {
+  if (!audit) return null
+  const entry = createPlatformAuditLogEntry({ ...audit, result: 'success', operationId })
+  if (!entry) return null
+  const original = readPlatformAuditLogs()
+  return { revision: readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY), original, target: [entry, ...original].slice(0, 1000) }
+}
+
+function catalogProductTransactionFailure(transaction: { code?: string; operationId?: string; failedStep?: string; recoveryQueued?: boolean; fatal?: boolean }, message: string): WriteResult<never> {
+  if (transaction.code === 'revision_conflict') return { ...transaction, ok: false, code: 'revision_conflict', message }
+  return {
+    ok: false,
+    code: transaction.recoveryQueued ? 'recovery_queued' : transaction.fatal ? 'recovery_failed' : transaction.failedStep === 'audit' ? 'audit_failed' : 'write_failed',
+    message,
+    operationId: transaction.operationId,
+    failedStep: transaction.failedStep,
+    recoveryQueued: transaction.recoveryQueued ?? false,
+    fatal: transaction.fatal ?? false
+  }
+}
+
+export async function createCatalogProductSubmission(
+  input: Omit<CatalogProductSubmission, 'productId' | 'status' | 'baseProductFingerprint' | 'reviewedBy' | 'reviewedAt' | 'reviewNote'>,
+  expectedRevision: number,
+  audit?: CatalogProductAuditInput
+): Promise<WriteResult<CatalogProductSubmission>> {
+  const initialRevisions = {
+    catalog: readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY),
+    submissions: readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY),
+    audit: readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY)
+  }
+  const raw = readPlatformJson<unknown>(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY)
+  const current = normalizeCatalogProductSubmissionState(raw)
+  if (raw !== null && !current) return writeFailure('invalid_payload', '商品提交集合损坏')
+  if ((current?.revision ?? 0) !== expectedRevision) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  if (!input?.id?.trim() || (input.source !== 'supplier' && input.source !== 'admin') || (input.source === 'supplier' && !input.supplierId?.trim()) || (input.kind !== 'create' && input.kind !== 'update') || !Number.isInteger(input.baseCatalogRevision) || input.baseCatalogRevision < 0 || !input.submittedBy?.trim() || !validIsoTimestamp(input.submittedAt)) return writeFailure('invalid_payload', '商品提交无效')
+  const product = normalizeSubmittedProduct(input.draft)
+  if (!product || (input.source === 'supplier' && product.supplierId !== input.supplierId)) return writeFailure('invalid_payload', '商品提交无效')
+  const catalog = readCatalogState()
+  if (!catalog || catalog.revision !== input.baseCatalogRevision) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const formalProduct = catalog?.products.find((item) => item.id === product.id)
+  if ((input.kind === 'create' && formalProduct) || (input.kind === 'update' && !formalProduct)) return writeFailure('invalid_submission_type', '提交类型与正式目录不匹配')
+  if (input.source === 'supplier' && input.kind === 'update' && formalProduct?.supplierId !== input.supplierId) return writeFailure('supplier_mismatch', '不能修改其他供应商的商品')
+  const submissions = cloneSeed(current?.submissions ?? [])
+  if (submissions.some((item) => item.id === input.id)) return writeFailure('duplicate_id', '提交编号已存在')
+  if (submissions.some((item) => item.productId === product.id && item.status === 'pending')) return writeFailure('duplicate_pending', '该商品已有待审核提交')
+  const submission: CatalogProductSubmission = {
+    id: input.id,
+    productId: product.id,
+    source: input.source,
+    supplierId: input.supplierId,
+    kind: input.kind,
+    status: 'pending',
+    draft: product,
+    baseCatalogRevision: input.baseCatalogRevision,
+    baseProductFingerprint: input.kind === 'update' && formalProduct ? catalogProductFingerprint(formalProduct) : undefined,
+    submittedBy: input.submittedBy,
+    submittedAt: input.submittedAt
+  }
+  const next: CatalogProductSubmissionState = { schemaVersion: CATALOG_PRODUCT_SUBMISSION_SCHEMA_VERSION, revision: expectedRevision + 1, submissions: [...submissions, submission], updatedAt: input.submittedAt }
+  const operationId = createId('OP-CATALOG-PRODUCT-SUBMISSION')
+  const auditTransaction = createCatalogProductAuditTransaction(audit, operationId)
+  if (audit && !auditTransaction) return writeFailure('invalid_payload', '商品提交审计信息无效')
+  if (initialRevisions.catalog !== readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY)
+    || initialRevisions.submissions !== readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY)
+    || (audit && initialRevisions.audit !== readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY))) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const originalState: CatalogProductSubmissionState = current ?? {
+    schemaVersion: CATALOG_PRODUCT_SUBMISSION_SCHEMA_VERSION,
+    revision: 0,
+    submissions: [],
+    updatedAt: new Date(0).toISOString()
+  }
+  const originalSnapshot: CatalogProductReviewRecoverySnapshot = { catalog, submissions: originalState, auditLogs: auditTransaction?.original }
+  const targetSnapshot: CatalogProductReviewRecoverySnapshot = { catalog, submissions: next, auditLogs: auditTransaction?.target }
+  const transaction = await runLockedPlatformTransaction({
+    operationId,
+    collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, ...(auditTransaction ? [PLATFORM_AUDIT_LOG_STORAGE_KEY] : [])],
+    original: originalSnapshot,
+    target: targetSnapshot,
+    recoveryHandlerKey: CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY,
+    recoverySchema: CATALOG_PRODUCT_REVIEW_RECOVERY_SCHEMA,
+    revisionChecks: [
+      { key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: initialRevisions.catalog },
+      { key: PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, expectedRevision: initialRevisions.submissions },
+      ...(auditTransaction ? [{ key: PLATFORM_AUDIT_LOG_STORAGE_KEY, expectedRevision: initialRevisions.audit }] : [])
+    ],
+    value: submission,
+    steps: [
+      {
+        key: 'product-submission',
+        apply: () => writeCatalogProductSubmissionState(next, expectedRevision),
+        rollback: () => rollbackCatalogProductReviewCollection({
+          read: readCatalogProductSubmissionState,
+          original: originalState,
+          target: next,
+          writeOriginal: (original) => writePlatformJson(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, cloneSeed(original))
+        })
+      },
+      ...(auditTransaction ? [{
+        key: 'audit',
+        apply: () => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, auditTransaction.target, auditTransaction.revision),
+        rollback: () => rollbackCatalogProductReviewCollection({
+          read: readPlatformAuditLogs,
+          original: auditTransaction.original,
+          target: auditTransaction.target,
+          writeOriginal: (original) => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, cloneSeed(original))
+        })
+      }] : [])
+    ]
+  })
+  return transaction.ok
+    ? { ok: true, value: cloneSeed(submission), operationId }
+    : catalogProductTransactionFailure(transaction, transaction.failedStep === 'audit' ? '商品提交日志失败，请重试' : '商品提交保存失败')
+}
+
+export const CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY: PlatformProductionRecoveryHandlerKey = 'catalog-product-review-v1'
+export const CATALOG_PRODUCT_REVIEW_RECOVERY_SCHEMA = 'catalog-product-review-snapshot-v1'
+
+interface CatalogProductReviewRecoverySnapshot {
+  catalog: CatalogState
+  submissions: CatalogProductSubmissionState
+  auditLogs?: PlatformAuditLogEntry[]
+}
+
+function normalizeCatalogProductReviewRecoverySnapshot(value: unknown): CatalogProductReviewRecoverySnapshot | null {
+  const snapshot = value as Partial<CatalogProductReviewRecoverySnapshot> | null
+  const catalog = normalizeCatalogState(snapshot?.catalog)
+  const submissions = normalizeCatalogProductSubmissionState(snapshot?.submissions)
+  const auditLogs = snapshot?.auditLogs
+  if (!catalog || !submissions || (auditLogs !== undefined && !Array.isArray(auditLogs))) return null
+  return { catalog, submissions, auditLogs: auditLogs === undefined ? undefined : cloneSeed(auditLogs) }
+}
+
+export function createCatalogProductReviewRecoveryHandlerRegistration(): PlatformRecoveryHandlerRegistration {
+  return createStrictSnapshotRecoveryHandlerRegistration<CatalogProductReviewRecoverySnapshot, { catalogRevision: number; submissionRevision: number; auditRevision: number }>({
+    key: CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY,
+    fields: ['catalog', 'submissions', 'auditLogs'],
+    validateJournal: (journal) => journal.recoverySchema === CATALOG_PRODUCT_REVIEW_RECOVERY_SCHEMA
+      && journal.collections.includes(PLATFORM_CATALOG_STORAGE_KEY)
+      && journal.collections.includes(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY)
+      && !!normalizeCatalogProductReviewRecoverySnapshot(journal.original)
+      && !!normalizeCatalogProductReviewRecoverySnapshot(journal.target)
+      && (((journal.original as CatalogProductReviewRecoverySnapshot).auditLogs === undefined && (journal.target as CatalogProductReviewRecoverySnapshot).auditLogs === undefined)
+        || (journal.collections.includes(PLATFORM_AUDIT_LOG_STORAGE_KEY)
+          && Array.isArray((journal.original as CatalogProductReviewRecoverySnapshot).auditLogs)
+          && Array.isArray((journal.target as CatalogProductReviewRecoverySnapshot).auditLogs))),
+    readStable: (journal) => {
+      const before = {
+        catalogRevision: readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY),
+        submissionRevision: readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY),
+        auditRevision: readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY)
+      }
+      const catalog = readCatalogState()
+      const submissions = readCatalogProductSubmissionState()
+      const after = {
+        catalogRevision: readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY),
+        submissionRevision: readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY),
+        auditRevision: readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY)
+      }
+      if (!catalog || !submissions || before.catalogRevision !== after.catalogRevision || before.submissionRevision !== after.submissionRevision || before.auditRevision !== after.auditRevision) return null
+      const usesAudit = Array.isArray((journal.original as CatalogProductReviewRecoverySnapshot).auditLogs) || Array.isArray((journal.target as CatalogProductReviewRecoverySnapshot).auditLogs)
+      return { snapshot: usesAudit ? { catalog, submissions, auditLogs: readPlatformAuditLogs() } : { catalog, submissions }, token: after }
+    },
+    isStillStable: (token) => readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY) === token.catalogRevision
+      && readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY) === token.submissionRevision
+      && readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY) === token.auditRevision,
+    writeSnapshot: (snapshot, rollback) => {
+      if (!writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, cloneSeed(snapshot.catalog))) return false
+      if (!writePlatformJson(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, cloneSeed(snapshot.submissions))) {
+        writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, cloneSeed(rollback.catalog))
+        return false
+      }
+      if (snapshot.auditLogs === undefined || writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, cloneSeed(snapshot.auditLogs))) return true
+      writePlatformJson(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, cloneSeed(rollback.submissions))
+      writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, cloneSeed(rollback.catalog))
+      return false
+    }
+  })
+}
+
+export interface CatalogProductSubmissionReviewInput {
+  submissionId: string
+  reviewedBy: string
+  reviewedAt: string
+  note?: string
+  expectedSubmissionRevision: number
+  expectedCatalogRevision?: number
+  audit?: CatalogProductAuditInput
+}
+
+function rollbackCatalogProductReviewCollection<T>(input: {
+  read: () => T | null
+  original: T
+  target: T
+  writeOriginal: (original: T) => boolean
+}): boolean {
+  const current = input.read()
+  const same = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right)
+  if (same(current, input.original)) return true
+  if (!same(current, input.target)) return false
+  return input.writeOriginal(input.original)
+}
+
+export async function approveCatalogProductSubmission(input: CatalogProductSubmissionReviewInput): Promise<WriteResult<CatalogProductSubmission>> {
+  const initialRevisions = {
+    catalog: readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY),
+    submissions: readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY),
+    audit: readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY)
+  }
+  const state = readCatalogProductSubmissionState()
+  const catalog = readCatalogState()
+  if (!state || !catalog || state.revision !== input.expectedSubmissionRevision || catalog.revision !== input.expectedCatalogRevision) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  if (!input.submissionId?.trim() || !input.reviewedBy?.trim() || !validIsoTimestamp(input.reviewedAt) || Date.parse(input.reviewedAt) <= Date.parse(state.updatedAt)) return writeFailure('invalid_payload', '审核信息无效')
+  const index = state.submissions.findIndex((item) => item.id === input.submissionId)
+  const submission = state.submissions[index]
+  if (!submission) return writeFailure('not_found', '商品提交不存在')
+  if (submission.status !== 'pending') return writeFailure('invalid_status', '商品提交已审核')
+  const formalIndex = catalog.products.findIndex((item) => item.id === submission.productId)
+  const targetConflict = submission.kind === 'create'
+    ? formalIndex >= 0
+    : formalIndex < 0 || (submission.baseProductFingerprint
+      ? catalogProductFingerprint(catalog.products[formalIndex]) !== submission.baseProductFingerprint
+      : submission.baseCatalogRevision !== catalog.revision)
+  if (targetConflict) return writeFailure('catalog_conflict', '正式目录状态与提交不匹配')
+  if (submission.kind === 'update' && catalog.products[formalIndex].status !== 'active' && catalog.products[formalIndex].status !== 'offline') return writeFailure('catalog_conflict', '正式商品状态无法保留')
+
+  const approvedProduct: CatalogProduct = submission.kind === 'create'
+    ? { ...cloneSeed(submission.draft), status: 'offline' }
+    : { ...cloneSeed(submission.draft), status: catalog.products[formalIndex].status }
+  const nextCatalog = cloneSeed(catalog)
+  if (formalIndex >= 0) nextCatalog.products[formalIndex] = approvedProduct
+  else nextCatalog.products.unshift(approvedProduct)
+  nextCatalog.revision += 1
+  const reviewed: CatalogProductSubmission = { ...submission, status: 'approved', reviewedBy: input.reviewedBy, reviewedAt: input.reviewedAt, reviewNote: input.note?.trim() || undefined }
+  const nextState = cloneSeed(state)
+  nextState.submissions[index] = reviewed
+  nextState.revision += 1
+  nextState.updatedAt = input.reviewedAt
+  const operationId = createId('OP-CATALOG-PRODUCT-REVIEW')
+  const auditTransaction = createCatalogProductAuditTransaction(input.audit, operationId)
+  if (input.audit && !auditTransaction) return writeFailure('invalid_payload', '商品审核审计信息无效')
+  if (initialRevisions.catalog !== readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY)
+    || initialRevisions.submissions !== readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY)
+    || (auditTransaction && initialRevisions.audit !== readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY))) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const originalSnapshot: CatalogProductReviewRecoverySnapshot = { catalog, submissions: state, auditLogs: auditTransaction?.original }
+  const targetSnapshot: CatalogProductReviewRecoverySnapshot = { catalog: nextCatalog, submissions: nextState, auditLogs: auditTransaction?.target }
+  const transaction = await runLockedPlatformTransaction({
+    operationId,
+    collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, ...(auditTransaction ? [PLATFORM_AUDIT_LOG_STORAGE_KEY] : [])],
+    original: originalSnapshot,
+    target: targetSnapshot,
+    recoveryHandlerKey: CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY,
+    recoverySchema: CATALOG_PRODUCT_REVIEW_RECOVERY_SCHEMA,
+    revisionChecks: [
+      { key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: initialRevisions.catalog },
+      { key: PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, expectedRevision: initialRevisions.submissions },
+      ...(auditTransaction ? [{ key: PLATFORM_AUDIT_LOG_STORAGE_KEY, expectedRevision: initialRevisions.audit }] : [])
+    ],
+    value: reviewed,
+    steps: [
+      {
+        key: 'catalog-review',
+        apply: () => writeCatalogState(nextCatalog, input.expectedCatalogRevision),
+        rollback: () => rollbackCatalogProductReviewCollection({
+          read: readCatalogState,
+          original: catalog,
+          target: nextCatalog,
+          writeOriginal: (original) => writePlatformJson(PLATFORM_CATALOG_STORAGE_KEY, cloneSeed(original))
+        })
+      },
+      {
+        key: 'product-submission-review',
+        apply: () => writeCatalogProductSubmissionState(nextState, input.expectedSubmissionRevision),
+        rollback: () => rollbackCatalogProductReviewCollection({
+          read: readCatalogProductSubmissionState,
+          original: state,
+          target: nextState,
+          writeOriginal: (original) => writePlatformJson(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, cloneSeed(original))
+        })
+      },
+      ...(auditTransaction ? [{
+        key: 'audit',
+        apply: () => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, auditTransaction.target, auditTransaction.revision),
+        rollback: () => rollbackCatalogProductReviewCollection({
+          read: readPlatformAuditLogs,
+          original: auditTransaction.original,
+          target: auditTransaction.target,
+          writeOriginal: (original) => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, cloneSeed(original))
+        })
+      }] : [])
+    ]
+  })
+  if (!transaction.ok) return catalogProductTransactionFailure(transaction, transaction.recoveryQueued ? '审核写入不完整，已加入恢复队列' : transaction.failedStep === 'audit' ? '商品审核日志失败，请重试' : '审核保存失败')
+  return { ok: true, value: cloneSeed(reviewed), operationId }
+}
+
+export async function rejectCatalogProductSubmission(input: CatalogProductSubmissionReviewInput): Promise<WriteResult<CatalogProductSubmission>> {
+  const initialRevisions = {
+    catalog: readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY),
+    submissions: readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY),
+    audit: readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY)
+  }
+  const state = readCatalogProductSubmissionState()
+  const catalog = readCatalogState()
+  if (!state || !catalog || state.revision !== input.expectedSubmissionRevision) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const reviewNote = input.note?.trim()
+  if (!input.submissionId?.trim() || !input.reviewedBy?.trim() || !reviewNote || !validIsoTimestamp(input.reviewedAt) || Date.parse(input.reviewedAt) <= Date.parse(state.updatedAt)) return writeFailure('invalid_payload', '审核信息无效')
+  const index = state.submissions.findIndex((item) => item.id === input.submissionId)
+  const submission = state.submissions[index]
+  if (!submission) return writeFailure('not_found', '商品提交不存在')
+  if (submission.status !== 'pending') return writeFailure('invalid_status', '商品提交已审核')
+  const reviewed: CatalogProductSubmission = { ...submission, status: 'rejected', reviewedBy: input.reviewedBy, reviewedAt: input.reviewedAt, reviewNote }
+  const next = cloneSeed(state)
+  next.submissions[index] = reviewed
+  next.revision += 1
+  next.updatedAt = input.reviewedAt
+  const operationId = createId('OP-CATALOG-PRODUCT-REJECT')
+  const auditTransaction = createCatalogProductAuditTransaction(input.audit, operationId)
+  if (input.audit && !auditTransaction) return writeFailure('invalid_payload', '商品审核审计信息无效')
+  if (initialRevisions.catalog !== readPlatformCollectionRevision(PLATFORM_CATALOG_STORAGE_KEY)
+    || initialRevisions.submissions !== readPlatformCollectionRevision(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY)
+    || (auditTransaction && initialRevisions.audit !== readPlatformCollectionRevision(PLATFORM_AUDIT_LOG_STORAGE_KEY))) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const transaction = await runLockedPlatformTransaction({
+    operationId,
+    collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, ...(auditTransaction ? [PLATFORM_AUDIT_LOG_STORAGE_KEY] : [])],
+    original: { catalog, submissions: state, auditLogs: auditTransaction?.original } satisfies CatalogProductReviewRecoverySnapshot,
+    target: { catalog, submissions: next, auditLogs: auditTransaction?.target } satisfies CatalogProductReviewRecoverySnapshot,
+    recoveryHandlerKey: CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY,
+    recoverySchema: CATALOG_PRODUCT_REVIEW_RECOVERY_SCHEMA,
+    revisionChecks: [
+      { key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: initialRevisions.catalog },
+      { key: PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, expectedRevision: initialRevisions.submissions },
+      ...(auditTransaction ? [{ key: PLATFORM_AUDIT_LOG_STORAGE_KEY, expectedRevision: initialRevisions.audit }] : [])
+    ],
+    value: reviewed,
+    steps: [
+      {
+        key: 'product-submission-review',
+        apply: () => writeCatalogProductSubmissionState(next, input.expectedSubmissionRevision),
+        rollback: () => rollbackCatalogProductReviewCollection({
+          read: readCatalogProductSubmissionState,
+          original: state,
+          target: next,
+          writeOriginal: (original) => writePlatformJson(PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, cloneSeed(original))
+        })
+      },
+      ...(auditTransaction ? [{
+        key: 'audit',
+        apply: () => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, auditTransaction.target, auditTransaction.revision),
+        rollback: () => rollbackCatalogProductReviewCollection({
+          read: readPlatformAuditLogs,
+          original: auditTransaction.original,
+          target: auditTransaction.target,
+          writeOriginal: (original) => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, cloneSeed(original))
+        })
+      }] : [])
+    ]
+  })
+  return transaction.ok
+    ? { ok: true, value: cloneSeed(reviewed), operationId }
+    : catalogProductTransactionFailure(transaction, transaction.failedStep === 'audit' ? '商品审核日志失败，请重试' : '审核状态保存失败')
+}
+
+function normalizeDriverStoreScopeState(value: unknown): DriverStoreScopeState | null {
+  const state = value as Partial<DriverStoreScopeState> | null
+  if (!state || state.schemaVersion !== DRIVER_STORE_SCOPE_SCHEMA_VERSION || !Number.isInteger(state.revision) || Number(state.revision) < 0 || !Array.isArray(state.scopes) || !validIsoTimestamp(state.updatedAt)) return null
+  const scopeKeys = new Set<string>()
+  const scopes: DriverStoreScope[] = []
+  for (const scope of state.scopes) {
+    const key = `${scope?.supplierId}\u0000${scope?.driverId}`
+    if (!scope?.supplierId?.trim() || !scope.driverId?.trim() || scopeKeys.has(key) || !Array.isArray(scope.storeIds) || scope.storeIds.some((storeId) => typeof storeId !== 'string' || !storeId.trim()) || !validIsoTimestamp(scope.updatedAt)) return null
+    scopeKeys.add(key)
+    scopes.push({ supplierId: scope.supplierId, driverId: scope.driverId, storeIds: [...new Set(scope.storeIds)].sort((left, right) => left.localeCompare(right)), updatedAt: scope.updatedAt })
+  }
+  scopes.sort((left, right) => left.supplierId.localeCompare(right.supplierId) || left.driverId.localeCompare(right.driverId))
+  return { schemaVersion: DRIVER_STORE_SCOPE_SCHEMA_VERSION, revision: Number(state.revision), scopes, updatedAt: state.updatedAt }
+}
+
+export function readDriverStoreScopeState(): DriverStoreScopeState | null {
+  const state = normalizeDriverStoreScopeState(readPlatformJson<unknown>(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY))
+  return state ? cloneSeed(state) : null
+}
+
+export function readDriverStoreScopes(supplierId?: string, driverId?: string): DriverStoreScope[] {
+  return (readDriverStoreScopeState()?.scopes ?? []).filter((scope) => (!supplierId || scope.supplierId === supplierId) && (!driverId || scope.driverId === driverId))
+}
+
+export function writeDriverStoreScopeState(next: DriverStoreScopeState, expectedRevision: number): boolean {
+  const raw = readPlatformJson<unknown>(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY)
+  const current = normalizeDriverStoreScopeState(raw)
+  if ((raw !== null && !current) || !Number.isInteger(expectedRevision) || (current?.revision ?? 0) !== expectedRevision || next.revision !== expectedRevision + 1) return false
+  const normalized = normalizeDriverStoreScopeState(next)
+  if (!normalized || (current && Date.parse(normalized.updatedAt) <= Date.parse(current.updatedAt))) return false
+  return writePlatformJson(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, cloneSeed(normalized))
+}
+
+export function saveDriverStoreScope(scope: DriverStoreScope, expectedRevision: number): WriteResult<DriverStoreScope> {
+  const raw = readPlatformJson<unknown>(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY)
+  const current = normalizeDriverStoreScopeState(raw)
+  if (raw !== null && !current) return writeFailure('invalid_payload', '司机范围集合损坏')
+  if ((current?.revision ?? 0) !== expectedRevision) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const normalizedScope = normalizeDriverStoreScopeState({ schemaVersion: DRIVER_STORE_SCOPE_SCHEMA_VERSION, revision: 1, scopes: [scope], updatedAt: scope.updatedAt })?.scopes[0]
+  if (!normalizedScope) return writeFailure('invalid_payload', '司机范围无效')
+  const scopes = cloneSeed(current?.scopes ?? [])
+  const index = scopes.findIndex((item) => item.supplierId === normalizedScope.supplierId && item.driverId === normalizedScope.driverId)
+  if (index >= 0) scopes[index] = normalizedScope
+  else scopes.push(normalizedScope)
+  scopes.sort((left, right) => left.supplierId.localeCompare(right.supplierId) || left.driverId.localeCompare(right.driverId))
+  const next: DriverStoreScopeState = { schemaVersion: DRIVER_STORE_SCOPE_SCHEMA_VERSION, revision: expectedRevision + 1, scopes, updatedAt: scope.updatedAt }
+  return writeDriverStoreScopeState(next, expectedRevision) ? { ok: true, value: cloneSeed(normalizedScope) } : writeFailure('write_failed', '司机范围保存失败')
+}
+
+function coordinateIsValid(longitude: unknown, latitude: unknown): boolean {
+  return typeof longitude === 'number' && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180 && typeof latitude === 'number' && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+}
+
+function routeStopIsValid(stop: RouteStop): boolean {
+  if (!stop?.storeId?.trim() || !stop.storeName?.trim() || !stop.address?.trim() || !Array.isArray(stop.orderIds) || !stop.orderIds.length || stop.orderIds.some((id) => typeof id !== 'string' || !id.trim())) return false
+  const orderIds = new Set(stop.orderIds)
+  const completedOrderIds = stop.completedOrderIds || []
+  if (!Array.isArray(completedOrderIds) || new Set(completedOrderIds).size !== completedOrderIds.length || completedOrderIds.some((id) => typeof id !== 'string' || !orderIds.has(id)) || (stop.completedAt !== undefined && !validIsoTimestamp(stop.completedAt)) || (completedOrderIds.length === orderIds.size) !== !!stop.completedAt) return false
+  const hasLongitude = stop.longitude !== undefined
+  const hasLatitude = stop.latitude !== undefined
+  return hasLongitude === hasLatitude && (!hasLongitude || coordinateIsValid(stop.longitude, stop.latitude))
+}
+
+export function mergeDeliveryOrdersByStore(orders: readonly DeliveryRouteOrder[]): RouteStop[] {
+  if (!Array.isArray(orders)) return []
+  const grouped = new Map<string, RouteStop>()
+  for (const order of orders) {
+    if (!order?.orderId?.trim() || !order.storeId?.trim() || !order.storeName?.trim() || !order.address?.trim()) continue
+    const coordinatesValid = coordinateIsValid(order.longitude, order.latitude)
+    const current = grouped.get(order.storeId)
+    if (!current) {
+      grouped.set(order.storeId, {
+        storeId: order.storeId, storeName: order.storeName, address: order.address,
+        ...(coordinatesValid ? { longitude: order.longitude, latitude: order.latitude } : {}),
+        orderIds: [order.orderId]
+      })
+      continue
+    }
+    if (!current.orderIds.includes(order.orderId)) current.orderIds.push(order.orderId)
+    if (current.longitude === undefined && coordinatesValid) {
+      current.longitude = order.longitude
+      current.latitude = order.latitude
+    }
+  }
+  return [...grouped.values()].map((stop) => ({ ...stop, orderIds: [...stop.orderIds].sort((left, right) => left.localeCompare(right)) })).sort((left, right) => left.storeId.localeCompare(right.storeId))
+}
+
+function preciseHaversineKm(left: RouteOrigin, right: RouteOrigin): number {
+  const radiusKm = 6371
+  const toRadians = (degrees: number) => degrees * Math.PI / 180
+  const latitudeDelta = toRadians(right.latitude - left.latitude)
+  const longitudeDelta = toRadians(right.longitude - left.longitude)
+  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(toRadians(left.latitude)) * Math.cos(toRadians(right.latitude)) * Math.sin(longitudeDelta / 2) ** 2
+  return 2 * radiusKm * Math.asin(Math.sqrt(a))
+}
+
+function routePathDistance(origin: RouteOrigin, stops: readonly RouteStop[]): number {
+  let previous = origin
+  let total = 0
+  for (const stop of stops) {
+    total += preciseHaversineKm(previous, { longitude: stop.longitude!, latitude: stop.latitude! })
+    previous = { longitude: stop.longitude!, latitude: stop.latitude! }
+  }
+  return total
+}
+
+function nearestNeighborRoute(origin: RouteOrigin, stops: readonly RouteStop[]): RouteStop[] {
+  const remaining = stops.map((stop) => cloneSeed(stop))
+  const ordered: RouteStop[] = []
+  let current = origin
+  while (remaining.length) {
+    remaining.sort((left, right) => {
+      const delta = preciseHaversineKm(current, { longitude: left.longitude!, latitude: left.latitude! }) - preciseHaversineKm(current, { longitude: right.longitude!, latitude: right.latitude! })
+      return Math.abs(delta) > 1e-9 ? delta : left.storeId.localeCompare(right.storeId)
+    })
+    const next = remaining.shift()!
+    ordered.push(next)
+    current = { longitude: next.longitude!, latitude: next.latitude! }
+  }
+  return ordered
+}
+
+function improveRouteWithTwoOpt(origin: RouteOrigin, initial: readonly RouteStop[]): RouteStop[] {
+  let route = initial.map((stop) => cloneSeed(stop))
+  let improved = true
+  while (improved) {
+    improved = false
+    const baseline = routePathDistance(origin, route)
+    for (let start = 0; start < route.length - 1 && !improved; start += 1) {
+      for (let end = start + 1; end < route.length; end += 1) {
+        const candidate = [...route.slice(0, start), ...route.slice(start, end + 1).reverse(), ...route.slice(end + 1)]
+        if (routePathDistance(origin, candidate) < baseline - 1e-9) {
+          route = candidate
+          improved = true
+          break
+        }
+      }
+    }
+  }
+  return route
+}
+
+export function optimizeDeliveryRoute(input: RouteOptimizationInput): RouteOptimizationOutput | null {
+  if (!input || !coordinateIsValid(input.origin?.longitude, input.origin?.latitude) || !Array.isArray(input.stops) || input.stops.some((stop) => !routeStopIsValid(stop))) return null
+  const averageSpeedKmh = input.averageSpeedKmh ?? 30
+  const serviceMinutesPerStop = input.serviceMinutesPerStop ?? 5
+  if (!Number.isFinite(averageSpeedKmh) || averageSpeedKmh <= 0 || !Number.isFinite(serviceMinutesPerStop) || serviceMinutesPerStop < 0) return null
+  const located = input.stops.filter((stop) => stop.longitude !== undefined).map((stop) => cloneSeed(stop))
+  const missing = input.stops.filter((stop) => stop.longitude === undefined).map((stop) => cloneSeed(stop)).sort((left, right) => left.storeId.localeCompare(right.storeId))
+  const optimized = improveRouteWithTwoOpt(input.origin, nearestNeighborRoute(input.origin, located))
+  const segments: RouteSegment[] = []
+  let previous: RouteOrigin = input.origin
+  let fromId = 'origin'
+  for (const stop of optimized) {
+    const distanceKm = preciseHaversineKm(previous, { longitude: stop.longitude!, latitude: stop.latitude! })
+    segments.push({ fromId, toStoreId: stop.storeId, distanceKm: Math.round(distanceKm * 1000) / 1000 })
+    previous = { longitude: stop.longitude!, latitude: stop.latitude! }
+    fromId = stop.storeId
+  }
+  const totalDistanceKm = Math.round(segments.reduce((sum, segment) => sum + segment.distanceKm, 0) * 1000) / 1000
+  return {
+    orderedStops: [...optimized, ...missing], segments, totalDistanceKm,
+    estimatedDurationMinutes: Math.ceil(totalDistanceKm / averageSpeedKmh * 60 + serviceMinutesPerStop * input.stops.length),
+    provider: 'mock-route-optimization', warnings: missing.map((stop) => `missing_coordinates:${stop.storeId}`)
+  }
+}
+
+function normalizeDailyDeliveryRouteState(value: unknown): DailyDeliveryRouteState | null {
+  const state = value as Partial<DailyDeliveryRouteState> | null
+  if (!state || state.schemaVersion !== DAILY_DELIVERY_ROUTE_SCHEMA_VERSION || !Number.isInteger(state.revision) || Number(state.revision) < 0 || !Array.isArray(state.routes) || !validIsoTimestamp(state.updatedAt)) return null
+  const ids = new Set<string>()
+  const routes: DailyDeliveryRoute[] = []
+  for (const route of state.routes) {
+    if (!route?.id?.trim() || ids.has(route.id) || !route.supplierId?.trim() || !route.driverId?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(route.deliveryDate || '') || !['draft', 'published', 'stale', 'completed'].includes(route.status) || !Array.isArray(route.stops) || route.stops.some((stop) => !routeStopIsValid(stop)) || !Number.isFinite(route.totalDistanceKm) || route.totalDistanceKm < 0 || !Number.isFinite(route.estimatedDurationMinutes) || route.estimatedDurationMinutes < 0 || !Array.isArray(route.sourceOrderIds) || route.sourceOrderIds.some((orderId) => typeof orderId !== 'string' || !orderId.trim()) || !route.provider?.trim() || !validIsoTimestamp(route.generatedAt) || (route.publishedAt !== undefined && !validIsoTimestamp(route.publishedAt)) || (route.completedAt !== undefined && !validIsoTimestamp(route.completedAt)) || (route.status !== 'draft' && !route.publishedAt) || (route.status === 'completed') !== !!route.completedAt || (route.status === 'completed' && route.stops.some((stop) => !stop.completedAt))) return null
+    ids.add(route.id)
+    routes.push({ ...cloneSeed(route), sourceOrderIds: [...new Set(route.sourceOrderIds)].sort((left, right) => left.localeCompare(right)) })
+  }
+  return { schemaVersion: DAILY_DELIVERY_ROUTE_SCHEMA_VERSION, revision: Number(state.revision), routes, updatedAt: state.updatedAt }
+}
+
+export function readDailyDeliveryRouteState(): DailyDeliveryRouteState | null {
+  const state = normalizeDailyDeliveryRouteState(readPlatformJson<unknown>(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY))
+  return state ? cloneSeed(state) : null
+}
+
+export function readDailyDeliveryRoutes(supplierId?: string, driverId?: string): DailyDeliveryRoute[] {
+  const routes = readDailyDeliveryRouteState()?.routes ?? []
+  return routes.filter((route) => (!supplierId || route.supplierId === supplierId) && (!driverId || route.driverId === driverId))
+}
+
+export function writeDailyDeliveryRouteState(next: DailyDeliveryRouteState, expectedRevision: number): boolean {
+  const raw = readPlatformJson<unknown>(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+  const current = normalizeDailyDeliveryRouteState(raw)
+  if ((raw !== null && !current) || !Number.isInteger(expectedRevision) || (current?.revision ?? 0) !== expectedRevision || next.revision !== expectedRevision + 1) return false
+  const normalized = normalizeDailyDeliveryRouteState(next)
+  if (!normalized || (current && Date.parse(normalized.updatedAt) <= Date.parse(current.updatedAt))) return false
+  return writePlatformJson(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, cloneSeed(normalized))
+}
+
+export function saveDailyDeliveryRoute(route: DailyDeliveryRoute, expectedRevision: number): WriteResult<DailyDeliveryRoute> {
+  const raw = readPlatformJson<unknown>(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+  const current = normalizeDailyDeliveryRouteState(raw)
+  if (raw !== null && !current) return writeFailure('invalid_payload', '每日配送路线集合损坏')
+  if ((current?.revision ?? 0) !== expectedRevision) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const normalizedRoute = normalizeDailyDeliveryRouteState({ schemaVersion: DAILY_DELIVERY_ROUTE_SCHEMA_VERSION, revision: 1, routes: [route], updatedAt: route.generatedAt })?.routes[0]
+  if (!normalizedRoute) return writeFailure('invalid_payload', '每日配送路线无效')
+  const routes = cloneSeed(current?.routes ?? [])
+  const index = routes.findIndex((item) => item.id === normalizedRoute.id)
+  if (index >= 0) routes[index] = normalizedRoute
+  else routes.push(normalizedRoute)
+  routes.sort((left, right) => left.id.localeCompare(right.id))
+  const next: DailyDeliveryRouteState = { schemaVersion: DAILY_DELIVERY_ROUTE_SCHEMA_VERSION, revision: expectedRevision + 1, routes, updatedAt: route.generatedAt }
+  return writeDailyDeliveryRouteState(next, expectedRevision) ? { ok: true, value: cloneSeed(normalizedRoute) } : writeFailure('write_failed', '每日配送路线保存失败')
 }
 
 function sameStockChanges(left: CatalogStockChange[], right: CatalogStockChange[]): boolean {
@@ -3022,9 +4948,13 @@ export function prepareCatalogTransaction<T>(input: Omit<CatalogTransactionJourn
   const journal = readCatalogTransactionJournal()
   const existing = journal[input.id]
   if (existing) {
-    return existing.channel === input.channel && existing.action === input.action
+    const matches = existing.channel === input.channel && existing.action === input.action
       && JSON.stringify(existing.inventoryChanges) === JSON.stringify(input.inventoryChanges)
       && JSON.stringify(existing.payload) === JSON.stringify(input.payload)
+    if (!matches || existing.status !== 'aborted') return matches
+    existing.status = 'prepared'
+    existing.updatedAt = new Date().toISOString()
+    return writePlatformJson(PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, journal)
   }
   const now = new Date().toISOString()
   journal[input.id] = { ...cloneSeed(input), status: 'prepared', createdAt: now, updatedAt: now }
@@ -3038,7 +4968,7 @@ function setCatalogTransactionStatus(id: string, status: CatalogTransactionStatu
   if (entry.status === status) return true
   if (status === 'stock-applied' && entry.status !== 'prepared') return false
   if (status === 'committed' && entry.status !== 'stock-applied') return false
-  if (status === 'aborted' && entry.status !== 'prepared') return false
+  if (status === 'aborted' && entry.status !== 'prepared' && entry.status !== 'stock-applied') return false
   entry.status = status
   entry.updatedAt = new Date().toISOString()
   return writePlatformJson(PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, journal)
@@ -3054,6 +4984,16 @@ export function commitCatalogTransaction(id: string): boolean {
 
 export function abortCatalogTransaction(id: string): boolean {
   return setCatalogTransactionStatus(id, 'aborted')
+}
+
+export function resolveCatalogTransactionForRecovery(id: string, status: 'committed' | 'aborted'): boolean {
+  const journal = readCatalogTransactionJournal()
+  const entry = journal[id]
+  if (!entry) return false
+  if (entry.status === status) return true
+  entry.status = status
+  entry.updatedAt = new Date().toISOString()
+  return writePlatformJson(PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, journal)
 }
 
 export interface CDistributorProfile {
@@ -3082,6 +5022,7 @@ export interface COrderItem {
   skuName: string
   image: string
   quantity: number
+  minimumOrderQuantity?: number
   unitPrice: number
   basePrice: number
   level1Commission: number
@@ -3135,6 +5076,7 @@ export interface COrder {
   status: COrderStatus
   createdAt: string
   paidAt?: string
+  providerTransactionId?: string
   remark?: string
   inventoryReleased?: boolean
 }
@@ -3178,7 +5120,123 @@ export const PLATFORM_C_COMMISSIONS_STORAGE_KEY = 'agritainment-platform-c-commi
 export const PLATFORM_C_USER_SESSIONS_STORAGE_KEY = 'agritainment-platform-c-user-sessions'
 export const PLATFORM_C_SCHEMA_VERSION_STORAGE_KEY = 'agritainment-platform-c-schema-version'
 export const PLATFORM_C_INVALID_RECORDS_STORAGE_KEY = 'agritainment-platform-c-invalid-records'
+export const PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY = 'agritainment-platform-payment-attempts'
 export const C_COMMERCE_SCHEMA_VERSION = 1
+
+export type PaymentAttemptStatus = 'created' | 'unknown' | 'failed' | 'confirmed' | 'synchronized'
+export interface PaymentAttempt {
+  operationId: string
+  orderId: string
+  userId: string
+  amount: number
+  status: PaymentAttemptStatus
+  providerTransactionId?: string
+  failureReason?: string
+  createdAt: string
+  updatedAt: string
+}
+
+function validPaymentAttempt(value: unknown): value is PaymentAttempt {
+  const attempt = value as PaymentAttempt | null
+  return !!attempt
+    && typeof attempt.operationId === 'string' && !!attempt.operationId.trim()
+    && typeof attempt.orderId === 'string' && !!attempt.orderId.trim()
+    && typeof attempt.userId === 'string' && !!attempt.userId.trim()
+    && Number.isFinite(attempt.amount) && attempt.amount > 0
+    && ['created', 'unknown', 'failed', 'confirmed', 'synchronized'].includes(attempt.status)
+    && (!['confirmed', 'synchronized'].includes(attempt.status) || !!attempt.providerTransactionId?.trim())
+    && (attempt.status !== 'failed' || !!attempt.failureReason?.trim())
+    && (!['created', 'unknown'].includes(attempt.status) || (!attempt.providerTransactionId && !attempt.failureReason))
+    && (attempt.status !== 'failed' || !attempt.providerTransactionId)
+    && (!['confirmed', 'synchronized'].includes(attempt.status) || !attempt.failureReason)
+    && Number.isFinite(Date.parse(attempt.createdAt))
+    && Number.isFinite(Date.parse(attempt.updatedAt))
+    && Date.parse(attempt.updatedAt) >= Date.parse(attempt.createdAt)
+}
+
+export function readPaymentAttempts(): Record<string, PaymentAttempt> {
+  const saved = readPlatformJson<Record<string, PaymentAttempt>>(PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY)
+  if (!saved || typeof saved !== 'object') return {}
+  return Object.fromEntries(Object.entries(saved).filter(([operationId, attempt]) => operationId === attempt?.operationId && validPaymentAttempt(attempt)))
+}
+
+function writePaymentAttempt(attempt: PaymentAttempt): boolean {
+  if (!validPaymentAttempt(attempt)) return false
+  return writePlatformJson(PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, { ...readPaymentAttempts(), [attempt.operationId]: cloneSeed(attempt) })
+}
+
+export interface BeginPaymentAttemptInput {
+  orderId: string
+  userId: string
+  amount: number
+}
+
+export type BeginPaymentAttemptResult =
+  | { ok: true; attempt: PaymentAttempt }
+  | { ok: false; code: 'invalid' | 'ownership_conflict' | 'write_failed'; message: string }
+
+function latestPaymentAttempt(attempts: PaymentAttempt[]): PaymentAttempt | undefined {
+  return [...attempts].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)
+    || Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+    || right.operationId.localeCompare(left.operationId))[0]
+}
+
+export async function beginPaymentAttempt(input: BeginPaymentAttemptInput): Promise<BeginPaymentAttemptResult> {
+  if (!input.orderId?.trim() || !input.userId?.trim() || !Number.isFinite(input.amount) || input.amount <= 0) {
+    return { ok: false, code: 'invalid', message: '支付记录参数无效' }
+  }
+  const result = await runLockedPlatformCollectionTask<BeginPaymentAttemptResult>({
+    collections: [PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY],
+    execute: () => {
+      const attempts = readPaymentAttempts()
+      const orderAttempts = Object.values(attempts).filter((attempt) => attempt.orderId === input.orderId)
+      if (orderAttempts.some((attempt) => attempt.userId !== input.userId || attempt.amount !== input.amount)) {
+        return { ok: false, code: 'ownership_conflict', message: '支付记录归属异常' }
+      }
+      const latest = latestPaymentAttempt(orderAttempts)
+      if (latest && latest.status !== 'failed') return { ok: true, attempt: latest }
+      let operationId = `payment:${input.orderId}`
+      if (latest) {
+        let retry = 1
+        do { operationId = `payment:${input.orderId}:retry:${retry}`; retry += 1 } while (attempts[operationId])
+      }
+      const latestTimestamp = orderAttempts.reduce((maximum, attempt) => Math.max(maximum, Date.parse(attempt.createdAt), Date.parse(attempt.updatedAt)), 0)
+      const timestamp = new Date(Math.max(Date.now(), latestTimestamp + 1)).toISOString()
+      const attempt: PaymentAttempt = { ...input, operationId, status: 'created', createdAt: timestamp, updatedAt: timestamp }
+      return writePaymentAttempt(attempt)
+        ? { ok: true, attempt }
+        : { ok: false, code: 'write_failed', message: '支付记录无法保存' }
+    }
+  })
+  return result.ok && result.value ? result.value : { ok: false, code: 'write_failed', message: '支付记录无法保存' }
+}
+
+const PAYMENT_ATTEMPT_TRANSITIONS: Record<PaymentAttemptStatus, PaymentAttemptStatus[]> = {
+  created: ['created', 'unknown', 'failed', 'confirmed'],
+  unknown: ['unknown', 'failed', 'confirmed'],
+  failed: ['failed'],
+  confirmed: ['confirmed', 'synchronized'],
+  synchronized: ['synchronized']
+}
+
+export async function transitionPaymentAttempt(attempt: PaymentAttempt): Promise<boolean> {
+  if (!validPaymentAttempt(attempt)) return false
+  const result = await runLockedPlatformCollectionTask({
+    collections: [PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY],
+    execute: () => {
+      const current = readPaymentAttempts()[attempt.operationId]
+      if (!current) return false
+      if (current.orderId !== attempt.orderId || current.userId !== attempt.userId || current.amount !== attempt.amount || current.createdAt !== attempt.createdAt) return false
+      if (!PAYMENT_ATTEMPT_TRANSITIONS[current.status].includes(attempt.status)) return false
+      if (Date.parse(attempt.updatedAt) < Date.parse(current.updatedAt)) return false
+      if (current.providerTransactionId && current.providerTransactionId !== attempt.providerTransactionId) return false
+      if (current.status === attempt.status && (current.providerTransactionId !== attempt.providerTransactionId || current.failureReason !== attempt.failureReason)) return false
+      if (current.status === 'synchronized' && (current.providerTransactionId !== attempt.providerTransactionId || current.failureReason !== attempt.failureReason)) return false
+      return writePaymentAttempt(attempt)
+    }
+  })
+  return result.ok && result.value === true
+}
 
 export interface CInvalidRecord {
   kind: 'commission'
@@ -3387,6 +5445,8 @@ export function publishCSubOrderToSupplier(order: COrder, subOrder: CSubOrder): 
     quantity: subOrder.items.reduce((sum, item) => sum + item.quantity, 0),
     amount: round2(subOrder.amount),
     customer: `${order.address.receiver} · C端商城`,
+    storeId: 'C-MALL',
+    storeName: 'C端商城',
     channel: 'purchase',
     status: 'pending',
     createdAt: order.createdAt,
@@ -3426,12 +5486,13 @@ export function markCSubOrderAfterSaleAtSupplier(supplierOrder: Order, operator 
     ...supplierOrder,
     status: 'after-sale',
     flow: [...(supplierOrder.flow || []), flowEvent('售后处理中 · C 端用户发起售后', operator)],
+    fulfillmentEvents: [...(supplierOrder.fulfillmentEvents || []), fulfillmentEvent(supplierOrder.id, fulfillment.status, 'cancelled', operator, 'user')],
     logistics: [...(supplierOrder.logistics || []), logisticsEvent('售后处理中', 'C 端用户已发起售后')],
     supplierFulfillment: { ...fulfillment, status: 'cancelled', updatedAt: now }
   }
 }
 
-export function confirmCSubOrderReceiptAtSupplier(supplierOrder: Order, operator = '用户'): Order | null {
+export function confirmCSubOrderReceiptAtSupplier(supplierOrder: Order, operator = '用户', operatorRole = 'user'): Order | null {
   if (supplierOrder.supplierOrderLink?.source !== 'c-mall') return null
   const fulfillment = ensureSupplierFulfillment(supplierOrder)
   if (fulfillment.status !== 'shipped' && fulfillment.status !== 'delivering') return null
@@ -3439,6 +5500,7 @@ export function confirmCSubOrderReceiptAtSupplier(supplierOrder: Order, operator
     ...supplierOrder,
     status: 'delivered',
     flow: [...(supplierOrder.flow || []), flowEvent('已签收 · C 端用户确认收货', operator)],
+    fulfillmentEvents: [...(supplierOrder.fulfillmentEvents || []), fulfillmentEvent(supplierOrder.id, fulfillment.status, 'received', operator, operatorRole)],
     logistics: [...(supplierOrder.logistics || []), logisticsEvent('已签收', 'C 端用户已确认收货')],
     supplierFulfillment: { ...fulfillment, status: 'received', updatedAt: new Date().toISOString() }
   }
@@ -3460,7 +5522,7 @@ export function normalizeCProducts(products: readonly CProduct[]): CProduct[] {
       const level1Commission = Number(sku.level1Commission)
       const level2Commission = Number(sku.level2Commission)
       if (!Number.isFinite(stock) || stock < 0 || !Number.isFinite(basePrice) || basePrice < 0 || !Number.isFinite(level1Commission) || level1Commission < 0 || !Number.isFinite(level2Commission) || level2Commission < 0) return null
-      return { ...sku, stock: Math.floor(stock), basePrice: round2(basePrice), level1Commission: round2(level1Commission), level2Commission: round2(level2Commission) }
+      return { ...sku, stock: Math.floor(stock), basePrice: round2(basePrice), level1Commission: round2(level1Commission), level2Commission: round2(level2Commission), minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity) }
     }).filter((sku: CProductSku | null): sku is CProductSku => sku !== null)
     return skus.length ? { ...product, tags: Array.isArray(product.tags) ? product.tags : [], skus } : null
   }).filter((product): product is CProduct => !!product)
@@ -3507,6 +5569,7 @@ export function normalizeCOrders(orders: Record<string, COrder>): Record<string,
       const items = sub.items.map((item) => ({
         ...item,
         quantity: Math.floor(Number(item.quantity)),
+        minimumOrderQuantity: normalizeMinimumOrderQuantity(item.minimumOrderQuantity),
         unitPrice: round2(Number(item.unitPrice) || 0),
         basePrice: round2(Number(item.basePrice) || 0),
         level1Commission: round2(Number(item.level1Commission) || 0),
@@ -3564,10 +5627,10 @@ export function writeCInventoryState(next: CInventoryState, expectedRevision: nu
 }
 
 export function readCProducts(): CProduct[] | null { return readCInventoryState()?.products || null }
-export function writeCProducts(value: CProduct[]): void {
+export function writeCProducts(value: CProduct[]): boolean {
   const current = readCInventoryState()
   const expectedRevision = current?.revision ?? 0
-  writeCInventoryState({ revision: expectedRevision + 1, products: value }, expectedRevision)
+  return writeCInventoryState({ revision: expectedRevision + 1, products: value }, expectedRevision)
 }
 
 export function readCUserSession(userId: string): CUserSessionState {
@@ -3589,22 +5652,28 @@ export function readCDistributorProfiles(): Record<string, CDistributorProfile> 
   const saved = readPlatformJson<Record<string, CDistributorProfile>>(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY)
   return saved && typeof saved === 'object' ? saved : null
 }
-export function writeCDistributorProfiles(value: Record<string, CDistributorProfile>): void { writePlatformJson(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, value) }
+export function writeCDistributorProfiles(value: Record<string, CDistributorProfile>): boolean { return writePlatformJson(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, value) }
 export function readCAddresses(): Record<string, CAddress> | null {
   const saved = readPlatformJson<Record<string, CAddress>>(PLATFORM_C_ADDRESSES_STORAGE_KEY)
   return saved && typeof saved === 'object' ? normalizeCAddresses(saved) : null
 }
-export function writeCAddresses(value: Record<string, CAddress>): void { writePlatformJson(PLATFORM_C_ADDRESSES_STORAGE_KEY, normalizeCAddresses(value)) }
-export function writeCAddress(value: CAddress): void { writeCAddresses({ ...(readCAddresses() || {}), [value.id]: value }) }
-export function removeCAddress(id: string): void {
+export function writeCAddresses(value: Record<string, CAddress>): boolean { return writePlatformJson(PLATFORM_C_ADDRESSES_STORAGE_KEY, normalizeCAddresses(value)) }
+export function writeCAddress(value: CAddress): boolean { return writeCAddresses({ ...(readCAddresses() || {}), [value.id]: value }) }
+export function removeCAddress(id: string): boolean {
   const addresses = readCAddresses() || {}
   const removed = addresses[id]
+  if (!removed) return false
   delete addresses[id]
   if (removed?.isDefault) {
     const remaining = Object.values(addresses)
     if (remaining.length && !remaining.some((address) => address.isDefault)) remaining[0].isDefault = true
   }
-  writeCAddresses(addresses)
+  return writeCAddresses(addresses)
+}
+
+export function canTransitionCOrderStatus(from: COrderStatus, to: COrderStatus): boolean {
+  if (from === to) return true
+  return nextCOrderStatus(from) === to
 }
 export function readCOrders(): Record<string, COrder> | null {
   const saved = readPlatformJson<Record<string, COrder>>(PLATFORM_C_ORDERS_STORAGE_KEY)
@@ -3617,7 +5686,7 @@ export function readCCommissionRecords(): CCommissionAllocation[] | null {
   if (!Array.isArray(saved)) return null
   recordInvalidCommissionIds(saved)
   const normalized = normalizeCCommissionRecords(saved)
-  writePlatformJson(PLATFORM_C_COMMISSIONS_STORAGE_KEY, normalized)
+  if (JSON.stringify(saved) !== JSON.stringify(normalized)) writePlatformJson(PLATFORM_C_COMMISSIONS_STORAGE_KEY, normalized)
   return normalized
 }
 export function writeCCommissionRecords(value: CCommissionAllocation[]): boolean {
@@ -3655,6 +5724,8 @@ export interface SharedBooking {
   people: number
   amount?: number
   amountConfirmedAt?: string
+  operatorId?: string
+  operatorName?: string
   status: 'submitted' | 'confirmed' | 'rejected' | 'cancelled' | 'completed'
   createdAt: string
   updatedAt?: string
@@ -3672,8 +5743,18 @@ export interface VoucherOrder {
   amount: number
   status: 'paid' | 'redeemed' | 'refunded'
   createdAt: string
+  providerTransactionId?: string
   redeemedAt?: string
   refundedAt?: string
+}
+
+export interface UserCommercePurchaseIntent {
+  ownerUserId: string
+  productId: string
+  skuId: string
+  quantity: number
+  amount: number
+  operationId: string
 }
 
 export interface CommissionLedgerEntry {
@@ -3721,11 +5802,14 @@ export interface PlatformChange {
 }
 export const PLATFORM_BOOKINGS_STORAGE_KEY = 'agritainment-platform-bookings'
 export const PLATFORM_VOUCHERS_STORAGE_KEY = 'agritainment-platform-vouchers'
+export const PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY = 'agritainment-platform-user-commerce-intents'
 export const PLATFORM_COMMISSION_LEDGER_STORAGE_KEY = 'agritainment-platform-commission-ledger'
 export const PLATFORM_COMMISSION_LEDGER_MIGRATED_STORAGE_KEY = 'agritainment-platform-commission-ledger-migrated'
 export const PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY = 'agritainment-platform-promoter-accounts'
 export const PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY = 'agritainment-platform-supplier-accounts'
 export const PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY = 'agritainment-platform-supplier-settlements'
+export const PLATFORM_COMMISSION_RULES_STORAGE_KEY = 'agritainment-platform-commission-rules'
+export const PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY = 'agritainment-platform-commission-settlement-records'
 export const PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY = 'agritainment-platform-lives-updated-at'
 export const PLATFORM_ROUTES_STORAGE_KEY = 'agritainment-platform-routes'
 export const PLATFORM_EXPERIENCES_STORAGE_KEY = 'agritainment-platform-experiences'
@@ -3836,6 +5920,9 @@ export function writePlatformCommissionLedgerEntry(entry: CommissionLedgerEntry)
   const ledger = readPlatformCommissionLedger() ?? {}
   return writePlatformJson(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, { ...ledger, [entry.id]: entry })
 }
+export function writePlatformCommissionLedger(entries: Record<string, CommissionLedgerEntry>): boolean {
+  return writePlatformJson(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, entries)
+}
 export type WithdrawalRequesterType = 'promoter' | 'user'
 export type WithdrawalRequestStatus = 'pending' | 'approved' | 'rejected'
 export interface WithdrawalRequest {
@@ -3850,25 +5937,46 @@ export interface WithdrawalRequest {
   reviewedAt?: string
   operator?: string
   reviewedNote?: string
+  revision?: number
 }
 export const PLATFORM_WITHDRAWALS_STORAGE_KEY = 'agritainment-platform-withdrawals'
 export function readPlatformWithdrawals(): Record<string, WithdrawalRequest> | null {
   const data = readPlatformJson<Record<string, WithdrawalRequest>>(PLATFORM_WITHDRAWALS_STORAGE_KEY)
-  return data && typeof data === 'object' ? data : null
+  if (!data || typeof data !== 'object') return null
+  const valid: Record<string, WithdrawalRequest> = {}
+  Object.entries(data).forEach(([id, request]) => {
+    if (!request || request.id !== id || typeof request.requesterId !== 'string' || !request.requesterId.trim() || !['promoter', 'user'].includes(request.requesterType) || !Number.isFinite(Number(request.amount)) || Number(request.amount) <= 0 || typeof request.method !== 'string' || !request.method.trim() || !['pending', 'approved', 'rejected'].includes(request.status) || typeof request.requestKey !== 'string' || !request.requestKey.trim() || !request.createdAt || !Number.isFinite(Date.parse(request.createdAt))) return
+    valid[id] = { ...request, amount: round2(Number(request.amount)), createdAt: normalizeIso(request.createdAt), method: request.method.trim() }
+  })
+  return valid
 }
 export function writePlatformWithdrawal(request: WithdrawalRequest): boolean {
-  if (!request?.id || !request.requesterId || !Number.isFinite(request.amount) || request.amount <= 0) return false
+  if (!request?.id || typeof request.requesterId !== 'string' || !request.requesterId.trim() || !['promoter', 'user'].includes(request.requesterType) || !Number.isFinite(request.amount) || request.amount <= 0 || typeof request.method !== 'string' || !request.method.trim() || !['pending', 'approved', 'rejected'].includes(request.status) || typeof request.requestKey !== 'string' || !request.requestKey.trim() || !request.createdAt) return false
   const withdrawals = readPlatformWithdrawals() ?? {}
   return writePlatformJson(PLATFORM_WITHDRAWALS_STORAGE_KEY, { ...withdrawals, [request.id]: request })
 }
+let platformWithdrawalTransitionLocked = false
 export function transitionPlatformWithdrawal(id: string, status: WithdrawalRequestStatus, operator: string, note?: string): WithdrawalRequest | null {
   if (status !== 'approved' && status !== 'rejected') return null
-  const withdrawals = readPlatformWithdrawals() ?? {}
-  const current = withdrawals[id]
-  if (!current || current.status !== 'pending') return null
-  const next: WithdrawalRequest = { ...current, status, reviewedAt: new Date().toISOString(), operator, reviewedNote: note?.trim() || undefined }
-  writePlatformJson(PLATFORM_WITHDRAWALS_STORAGE_KEY, { ...withdrawals, [id]: next })
-  return next
+  if (platformWithdrawalTransitionLocked) return null
+  platformWithdrawalTransitionLocked = true
+  try {
+    const withdrawals = readPlatformWithdrawals() ?? {}
+    const current = withdrawals[id]
+    if (!current || current.status !== 'pending') return null
+    const next: WithdrawalRequest = { ...current, status, reviewedAt: new Date().toISOString(), operator, reviewedNote: note?.trim() || undefined, revision: (current.revision || 0) + 1 }
+    if (!writePlatformJson(PLATFORM_WITHDRAWALS_STORAGE_KEY, { ...withdrawals, [id]: next })) return null
+    // Verify the persisted snapshot. A concurrent reviewer may have replaced it between read and write.
+    const persisted = readPlatformWithdrawals()?.[id]
+    if (!persisted || persisted.status !== next.status || persisted.revision !== next.revision || persisted.reviewedAt !== next.reviewedAt || persisted.operator !== next.operator) return null
+    if (!appendPlatformAuditLog({ module: 'withdrawals', action: `withdrawal.${status}`, actorId: operator, actorRole: 'admin', targetType: 'withdrawal', targetId: id, result: 'success', metadata: { note: next.reviewedNote } })) {
+      if (!writePlatformJson(PLATFORM_WITHDRAWALS_STORAGE_KEY, withdrawals)) enqueuePlatformRecovery({ operationId: createId('OP-WITHDRAWAL-AUDIT'), failedStep: 'audit-log', reason: 'withdrawal audit rollback failed' })
+      return null
+    }
+    return persisted
+  } finally {
+    platformWithdrawalTransitionLocked = false
+  }
 }
 export function readPlatformVoucherOrders(): Record<string, VoucherOrder> | null {
   const data = readPlatformJson<Record<string, VoucherOrder>>(PLATFORM_VOUCHERS_STORAGE_KEY)
@@ -3879,15 +5987,60 @@ export function writePlatformVoucherOrder(order: VoucherOrder): boolean {
   const orders = readPlatformVoucherOrders() ?? {}
   return writePlatformJson(PLATFORM_VOUCHERS_STORAGE_KEY, { ...orders, [order.id]: order })
 }
+export function writePlatformVoucherOrders(orders: Record<string, VoucherOrder>): boolean {
+  return !!orders && writePlatformJson(PLATFORM_VOUCHERS_STORAGE_KEY, orders)
+}
+const USER_COMMERCE_PURCHASE_INTENT_FIELDS = ['ownerUserId', 'productId', 'skuId', 'quantity', 'amount', 'operationId'] as const
+const USER_COMMERCE_PURCHASE_OPERATION_PATTERN = /^package-payment:([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/
+function validUserCommercePurchaseIntent(key: string, value: unknown): value is UserCommercePurchaseIntent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const intent = value as Record<string, unknown>
+  const validId = (candidate: unknown) => typeof candidate === 'string' && !!candidate && candidate.trim() === candidate
+  return Object.keys(intent).length === USER_COMMERCE_PURCHASE_INTENT_FIELDS.length
+    && USER_COMMERCE_PURCHASE_INTENT_FIELDS.every((field) => Object.prototype.hasOwnProperty.call(intent, field))
+    && validId(intent.ownerUserId) && validId(intent.productId) && validId(intent.skuId)
+    && Number.isInteger(intent.quantity) && Number(intent.quantity) > 0
+    && typeof intent.amount === 'number' && Number.isFinite(intent.amount) && intent.amount > 0
+    && typeof intent.operationId === 'string' && intent.operationId === key && USER_COMMERCE_PURCHASE_OPERATION_PATTERN.test(intent.operationId)
+}
+function validUserCommercePurchaseIntents(value: unknown): value is Record<string, UserCommercePurchaseIntent> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    && Object.entries(value).every(([key, intent]) => validUserCommercePurchaseIntent(key, intent))
+}
+export function readUserCommercePurchaseIntents(): Record<string, UserCommercePurchaseIntent> {
+  const intents = readPlatformJson<unknown>(PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY)
+  if (!intents || typeof intents !== 'object' || Array.isArray(intents)) return {}
+  return Object.fromEntries(Object.entries(intents).filter(([key, intent]) => validUserCommercePurchaseIntent(key, intent)))
+}
+export function writeUserCommercePurchaseIntents(intents: Record<string, UserCommercePurchaseIntent>, expectedRevision?: number): boolean {
+  return validUserCommercePurchaseIntents(intents) && writePlatformJson(PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, intents, expectedRevision)
+}
 export function readPlatformSupplierSettlements(): Record<string, SupplierSettlementRecord> | null {
   const data = readPlatformJson<Record<string, SupplierSettlementRecord>>(PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY)
   return data && typeof data === 'object' ? data : null
+}
+export function writePlatformSupplierSettlements(records: Record<string, SupplierSettlementRecord>): boolean {
+  return !!records && typeof records === 'object' && !Array.isArray(records) && writePlatformJson(PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, records)
 }
 export function writePlatformSupplierSettlement(record: SupplierSettlementRecord): boolean {
   if (!record?.id) return false
   const records = readPlatformSupplierSettlements() ?? {}
   const normalized = { ...record, status: record.status || 'pending' }
   return writePlatformJson(PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, { ...records, [record.id]: normalized })
+}
+export function readPlatformCommissionRules(): CommissionRule[] | null {
+  const data = readPlatformJson<CommissionRule[]>(PLATFORM_COMMISSION_RULES_STORAGE_KEY)
+  return Array.isArray(data) ? data : null
+}
+export function writePlatformCommissionRules(rules: CommissionRule[]): boolean {
+  return Array.isArray(rules) && writePlatformJson(PLATFORM_COMMISSION_RULES_STORAGE_KEY, rules)
+}
+export function readPlatformCommissionSettlementRecords(): Record<string, CommissionSettlementRecord> | null {
+  const data = readPlatformJson<Record<string, CommissionSettlementRecord>>(PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY)
+  return data && typeof data === 'object' && !Array.isArray(data) ? data : null
+}
+export function writePlatformCommissionSettlementRecords(records: Record<string, CommissionSettlementRecord>): boolean {
+  return !!records && typeof records === 'object' && !Array.isArray(records) && writePlatformJson(PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, records)
 }
 export function readPlatformLivesUpdatedAt(): string | undefined {
   const updatedAt = readPlatformJson<unknown>(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY)
@@ -3902,10 +6055,11 @@ export function writePlatformRoute(route: TravelRoute): boolean {
   const routes = readPlatformRoutes() ?? {}
   return writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, { ...routes, [route.id]: route })
 }
-export function removePlatformRoute(id: string): void {
+export function removePlatformRoute(id: string): boolean {
+  if (!id?.trim()) return false
   const routes = readPlatformRoutes() ?? {}
   routes[id] = null
-  writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, routes)
+  return writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, routes)
 }
 export function mergePlatformRoutes(routes: TravelRoute[]): TravelRoute[] {
   const merged = new Map<string, TravelRoute>()
@@ -3920,6 +6074,8 @@ export function buildSupplierPlatformOrders(input: {
   sourceOrderId: string
   source: OrderSource
   customer: string
+  storeId?: string
+  storeName?: string
   channel: Order['channel']
   items: OrderItem[]
   products: Product[]
@@ -3955,6 +6111,8 @@ export function buildSupplierPlatformOrders(input: {
       channel: input.channel,
       status: input.status,
       createdAt: input.createdAt,
+      storeId: input.storeId,
+      storeName: input.storeName,
       supplierId: group.supplierId,
       items: group.items,
       supplierOrderLink: { source: input.source, sourceOrderId: input.sourceOrderId, sourceSubOrderId: baseId, customerUserId: input.customerUserId }
@@ -3970,18 +6128,27 @@ export interface PromoterAccountState {
   updatedAt: string
 }
 export function buildPromoterAccountSeeds(promotersSeed: Promoter[]): PromoterAccount[] {
-  return promotersSeed.map((promoter, index) => ({
-    id: 'PA' + String(index + 1).padStart(3, '0'),
+  const used = new Set<string>()
+  return promotersSeed.map((promoter) => {
+    const numericId = /^T(\d+)$/.exec(promoter.id)?.[1]
+    let offset = numericId ? Math.max(0, Number(numericId) - 1) * 20 : Array.from(promoter.id).reduce((sum, char) => sum + char.charCodeAt(0), 0)
+    let account = '138' + String(offset).padStart(8, '0').slice(-8)
+    while (used.has(account)) { offset += 1; account = '138' + String(offset).padStart(8, '0').slice(-8) }
+    used.add(account)
+    const id = numericId ? 'PA' + numericId.padStart(3, '0') : 'PA-' + promoter.id
+    return ({
+    id,
     promoterId: promoter.id,
     name: promoter.name,
     level: promoter.level,
     type: promoter.type || '',
-    account: '138' + String(index * 20).padStart(8, '0'),
+    account,
     password: '123456',
     status: 'active' as const,
     enabled: true,
     createdAt: '2026-08-01T09:00:00.000Z'
-  }))
+  })
+  })
 }
 export function readPlatformPromoterAccountState(): PromoterAccountState {
   const saved = readPlatformJson<PromoterAccountState>(PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY)
@@ -4052,6 +6219,8 @@ export function transitionVoucherOrder(id: string, status: VoucherOrder['status'
   const orders = readPlatformVoucherOrders() ?? {}
   const order = orders[id]
   if (!order || order.status === status) return false
+  const allowed = (order.status === 'paid' && status === 'redeemed') || (order.status === 'redeemed' && status === 'refunded')
+  if (!allowed) return false
   const next: VoucherOrder = { ...order, status }
   if (status === 'redeemed') next.redeemedAt = at
   if (status === 'refunded') next.refundedAt = at
@@ -4071,7 +6240,7 @@ export interface SupplierAccount {
 }
 export function buildSupplierAccountSeeds(suppliersSeed: Supplier[], createdAt: string = '2026-08-24T09:00:00.000Z'): SupplierAccount[] {
   return suppliersSeed
-    .filter((supplier) => !!supplier.contactPhone)
+    .filter((supplier) => supplier.certified && !!supplier.contactPhone)
     .map((supplier, index) => ({
       id: 'SA' + String(index + 1).padStart(3, '0'),
       supplierId: supplier.id,
@@ -4083,12 +6252,18 @@ export function buildSupplierAccountSeeds(suppliersSeed: Supplier[], createdAt: 
       updatedAt: createdAt
     }))
 }
+export function supplierCanLogin(supplier?: Supplier, account?: SupplierAccount): boolean {
+  return !!supplier?.certified && (supplier.status === 'cooperating' || supplier.status === 'paused') && !!account && account.enabled !== false
+}
+export function supplierCanReceiveNewOrders(supplier?: Supplier, account?: SupplierAccount): boolean {
+  return !!supplier?.certified && supplier.status === 'cooperating' && !!account && account.enabled !== false
+}
 export function authenticateSupplier(accounts: SupplierAccount[], suppliersSeed: Supplier[], account: string, password: string): { ok: true; account: SupplierAccount; supplier: Supplier } | { ok: false; reason: string } {
   const found = accounts.find((a) => a.account === account)
   if (!found || found.password !== password) return { ok: false, reason: 'invalid-credentials' }
   const supplier = suppliersSeed.find((s) => s.id === found.supplierId)
-  if (!supplier || supplier.status !== 'cooperating' || found.enabled === false) return { ok: false, reason: 'inactive' }
-  return { ok: true, account: found, supplier }
+  if (!supplierCanLogin(supplier, found)) return { ok: false, reason: 'inactive' }
+  return { ok: true, account: found, supplier: supplier! }
 }
 export function mergePlatformSupplierAccounts(defaults: SupplierAccount[], saved: SupplierAccount[]): SupplierAccount[] {
   const savedByKey = new Map(saved.map((a) => [a.supplierId, a]))
@@ -4243,10 +6418,10 @@ export function writePlatformExperience(experience: FarmExperience): boolean {
   const experiences = readPlatformExperiences() ?? {}
   return writePlatformJson(PLATFORM_EXPERIENCES_STORAGE_KEY, { ...experiences, [experience.id]: experience })
 }
-export function removePlatformExperience(id: string): void {
+export function removePlatformExperience(id: string): boolean {
   const experiences = readPlatformExperiences() ?? {}
   experiences[id] = null
-  writePlatformJson(PLATFORM_EXPERIENCES_STORAGE_KEY, experiences)
+  return writePlatformJson(PLATFORM_EXPERIENCES_STORAGE_KEY, experiences)
 }
 export function mergePlatformExperiences(experiences: FarmExperience[]): FarmExperience[] {
   const merged = new Map<string, FarmExperience>()
@@ -4265,4 +6440,487 @@ export function readCatalogLegacyMigrationMarker(): CatalogLegacyMigrationMarker
   if (!saved || typeof saved !== 'object') return null
   if (saved.schemaVersion !== 1 || saved.catalogSchemaVersion !== CATALOG_SCHEMA_VERSION) return null
   return saved
+}
+
+export type UserAtomicRecoveryVariant = 'checkout' | 'payment' | 'package'
+export interface UserAtomicRecoverySnapshot {
+  variant: UserAtomicRecoveryVariant
+  ownerUserId: string
+  catalog?: CatalogState
+  orders?: Record<string, COrder>
+  commissions?: CCommissionAllocation[]
+  bindings?: Record<string, UserBinding>
+  supplierOrders?: Record<string, Order>
+  ledger?: Record<string, CommissionLedgerEntry>
+  vouchers?: Record<string, VoucherOrder>
+  intents?: Record<string, UserCommercePurchaseIntent>
+}
+
+const USER_ATOMIC_RECOVERY_CONFIG: Record<UserAtomicRecoveryVariant, { key: PlatformRecoveryHandlerKey; schema: string; collections: string[]; fields: string[] }> = {
+  checkout: {
+    key: 'user-commerce-recovery-v1', schema: 'user-checkout-snapshot-v1',
+    collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY],
+    fields: ['variant', 'ownerUserId', 'catalog', 'orders', 'commissions', 'bindings']
+  },
+  payment: {
+    key: 'user-payment-v1', schema: 'user-payment-snapshot-v1',
+    collections: [PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY],
+    fields: ['variant', 'ownerUserId', 'orders', 'supplierOrders', 'ledger']
+  },
+  package: {
+    key: 'user-package-v1', schema: 'user-package-snapshot-v1',
+    collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY],
+    fields: ['variant', 'ownerUserId', 'catalog', 'vouchers', 'ledger', 'intents']
+  }
+}
+
+function userAtomicRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+function userAtomicSame(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right) }
+function userAtomicExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean { return userAtomicSame(Object.keys(value).sort(), [...expected].sort()) }
+function userAtomicChangedKeys<T>(original: Record<string, T>, target: Record<string, T>): string[] {
+  return [...new Set([...Object.keys(original), ...Object.keys(target)])].filter((key) => !userAtomicSame(original[key], target[key]))
+}
+function userAtomicUniqueIds(values: Array<{ id: string }>): boolean {
+  return values.every((value) => typeof value?.id === 'string' && !!value.id.trim()) && new Set(values.map((value) => value.id)).size === values.length
+}
+function userAtomicValidSnapshot(value: unknown, variant: UserAtomicRecoveryVariant): value is UserAtomicRecoverySnapshot {
+  if (!userAtomicRecord(value) || value.variant !== variant || typeof value.ownerUserId !== 'string' || !value.ownerUserId.trim()) return false
+  if (!userAtomicExactKeys(value, USER_ATOMIC_RECOVERY_CONFIG[variant].fields)) return false
+  if (variant === 'checkout') return userAtomicRecord(value.catalog) && Array.isArray(value.catalog.products) && Number.isInteger(value.catalog.revision)
+    && userAtomicRecord(value.orders) && Array.isArray(value.commissions) && userAtomicRecord(value.bindings)
+  if (variant === 'payment') return userAtomicRecord(value.orders) && userAtomicRecord(value.supplierOrders) && userAtomicRecord(value.ledger)
+  return userAtomicRecord(value.catalog) && Array.isArray(value.catalog.products) && Number.isInteger(value.catalog.revision)
+    && userAtomicRecord(value.vouchers) && userAtomicRecord(value.ledger) && userAtomicRecord(value.intents)
+}
+
+function userAtomicCatalogReserveMatches(original: CatalogState, target: CatalogState, operationId: string, expectedChanges: Map<string, number>): boolean {
+  if (original.schemaVersion !== target.schemaVersion || target.revision !== original.revision + 1 || original.products.length !== target.products.length) return false
+  if (!userAtomicUniqueIds(original.products) || !userAtomicUniqueIds(target.products)) return false
+  const targetProducts = new Map(target.products.map((product) => [product.id, product]))
+  for (const product of original.products) {
+    const next = targetProducts.get(product.id)
+    if (!next || !userAtomicUniqueIds(product.skus) || !userAtomicUniqueIds(next.skus) || product.skus.length !== next.skus.length) return false
+    const { skus: _beforeSkus, ...beforeProduct } = product
+    const { skus: _afterSkus, ...afterProduct } = next
+    if (!userAtomicSame(beforeProduct, afterProduct)) return false
+    const nextSkus = new Map(next.skus.map((sku) => [sku.id, sku]))
+    for (const sku of product.skus) {
+      const nextSku = nextSkus.get(sku.id)
+      if (!nextSku) return false
+      const { stock: beforeStock, ...beforeSku } = sku
+      const { stock: afterStock, ...afterSku } = nextSku
+      if (!userAtomicSame(beforeSku, afterSku) || afterStock - beforeStock !== (expectedChanges.get(`${product.id}:${sku.id}`) || 0) || afterStock < 0) return false
+    }
+  }
+  const originalOperations = original.appliedOperations || {}
+  const targetOperations = target.appliedOperations || {}
+  if (originalOperations[operationId] || userAtomicChangedKeys(originalOperations, targetOperations).length !== 1 || !targetOperations[operationId]) return false
+  const operation = targetOperations[operationId]
+  if (operation.id !== operationId || operation.action !== 'reserve') return false
+  try {
+    const fingerprint = JSON.parse(operation.requestFingerprint) as { action?: string; changes?: CatalogStockChange[] }
+    const actual = new Map<string, number>()
+    for (const change of fingerprint.changes || []) {
+      if (!Number.isInteger(change.quantity) || !change.productId || !change.skuId) return false
+      actual.set(`${change.productId}:${change.skuId}`, (actual.get(`${change.productId}:${change.skuId}`) || 0) + change.quantity)
+    }
+    return fingerprint.action === 'reserve' && userAtomicSame([...actual.entries()].sort(), [...expectedChanges.entries()].sort())
+  } catch { return false }
+}
+
+function userAtomicOrderAmountIsValid(order: COrder): boolean {
+  if (!order.id?.trim() || !order.userId?.trim() || order.address?.userId !== order.userId || order.status !== 'pending_payment' || order.providerTransactionId || order.paidAt) return false
+  if (!userAtomicUniqueIds(order.subOrders) || !userAtomicUniqueIds(order.commissionAllocations)) return false
+  if (order.items.some((item) => !item.productId || !item.skuId || !Number.isInteger(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unitPrice) || item.unitPrice < 0)) return false
+  if (round2(order.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)) !== round2(order.amount)) return false
+  const nestedItems = order.subOrders.flatMap((subOrder) => subOrder.items)
+  if (order.subOrders.some((subOrder) => subOrder.status !== 'pending_payment' || round2(subOrder.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)) !== round2(subOrder.amount))) return false
+  const itemKey = (item: COrderItem) => JSON.stringify(item)
+  if (!userAtomicSame(nestedItems.map(itemKey).sort(), order.items.map(itemKey).sort())) return false
+  return order.commissionAllocations.every((allocation) => allocation.orderId === order.id && order.subOrders.some((subOrder) => subOrder.id === allocation.subOrderId)
+    && !!allocation.beneficiaryId?.trim() && Number.isFinite(allocation.amount) && allocation.amount >= 0)
+}
+
+function userAtomicCheckoutJournalIsValid(journal: PlatformJournalEntry, original: UserAtomicRecoverySnapshot, target: UserAtomicRecoverySnapshot): boolean {
+  const orderId = /^(.+):reserve$/.exec(journal.operationId)?.[1]
+  if (!orderId || !original.catalog || !target.catalog || !original.orders || !target.orders || !original.commissions || !target.commissions || !original.bindings || !target.bindings) return false
+  if (userAtomicChangedKeys(original.orders, target.orders).length !== 1 || original.orders[orderId] || !target.orders[orderId]) return false
+  const order = target.orders[orderId]
+  if (order.id !== orderId || order.userId !== original.ownerUserId || !userAtomicOrderAmountIsValid(order)) return false
+  if (!userAtomicUniqueIds(original.commissions) || !userAtomicUniqueIds(target.commissions)) return false
+  const originalCommissions = new Map(original.commissions.map((entry) => [entry.id, entry]))
+  const targetCommissions = new Map(target.commissions.map((entry) => [entry.id, entry]))
+  if (original.commissions.some((entry) => !userAtomicSame(targetCommissions.get(entry.id), entry))) return false
+  if (order.commissionAllocations.some((entry) => originalCommissions.has(entry.id) || !userAtomicSame(targetCommissions.get(entry.id), entry))) return false
+  if (target.commissions.some((entry) => !originalCommissions.has(entry.id) && !order.commissionAllocations.some((allocation) => allocation.id === entry.id))) return false
+  const bindingChanges = userAtomicChangedKeys(original.bindings, target.bindings)
+  if (bindingChanges.some((key) => key !== original.ownerUserId)) return false
+  if (bindingChanges.length) {
+    const binding = target.bindings[original.ownerUserId]
+    if (!binding || binding.userId !== original.ownerUserId || binding.status !== 'bound' || !binding.promoterId?.trim()) return false
+  }
+  const inventory = new Map<string, number>()
+  for (const item of order.items) inventory.set(`${item.productId}:${item.skuId}`, (inventory.get(`${item.productId}:${item.skuId}`) || 0) - item.quantity)
+  return userAtomicCatalogReserveMatches(original.catalog, target.catalog, journal.operationId, inventory)
+}
+
+function userAtomicPaymentOrderMatches(original: COrder, target: COrder): boolean {
+  if (original.status !== 'pending_payment' || !target.providerTransactionId?.trim() || !target.paidAt?.trim() || original.subOrders.length !== target.subOrders.length) return false
+  const { status: _beforeStatus, paidAt: _beforePaidAt, providerTransactionId: _beforeTransactionId, subOrders: _beforeSubOrders, ...beforeStable } = original
+  const { status: _afterStatus, paidAt: _afterPaidAt, providerTransactionId: _afterTransactionId, subOrders: _afterSubOrders, ...afterStable } = target
+  if (!userAtomicSame(beforeStable, afterStable) || target.status !== deriveCOrderStatus(target.subOrders)) return false
+  return original.subOrders.every((subOrder) => {
+    const next = target.subOrders.find((candidate) => candidate.id === subOrder.id)
+    if (!next || subOrder.status !== 'pending_payment' || next.status !== 'paid' || next.logistics.length !== subOrder.logistics.length + 2) return false
+    const { status: _beforeSubStatus, logistics: _beforeLogistics, ...beforeSubStable } = subOrder
+    const { status: _afterSubStatus, logistics: _afterLogistics, ...afterSubStable } = next
+    return userAtomicSame(beforeSubStable, afterSubStable) && userAtomicSame(next.logistics.slice(0, subOrder.logistics.length), subOrder.logistics)
+  })
+}
+
+function userAtomicPaymentJournalIsValid(journal: PlatformJournalEntry, original: UserAtomicRecoverySnapshot, target: UserAtomicRecoverySnapshot): boolean {
+  const orderId = /^payment:(.+)$/.exec(journal.operationId)?.[1]
+  if (!orderId || !original.orders || !target.orders || !original.supplierOrders || !target.supplierOrders || !original.ledger || !target.ledger) return false
+  if (userAtomicChangedKeys(original.orders, target.orders).length !== 1 || !original.orders[orderId] || !target.orders[orderId]) return false
+  const beforeOrder = original.orders[orderId]
+  const afterOrder = target.orders[orderId]
+  if (beforeOrder.userId !== original.ownerUserId || !userAtomicPaymentOrderMatches(beforeOrder, afterOrder)) return false
+  const supplierChanges = userAtomicChangedKeys(original.supplierOrders, target.supplierOrders)
+  if (supplierChanges.length !== afterOrder.subOrders.length) return false
+  if (supplierChanges.some((id) => {
+    if (original.supplierOrders![id]) return true
+    const supplierOrder = target.supplierOrders![id]
+    const link = supplierOrder?.supplierOrderLink
+    return !supplierOrder || link?.source !== 'c-mall' || link.sourceOrderId !== orderId || link.customerUserId !== original.ownerUserId
+      || !afterOrder.subOrders.some((subOrder) => subOrder.id === link.sourceSubOrderId && supplierOrder.amount === subOrder.amount && supplierOrder.supplierId === subOrder.supplierId)
+  })) return false
+  const ledgerChanges = userAtomicChangedKeys(original.ledger, target.ledger)
+  if (ledgerChanges.length !== afterOrder.commissionAllocations.length) return false
+  return ledgerChanges.every((id) => {
+    if (original.ledger![id]) return false
+    const entry = target.ledger![id]
+    const allocation = afterOrder.commissionAllocations.find((candidate) => `CC-${candidate.id}` === id)
+    return !!entry && !!allocation && entry.sourceOrderId === orderId && entry.sourceSubOrderId === allocation.subOrderId
+      && entry.beneficiaryType === 'promoter' && entry.beneficiaryId === allocation.beneficiaryId
+      && entry.role === (allocation.beneficiaryLevel || 'promoter') && round2(entry.amount) === round2(allocation.amount) && entry.status === 'pending'
+  })
+}
+
+function userAtomicPackageJournalIsValid(journal: PlatformJournalEntry, original: UserAtomicRecoverySnapshot, target: UserAtomicRecoverySnapshot): boolean {
+  const voucherId = USER_COMMERCE_PURCHASE_OPERATION_PATTERN.exec(journal.operationId)?.[1]
+  if (!voucherId || !original.catalog || !target.catalog || !original.vouchers || !target.vouchers || !original.ledger || !target.ledger || !original.intents || !target.intents) return false
+  if (!validUserCommercePurchaseIntents(original.intents) || !validUserCommercePurchaseIntents(target.intents)) return false
+  if (userAtomicChangedKeys(original.vouchers, target.vouchers).length !== 1 || original.vouchers[voucherId] || !target.vouchers[voucherId]) return false
+  const voucher = target.vouchers[voucherId]
+  if (voucher.id !== voucherId || voucher.userId !== original.ownerUserId || voucher.status !== 'paid' || !voucher.providerTransactionId?.trim()
+    || !Number.isInteger(voucher.quantity) || voucher.quantity <= 0 || !Number.isFinite(voucher.amount) || voucher.amount <= 0) return false
+  const intent = original.intents[journal.operationId]
+  const intentChanges = userAtomicChangedKeys(original.intents, target.intents)
+  if (!intent || target.intents[journal.operationId] || intentChanges.length !== 1 || intentChanges[0] !== journal.operationId
+    || intent.operationId !== journal.operationId || intent.ownerUserId !== original.ownerUserId || intent.productId !== voucher.productId
+    || intent.skuId !== voucher.skuId || intent.quantity !== voucher.quantity || round2(intent.amount) !== round2(voucher.amount)) return false
+  const product = original.catalog.products.find((candidate) => candidate.id === voucher.productId)
+  const sku = product?.skus.find((candidate) => candidate.id === voucher.skuId)
+  if (!product || !sku || !product.farmIds.includes(voucher.farmId)) return false
+  const inventory = new Map([[`${voucher.productId}:${voucher.skuId}`, -voucher.quantity]])
+  if (!userAtomicCatalogReserveMatches(original.catalog, target.catalog, journal.operationId, inventory)) return false
+  const ledgerChanges = userAtomicChangedKeys(original.ledger, target.ledger)
+  const expectedCommission = voucher.promoterId && product.promoterCommissionRate > 0 ? round2(voucher.amount * product.promoterCommissionRate / 100) : 0
+  if (!expectedCommission) return ledgerChanges.length === 0
+  if (ledgerChanges.length !== 1 || ledgerChanges[0] !== `${voucher.id}:commission` || original.ledger[ledgerChanges[0]]) return false
+  const entry = target.ledger[ledgerChanges[0]]
+  return !!entry && entry.sourceOrderId === voucher.id && entry.beneficiaryType === 'promoter' && entry.beneficiaryId === voucher.promoterId
+    && entry.farmId === voucher.farmId && entry.role === 'promoter' && round2(entry.amount) === expectedCommission && entry.status === 'pending'
+}
+
+export function isValidUserAtomicRecoveryJournal(journal: PlatformJournalEntry, variant?: UserAtomicRecoveryVariant): boolean {
+  const detected = variant || (journal.original as { variant?: UserAtomicRecoveryVariant } | null)?.variant
+  if (!detected || !USER_ATOMIC_RECOVERY_CONFIG[detected]) return false
+  const config = USER_ATOMIC_RECOVERY_CONFIG[detected]
+  if (journal.recoveryHandlerKey !== config.key || journal.recoverySchema !== config.schema) return false
+  const expectedCollections = normalizePlatformTransactionCollections([...config.collections, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY])
+  if (!userAtomicSame([...journal.collections].sort(), expectedCollections)) return false
+  if (!userAtomicValidSnapshot(journal.original, detected) || !userAtomicValidSnapshot(journal.target, detected)) return false
+  const original = journal.original
+  const target = journal.target
+  if (original.ownerUserId !== target.ownerUserId) return false
+  if (detected === 'checkout') return userAtomicCheckoutJournalIsValid(journal, original, target)
+  if (detected === 'payment') return userAtomicPaymentJournalIsValid(journal, original, target)
+  return userAtomicPackageJournalIsValid(journal, original, target)
+}
+
+function readStableUserAtomicRecoverySnapshot(variant: UserAtomicRecoveryVariant, ownerUserId: string): { snapshot: UserAtomicRecoverySnapshot; revisions: Record<string, number> } | null {
+  const config = USER_ATOMIC_RECOVERY_CONFIG[variant]
+  const readers: Record<string, () => unknown> = {
+    [PLATFORM_CATALOG_STORAGE_KEY]: () => readCatalogState(),
+    [PLATFORM_C_ORDERS_STORAGE_KEY]: () => readCOrders() || {},
+    [PLATFORM_C_COMMISSIONS_STORAGE_KEY]: () => readCCommissionRecords() || [],
+    [PLATFORM_BINDINGS_STORAGE_KEY]: () => readUserBindings() || {},
+    [PLATFORM_ORDERS_STORAGE_KEY]: () => readPlatformOrders() || {},
+    [PLATFORM_COMMISSION_LEDGER_STORAGE_KEY]: () => readPlatformCommissionLedger() || {},
+    [PLATFORM_VOUCHERS_STORAGE_KEY]: () => readPlatformVoucherOrders() || {}
+    , [PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY]: () => readUserCommercePurchaseIntents()
+  }
+  const values: Record<string, unknown> = {}
+  const revisions: Record<string, number> = {}
+  for (const key of config.collections) {
+    const before = readPlatformCollectionRevision(key)
+    const value = cloneSeed(readers[key]())
+    const after = readPlatformCollectionRevision(key)
+    if (before !== after || (key === PLATFORM_CATALOG_STORAGE_KEY && !value)) return null
+    values[key] = value
+    revisions[key] = after
+  }
+  const snapshot: UserAtomicRecoverySnapshot = { variant, ownerUserId }
+  if (variant === 'checkout') Object.assign(snapshot, { catalog: values[PLATFORM_CATALOG_STORAGE_KEY], orders: values[PLATFORM_C_ORDERS_STORAGE_KEY], commissions: values[PLATFORM_C_COMMISSIONS_STORAGE_KEY], bindings: values[PLATFORM_BINDINGS_STORAGE_KEY] })
+  else if (variant === 'payment') Object.assign(snapshot, { orders: values[PLATFORM_C_ORDERS_STORAGE_KEY], supplierOrders: values[PLATFORM_ORDERS_STORAGE_KEY], ledger: values[PLATFORM_COMMISSION_LEDGER_STORAGE_KEY] })
+  else Object.assign(snapshot, { catalog: values[PLATFORM_CATALOG_STORAGE_KEY], vouchers: values[PLATFORM_VOUCHERS_STORAGE_KEY], ledger: values[PLATFORM_COMMISSION_LEDGER_STORAGE_KEY], intents: values[PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY] })
+  return { snapshot, revisions }
+}
+
+function writeUserAtomicRecoverySnapshot(snapshot: UserAtomicRecoverySnapshot, rollback: UserAtomicRecoverySnapshot): boolean {
+  const steps: Array<{ apply: () => boolean; rollback: () => boolean }> = []
+  if (snapshot.catalog && rollback.catalog) steps.push({ apply: () => writeCatalogState(snapshot.catalog!), rollback: () => writeCatalogState(rollback.catalog!) })
+  if (snapshot.orders && rollback.orders) steps.push({ apply: () => writeCOrders(snapshot.orders!), rollback: () => writeCOrders(rollback.orders!) })
+  if (snapshot.commissions && rollback.commissions) steps.push({ apply: () => writeCCommissionRecords(snapshot.commissions!), rollback: () => writeCCommissionRecords(rollback.commissions!) })
+  if (snapshot.bindings && rollback.bindings) steps.push({ apply: () => writeUserBindings(snapshot.bindings!), rollback: () => writeUserBindings(rollback.bindings!) })
+  if (snapshot.supplierOrders && rollback.supplierOrders) steps.push({ apply: () => writePlatformOrders(snapshot.supplierOrders!), rollback: () => writePlatformOrders(rollback.supplierOrders!) })
+  if (snapshot.ledger && rollback.ledger) steps.push({ apply: () => writePlatformCommissionLedger(snapshot.ledger!), rollback: () => writePlatformCommissionLedger(rollback.ledger!) })
+  if (snapshot.vouchers && rollback.vouchers) steps.push({ apply: () => writePlatformVoucherOrders(snapshot.vouchers!), rollback: () => writePlatformVoucherOrders(rollback.vouchers!) })
+  if (snapshot.intents && rollback.intents) steps.push({ apply: () => writeUserCommercePurchaseIntents(snapshot.intents!), rollback: () => writeUserCommercePurchaseIntents(rollback.intents!) })
+  const applied: typeof steps = []
+  for (const step of steps) {
+    if (step.apply()) { applied.push(step); continue }
+    for (const completed of [...applied].reverse()) completed.rollback()
+    return false
+  }
+  return true
+}
+
+function executeUserAtomicRecovery(journal: PlatformJournalEntry, variant: UserAtomicRecoveryVariant): boolean {
+  if (!isValidUserAtomicRecoveryJournal(journal, variant)) return false
+  const original = journal.original as UserAtomicRecoverySnapshot
+  const target = journal.target as UserAtomicRecoverySnapshot
+  const current = readStableUserAtomicRecoverySnapshot(variant, original.ownerUserId)
+  if (!current) return false
+  const fields = USER_ATOMIC_RECOVERY_CONFIG[variant].fields.filter((field) => field !== 'variant' && field !== 'ownerUserId') as Array<keyof UserAtomicRecoverySnapshot>
+  if (fields.some((field) => !userAtomicSame(current.snapshot[field], original[field]) && !userAtomicSame(current.snapshot[field], target[field]))) return false
+  if (userAtomicSame(current.snapshot, original) || userAtomicSame(current.snapshot, target)) return true
+  if (USER_ATOMIC_RECOVERY_CONFIG[variant].collections.some((key) => readPlatformCollectionRevision(key) !== current.revisions[key])) return false
+  return writeUserAtomicRecoverySnapshot(original, current.snapshot)
+}
+
+type PaymentConfirmationRecoveryStatus = 'confirmed' | 'synchronized'
+interface PaymentConfirmationRecoverySnapshot {
+  variant: 'payment-confirmation'
+  attemptOperationId: string
+  orderId: string
+  userId: string
+  amount: number
+  providerTransactionId: string
+  confirmedAt: string
+  status: PaymentConfirmationRecoveryStatus
+}
+
+const USER_PAYMENT_CONFIRMATION_RECOVERY_HANDLER_KEY = 'user-payment-confirmation-v1'
+const USER_PAYMENT_CONFIRMATION_RECOVERY_SCHEMA = 'user-payment-confirmation-v1'
+const PAYMENT_CONFIRMATION_RECOVERY_COLLECTIONS = [
+  PLATFORM_C_ORDERS_STORAGE_KEY,
+  PLATFORM_ORDERS_STORAGE_KEY,
+  PLATFORM_COMMISSION_LEDGER_STORAGE_KEY,
+  PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY
+]
+
+function paymentConfirmationRecoveryOperationId(attemptOperationId: string): string {
+  return `payment-confirmation:${attemptOperationId}`
+}
+
+function paymentConfirmationSnapshot(value: unknown, status?: PaymentConfirmationRecoveryStatus): value is PaymentConfirmationRecoverySnapshot {
+  if (!userAtomicRecord(value) || !userAtomicExactKeys(value, ['variant', 'attemptOperationId', 'orderId', 'userId', 'amount', 'providerTransactionId', 'confirmedAt', 'status'])) return false
+  return value.variant === 'payment-confirmation'
+    && typeof value.attemptOperationId === 'string' && !!value.attemptOperationId.trim()
+    && typeof value.orderId === 'string' && !!value.orderId.trim()
+    && typeof value.userId === 'string' && !!value.userId.trim()
+    && typeof value.amount === 'number' && Number.isFinite(value.amount) && value.amount > 0
+    && typeof value.providerTransactionId === 'string' && !!value.providerTransactionId.trim()
+    && typeof value.confirmedAt === 'string' && Number.isFinite(Date.parse(value.confirmedAt))
+    && (value.status === 'confirmed' || value.status === 'synchronized')
+    && (!status || value.status === status)
+}
+
+function validPaymentConfirmationRecoveryJournal(journal: PlatformJournalEntry): boolean {
+  if (journal.recoveryHandlerKey !== USER_PAYMENT_CONFIRMATION_RECOVERY_HANDLER_KEY || journal.recoverySchema !== USER_PAYMENT_CONFIRMATION_RECOVERY_SCHEMA) return false
+  if (!paymentConfirmationSnapshot(journal.original, 'confirmed') || !paymentConfirmationSnapshot(journal.target, 'synchronized')) return false
+  const original = journal.original
+  const target = journal.target
+  const expectedCollections = normalizePlatformTransactionCollections([...PAYMENT_CONFIRMATION_RECOVERY_COLLECTIONS, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY])
+  const { status: _originalStatus, ...originalIdentity } = original
+  const { status: _targetStatus, ...targetIdentity } = target
+  return journal.operationId === paymentConfirmationRecoveryOperationId(original.attemptOperationId)
+    && userAtomicSame(originalIdentity, targetIdentity)
+    && userAtomicSame([...journal.collections].sort(), expectedCollections)
+}
+
+function paymentConfirmationSupplierOrderMatches(order: Order | undefined, descriptor: PaymentConfirmationRecoverySnapshot, subOrder: CSubOrder): boolean {
+  const link = order?.supplierOrderLink
+  return !!order && link?.source === 'c-mall' && link.sourceOrderId === descriptor.orderId && link.sourceSubOrderId === subOrder.id
+    && link.customerUserId === descriptor.userId && order.supplierId === subOrder.supplierId && round2(order.amount) === round2(subOrder.amount)
+}
+
+function paymentConfirmationLedgerEntryMatches(entry: CommissionLedgerEntry | undefined, descriptor: PaymentConfirmationRecoverySnapshot, allocation: CCommissionAllocation): boolean {
+  return !!entry && entry.sourceOrderId === descriptor.orderId && entry.sourceSubOrderId === allocation.subOrderId
+    && entry.beneficiaryType === 'promoter' && entry.beneficiaryId === allocation.beneficiaryId
+    && entry.role === (allocation.beneficiaryLevel || 'promoter') && round2(entry.amount) === round2(allocation.amount)
+}
+
+function paymentConfirmationBusinessIsSynchronized(descriptor: PaymentConfirmationRecoverySnapshot): boolean {
+  const attempt = readPaymentAttempts()[descriptor.attemptOperationId]
+  const order = (readCOrders() || {})[descriptor.orderId]
+  if (!attempt || attempt.status !== 'synchronized' || attempt.providerTransactionId !== descriptor.providerTransactionId
+    || attempt.userId !== descriptor.userId || round2(attempt.amount) !== round2(descriptor.amount)
+    || !order || order.userId !== descriptor.userId || round2(order.amount) !== round2(descriptor.amount)
+    || order.providerTransactionId !== descriptor.providerTransactionId || order.status === 'pending_payment'
+    || order.subOrders.some((subOrder) => subOrder.status === 'pending_payment')) return false
+  const supplierOrders = readPlatformOrders() || {}
+  const ledger = readPlatformCommissionLedger() || {}
+  return order.subOrders.every((subOrder) => paymentConfirmationSupplierOrderMatches(supplierOrders[`C-MALL-${subOrder.id}`], descriptor, subOrder))
+    && order.commissionAllocations.every((allocation) => paymentConfirmationLedgerEntryMatches(ledger[`CC-${allocation.id}`], descriptor, allocation))
+}
+
+function executePaymentConfirmationRecovery(journal: PlatformJournalEntry): boolean {
+  if (!validPaymentConfirmationRecoveryJournal(journal)) return false
+  const descriptor = journal.original as PaymentConfirmationRecoverySnapshot
+  if (paymentConfirmationBusinessIsSynchronized(descriptor)) return true
+  const attempts = readPaymentAttempts()
+  const attempt = attempts[descriptor.attemptOperationId]
+  const orders = readCOrders() || {}
+  const order = orders[descriptor.orderId]
+  if (!attempt || attempt.status !== 'confirmed' || attempt.providerTransactionId !== descriptor.providerTransactionId
+    || attempt.orderId !== descriptor.orderId || attempt.userId !== descriptor.userId || round2(attempt.amount) !== round2(descriptor.amount)
+    || attempt.updatedAt !== descriptor.confirmedAt
+    || !order || order.userId !== descriptor.userId || round2(order.amount) !== round2(descriptor.amount)) return false
+
+  const paidOrder = cloneSeed(order)
+  if (paidOrder.status === 'pending_payment') {
+    if (!userAtomicOrderAmountIsValid(paidOrder) || paidOrder.providerTransactionId || paidOrder.subOrders.some((subOrder) => subOrder.status !== 'pending_payment')) return false
+    paidOrder.paidAt = descriptor.confirmedAt
+    paidOrder.providerTransactionId = descriptor.providerTransactionId
+    paidOrder.subOrders.forEach((subOrder) => {
+      subOrder.status = 'paid'
+      subOrder.logistics.push(
+        { time: descriptor.confirmedAt, title: '支付成功', detail: '订单已进入供应商备货流程' },
+        { time: descriptor.confirmedAt, title: '等待发货', detail: '供应商准备发货，暂无运单号' }
+      )
+    })
+    paidOrder.status = deriveCOrderStatus(paidOrder.subOrders)
+  } else if (paidOrder.providerTransactionId !== descriptor.providerTransactionId || paidOrder.subOrders.some((subOrder) => subOrder.status === 'pending_payment')) return false
+
+  const supplierOrders = readPlatformOrders() || {}
+  const nextSupplierOrders = cloneSeed(supplierOrders)
+  for (const subOrder of paidOrder.subOrders) {
+    const id = `C-MALL-${subOrder.id}`
+    if (nextSupplierOrders[id]) {
+      if (!paymentConfirmationSupplierOrderMatches(nextSupplierOrders[id], descriptor, subOrder)) return false
+    } else nextSupplierOrders[id] = publishCSubOrderToSupplier(paidOrder, subOrder)
+  }
+  const ledger = readPlatformCommissionLedger() || {}
+  const nextLedger = cloneSeed(ledger)
+  for (const allocation of paidOrder.commissionAllocations) {
+    const id = `CC-${allocation.id}`
+    if (nextLedger[id]) {
+      if (!paymentConfirmationLedgerEntryMatches(nextLedger[id], descriptor, allocation)) return false
+    } else {
+      nextLedger[id] = {
+        id,
+        sourceOrderId: descriptor.orderId,
+        sourceSubOrderId: allocation.subOrderId,
+        beneficiaryType: 'promoter',
+        beneficiaryId: allocation.beneficiaryId,
+        role: allocation.beneficiaryLevel || 'promoter',
+        amount: allocation.amount,
+        status: 'pending',
+        createdAt: allocation.createdAt || descriptor.confirmedAt
+      }
+    }
+  }
+  const nextOrders = { ...orders, [paidOrder.id]: paidOrder }
+  const synchronizedAttempt: PaymentAttempt = {
+    ...attempt,
+    status: 'synchronized',
+    updatedAt: new Date(Math.max(Date.now(), Date.parse(attempt.updatedAt) + 1)).toISOString()
+  }
+  const steps = [
+    { changed: !userAtomicSame(supplierOrders, nextSupplierOrders), apply: () => writePlatformOrders(nextSupplierOrders), rollback: () => writePlatformOrders(supplierOrders) },
+    { changed: !userAtomicSame(ledger, nextLedger), apply: () => writePlatformCommissionLedger(nextLedger), rollback: () => writePlatformCommissionLedger(ledger) },
+    { changed: !userAtomicSame(orders, nextOrders), apply: () => writeCOrders(nextOrders), rollback: () => writeCOrders(orders) },
+    { changed: true, apply: () => writePaymentAttempt(synchronizedAttempt), rollback: () => writePlatformJson(PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, attempts) }
+  ].filter((step) => step.changed)
+  const applied: typeof steps = []
+  for (const step of steps) {
+    if (step.apply()) { applied.push(step); continue }
+    let rollbackOk = true
+    for (const completed of [...applied, step].reverse()) if (!completed.rollback()) rollbackOk = false
+    throw new Error(rollbackOk ? 'payment-confirmation-write-failed' : 'payment-confirmation-rollback-failed')
+  }
+  return paymentConfirmationBusinessIsSynchronized(descriptor)
+}
+
+export async function ensureConfirmedPaymentRecoveryTask(attemptOperationId: string): Promise<WriteResult<PlatformRecoveryTask>> {
+  const operationId = paymentConfirmationRecoveryOperationId(attemptOperationId?.trim())
+  let failure: WriteResult<PlatformRecoveryTask> | undefined
+  const result = await runLockedPlatformCollectionTask<PlatformRecoveryTask | null>({
+    collections: [...PAYMENT_CONFIRMATION_RECOVERY_COLLECTIONS, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY],
+    execute: () => {
+      const attempt = readPaymentAttempts()[attemptOperationId]
+      if (!attempt || attempt.status !== 'confirmed' || !attempt.providerTransactionId) {
+        failure = { ok: false, code: 'payment_not_confirmed', message: '支付结果尚未确认', operationId }
+        return null
+      }
+      const original: PaymentConfirmationRecoverySnapshot = {
+        variant: 'payment-confirmation', attemptOperationId: attempt.operationId, orderId: attempt.orderId, userId: attempt.userId,
+        amount: attempt.amount, providerTransactionId: attempt.providerTransactionId, confirmedAt: attempt.updatedAt, status: 'confirmed'
+      }
+      const target: PaymentConfirmationRecoverySnapshot = { ...original, status: 'synchronized' }
+      const collections = normalizePlatformTransactionCollections([...PAYMENT_CONFIRMATION_RECOVERY_COLLECTIONS, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY])
+      if (!preparePlatformJournal({ operationId, collections, original, target, recoveryHandlerKey: USER_PAYMENT_CONFIRMATION_RECOVERY_HANDLER_KEY, recoverySchema: USER_PAYMENT_CONFIRMATION_RECOVERY_SCHEMA })
+        || !resolvePlatformJournal(operationId, 'recovery-pending')) {
+        failure = { ok: false, code: 'recovery_journal_write_failed', message: '支付恢复事务无法保存', operationId, fatal: true }
+        return null
+      }
+      if (!enqueuePlatformRecovery({ operationId, failedStep: 'payment-synchronization', reason: 'confirmed payment requires business synchronization', handlerKey: USER_PAYMENT_CONFIRMATION_RECOVERY_HANDLER_KEY })) {
+        failure = { ok: false, code: 'recovery_queue_write_failed', message: '支付恢复记录无法保存', operationId, fatal: true }
+        return null
+      }
+      return readPlatformRecoveryQueue().find((task) => task.operationId === operationId && task.status === 'pending') || null
+    }
+  })
+  if (!result.ok) return { ok: false, code: result.code, message: result.message, operationId, fatal: result.fatal }
+  if (!result.value) return failure || { ok: false, code: 'recovery_task_missing', message: '支付恢复任务无法读取', operationId, fatal: true }
+  return { ok: true, value: result.value, operationId }
+}
+
+function createPaymentConfirmationRecoveryHandlerRegistration(): PlatformRecoveryHandlerRegistration {
+  return createPlatformProductionRecoveryHandlerRegistration(USER_PAYMENT_CONFIRMATION_RECOVERY_HANDLER_KEY, {
+    execute: (task, journal) => task.handlerKey === USER_PAYMENT_CONFIRMATION_RECOVERY_HANDLER_KEY && executePaymentConfirmationRecovery(journal),
+    readSnapshot: (task, journal) => {
+      if (task.handlerKey !== USER_PAYMENT_CONFIRMATION_RECOVERY_HANDLER_KEY || !validPaymentConfirmationRecoveryJournal(journal)) return null
+      const original = journal.original as PaymentConfirmationRecoverySnapshot
+      return paymentConfirmationBusinessIsSynchronized(original) ? journal.target : journal.original
+    }
+  })
+}
+
+export function createUserAtomicRecoveryHandlerRegistrations(): PlatformRecoveryHandlerRegistration[] {
+  const registrations = (Object.keys(USER_ATOMIC_RECOVERY_CONFIG) as UserAtomicRecoveryVariant[]).map((variant) => {
+    const config = USER_ATOMIC_RECOVERY_CONFIG[variant]
+    return createPlatformProductionRecoveryHandlerRegistration(config.key, {
+      execute: (task, journal) => task.handlerKey === config.key && executeUserAtomicRecovery(journal, variant),
+      readSnapshot: (task, journal) => task.handlerKey === config.key && isValidUserAtomicRecoveryJournal(journal, variant)
+        ? readStableUserAtomicRecoverySnapshot(variant, (journal.original as UserAtomicRecoverySnapshot).ownerUserId)?.snapshot || null
+        : null
+    })
+  })
+  return [...registrations, createPaymentConfirmationRecoveryHandlerRegistration()]
 }

@@ -1,24 +1,16 @@
 import { createSSRApp } from 'vue'
 import { createPinia } from 'pinia'
-import { migratePersistedState, persistedEnvelope } from '@agritainment/shared'
-import { configureMediaRuntime } from '@agritainment/ui'
-// #ifdef H5
-import { createH5MediaRuntime } from '@agritainment/ui/h5'
-// #endif
-// #ifdef MP-WEIXIN
-import { createMiniProgramMediaRuntime } from '@agritainment/ui/mp'
-// #endif
+import { initializePlatformRecoveryHandlers, migratePersistedState, persistedEnvelope, reconcilePendingPlatformTransactions } from '@agritainment/shared'
+import './media-runtime'
 import App from './App.vue'
+import { createSupplierAtomicRecoveryHandlerRegistrations } from './stores/supplier'
 
 const persistedKeys = ['auth'] as const
 
 export function createApp() {
-  // #ifdef H5
-  configureMediaRuntime(createH5MediaRuntime())
-  // #endif
-  // #ifdef MP-WEIXIN
-  configureMediaRuntime(createMiniProgramMediaRuntime())
-  // #endif
+  const recoveryHandlers = createSupplierAtomicRecoveryHandlerRegistrations()
+  initializePlatformRecoveryHandlers(recoveryHandlers)
+  recoveryHandlers.forEach(({ key }) => reconcilePendingPlatformTransactions({ handlerKey: key }))
   const app = createSSRApp(App)
   const pinia = createPinia()
   pinia.use(({ store }) => {

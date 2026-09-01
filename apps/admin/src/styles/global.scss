@@ -1,3 +1,5 @@
+@use "../../../../packages/ui/src/typography.scss";
+
 :root {
   --admin-green: #153e2c;
   --admin-green-2: #1d6b44;
@@ -6,7 +8,7 @@
   --admin-bg: #f4f4ef;
   --admin-panel: #ffffff;
   --admin-ink: #202820;
-  --admin-muted: #6f786f;
+  --admin-muted: #59645b;
   --admin-line: #dedfd8;
 }
 
@@ -15,13 +17,25 @@ page, body, #app {
   margin: 0;
   background: var(--admin-bg);
   color: var(--admin-ink);
-  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--line-body);
   letter-spacing: 0;
 }
 
+body { overflow-x: hidden; }
+
 * { box-sizing: border-box; }
-button, input, select { font: inherit; letter-spacing: 0; }
+button, input, select, textarea { font: inherit; letter-spacing: 0; }
 button { border: 0; }
 button { transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: translateY(1px); }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid rgba(29, 107, 68, .34); outline-offset: 2px; }
+
+@media (max-width: 420px) {
+  .uni-sample-toast {
+    top: auto !important;
+    bottom: max(16px, calc(env(safe-area-inset-bottom) + 16px)) !important;
+    transform: translateX(-50%) !important;
+  }
+}

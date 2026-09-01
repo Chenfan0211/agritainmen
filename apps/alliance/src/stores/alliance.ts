@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import type { AllianceBooking, CommissionEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, PlatformPrincipal, Product, Promoter, PromoterAccount, PromotionRecord, TravelRoute, WithdrawalRequest } from '@agritainment/shared'
-import { applyPlatformMedia, authenticatePromoter, buildPortalUrl, buildPromoterAccountSeeds, cloneSeed, commissionRules as seedCommissionRules, createId, mergeEntitySeeds, mergePersistedDefaults, mergePlatformPromoterAccounts, promoters, readPlatformCommissionSettlement, readPlatformPromoterAccountState, readPlatformBookings, readPlatformCommissionLedger, readPlatformPromoterAccounts, readPlatformWithdrawals, readUserBindings, validateSmsCode, writePlatformBooking, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts, writePlatformWithdrawal, round2 } from '@agritainment/shared'
+import type { AllianceBooking, CommissionEntry, CommissionLedgerEntry, CommissionRule, FarmStore, LiveRoom, MockScenario, PlatformJournalEntry, PlatformPrincipal, Product, Promoter, PromoterAccount, PromotionRecord, TravelRoute, WithdrawalRequest } from '@agritainment/shared'
+import { PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, applyPlatformMedia, authenticatePromoter, buildPortalUrl, buildPromoterAccountSeeds, cloneSeed, commissionRules as seedCommissionRules, createId, createStrictSnapshotRecoveryHandlerRegistration, initializePlatformRecoveryHandlers, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformPromoterAccounts, promoters, readPlatformCollectionRevision, readPlatformCommissionSettlement, readPlatformEntities, readPlatformPromoterAccountState, readPlatformBookings, readPlatformCommissionLedger, readPlatformPromoterAccounts, readPlatformWithdrawals, readUserBindings, reconcilePendingPlatformTransactions, runLockedPlatformCollectionTask, runLockedPlatformTransaction, validateSmsCode, writePlatformBooking, writePlatformCommissionLedger, writePlatformPromoterAccounts, writePlatformWithdrawal, round2 } from '@agritainment/shared'
 import { allianceRepository } from '../services/repository'
 
 interface FanRecord {
@@ -9,6 +9,114 @@ interface FanRecord {
   source: string
   lockedAt: string
 }
+
+const ALLIANCE_WITHDRAWAL_RECOVERY_HANDLER_KEY = 'alliance-withdrawal-v1'
+const ALLIANCE_WITHDRAWAL_RECOVERY_SCHEMA = 'alliance-withdrawal-snapshot-v1'
+const ALLIANCE_WITHDRAWAL_COLLECTIONS = [PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY] as const
+type AllianceWithdrawalSubmissionResult = 'pending' | 'duplicate' | 'invalid' | 'insufficient' | false
+
+interface AllianceWithdrawalSnapshot {
+  ledger: Record<string, CommissionLedgerEntry>
+  request: WithdrawalRequest
+}
+
+interface AllianceWithdrawalRevisionToken {
+  ledger: number
+  withdrawals: number
+}
+
+function sameSnapshotValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function reservedPromoterWithdrawalAmount(
+  promoterId: string,
+  withdrawals: readonly WithdrawalRequest[],
+  ledger: Record<string, CommissionLedgerEntry>
+): number {
+  return round2(withdrawals
+    .filter((item) => item.requesterType === 'promoter' && item.requesterId === promoterId)
+    .reduce((sum, item) => {
+      if (item.status === 'pending') return sum + item.amount
+      if (item.status !== 'approved') return sum
+      const consumed = ledger[`WD-${item.requestKey}`]
+      return consumed
+        && consumed.sourceOrderId === item.requestKey
+        && consumed.beneficiaryId === promoterId
+        && consumed.role === 'withdrawal'
+        && consumed.amount === -item.amount
+        ? sum
+        : sum + item.amount
+    }, 0))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isAllianceWithdrawalSnapshot(value: unknown): value is AllianceWithdrawalSnapshot {
+  return isRecord(value) && isRecord(value.ledger) && isRecord(value.request)
+}
+
+function isAllianceWithdrawalJournal(journal: PlatformJournalEntry): boolean {
+  if (journal.recoveryHandlerKey !== ALLIANCE_WITHDRAWAL_RECOVERY_HANDLER_KEY
+    || journal.recoverySchema !== ALLIANCE_WITHDRAWAL_RECOVERY_SCHEMA
+    || !isAllianceWithdrawalSnapshot(journal.original)
+    || !isAllianceWithdrawalSnapshot(journal.target)) return false
+  const businessCollections = journal.collections.filter((key) => key !== PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY && key !== PLATFORM_RECOVERY_QUEUE_STORAGE_KEY)
+  if (businessCollections.length !== ALLIANCE_WITHDRAWAL_COLLECTIONS.length || ALLIANCE_WITHDRAWAL_COLLECTIONS.some((key) => !businessCollections.includes(key))) return false
+  const original = journal.original
+  const target = journal.target
+  const request = original.request
+  if (!sameSnapshotValue(request, target.request)
+    || request.requesterType !== 'promoter'
+    || request.status !== 'approved'
+    || !request.id?.trim()
+    || !request.requesterId?.trim()
+    || !request.requestKey?.trim()
+    || !Number.isFinite(request.amount)
+    || request.amount <= 0
+    || journal.operationId !== `alliance-withdrawal-consume:${request.requestKey}`) return false
+  const entryId = `WD-${request.requestKey}`
+  const changedLedgerIds = [...new Set([...Object.keys(original.ledger), ...Object.keys(target.ledger)])]
+    .filter((id) => !sameSnapshotValue(original.ledger[id], target.ledger[id]))
+  if (changedLedgerIds.length !== 1 || changedLedgerIds[0] !== entryId || original.ledger[entryId]) return false
+  return sameSnapshotValue(target.ledger[entryId], {
+    id: entryId,
+    sourceOrderId: request.requestKey,
+    beneficiaryType: 'promoter',
+    beneficiaryId: request.requesterId,
+    role: 'withdrawal',
+    amount: -request.amount,
+    status: 'settled',
+    createdAt: request.reviewedAt || request.createdAt
+  })
+}
+
+function readStableAllianceWithdrawalSnapshot(requestId: string): { snapshot: AllianceWithdrawalSnapshot; token: AllianceWithdrawalRevisionToken } | null {
+  const before = {
+    ledger: readPlatformCollectionRevision(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY),
+    withdrawals: readPlatformCollectionRevision(PLATFORM_WITHDRAWALS_STORAGE_KEY)
+  }
+  const ledger = cloneSeed(readPlatformCommissionLedger() || {})
+  const persistedRequest = readPlatformWithdrawals()?.[requestId]
+  const request = persistedRequest ? cloneSeed(persistedRequest) : null
+  const after = {
+    ledger: readPlatformCollectionRevision(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY),
+    withdrawals: readPlatformCollectionRevision(PLATFORM_WITHDRAWALS_STORAGE_KEY)
+  }
+  return request && sameSnapshotValue(before, after) ? { snapshot: { ledger, request }, token: after } : null
+}
+
+const allianceWithdrawalRecovery = createStrictSnapshotRecoveryHandlerRegistration<AllianceWithdrawalSnapshot, AllianceWithdrawalRevisionToken>({
+  key: ALLIANCE_WITHDRAWAL_RECOVERY_HANDLER_KEY,
+  fields: ['ledger', 'request'],
+  validateJournal: isAllianceWithdrawalJournal,
+  readStable: (journal) => readStableAllianceWithdrawalSnapshot((journal.original as AllianceWithdrawalSnapshot).request.id),
+  isStillStable: (token) => token.ledger === readPlatformCollectionRevision(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY)
+    && token.withdrawals === readPlatformCollectionRevision(PLATFORM_WITHDRAWALS_STORAGE_KEY),
+  writeSnapshot: (snapshot) => writePlatformCommissionLedger(snapshot.ledger)
+})
 
 const alliancePortalLink = (targetType: 'farm' | 'product' | 'live', targetId: string, promoterId = 'T001') => buildPortalUrl('user', 'pages/index/index', {
   promoter: promoterId,
@@ -116,13 +224,19 @@ export const useAllianceStore = defineStore('discovery', {
     },
     availableCommission: (state) => {
       const touch = state.commissionEntries.length
-      const entries = Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && (item.status === 'available' || (item.amount < 0 && item.status !== 'reversed')))
+      const ledger = readPlatformCommissionLedger() || {}
+      const entries = Object.values(ledger).filter((item) => item.beneficiaryId === state.promoter?.id && (item.status === 'available' || (item.amount < 0 && item.status !== 'reversed')))
       const gross = Math.round(entries.reduce((sum, item) => sum + item.amount, 0) * 100) / 100 + 0 * touch
-      const pending = Object.values(readPlatformWithdrawals() || {}).filter((item) => item.requesterId === state.promoter?.id && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0)
-      return Math.max(0, round2(gross - pending) + 0 * state.withdrawalsTick)
+      const reserved = state.promoter?.id ? reservedPromoterWithdrawalAmount(state.promoter.id, Object.values(readPlatformWithdrawals() || {}), ledger) : 0
+      return Math.max(0, round2(gross - reserved) + 0 * state.withdrawalsTick)
     },
     pendingWithdrawalAmount: (state) => Object.values(readPlatformWithdrawals() || {}).filter((item) => item.requesterId === state.promoter?.id && item.status === 'pending').reduce((sum, item) => sum + item.amount, 0) + 0 * state.withdrawalsTick,
-    withdrawalRecords: (state) => state.commissionEntries.filter((item) => item.type === 'withdrawal').map((item) => ({ amount: Math.abs(item.amount), method: item.description.replace(/提现$/, ''), createdAt: item.createdAt })),
+    withdrawalRecords: (state): WithdrawalRequest[] => {
+      void state.withdrawalsTick
+      return Object.values(readPlatformWithdrawals() || {})
+        .filter((item) => item.requesterType === 'promoter' && item.requesterId === state.promoter?.id)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    },
     liveRanking: (state) => [...state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city))].sort((a, b) => b.livePopularity - a.livePopularity),
     cityFarms: (state) => state.farms.filter((item) => item.city === (CITY_REGION[state.city] || state.city)),
     cityLiveRooms: (state) => state.liveRooms.filter((item) => item.city === (CITY_REGION[state.city] || state.city)),
@@ -133,19 +247,25 @@ export const useAllianceStore = defineStore('discovery', {
     }
   },
   actions: {
+    promoterDirectory(): Promoter[] {
+      return mergePlatformEntities(cloneSeed(promoters), readPlatformEntities()?.promoters)
+    },
     async initialize(force = false) {
       if ((!force && this.initialized) || this.loading) return
       const hasPersistedData = !force && this.mockScenario === 'normal' && this.farms.length > 0 && this.products.length > 0
       this.loading = true
       this.error = ''
       try {
+        initializePlatformRecoveryHandlers([allianceWithdrawalRecovery])
+        const reconciliation = reconcilePendingPlatformTransactions({ handlerKey: ALLIANCE_WITHDRAWAL_RECOVERY_HANDLER_KEY, matches: isAllianceWithdrawalJournal })
+        if (!reconciliation.ok) throw new Error(reconciliation.message)
         const data = await allianceRepository.loadDiscovery(this.mockScenario)
         this.$patch({
           farms: hasPersistedData ? mergeEntitySeeds(data.farms, this.farms) : data.farms,
           liveRooms: hasPersistedData ? mergeEntitySeeds(data.liveRooms, this.liveRooms) : data.liveRooms,
           products: hasPersistedData ? mergeEntitySeeds(data.products, this.products) : data.products,
           promoter: this.auth.promoterId
-            ? cloneSeed(promoters.find((item) => item.id === this.auth.promoterId) || null)
+            ? cloneSeed(this.promoterDirectory().find((item) => item.id === this.auth.promoterId) || null)
             : hasPersistedData ? mergePersistedDefaults(data.promoter, this.promoter) : data.promoter,
           promoterRanking: hasPersistedData ? mergeEntitySeeds(data.promoterRanking, this.promoterRanking) : data.promoterRanking,
           commissionRules: hasPersistedData ? mergeEntitySeeds(data.commissionRules, this.commissionRules) : data.commissionRules,
@@ -177,27 +297,71 @@ export const useAllianceStore = defineStore('discovery', {
       this.joinedRoutes.push(id)
       return true
     },
-withdraw(amount: number, method: string, requestKey: string) {
-      if (requestKey && (this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === requestKey) || Object.values(readPlatformWithdrawals() || {}).some((item) => item.requestKey === requestKey && item.requesterId === this.promoter?.id))) return 'duplicate' as const
-      if (!Number.isFinite(amount) || amount <= 0) return 'invalid' as const
-      if (amount > this.availableCommission) return 'insufficient' as const
-      const createdAt = new Date().toISOString()
-      const id = requestKey || createId('WD')
-      writePlatformWithdrawal({ id, requesterType: 'promoter', requesterId: this.promoter?.id || '', amount, method, status: 'pending', requestKey: id, createdAt })
-      this.withdrawalsTick += 1
-      return 'pending' as const
-    },
-    syncWithdrawals() {
-      if (!this.promoter?.id) return
-      for (const req of Object.values(readPlatformWithdrawals() || {})) {
-        if (req.requesterType !== 'promoter' || req.requesterId !== this.promoter.id) continue
-        if (req.status === 'approved' && !this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === req.requestKey)) {
-          const createdAt = req.reviewedAt || req.createdAt
-          this.commissionEntries.unshift({ id: createId('CM'), promoterId: this.promoter.id, type: 'withdrawal', amount: -req.amount, description: req.method + '提现', createdAt, status: 'completed', requestKey: req.requestKey })
-          writePlatformCommissionLedgerEntry({ id: 'WD-' + req.requestKey, sourceOrderId: req.requestKey, beneficiaryType: 'promoter', beneficiaryId: this.promoter.id, role: 'withdrawal', amount: -req.amount, status: 'settled', createdAt })
+    async withdraw(amount: number, method: string, requestKey: string): Promise<AllianceWithdrawalSubmissionResult> {
+      const promoterId = this.promoter?.id
+      if (!promoterId || !Number.isFinite(amount) || amount <= 0) return 'invalid'
+      const result = await runLockedPlatformCollectionTask<AllianceWithdrawalSubmissionResult>({
+        collections: [PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY],
+        execute: () => {
+          const withdrawals = Object.values(readPlatformWithdrawals() || {})
+          if (withdrawals.some((item) => item.requesterType === 'promoter' && item.requesterId === promoterId && item.status === 'pending')) return 'duplicate'
+          if (requestKey && (this.commissionEntries.some((item) => item.type === 'withdrawal' && item.requestKey === requestKey) || withdrawals.some((item) => item.requestKey === requestKey && item.requesterId === promoterId))) return 'duplicate'
+          const ledger = readPlatformCommissionLedger() || {}
+          const gross = round2(Object.values(ledger)
+            .filter((item) => item.beneficiaryId === promoterId && (item.status === 'available' || (item.amount < 0 && item.status !== 'reversed')))
+            .reduce((sum, item) => sum + item.amount, 0))
+          const reserved = reservedPromoterWithdrawalAmount(promoterId, withdrawals, ledger)
+          if (amount > Math.max(0, round2(gross - reserved))) return 'insufficient'
+          const id = requestKey || createId('WD')
+          return writePlatformWithdrawal({ id, requesterType: 'promoter', requesterId: promoterId, amount, method, status: 'pending', requestKey: id, createdAt: new Date().toISOString() }) ? 'pending' : false
         }
+      })
+      if (!result.ok) {
+        this.error = result.message
+        return false
       }
-      this.saveCurrentPromoterSession()
+      if (result.value === 'pending') this.withdrawalsTick += 1
+      return result.value ?? false
+    },
+    async syncWithdrawals() {
+      if (!this.promoter?.id) return
+      const promoterId = this.promoter.id
+      const requests = Object.values(readPlatformWithdrawals() || {})
+        .filter((item) => item.requesterType === 'promoter' && item.requesterId === promoterId && item.status === 'approved')
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      for (const request of requests) {
+        const entryId = `WD-${request.requestKey}`
+        const stable = readStableAllianceWithdrawalSnapshot(request.id)
+        if (!stable) continue
+        const { ledger } = stable.snapshot
+        const persistedRequest = stable.snapshot.request
+        if (persistedRequest.status !== 'approved' || persistedRequest.requesterType !== 'promoter' || persistedRequest.requesterId !== promoterId || persistedRequest.requestKey !== request.requestKey) continue
+        const existing = ledger[entryId]
+        if (existing) {
+          if (existing.sourceOrderId !== persistedRequest.requestKey || existing.beneficiaryId !== promoterId || existing.role !== 'withdrawal' || existing.amount !== -persistedRequest.amount) this.error = '提现账本记录冲突，请联系平台处理'
+          continue
+        }
+        const entry = { id: entryId, sourceOrderId: persistedRequest.requestKey, beneficiaryType: 'promoter' as const, beneficiaryId: promoterId, role: 'withdrawal' as const, amount: -persistedRequest.amount, status: 'settled' as const, createdAt: persistedRequest.reviewedAt || persistedRequest.createdAt }
+        const targetLedger = { ...ledger, [entryId]: entry }
+        const result = await runLockedPlatformTransaction({
+          operationId: `alliance-withdrawal-consume:${persistedRequest.requestKey}`,
+          collections: [...ALLIANCE_WITHDRAWAL_COLLECTIONS],
+          original: stable.snapshot,
+          target: { ledger: targetLedger, request: persistedRequest },
+          recoveryHandlerKey: ALLIANCE_WITHDRAWAL_RECOVERY_HANDLER_KEY,
+          recoverySchema: ALLIANCE_WITHDRAWAL_RECOVERY_SCHEMA,
+          revisionChecks: [
+            { key: PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, expectedRevision: stable.token.ledger },
+            { key: PLATFORM_WITHDRAWALS_STORAGE_KEY, expectedRevision: stable.token.withdrawals }
+          ],
+          validate: () => {
+            const current = readPlatformWithdrawals()?.[persistedRequest.id]
+            return sameSnapshotValue(current, persistedRequest) && !readPlatformCommissionLedger()?.[entryId]
+          },
+          steps: [{ key: 'commission-ledger', apply: () => writePlatformCommissionLedger(targetLedger), rollback: () => writePlatformCommissionLedger(ledger) }]
+        })
+        if (!result.ok && result.code !== 'revision_conflict' && result.code !== 'validation_failed') this.error = result.message
+      }
       this.withdrawalsTick += 1
     },
     watchLive(id: string) {
@@ -263,7 +427,7 @@ withdraw(amount: number, method: string, requestKey: string) {
       return record
     },
     promoterAccounts(): PromoterAccount[] {
-      const defaults = buildPromoterAccountSeeds(promoters)
+      const defaults = buildPromoterAccountSeeds(this.promoterDirectory())
       const saved = readPlatformPromoterAccounts()
       if (!saved || saved.length === 0) writePlatformPromoterAccounts(defaults, readPlatformPromoterAccountState()?.revision ?? 0)
       return mergePlatformPromoterAccounts(defaults, readPlatformPromoterAccounts())
@@ -294,7 +458,7 @@ withdraw(amount: number, method: string, requestKey: string) {
       return true
     },
     loginWithPassword(phone: string, password: string) {
-      const result = authenticatePromoter(this.promoterAccounts(), promoters, phone, password)
+      const result = authenticatePromoter(this.promoterAccounts(), this.promoterDirectory(), phone, password)
       return result.ok ? this.activatePromoterAccount(result.account, result.promoter) : false
     },
     loginWithCode(phone: string, code: string) {
@@ -313,7 +477,7 @@ withdraw(amount: number, method: string, requestKey: string) {
         return
       }
       await this.initialize(true)
-      this.syncWithdrawals()
+      await this.syncWithdrawals()
     },
     logout() {
       this.saveCurrentPromoterSession()

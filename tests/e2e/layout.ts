@@ -47,3 +47,26 @@ export async function assertNoClippedText(locator: Locator) {
   }).map((element) => (element.textContent || '').trim().slice(0, 80)))
   expect(clipped, clipped.join('\n')).toEqual([])
 }
+
+export async function assertReadableText(locator: Locator, minimumPx = 11) {
+  const unreadable = await locator.evaluateAll((roots, minimum) => {
+    const candidates = roots.flatMap((root) => [root, ...Array.from(root.querySelectorAll('*'))])
+    return candidates.flatMap((element) => {
+      const html = element as HTMLElement
+      const style = getComputedStyle(html)
+      const ownText = Array.from(html.childNodes)
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent || '')
+        .join(' ')
+        .trim()
+      if (!ownText || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return []
+      if (html.closest('[aria-hidden="true"], .ui-icon, [class*="icon-"]')) return []
+      const size = Number.parseFloat(style.fontSize)
+      const interactive = html.closest('button, uni-button, [role="button"]')
+      const compactInteractive = html.closest('[data-typography-compact]')
+      const required = interactive && !compactInteractive ? Math.max(13, minimum) : minimum
+      return size + .01 < required ? [{ text: ownText.slice(0, 60), size, required, tag: html.tagName.toLowerCase(), className: html.className }] : []
+    })
+  }, minimumPx)
+  expect(unreadable, unreadable.map((item) => `${item.size}px < ${item.required}px ${item.tag}.${item.className}: ${item.text}`).join('\n')).toEqual([])
+}

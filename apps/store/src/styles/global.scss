@@ -1,3 +1,5 @@
+@use "../../../../packages/ui/src/typography.scss";
+
 :root {
   --farm-green: #17633f;
   --farm-green-deep: #10472f;
@@ -7,7 +9,7 @@
   --farm-bg: #f5f5ef;
   --farm-panel: #ffffff;
   --farm-ink: #222922;
-  --farm-muted: #717971;
+  --farm-muted: #626d64;
   --farm-line: #e2e4dd;
 }
 
@@ -16,12 +18,14 @@ page, body, #app {
   margin: 0;
   background: var(--farm-bg);
   color: var(--farm-ink);
-  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--line-body);
   letter-spacing: 0;
 }
 
 * { box-sizing: border-box; }
-button, input { font: inherit; letter-spacing: 0; }
+button, input, select, textarea { font: inherit; letter-spacing: 0; }
 button { border: 0; transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: scale(.98); }
 button:disabled { opacity: .48; pointer-events: none; }

@@ -351,7 +351,9 @@ describe('admin source integration', () => {
 
   it('字典初始化与 CRUD 使用共享读写 API，并停止读取 city 字典', () => {
     expect(storeSource).toContain('readPlatformDictionaries')
-    expect(storeSource).toContain('publishPlatformDictionaries')
+    expect(storeSource).toContain('canPublishPlatformDictionaries')
+    expect(storeSource).toContain('writePlatformJson(PLATFORM_DICTIONARIES_STORAGE_KEY')
+    expect(storeSource).toContain("executeAdminTransaction('dictionary.manage'")
     expect(storeSource).not.toMatch(/type === ['"]city['"]/)
     expect(pageSource).not.toMatch(/type === ['"]city['"]/)
   })

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { assertReadableText } from './layout'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('http://127.0.0.1:5182/')
@@ -107,7 +108,7 @@ test('shows empowerment content only to the industry service principal', async (
   await expect(page.locator('[data-module-view="industry-empowerment"]')).toBeVisible()
 })
 
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }, { width: 1366, height: 768 }]) {
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1280, height: 600 }]) {
   test(`keeps readable fixed panels inside ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport)
     await login(page, 'leader')
@@ -124,8 +125,9 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1440, height: 90
     expect(shell!.width).toBeLessThanOrEqual(viewport.width)
     expect(toolbar!.x + toolbar!.width).toBeLessThanOrEqual(viewport.width)
     expect(bottom!.y + bottom!.height).toBeLessThanOrEqual(viewport.height)
-    expect(bodyFontSize).toBeGreaterThanOrEqual(11)
-    expect(auxiliaryFontSize).toBeGreaterThanOrEqual(10)
+    expect(bodyFontSize).toBeGreaterThanOrEqual(12)
+    expect(auxiliaryFontSize).toBeGreaterThanOrEqual(11)
+    await assertReadableText(page.locator('.dashboard-shell'), 11)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width)
     expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(viewport.height)
   })

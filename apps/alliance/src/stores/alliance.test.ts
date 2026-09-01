@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cloneSeed, farms, liveRooms, products, promoters, readPlatformCommissionLedger, readPlatformWithdrawals, readPlatformRoutes, removePlatformRoute, travelRoutes, writePlatformRoute, mergePlatformRoutes, readPlatformPromoterAccountState, transitionPlatformWithdrawal, upsertUserBinding, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts } from '@agritainment/shared'
+import { PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, cloneSeed, farms, liveRooms, products, promoters, readPlatformCommissionLedger, readPlatformJournal, readPlatformRecoveryQueue, readPlatformWithdrawals, readPlatformRoutes, removePlatformRoute, retryPlatformRecoveryTask, travelRoutes, writePlatformRoute, mergePlatformRoutes, readPlatformPromoterAccountState, transitionPlatformWithdrawal, upsertUserBinding, writePlatformCommissionLedgerEntry, writePlatformPromoterAccounts, writePlatformWithdrawal } from '@agritainment/shared'
 import { useAllianceStore } from './alliance'
 
 if (!globalThis.localStorage) {
@@ -17,7 +17,7 @@ if (!globalThis.localStorage) {
 
 
 describe('alliance store interactions', () => {
-  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
+  beforeEach(() => { vi.unstubAllGlobals(); setActivePinia(createPinia()); localStorage.clear() })
 
   it('records one viewer and creates a booking', () => {
     const store = useAllianceStore()
@@ -30,7 +30,7 @@ describe('alliance store interactions', () => {
     expect(store.bookings[0].farmId).toBe(store.farms[0].id)
   })
 
-  it('updates attribution, route and withdrawal records', () => {
+  it('updates attribution, route and withdrawal records', async () => {
     const store = useAllianceStore()
     store.$patch({ products: cloneSeed(products), promoter: cloneSeed(promoters[0]), promotionRecords: [], sharedProductIds: [], joinedRoutes: [] })
     const fanCount = store.fans.length
@@ -43,12 +43,11 @@ describe('alliance store interactions', () => {
     writePlatformCommissionLedgerEntry({ id: 'L1', sourceOrderId: 'O1', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
     expect(store.joinRoute('RT01')).toBe(true)
     expect(store.joinRoute('RT01')).toBe(false)
-    expect(store.withdraw(100, '微信钱包', 'WD-001')).toBe('pending')
+    expect(await store.withdraw(100, '微信钱包', 'WD-001')).toBe('pending')
     expect(readPlatformWithdrawals()?.['WD-001']?.status).toBe('pending')
     transitionPlatformWithdrawal('WD-001', 'approved', '运营')
-    store.syncWithdrawals()
-    expect(store.commissionEntries[0].type).toBe('withdrawal')
-    expect(store.withdrawalRecords[0]).toMatchObject({ amount: 100, method: '微信钱包' })
+    await store.syncWithdrawals()
+    expect(store.withdrawalRecords[0]).toMatchObject({ amount: 100, method: '微信钱包', status: 'approved', operator: '运营', reviewedAt: expect.any(String) })
   })
 
   it('uses city, availability and live popularity fields and attributes live sharing', () => {
@@ -63,7 +62,7 @@ describe('alliance store interactions', () => {
     expect(store.promotionRecords[0]).toMatchObject({ targetType: 'live', shareCount: 2, lockedFans: 2 })
   })
 
-  it('derives wallet and pending commission from entries and shared rules', () => {
+  it('derives wallet and pending commission from entries and shared rules', async () => {
     const store = useAllianceStore()
     store.$patch({ products: cloneSeed(products), promoter: cloneSeed(promoters[0]), promotionRecords: [], commissionEntries: [], sharedProductIds: [] })
 writePlatformCommissionLedgerEntry({ id: 'L2', sourceOrderId: 'O2', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 10.78, status: 'pending', createdAt: '2026-08-24 12:00' })
@@ -71,22 +70,119 @@ writePlatformCommissionLedgerEntry({ id: 'L2', sourceOrderId: 'O2', beneficiaryT
     expect(store.pendingCommission).toBe(10.78)
     expect(store.availableCommission).toBe(0)
     expect(store.commissionEntries).toHaveLength(0)
-    expect(store.withdraw(1, '微信钱包', 'WD-002')).toBe('insufficient')
+    expect(await store.withdraw(1, '微信钱包', 'WD-002')).toBe('insufficient')
   })
 
-  it('deduplicates withdrawal requests without changing the wallet twice', () => {
+  it('deduplicates approved withdrawal consumption by requestKey in a locked transaction', async () => {
     const store = useAllianceStore()
     store.$patch({ promoter: cloneSeed(promoters[0]) })
     writePlatformCommissionLedgerEntry({ id: 'L3', sourceOrderId: 'O3', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
     const before = store.availableCommission
-    expect(store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('pending')
-    expect(store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('duplicate')
+    expect(await store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('pending')
+    expect(await store.withdraw(100, '微信钱包', 'WD-SAME')).toBe('duplicate')
     expect(readPlatformWithdrawals()?.['WD-SAME']?.status).toBe('pending')
     expect(store.availableCommission).toBe(before - 100)
     transitionPlatformWithdrawal('WD-SAME', 'approved', '运营')
-    store.syncWithdrawals()
-    expect(store.commissionEntries.filter((item) => item.requestKey === 'WD-SAME')).toHaveLength(1)
-    expect(Object.values(readPlatformCommissionLedger() || {}).find((item) => item.role === 'withdrawal')?.beneficiaryId).toBe('T001')
+    await Promise.all([store.syncWithdrawals(), store.syncWithdrawals()])
+    const consumed = Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.role === 'withdrawal' && item.sourceOrderId === 'WD-SAME')
+    expect(consumed).toHaveLength(1)
+    expect(consumed[0]).toMatchObject({ id: 'WD-WD-SAME', beneficiaryId: 'T001', amount: -100 })
+    expect(readPlatformJournal()['alliance-withdrawal-consume:WD-SAME']).toMatchObject({ status: 'committed' })
+    expect(store.commissionEntries.filter((item) => item.requestKey === 'WD-SAME')).toHaveLength(0)
+  })
+
+  it('allows only one pending withdrawal when two tabs submit concurrently', async () => {
+    writePlatformCommissionLedgerEntry({ id: 'L-TABS', sourceOrderId: 'O-TABS', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
+    const acquiredLocks: string[] = []
+    const lockTails = new Map<string, Promise<void>>()
+    vi.stubGlobal('navigator', { locks: { request: async (name: string, callback: () => Promise<unknown>) => {
+      acquiredLocks.push(name)
+      const previous = lockTails.get(name) || Promise.resolve()
+      let release: () => void = () => undefined
+      lockTails.set(name, new Promise<void>((resolve) => { release = resolve }))
+      await previous
+      try { return await callback() } finally { release() }
+    } } })
+    setActivePinia(createPinia())
+    const first = useAllianceStore()
+    first.$patch({ promoter: cloneSeed(promoters[0]) })
+    setActivePinia(createPinia())
+    const second = useAllianceStore()
+    second.$patch({ promoter: cloneSeed(promoters[0]) })
+
+    const submissions = [first.withdraw(100, '微信钱包', 'WD-TAB-A'), second.withdraw(100, '微信钱包', 'WD-TAB-B')]
+    expect(submissions.every((submission) => submission instanceof Promise)).toBe(true)
+    expect((await Promise.all(submissions)).sort()).toEqual(['duplicate', 'pending'])
+    expect(acquiredLocks.filter((name) => name === `agritainment-platform:${PLATFORM_COMMISSION_LEDGER_STORAGE_KEY}`)).toHaveLength(2)
+    expect(acquiredLocks.filter((name) => name === `agritainment-platform:${PLATFORM_WITHDRAWALS_STORAGE_KEY}`)).toHaveLength(2)
+    expect(Object.values(readPlatformWithdrawals() || {}).filter((item) => item.requesterId === 'T001' && item.status === 'pending')).toHaveLength(1)
+  })
+
+  it('reserves an approved withdrawal until its matching ledger consumption is persisted', async () => {
+    const store = useAllianceStore()
+    store.$patch({ promoter: cloneSeed(promoters[0]) })
+    writePlatformCommissionLedgerEntry({ id: 'L-APPROVED-RESERVE', sourceOrderId: 'O-APPROVED-RESERVE', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
+    expect(writePlatformWithdrawal({ id: 'WD-APPROVED-RESERVE', requesterType: 'promoter', requesterId: 'T001', amount: 100, method: '微信钱包', status: 'approved', requestKey: 'WD-APPROVED-RESERVE', createdAt: '2026-08-31T08:00:00.000Z', reviewedAt: '2026-08-31T09:00:00.000Z', operator: '运营' })).toBe(true)
+
+    expect(await store.withdraw(100, '微信钱包', 'WD-NEXT')).toBe('insufficient')
+    expect(readPlatformWithdrawals()?.['WD-NEXT']).toBeUndefined()
+  })
+
+  it('keeps approved withdrawals reserved in the displayed balance until a strictly matching ledger entry exists', () => {
+    const store = useAllianceStore()
+    store.$patch({ promoter: cloneSeed(promoters[0]) })
+    writePlatformCommissionLedgerEntry({ id: 'L-APPROVED-BALANCE', sourceOrderId: 'O-APPROVED-BALANCE', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 300, status: 'available', createdAt: '2026-08-24 12:00' })
+    expect(writePlatformWithdrawal({ id: 'WD-APPROVED-BALANCE', requesterType: 'promoter', requesterId: 'T001', amount: 100, method: '微信钱包', status: 'approved', requestKey: 'APPROVED-BALANCE', createdAt: '2026-08-31T08:00:00.000Z', reviewedAt: '2026-08-31T09:00:00.000Z', operator: '运营' })).toBe(true)
+
+    expect(store.availableCommission).toBe(200)
+
+    expect(writePlatformCommissionLedgerEntry({ id: 'WD-APPROVED-BALANCE', sourceOrderId: 'FORGED-SOURCE', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'withdrawal', amount: -100, status: 'settled', createdAt: '2026-08-31T09:00:00.000Z' })).toBe(true)
+    store.withdrawalsTick += 1
+    expect(store.availableCommission).toBe(100)
+  })
+
+  it('recovers a withdrawal after journal commit and ledger rollback both fail without double consumption', async () => {
+    const store = useAllianceStore()
+    await store.initialize(true)
+    store.$patch({ promoter: cloneSeed(promoters[0]) })
+    writePlatformCommissionLedgerEntry({ id: 'L-RECOVERY', sourceOrderId: 'O-RECOVERY', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' })
+    expect(writePlatformWithdrawal({ id: 'WD-RECOVERY', requesterType: 'promoter', requesterId: 'T001', amount: 100, method: '微信钱包', status: 'approved', requestKey: 'WD-RECOVERY', createdAt: '2026-08-31T08:00:00.000Z', reviewedAt: '2026-08-31T09:00:00.000Z', operator: '运营' })).toBe(true)
+
+    const setItem = localStorage.setItem.bind(localStorage)
+    let journalWrites = 0
+    let ledgerWrites = 0
+    localStorage.setItem = ((key: string, value: string) => {
+      if (key === PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY && ++journalWrites === 3) throw new Error('journal commit unavailable')
+      if (key === PLATFORM_COMMISSION_LEDGER_STORAGE_KEY && ++ledgerWrites === 2) throw new Error('ledger rollback unavailable')
+      setItem(key, value)
+    }) as Storage['setItem']
+    try {
+      await store.syncWithdrawals()
+    } finally {
+      localStorage.setItem = setItem
+    }
+
+    const operationId = 'alliance-withdrawal-consume:WD-RECOVERY'
+    const task = readPlatformRecoveryQueue().find((item) => item.operationId === operationId)
+    expect(task).toMatchObject({ status: 'pending', handlerKey: 'alliance-withdrawal-v1' })
+    expect(readPlatformJournal()[operationId]).toMatchObject({ status: 'recovery-pending', recoveryHandlerKey: 'alliance-withdrawal-v1', recoverySchema: 'alliance-withdrawal-snapshot-v1' })
+    expect(Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.role === 'withdrawal' && item.sourceOrderId === 'WD-RECOVERY')).toHaveLength(1)
+
+    expect(await retryPlatformRecoveryTask(task!.id, 'ADMIN-RECOVERY')).toMatchObject({ ok: true })
+    await Promise.all([store.syncWithdrawals(), store.syncWithdrawals()])
+
+    expect(Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.role === 'withdrawal' && item.sourceOrderId === 'WD-RECOVERY')).toHaveLength(1)
+    expect(readPlatformJournal()[operationId]).toMatchObject({ status: 'committed' })
+  })
+
+  it('derives the full withdrawal history from platform requests instead of local commission entries', () => {
+    const store = useAllianceStore()
+    store.$patch({ promoter: cloneSeed(promoters[0]), commissionEntries: [{ id: 'LOCAL-ONLY', promoterId: 'T001', type: 'withdrawal', amount: -9, description: '本地提现', createdAt: '2026-08-01T00:00:00.000Z', status: 'completed', requestKey: 'LOCAL-ONLY' }] })
+    expect(writePlatformWithdrawal({ id: 'WD-PLATFORM', requesterType: 'promoter', requesterId: 'T001', amount: 88, method: '银行卡', status: 'rejected', requestKey: 'WD-PLATFORM', createdAt: '2026-08-31T08:00:00.000Z', reviewedAt: '2026-08-31T09:00:00.000Z', operator: '审核员', reviewedNote: '资料不完整' })).toBe(true)
+
+    expect(store.withdrawalRecords).toEqual([
+      expect.objectContaining({ id: 'WD-PLATFORM', amount: 88, method: '银行卡', status: 'rejected', operator: '审核员', reviewedNote: '资料不完整', reviewedAt: '2026-08-31T09:00:00.000Z' })
+    ])
   })
 
   it('filters farms, live rooms and routes by city', () => {

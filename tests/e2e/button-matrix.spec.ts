@@ -73,7 +73,7 @@ test('admin buttons open data surfaces and keep overflow local', async ({ page }
   await expect(page.locator('.row-actions uni-button', { hasText: '流转' }).first()).toBeVisible()
   await page.locator('.row-actions uni-button', { hasText: '流转' }).first().click()
   await expect(page.locator('.drawer')).toContainText('订单流转记录')
-  await expect(page.locator('.drawer')).toContainText('运营管理员')
+  await expect(page.locator('.drawer')).toContainText('admin')
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(1024)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.reload()
@@ -231,11 +231,60 @@ test('admin supplier settlement is idempotent and after-sales has two stages', a
   await pendingRow.locator('uni-button', { hasText: '同意退款' }).click()
   await page.getByText('OK', { exact: true }).click()
   await expect(pendingRow).toContainText('待退款')
-  await pendingRow.locator('uni-button', { hasText: '确认退款' }).click()
-  await page.getByText('OK', { exact: true }).click()
-  await expect(pendingRow).toContainText('已退款')
-  await pendingRow.locator('uni-button', { hasText: '记录' }).click()
+  await expect(pendingRow).toContainText('等待退款回执')
+  await expect(pendingRow.locator('uni-button', { hasText: '确认退款' })).toHaveCount(0)
+  await expect(pendingRow.locator('uni-button', { hasText: '执行退款' })).toBeVisible()
+  await expect(pendingRow.locator('uni-button', { hasText: '退款失败' })).toHaveCount(0)
+  await page.locator('.after-grid', { hasText: 'SH20561' }).last().locator('uni-button', { hasText: '记录' }).click()
   await expect(page.locator('.drawer')).toContainText('售后处理记录')
+})
+
+test('admin retries a provider-rejected refund after refresh', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('http://127.0.0.1:8791')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await adminLogin(page)
+
+  await page.evaluate(() => {
+    const catalogKey = 'agritainment-platform-catalog'
+    const cOrdersKey = 'agritainment-platform-c-orders'
+    const commissionsKey = 'agritainment-platform-c-commissions'
+    const ordersKey = 'agritainment-platform-orders'
+    const afterSalesKey = 'agritainment-platform-after-sales'
+    const product = {
+      id: 'P-E2E-REFUND-RETRY', name: '退款重试商品', category: '测试品类',
+      supplierId: 'S001', supplierName: '靖州杨梅专业合作社', source: 'platform', status: 'active',
+      image: '/static/images/product-meat.webp', images: [], tags: ['退款测试'], productType: 'goods',
+      expressDelivery: true, channel: 'all', farmIds: [], promoterCommissionRate: 10, storeCommissionRate: 5,
+      skus: [{ id: 'SKU-E2E-REFUND-RETRY', name: '默认规格', image: '/static/images/product-meat.webp', retailPrice: 88, cost: 60, stock: 9, level1Amount: 10, level2Amount: 0, status: 'active' }]
+    }
+    localStorage.setItem(catalogKey, JSON.stringify({ schemaVersion: 2, revision: 0, products: [product], appliedOperations: {} }))
+    const sku = product.skus[0]
+    const item = { productId: product.id, skuId: sku.id, name: product.name, skuName: sku.name, image: product.image, quantity: 1, unitPrice: sku.retailPrice, basePrice: sku.cost, level1Commission: 10, level2Commission: 0, supplierId: product.supplierId }
+    const subOrder = { id: 'CSO-E2E-REFUND-RETRY', supplierId: product.supplierId, supplierName: product.supplierName, items: [item], amount: sku.retailPrice, status: 'after_sale', logistics: [], inventoryReleased: false, afterSale: { id: 'CAS-E2E-REFUND-RETRY', reason: '质量问题', status: 'processing', createdAt: '2026-08-31T08:00:00.000Z' } }
+    const commission = { id: 'CC-E2E-REFUND-RETRY', orderId: 'CO-E2E-REFUND-RETRY', subOrderId: subOrder.id, beneficiaryId: 'T001', beneficiaryLevel: 'level1', amount: 10, status: 'available', createdAt: '2026-08-31T08:00:00.000Z' }
+    const cOrder = { id: 'CO-E2E-REFUND-RETRY', userId: 'U-E2E-REFUND-RETRY', level: 'normal', address: { id: 'ADDR-E2E-REFUND-RETRY', userId: 'U-E2E-REFUND-RETRY', receiver: '退款用户', phone: '13800000000', region: '湖南', detail: '联调地址', isDefault: true }, amount: subOrder.amount, items: [item], subOrders: [subOrder], commissionAllocations: [commission], status: 'after_sale', createdAt: '2026-08-31T08:00:00.000Z', paidAt: '2026-08-31T08:01:00.000Z', providerTransactionId: 'PAY-E2E-REFUND-RETRY' }
+    const supplierOrder = { id: 'C-MALL-E2E-REFUND-RETRY', productName: product.name, customer: '退款用户', amount: subOrder.amount, status: 'after-sale', createdAt: '2026-08-31T08:00:00.000Z', supplierId: product.supplierId, sourceOrderId: cOrder.id, flow: [] }
+    const work = { id: 'AS-E2E-REFUND-RETRY', orderId: cOrder.id, masterOrderId: cOrder.id, subOrderId: subOrder.id, supplierOrderId: supplierOrder.id, operationId: `after-sale:${subOrder.id}`, productName: product.name, applicant: '退款用户', type: 'refund', amount: subOrder.amount, refundAmount: subOrder.amount, status: 'refund-failed', issue: '质量问题', failureReason: '原支付渠道拒绝退款', history: [{ time: '2026-08-31T08:02:00.000Z', action: '退款失败：原支付渠道拒绝退款', operator: '运营管理员' }] }
+    localStorage.setItem(cOrdersKey, JSON.stringify({ [cOrder.id]: cOrder }))
+    localStorage.setItem(commissionsKey, JSON.stringify([commission]))
+    localStorage.setItem(ordersKey, JSON.stringify({ ...(JSON.parse(localStorage.getItem(ordersKey) || '{}')), [supplierOrder.id]: supplierOrder }))
+    localStorage.setItem(afterSalesKey, JSON.stringify({ ...(JSON.parse(localStorage.getItem(afterSalesKey) || '{}')), [work.id]: work }))
+  })
+  await page.reload()
+  await page.locator('.nav-item', { hasText: '售后结算' }).click()
+
+  const failedRow = page.locator('.after-grid', { hasText: 'AS-E2E-REFUND-RETRY' }).last()
+  await expect(failedRow).toContainText('原支付渠道拒绝退款')
+  await failedRow.locator('uni-button', { hasText: '重试退款' }).click()
+  await page.getByText('OK', { exact: true }).click()
+  await expect(failedRow).toContainText('已退款')
+  await expect(failedRow.locator('uni-button', { hasText: '记录' })).toBeVisible()
+
+  await page.reload()
+  await page.locator('.nav-item', { hasText: '售后结算' }).click()
+  await expect(page.locator('.after-grid', { hasText: 'AS-E2E-REFUND-RETRY' }).last()).toContainText('已退款')
 })
 
 test('farmhouse multi-SKU order keeps details and can be repurchased', async ({ page }) => {
@@ -274,9 +323,13 @@ test('manager verifies a booking and designs a signature dish', async ({ page })
   // 核销一笔已确认预订
   await page.locator('.workbench uni-button', { hasText: '订单核销' }).click()
   await expect(page.locator('.verify-list')).toContainText('观溪雅间')
+  await page.locator('.verify-amount input').first().fill('328')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm')
+    expect(dialog.message()).toContain('核销预订')
+    await dialog.accept()
+  })
   await page.locator('.verify-btn').first().click()
-  await expect(page.locator('.uni-modal')).toContainText('核销预订')
-  await page.locator('.uni-modal__btn_primary').click()
   await expect(page.locator('.verify-status.ok').first()).toContainText('已核销')
   await page.locator('.sub-head .icon-button').click()
 
@@ -325,7 +378,8 @@ test('empty mock scenario ignores persisted business data in all apps', async ({
   await page.evaluate(() => localStorage.clear())
   await page.reload()
   await adminLogin(page)
-  await expect(page.locator('.kpi-card').first()).not.toContainText('¥0')
+  await expect(page.locator('.kpi-card').nth(2)).toContainText('合作供应商')
+  await expect(page.locator('.kpi-card').nth(2)).not.toContainText('0 家')
   await page.goto('http://127.0.0.1:8791?mock=empty')
   await page.locator('.nav-item', { hasText: '供应商管理' }).click()
   await expect(page.locator('.empty-state')).toContainText('没有符合条件的供应商')

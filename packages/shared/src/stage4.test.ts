@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OrderItem } from './index'
-import { buildSupplierPlatformOrders, mediaValueToImage, products as productSeeds, suppliers } from './index'
+import { acceptSupplierOrder, buildSupplierPlatformOrders, canTransitionCOrderStatus, canTransitionPurchaseStatus, mediaValueToImage, products as productSeeds, suppliers } from './index'
 
 function item(productId: string): OrderItem {
   const product = productSeeds.find((item) => item.id === productId)!
@@ -30,6 +30,28 @@ describe('supplier split platform orders', () => {
     })
     expect(orders).toHaveLength(1)
     expect(orders[0].id).toBe('SO-2')
+  })
+
+  it('carries canonical store identity into supplier orders', () => {
+    const orders = buildSupplierPlatformOrders({
+      sourceOrderId: 'SO-STORE-ID', source: 'store', customer: '石板溪农家乐·门店', channel: 'purchase',
+      storeId: 'F001', storeName: '石板溪农家乐', items: [item('P001')], products: productSeeds,
+      createdAt: '2026-08-24 12:00', status: 'pending'
+    })
+    expect(orders[0]).toMatchObject({ storeId: 'F001', storeName: '石板溪农家乐' })
+  })
+
+  it('records a fulfillment event for every supplier status transition', () => {
+    const source = buildSupplierPlatformOrders({ sourceOrderId: 'SO-EVENT', source: 'store', customer: '门店', channel: 'purchase', items: [item('P001')], products: productSeeds, createdAt: '2026-08-24 12:00', status: 'pending' })[0]
+    const accepted = acceptSupplierOrder(source, '供应商账号')!
+    expect(accepted.fulfillmentEvents).toEqual([expect.objectContaining({ orderId: source.id, from: 'submitted', to: 'accepted', operatorId: '供应商账号', operatorRole: 'supplier' })])
+  })
+
+  it('rejects illegal lifecycle jumps', () => {
+    expect(canTransitionPurchaseStatus('submitted', 'shipped')).toBe(false)
+    expect(canTransitionPurchaseStatus('accepted', 'shipped')).toBe(true)
+    expect(canTransitionCOrderStatus('pending_payment', 'received')).toBe(false)
+    expect(canTransitionCOrderStatus('shipped', 'received')).toBe(true)
   })
 
   it('sums amount and quantity per supplier order', () => {

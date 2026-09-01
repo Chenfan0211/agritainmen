@@ -1,5 +1,5 @@
-import { cloneSeed, demoDrivers, readPlatformDrivers, readPlatformOrders, writePlatformDrivers, writePlatformOrder } from '@agritainment/shared'
-import type { Order, OrderFlowEvent, SupplierFulfillment } from '@agritainment/shared'
+import { cloneSeed, demoDrivers, haversineKm, readPlatformDrivers, readPlatformEntities, readPlatformOrders, writePlatformDrivers, writePlatformOrder } from '@agritainment/shared'
+import type { Order, OrderFlowEvent, Supplier, SupplierFulfillment } from '@agritainment/shared'
 import { SUPPLIER_DEMO_ID } from '@agritainment/shared'
 
 /** 演示供应商：湘西腊味合作社（S002） */
@@ -10,17 +10,81 @@ export const supplierInfo = {
   region: '湘西州',
   category: '腊味/预制菜',
   phone: '13787366688',
-  certified: true
+  certified: true,
+  longitude: 109.8542,
+  latitude: 28.6267
 }
 
-/** 门店目录：司机任务展示目的地 */
-export const storeDirectory: Record<string, { address: string; contact: string; phone: string }> = {
-  '石板溪农家乐·门店': { address: '湖南省湘西州永顺县石板溪村', contact: '王店长', phone: '0743-888-xxxx' },
-  '云上人家·门店': { address: '湖南省张家界市武陵源区云上村', contact: '李店长', phone: '0744-666-xxxx' }
+export interface DeliveryLocation {
+  address: string
+  contact: string
+  phone: string
+  longitude?: number
+  latitude?: number
 }
 
-export function storeInfoOf(storeName: string) {
-  return storeDirectory[storeName] || { address: '门店地址以到店实际为准', contact: '门店', phone: '' }
+export interface DeliveryStore extends DeliveryLocation {
+  storeId: string
+  storeName: string
+}
+
+/** 司机配送目录以稳定门店编号为主键；旧名称只在这里做一次精确兼容。 */
+export const storeDirectory: Record<string, DeliveryStore> = {
+  F001: { storeId: 'F001', storeName: '石板溪农家乐·门店', address: '湖南省湘西州永顺县石板溪村', contact: '王店长', phone: '0743-888-xxxx', longitude: 109.8542, latitude: 28.6267 },
+  F002: { storeId: 'F002', storeName: '云上人家·门店', address: '湖南省张家界市武陵源区云上村', contact: '李店长', phone: '0744-666-xxxx', longitude: 110.4792, latitude: 29.1171 },
+  F003: { storeId: 'F003', storeName: '稻香村生态农庄·门店', address: '湖南省常德市桃源县稻香村', contact: '门店', phone: '' }
+}
+
+const legacyStoreIds: Record<string, string> = {
+  '石板溪农家乐': 'F001', '石板溪农家乐·门店': 'F001',
+  '云上人家': 'F002', '云上人家·门店': 'F002', '云上人家山景农庄': 'F002',
+  '稻香村生态农庄': 'F003', '稻香村生态农庄·门店': 'F003'
+}
+
+export function resolveOrderStore(order: Pick<Order, 'storeId'> & Partial<Pick<Order, 'storeName' | 'customer' | 'supplierOrderLink'>>): DeliveryStore | undefined {
+  const stableId = order.storeId?.trim() || (order.supplierOrderLink?.source === 'store' ? order.supplierOrderLink.customerUserId?.trim() : '')
+  if (stableId) return deliveryStoreById(stableId)
+  const legacyName = order.storeName?.trim() || order.customer?.trim()
+  return legacyName ? deliveryStoreById(legacyStoreIds[legacyName]) : undefined
+}
+
+function deliveryStoreById(storeId?: string): DeliveryStore | undefined {
+  const base = storeId ? storeDirectory[storeId] : undefined
+  if (!base) return undefined
+  const farm = readPlatformEntities()?.farms?.[storeId!]
+  if (!farm) return base
+  return {
+    ...base, storeName: `${farm.name}·门店`, address: farm.address || base.address,
+    ...(farm.location ? { longitude: farm.location.longitude, latitude: farm.location.latitude } : { longitude: undefined, latitude: undefined })
+  }
+}
+
+export function storeInfoOf(orderOrName: Pick<Order, 'storeId'> & Partial<Pick<Order, 'storeName' | 'customer' | 'supplierOrderLink'>> | string): DeliveryLocation {
+  const resolved = typeof orderOrName === 'string'
+    ? deliveryStoreById(legacyStoreIds[orderOrName.trim()])
+    : resolveOrderStore(orderOrName)
+  return resolved || { address: '门店地址以到店实际为准', contact: '门店', phone: '' }
+}
+
+export function deliveryDistanceKm(origin: { longitude?: number; latitude?: number }, destination?: DeliveryLocation): number | null {
+  if (origin.longitude === undefined || origin.latitude === undefined || destination?.longitude === undefined || destination.latitude === undefined) return null
+  return haversineKm(origin.latitude, origin.longitude, destination.latitude, destination.longitude)
+}
+
+/** 返回当前供应商的仓点；未配置坐标时由调用方按未知距离处理。 */
+export function supplierWarehouseOf(supplierId: string, supplierDirectory?: readonly Supplier[]): DeliveryLocation | undefined {
+  const supplier = supplierDirectory?.find((item) => item.id === supplierId)
+  if (supplier?.warehouse) return { ...supplier.warehouse, contact: supplier.name, phone: supplier.contactPhone || '' }
+  return supplierId === supplierInfo.id
+    ? { address: `湖南省${supplierInfo.region}仓点`, contact: supplierInfo.name, phone: supplierInfo.phone, longitude: supplierInfo.longitude, latitude: supplierInfo.latitude }
+    : undefined
+}
+
+export function buildNavigationUrl(storeName: string, destination: DeliveryLocation): string {
+  if (destination.longitude !== undefined && destination.latitude !== undefined) {
+    return `https://uri.amap.com/navigation?to=${destination.longitude},${destination.latitude},${encodeURIComponent(storeName)}&mode=car`
+  }
+  return `https://uri.amap.com/search?keyword=${encodeURIComponent(destination.address)}`
 }
 
 function dateOnly(offsetDays: number): string {

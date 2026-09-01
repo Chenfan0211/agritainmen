@@ -1,8 +1,8 @@
-import { applyPlatformEntities, applyPlatformMedia, catalogProductToStoreProduct, cloneSeed, cProducts, ensureCatalogState, farms, liveRooms, mergePlatformLives, mockDelay, products, readCProducts, readStoreCatalogSelections, seedCCommerceData } from '@agritainment/shared'
+import { CATALOG_SCHEMA_VERSION, applyPlatformEntities, applyPlatformMedia, catalogProductToStoreProduct, cloneSeed, cProducts, farms, liveRooms, mergePlatformLives, migrateLegacyCatalog, mockDelay, products, readCProducts, readCatalogState, readStoreCatalogSelections } from '@agritainment/shared'
 import type { MockScenario } from '@agritainment/shared'
 
 export function readLivePackageProjection() {
-  const catalog = ensureCatalogState(cloneSeed(products), readCProducts() || cProducts)
+  const catalog = readCatalogState() || { schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: migrateLegacyCatalog(cloneSeed(products), readCProducts() || cProducts), appliedOperations: {} }
   return readStoreCatalogSelections()
     .filter((selection) => selection.listed)
     .flatMap((selection) => {
@@ -30,11 +30,9 @@ export function readLiveRoomProjection(packageProducts = readLivePackageProjecti
 
 export const userRepository = {
   loadDashboard: (scenario: MockScenario = 'normal') => {
-    seedCCommerceData()
     const storeFarms = cloneSeed(farms)
     const seedAll = cloneSeed(products)
     applyPlatformEntities(seedAll, storeFarms, null, null, null)
-    ensureCatalogState(seedAll, readCProducts() || cProducts)
     const packageProducts = readLivePackageProjection()
     applyPlatformMedia(storeFarms, packageProducts)
     const mergedLives = readLiveRoomProjection(packageProducts)

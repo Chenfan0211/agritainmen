@@ -10,7 +10,17 @@ const options: SearchableSelectOption[] = [
 ]
 
 const expectedBindings = [
+  'form.coop -> supplierTypeOptions',
+  'form.category -> supplierCategoryOptions',
+  'supplierAccountForm.enabled -> enabledOptions',
+  'adminAccountForm.roleId -> adminRoleOptions',
   'trendRange -> trendRangeOptions',
+  'reportStoreFilter -> reportStoreOptions',
+  'reportSupplierFilter -> reportSupplierOptions',
+  'reportCategoryFilter -> reportCategoryOptions',
+  'reportDimension -> reportDimensionOptions',
+  'bookingFarmFilter -> bookingFarmOptions',
+  'bookingStatusFilter -> bookingStatusOptions',
   'supplierStatusFilter -> supplierStatusOptions',
   'categoryTypeFilter -> categoryTypeFilterOptions',
   'productChannelFilter -> catalogChannelFilterOptions',
@@ -28,6 +38,10 @@ const expectedBindings = [
   'promoterTypeFilter -> promoterTypeOptions',
   'commissionStatusFilter -> commissionStatusOptions',
   'withdrawalStatusFilter -> withdrawalStatusOptions',
+  'logActor -> logActorOptions',
+  'logRole -> logRoleOptions',
+  'logModule -> logModuleOptions',
+  'recoveryOutcome -> recoveryOutcomeOptions',
   'form.coop -> supplierTypeOptions',
   'form.category -> supplierCategoryOptions',
   'form.categoryType -> categoryTypeOptions',
@@ -96,7 +110,7 @@ describe('searchable select helpers', () => {
     expect(componentSource).toContain("emit('update:modelValue', option.value)")
   })
 
-  it('keeps all 42 admin model and option bindings on the shared component', () => {
+  it('keeps all admin model and option bindings on the shared component', () => {
     const source = readFileSync(new URL('../pages/index/index.vue', import.meta.url), 'utf8')
     const bindings = [...source.matchAll(/<SearchableSelect\s+v-model="([^"]+)"\s+:options="([^"]+)"/g)]
       .map((match) => `${match[1]} -> ${match[2]}`)

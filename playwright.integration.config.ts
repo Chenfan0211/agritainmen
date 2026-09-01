@@ -22,11 +22,12 @@ export default defineConfig({
   projects: [
     { name: 'mobile', use: { viewport: { width: 375, height: 812 } } },
     { name: 'tablet', use: { viewport: { width: 768, height: 900 } } },
-    { name: 'desktop', use: { viewport: { width: 1280, height: 900 } } },
+    { name: 'desktop', use: { viewport: { width: 1280, height: 600 } } },
     { name: 'wide', use: { viewport: { width: 1440, height: 900 } } }
   ],
   webServer: {
     command: `${buildCommand}node scripts/serve-single-origin.mjs --port ${integrationPort}`,
+    env: { ...process.env, VITE_E2E: '1' },
     url: `${integrationOrigin}/`,
     reuseExistingServer: false,
     timeout: 300_000

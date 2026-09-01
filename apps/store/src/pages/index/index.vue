@@ -59,9 +59,11 @@
                   <view class="product-stats">
                     <text>已售 {{ product.sales.toLocaleString('zh-CN') }}</text>
                     <text class="stat-dot">·</text>
-                    <text :class="stockClass(product)">{{ stockText(product) }}</text>
+                    <text>起订 {{ minimumOrderQuantity(product.skus[0]) }} 件</text>
+                    <text class="stat-dot">·</text>
+                    <text :class="stockClass(product)">{{ canStartProductOrder(product) ? stockText(product) : '库存不足起订量' }}</text>
                   </view>
-                  <button :aria-label="`加入${product.name}到进货单`" :disabled="totalStock(product) === 0" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button>
+                  <button :aria-label="`加入${product.name}到进货单`" :disabled="!canStartProductOrder(product)" @click="addProduct(product)"><UiIcon name="plus" :size="18" /></button>
                 </view>
               </view>
             </view>
@@ -174,20 +176,22 @@
             <view class="detail-price"><strong>{{ money(selectedSku?.cost ?? selectedProduct.cost) }}</strong><del>{{ money(selectedProduct.price) }}</del><span>省 {{ savePercent(selectedProduct) }}%</span></view>
             <view v-if="selectedProduct.skus.length > 1" class="sku-options">
               <button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" @click="selectedSkuId = sku.id">
-                <text>{{ sku.name }}</text><small>供货价 {{ money(sku.cost) }} · 库存 {{ sku.stock }}</small>
+                <text>{{ sku.name }}</text><small>供货价 {{ money(sku.cost) }} · 库存 {{ sku.stock }} · 起订 {{ minimumOrderQuantity(sku) }} 件</small><small v-if="!canStartOrder(sku)" class="stock-warning">库存不足起订量</small>
               </button>
             </view>
+            <small v-else-if="selectedSku">库存 {{ selectedSku.stock }} · 起订 {{ minimumOrderQuantity(selectedSku) }} 件</small>
+            <small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">库存不足起订量</small>
             <view class="product-detail-actions">
               <button class="outline-button" @click="sheet = null">再看看</button>
-              <button class="primary-button" @click="addSelected">加入进货单</button>
+              <button class="primary-button" :disabled="!canStartOrder(selectedSku)" @click="addSelected">加入进货单</button>
             </view>
           </view>
 
           <view v-else-if="sheet === 'cart'" class="sheet-list">
             <view v-if="!store.cart.length" class="empty">进货单还是空的</view>
-            <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.quantity >= item.stock }">
+            <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.unavailable }">
               <BusinessImage :src="item.image" mode="aspectFit" />
-              <view><text>{{ item.name }}</text><small>{{ item.skuName }} · 供货价 {{ money(item.price) }} · 库存 {{ item.stock }}</small><strong>{{ money(item.price * item.quantity) }}</strong></view>
+              <view><text>{{ item.name }}</text><small>{{ item.skuName }} · 供货价 {{ money(item.price) }} · 库存 {{ item.stock }} · 起订 {{ normalizeMinimumOrderQuantity(item.minimumOrderQuantity) }} 件</small><small v-if="item.unavailable" class="stock-warning">低于起订量或库存不足，不可结算</small><strong>{{ money(item.price * item.quantity) }}</strong></view>
               <view class="stepper">
                 <button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button>
                 <text>{{ item.quantity }}</text>
@@ -197,7 +201,7 @@
             <text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text>
             <view v-if="store.cart.length" class="checkout-summary">
               <view><text>共 {{ store.cartCount }} 件</text><strong>{{ money(store.cartTotal) }}</strong></view>
-              <button class="primary-button" @click="goCheckout">确认下单</button>
+              <button class="primary-button" :disabled="store.cartHasUnavailable" @click="goCheckout">确认下单</button>
             </view>
           </view>
 
@@ -216,7 +220,7 @@
               <view><text>商品金额</text><strong>{{ money(store.cartTotal) }}</strong></view>
               <view><text>较零售节省</text><strong class="save">{{ money(cartSaved) }}</strong></view>
               <view><text>配送费</text><strong>¥0</strong></view>
-              <button class="primary-button" @click="submitOrder">提交订单</button>
+              <button class="primary-button" :disabled="store.cartHasUnavailable" @click="submitOrder">提交订单</button>
             </view>
           </view>
 
@@ -236,7 +240,7 @@
             <view class="order-items">
               <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line">
                 <BusinessImage :src="item.image" mode="aspectFit" />
-                <view><text>{{ item.name }}</text><small>{{ item.skuName }} ×{{ item.quantity }}</small></view>
+                <view><text>{{ item.name }}</text><small>{{ item.skuName }} ×{{ item.quantity }} · 起订 {{ normalizeMinimumOrderQuantity(item.minimumOrderQuantity) }} 件</small></view>
                 <strong>{{ money(item.price * item.quantity) }}</strong>
               </view>
             </view>
@@ -291,7 +295,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Product, PurchaseStatus } from '@agritainment/shared'
-import { installKeyboardButtonSupport, money, orderStatusText, purchaseSteps, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrder, subscribePlatformChanges, validatePhone } from '@agritainment/shared'
+import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, installKeyboardButtonSupport, money, normalizeMinimumOrderQuantity, orderStatusText, purchaseSteps, readPlatformAfterSaleStatus, readPlatformEntities, readPlatformOrder, subscribePlatformChanges, validateCatalogSkuOrderQuantity, validatePhone } from '@agritainment/shared'
 import { BusinessImage } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import { deriveStoreMetrics } from '../../services/repository'
@@ -393,6 +397,18 @@ const stepIndex = computed(() => {
 
 const cartSaved = computed(() => Math.round(store.cart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100)
 
+function minimumOrderQuantity(sku: Pick<Product['skus'][number], 'minimumOrderQuantity'> | null | undefined) {
+  return normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
+}
+
+function canStartOrder(sku: Pick<Product['skus'][number], 'stock' | 'minimumOrderQuantity'> | null | undefined) {
+  return !!sku && validateCatalogSkuOrderQuantity(sku, minimumOrderQuantity(sku)).ok
+}
+
+function canStartProductOrder(product: Product) {
+  return product.skus.some((sku) => canStartOrder(sku))
+}
+
 const sheetTitle = computed(() => {
   switch (sheet.value) {
     case 'product': return '商品详情'
@@ -490,8 +506,8 @@ function goCheckout() {
   sheet.value = 'checkout'
 }
 
-function submitOrder() {
-  if (!store.submitOrder(remark.value)) return toast(store.checkoutError || '进货单为空')
+async function submitOrder() {
+  if (!await store.submitOrder(remark.value)) return toast(store.checkoutError || '进货单为空')
   sheet.value = 'order'
   selectedOrderId.value = store.orders[0].id
   activeTab.value = 'orders'
@@ -503,13 +519,13 @@ function openOrder(id: string) {
   sheet.value = 'order'
 }
 
-function advanceOrder(id: string) {
-  if (!store.advanceOrder(id)) return toast('订单已全部完成')
+async function advanceOrder(id: string) {
+  if (!await store.advanceOrder(id)) return toast('订单已全部完成')
   toast('订单状态已推进')
 }
 
-function confirmReceipt(id: string) {
-  if (!store.confirmReceipt(id)) return toast('当前订单状态无法确认收货')
+async function confirmReceipt(id: string) {
+  if (!await store.confirmReceipt(id)) return toast('当前订单状态无法确认收货')
   toast('已确认收货')
 }
 
@@ -517,9 +533,9 @@ function cancelOrder(id: string) {
   uni.showModal({
     title: '取消进货单',
     content: '确认取消该进货单？取消后中台将标记为未支付取消。',
-    success: (res) => {
+    success: async (res) => {
       if (!res.confirm) return
-      if (!store.cancelOrder(id)) return toast('当前订单状态不可取消')
+      if (!await store.cancelOrder(id)) return toast('当前订单状态不可取消')
       toast('订单已取消')
     }
   })
@@ -588,23 +604,39 @@ function logout() {
 
 let disposeKeyboardButtons: (() => void) | undefined
 let disposePlatformChanges: (() => void) | null = null
+let disposeStorageSync: (() => void) | null = null
+let disposeVisibilitySync: (() => void) | null = null
+const platformChangeKeys = [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY]
+const refreshSharedState = () => void store.refreshSharedState()
 onMounted(async () => {
   disposeKeyboardButtons = installKeyboardButtonSupport()
   const scenario = uni.getLaunchOptionsSync().query?.mock
   if (scenario === 'empty' || scenario === 'failure') store.setMockScenario(scenario)
   await store.initialize()
   ensureStockDrafts()
+  disposePlatformChanges = subscribePlatformChanges(refreshSharedState, platformChangeKeys)
   if (typeof window !== 'undefined') {
-    const onStorage = () => void store.refreshSharedState()
+    const keys = new Set(platformChangeKeys)
+    const onStorage = (event: StorageEvent) => { if (!event.key || keys.has(event.key)) refreshSharedState() }
     window.addEventListener('storage', onStorage)
-    disposePlatformChanges = () => window.removeEventListener('storage', onStorage)
+    disposeStorageSync = () => window.removeEventListener('storage', onStorage)
+  }
+  if (typeof document !== 'undefined') {
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshSharedState() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    disposeVisibilitySync = () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }
   if (typeof document !== 'undefined') {
     document.documentElement.style.setProperty('--farm-green', '#17633f')
     document.title = '中选科技门店订货商城'
   }
 })
-onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); disposePlatformChanges = null })
+onBeforeUnmount(() => {
+  disposeKeyboardButtons?.()
+  disposePlatformChanges?.(); disposePlatformChanges = null
+  disposeStorageSync?.(); disposeStorageSync = null
+  disposeVisibilitySync?.(); disposeVisibilitySync = null
+})
 </script>
 
 <style scoped lang="scss">
@@ -614,46 +646,46 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .tab-page { min-height:100vh;padding-bottom:30px; }
 .mobile-head { padding-top:calc(20px + env(safe-area-inset-top));padding-bottom:14px; }
 .page-title { display:block;font-size:18px;font-weight:800; }
-.page-sub { display:block;margin-top:5px;color:var(--farm-muted);font-size:11px; }
+.page-sub { display:block;margin-top:5px;color:var(--farm-muted);font-size:12px; }
 
 /* ===== 商城头部 ===== */
 .mall-hero { padding:calc(30px + env(safe-area-inset-top)) 18px 22px;background:linear-gradient(135deg,#3c7a45,#1d5a2a 60%,#114a22);color:#fff; }
 .mall-hero-title { display:block;font-size:22px;font-weight:800;letter-spacing:1px; }
-.mall-hero-sub { display:block;margin-top:7px;font-size:11px;opacity:.9; }
+.mall-hero-sub { display:block;margin-top:7px;font-size:12px;opacity:.9; }
 .mall-hero-meta { display:flex;gap:14px;margin-top:14px; }
-.mall-hero-meta text { font-size:10px;opacity:.92; }
+.mall-hero-meta text { font-size:12px;opacity:.92; }
 
 /* ===== 商城运营数据条 ===== */
 .shop-metrics { margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px; }
 .shop-metrics view { padding:11px 6px;background:#fff;border:1px solid var(--farm-line);border-radius:9px;text-align:center; }
 .shop-metrics small,.shop-metrics strong { display:block; }
-.shop-metrics small { color:var(--farm-muted);font-size:9px; }
+.shop-metrics small { color:var(--farm-muted);font-size:12px; }
 .shop-metrics strong { margin-top:5px;font-size:13px;color:var(--farm-green); }
-.result-count { margin-top:13px;color:var(--farm-muted);font-size:9px; }
+.result-count { margin-top:13px;color:var(--farm-muted);font-size:12px; }
 
 /* ===== 搜索 ===== */
 .search-bar { height:42px;margin-top:14px;padding:0 12px;background:#fff;border:1px solid var(--farm-line);border-radius:7px;display:flex;align-items:center;gap:8px; }
-.search-bar input { flex:1;height:100%;font-size:11px; }
+.search-bar input { flex:1;height:100%;font-size:13px; }
 .search-bar .ui-icon { filter:invert(45%); }
 
 /* ===== 提示条 ===== */
-.supply-note,.security-note { margin:14px 0;padding:12px;background:#fff9e9;border:1px solid #ecdfbd;border-radius:7px;display:flex;align-items:flex-start;gap:8px;color:#765c27;font-size:10px;line-height:1.5; }
+.supply-note,.security-note { margin:14px 0;padding:12px;background:#fff9e9;border:1px solid #ecdfbd;border-radius:7px;display:flex;align-items:flex-start;gap:8px;color:#765c27;font-size:12px;line-height:1.5; }
 .security-note { background:var(--farm-green-soft);border-color:#cfe2d6;color:#315e48; }
 .supply-note b,.security-note b { font-weight:800; }
-.policy-hint{margin:12px 0;padding:9px 12px;border-radius:7px;background:#eef5ef;border:1px solid #cfe2d6;color:#315e48;font-size:11px;font-weight:700}.policy-hint b{color:#17633f}
+.policy-hint{margin:12px 0;padding:9px 12px;border-radius:7px;background:#eef5ef;border:1px solid #cfe2d6;color:#315e48;font-size:12px;font-weight:700}.policy-hint b{color:#17633f}
 .note-emoji { flex:none; }
 
 /* ===== 订单汇总 ===== */
 .order-summary { display:flex;align-items:center;gap:14px;margin:12px 0 0;padding:11px 13px;background:#fff;border:1px solid var(--farm-line);border-radius:9px; }
-.order-summary text { color:var(--farm-muted);font-size:10px; }
+.order-summary text { color:var(--farm-muted);font-size:12px; }
 .order-summary text:first-child { font-weight:800;color:var(--farm-ink); }
-.chip-count { display:inline-grid;place-items:center;min-width:17px;height:17px;margin-left:4px;padding:0 4px;border-radius:9px;background:var(--farm-green-soft);color:var(--farm-green);font-size:9px;font-weight:800;vertical-align:middle; }
+.chip-count { display:inline-grid;place-items:center;min-width:17px;height:17px;margin-left:4px;padding:0 4px;border-radius:9px;background:var(--farm-green-soft);color:var(--farm-green);font-size:12px;font-weight:800;vertical-align:middle; }
 .chips button.active .chip-count { background:rgba(255,255,255,.24);color:#fff; }
 
 /* ===== 分类 chips ===== */
 .chip-scroll { margin:13px -16px 0;width:calc(100% + 32px);white-space:nowrap;overflow-x:auto;overflow-y:hidden; }
 .chips { width:max-content;padding:0 16px;display:flex;gap:7px; }
-.chips button { height:34px;padding:0 12px;border-radius:17px;background:#fff;border:1px solid var(--farm-line);font-size:10px;color:var(--farm-muted); }
+.chips button { height:34px;padding:0 12px;border-radius:17px;background:#fff;border:1px solid var(--farm-line);font-size:13px;color:var(--farm-muted); }
 .chips button.active { color:#fff;background:var(--farm-green);border-color:var(--farm-green); }
 
 /* ===== 商品双列网格 ===== */
@@ -662,18 +694,18 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .product-image { height:128px;position:relative;width:100%;padding:0;border-radius:0;background:transparent;display:block; }
 .product-image::after { display:none; }
 .product-emoji { width:100%;height:128px;display:block; }
-.product-image text { position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:3px;background:var(--farm-green);color:#fff;font-size:8px;font-weight:700; }
+.product-image text { position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:3px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:700; }
 .product-body { padding:10px; }
 .item-title { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;font-weight:800;line-height:1.35;min-height:38px; }
-.muted { display:block;color:var(--farm-muted);font-size:9px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.muted { display:block;color:var(--farm-muted);font-size:12px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .cost-line { display:flex;align-items:baseline;gap:6px;margin-top:8px; }
 .cost-line strong { font-size:14px;color:var(--farm-red); }
-.cost-line del { font-size:9.5px;color:var(--farm-muted); }
-.cost-line span { margin-left:auto;font-size:9px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:1px 5px; }
+.cost-line del { font-size:12px;color:var(--farm-muted); }
+.cost-line span { margin-left:auto;font-size:12px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:1px 5px; }
 .product-foot { margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:8px; }
 .product-divider { height:1px;background:#eef0eb;margin:10px 0 9px; }
 .product-stats { display:flex;align-items:center;gap:4px;min-width:0;flex:1; }
-.product-stats text { color:var(--farm-muted);font-size:9px;white-space:nowrap; }
+.product-stats text { color:var(--farm-muted);font-size:12px;white-space:nowrap; }
 .product-stats .stat-dot { color:#c9cec9; }
 .product-stats .stock-ok { color:var(--farm-green);font-weight:700; }
 .product-stats .stock-low { color:#b8860b;font-weight:700; }
@@ -685,18 +717,18 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 /* ===== 底部购物车栏 ===== */
 .cart-bar { position:fixed;left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));height:54px;padding:6px 7px 6px 12px;background:#183a2b;color:#fff;border-radius:8px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:0 8px 25px rgba(0,0,0,.2); }
 .cart-count { width:36px;height:36px;position:relative;border-radius:50%;background:#fff;display:grid;place-items:center;padding:0; }
-.cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:9px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:8px; }
+.cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:9px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:12px; }
 .cart-bar>view { flex:1; }
 .cart-bar small,.cart-bar strong { display:block; }
-.cart-bar small { opacity:.7;font-size:8px; }
+.cart-bar small { opacity:.7;font-size:12px; }
 .cart-bar strong { font-size:14px; }
-.cart-bar>button:last-child { height:40px;padding:0 16px;border-radius:6px;background:#d2ae5b;color:#2c271b;font-weight:800;font-size:11px;display:inline-flex;align-items:center;justify-content:center; }
+.cart-bar>button:last-child { height:40px;padding:0 16px;border-radius:6px;background:#d2ae5b;color:#2c271b;font-weight:800;font-size:13px;display:inline-flex;align-items:center;justify-content:center; }
 
 /* ===== 底部 tab ===== */
 .tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(66px + env(safe-area-inset-bottom));padding-bottom:calc(8px + env(safe-area-inset-bottom));background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-top:1px solid var(--farm-line);display:grid;grid-template-columns:repeat(3,1fr);z-index:20; }
-.tabbar button { background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8a918a;font-size:9px; }
+.tabbar button { background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8a918a;font-size:13px; }
 .tab-icon-wrap { position:relative;display:grid;place-items:center; }
-.tab-badge { position:absolute;top:-5px;right:-11px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:8px;font-weight:800; }
+.tab-badge { position:absolute;top:-5px;right:-11px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:800; }
 .tabbar button.active { color:var(--farm-green);font-weight:800; }
 .tabbar button.active .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
 
@@ -712,43 +744,43 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .sheet-line { min-height:76px;padding:10px 0;border-bottom:1px solid #eef0eb;display:grid;grid-template-columns:54px 1fr auto;gap:9px;align-items:center; }
 .sheet-line image { width:54px;height:54px;border-radius:6px; }
 .sheet-line text,.sheet-line strong { display:block; }
-.sheet-line text { font-size:10px;line-height:1.35; }
-.sheet-line small { display:block;margin-top:4px;color:var(--farm-muted);font-size:9px; }
-.sheet-line strong { margin-top:5px;color:var(--farm-red);font-size:11px; }
+.sheet-line text { font-size:12px;line-height:1.35; }
+.sheet-line small { display:block;margin-top:4px;color:var(--farm-muted);font-size:12px; }
+.sheet-line strong { margin-top:5px;color:var(--farm-red);font-size:12px; }
 .sheet-line.shortage { background:#fff8f2; }
 .stepper { height:30px;display:grid;grid-template-columns:28px 28px 28px;border:1px solid var(--farm-line);border-radius:5px;overflow:hidden; }
-.stepper button,.stepper text { display:grid;place-items:center;background:#fff;font-size:12px;margin:0; }
+.stepper button,.stepper text { display:grid;place-items:center;background:#fff;font-size:13px;margin:0; }
 .stepper text { border-left:1px solid var(--farm-line);border-right:1px solid var(--farm-line); }
 .stepper button:disabled { background:#eef0eb;color:#a3aaa3; }
 .cart-error { display:block;margin:10px 0 0;padding:10px;border-radius:6px;background:#fae8e4;color:var(--farm-red);font-size:12px; }
 .checkout-summary { padding-top:13px; }
-.checkout-summary>view { display:flex;justify-content:space-between;margin-bottom:9px;font-size:10px; }
+.checkout-summary>view { display:flex;justify-content:space-between;margin-bottom:9px;font-size:12px; }
 .checkout-summary .primary-button { margin-top:8px; }
 .checkout-summary .save { color:var(--farm-green); }
-.checkout-summary .remark { color:var(--farm-muted);font-size:10px;font-weight:600;text-align:right; }
-.stock-list{max-height:320px;overflow-y:auto;border:1px solid var(--farm-line);border-radius:10px;padding:4px 10px;background:#fff}.stock-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid #eef0eb}.stock-row:last-child{border-bottom:0}.stock-main text{font-size:11px;font-weight:800;display:block}.stock-main small{display:block;margin-top:3px;color:var(--farm-muted);font-size:9px}.stock-skus{display:flex;gap:6px;flex-wrap:wrap}.stock-sku{display:flex;align-items:center;gap:4px}.stock-sku text{font-size:9px;color:var(--farm-muted)}.stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:11px}.stock-actions{display:flex;gap:6px;align-items:center}.stock-actions .compact-button{min-height:28px;padding:0 8px;border-radius:5px;background:var(--farm-green);color:#fff;font-size:10px;font-weight:700}.stock-actions .compact-button.off{background:#f0f2ed;color:#687168}
+.checkout-summary .remark { color:var(--farm-muted);font-size:12px;font-weight:600;text-align:right; }
+.stock-list{max-height:320px;overflow-y:auto;border:1px solid var(--farm-line);border-radius:10px;padding:4px 10px;background:#fff}.stock-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid #eef0eb}.stock-row:last-child{border-bottom:0}.stock-main text{font-size:12px;font-weight:800;display:block}.stock-main small{display:block;margin-top:3px;color:var(--farm-muted);font-size:12px}.stock-skus{display:flex;gap:6px;flex-wrap:wrap}.stock-sku{display:flex;align-items:center;gap:4px}.stock-sku text{font-size:12px;color:var(--farm-muted)}.stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:13px}.stock-actions{display:flex;gap:6px;align-items:center}.stock-actions .compact-button{min-height:28px;padding:0 8px;border-radius:5px;background:var(--farm-green);color:#fff;font-size:13px;font-weight:700}.stock-actions .compact-button.off{background:#f0f2ed;color:#687168}
 .primary-button { width:100%;height:44px;border-radius:6px;background:var(--farm-green);color:#fff;font-weight:800;font-size:13px; }
-.outline-button { width:100%;height:40px;border-radius:6px;background:#fff;color:var(--farm-green);border:1px solid #bad3c4;font-size:11px;font-weight:700; }
-.empty { padding:50px 0;text-align:center;color:var(--farm-muted);font-size:11px; }
+.outline-button { width:100%;height:40px;border-radius:6px;background:#fff;color:var(--farm-green);border:1px solid #bad3c4;font-size:13px;font-weight:700; }
+.empty { padding:50px 0;text-align:center;color:var(--farm-muted);font-size:12px; }
 .empty-page { min-height:230px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--farm-muted); }
 .empty-page text,.empty-page small { display:block; }
 .empty-page text { margin-top:10px;font-size:12px;font-weight:800; }
-.empty-page small { margin-top:5px;font-size:9px; }
+.empty-page small { margin-top:5px;font-size:12px; }
 
 /* ===== 商品详情 ===== */
 .product-detail { padding-top:12px; }
 .product-detail-emoji { width:100%;height:190px;display:block;border-radius:10px; }
 .product-detail>text { display:block;margin-top:13px;font-size:17px;font-weight:900; }
-.product-detail>small { display:block;margin-top:6px;color:var(--farm-muted);font-size:10px; }
+.product-detail>small { display:block;margin-top:6px;color:var(--farm-muted);font-size:12px; }
 .detail-price { display:flex;align-items:baseline;gap:6px;margin-top:12px; }
 .detail-price strong { font-size:20px;color:var(--farm-red); }
-.detail-price del { font-size:10px;color:var(--farm-muted); }
-.detail-price span { margin-left:auto;font-size:9px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:2px 6px; }
+.detail-price del { font-size:12px;color:var(--farm-muted); }
+.detail-price span { margin-left:auto;font-size:12px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:2px 6px; }
 .sku-options { display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px; }
 .sku-options button { min-height:56px;padding:11px 12px;border:1px solid #e0e4dd;border-radius:12px;background:#fff;text-align:left;display:flex;flex-direction:column;justify-content:center;transition:border-color .15s,background .15s; }
 .sku-options button text,.sku-options button small { display:block; }
 .sku-options button text { font-size:13px;font-weight:800;color:#23291f; }
-.sku-options button small { margin-top:4px;color:#8a918a;font-size:10px; }
+.sku-options button small { margin-top:4px;color:#8a918a;font-size:13px; }
 .sku-options button.active { border-color:var(--farm-green);background:var(--farm-green-soft);box-shadow:0 0 0 1px var(--farm-green); }
 .sku-options button.active text { color:var(--farm-green); }
 .sku-options button.active small { color:var(--farm-green); }
@@ -760,23 +792,23 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .checkout-form { padding-top:12px; }
 .checkout-store { padding:13px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px;display:grid;gap:9px; }
 .checkout-store view { display:flex;justify-content:space-between;gap:12px; }
-.checkout-store small { color:var(--farm-muted);font-size:9px;flex:none; }
-.checkout-store text { font-size:11px;font-weight:700;text-align:right; }
+.checkout-store small { color:var(--farm-muted);font-size:12px;flex:none; }
+.checkout-store text { font-size:12px;font-weight:700;text-align:right; }
 .form-group { margin-top:13px; }
-.form-group>text { display:block;margin-bottom:9px;font-size:11px;font-weight:800; }
-.form-group textarea { width:100%;height:76px;padding:10px;border:1px solid var(--farm-line);border-radius:6px;font-size:11px;background:#fff; }
+.form-group>text { display:block;margin-bottom:9px;font-size:12px;font-weight:800; }
+.form-group textarea { width:100%;height:76px;padding:10px;border:1px solid var(--farm-line);border-radius:6px;font-size:13px;background:#fff; }
 .checkout-items { margin-top:13px;display:grid;gap:9px; }
 .checkout-line { padding:9px 11px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:10px; }
-.checkout-line text { font-size:10px; }
-.checkout-line strong { color:var(--farm-red);font-size:11px;white-space:nowrap; }
+.checkout-line text { font-size:12px; }
+.checkout-line strong { color:var(--farm-red);font-size:12px;white-space:nowrap; }
 
 /* ===== 订单 ===== */
 .order-chips { padding:0; }
 .order-list { margin-top:14px;display:grid;gap:11px; }
 .order-card { width:100%;padding:13px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;text-align:left;color:var(--farm-ink); }
 .order-top { display:flex;align-items:center;justify-content:space-between;gap:10px; }
-.order-no { font-size:11px;font-weight:800;color:var(--farm-muted); }
-.status-badge { padding:3px 8px;border-radius:4px;font-size:9px;font-weight:700; }
+.order-no { font-size:12px;font-weight:800;color:var(--farm-muted); }
+.status-badge { padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700; }
 .status-badge.submitted { background:#f2f3ee;color:#6e7368; }
 .status-badge.accepted { background:#e8f0f7;color:#2b6a9c; }
 .status-badge.shipped { background:#e7f2eb;color:#17633f; }
@@ -787,9 +819,9 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .order-emoji { width:56px;height:56px;border-radius:10px;display:block;flex-shrink:0; }
 .order-info { flex:1;min-width:0; }
 .order-title { display:block;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.order-info small { display:block;margin-top:5px;color:var(--farm-muted);font-size:9px; }
+.order-info small { display:block;margin-top:5px;color:var(--farm-muted);font-size:12px; }
 .order-bottom { margin-top:11px;padding-top:10px;border-top:1px solid #eef0eb;display:flex;align-items:center;gap:8px; }
-.order-bottom small { color:var(--farm-green);font-size:9px; }
+.order-bottom small { color:var(--farm-green);font-size:12px; }
 .order-bottom strong { margin-left:auto;font-size:14px;color:var(--farm-red); }
 .order-bottom .ui-icon { filter:invert(45%); }
 
@@ -802,41 +834,41 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .step::after { content:'';position:absolute;left:50%;top:9px;width:100%;height:2px;background:#dfe2dc; }
 .step:last-child::after { display:none; }
 .step.done::after { background:var(--farm-green); }
-.step-dot { width:18px;height:18px;margin:0 auto;border-radius:50%;background:#dfe2dc;color:#fff;font-size:9px;display:grid;place-items:center;position:relative;z-index:1; }
+.step-dot { width:18px;height:18px;margin:0 auto;border-radius:50%;background:#dfe2dc;color:#fff;font-size:12px;display:grid;place-items:center;position:relative;z-index:1; }
 .step.done .step-dot { background:var(--farm-green); }
 .step.current .step-dot { background:var(--farm-red);box-shadow:0 0 0 3px rgba(169,71,61,.18); }
-.step small { display:block;margin-top:6px;color:var(--farm-muted);font-size:8px; }
+.step small { display:block;margin-top:6px;color:var(--farm-muted);font-size:12px; }
 .step.current small { color:var(--farm-red);font-weight:800; }
 .logistics { margin-top:14px;padding:12px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:8px;display:grid;gap:11px; }
 .log-event { display:flex;gap:9px; }
 .log-dot { width:7px;height:7px;margin-top:4px;border-radius:50%;background:var(--farm-green);flex:none; }
 .log-event:first-child .log-dot { box-shadow:0 0 0 3px rgba(23,99,63,.16); }
 .log-event text,.log-event small { display:block; }
-.log-event text { font-size:11px;font-weight:800; }
-.log-event small { margin-top:3px;color:var(--farm-muted);font-size:9px;line-height:1.5; }
+.log-event text { font-size:12px;font-weight:800; }
+.log-event small { margin-top:3px;color:var(--farm-muted);font-size:12px;line-height:1.5; }
 .order-items { margin-top:14px;display:grid;gap:9px; }
 .order-item-line { min-height:64px;padding:9px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:7px;display:grid;grid-template-columns:48px 1fr auto;gap:9px;align-items:center; }
 .order-item-line image { width:48px;height:48px;border-radius:5px; }
 .order-item-line text,.order-item-line small { display:block; }
-.order-item-line text { font-size:11px;font-weight:800; }
-.order-item-line small { margin-top:4px;color:var(--farm-muted);font-size:9px; }
-.order-item-line strong { font-size:11px;color:var(--farm-red);white-space:nowrap; }
+.order-item-line text { font-size:12px;font-weight:800; }
+.order-item-line small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
+.order-item-line strong { font-size:12px;color:var(--farm-red);white-space:nowrap; }
 .order-actions { margin-top:16px;display:grid;gap:9px; }
-.after-sale-status{margin-top:14px;padding:10px 12px;border-radius:7px;background:#fff3e8;border:1px solid #f2d9b8;color:#9a6b1f;font-size:11px;font-weight:700}
+.after-sale-status{margin-top:14px;padding:10px 12px;border-radius:7px;background:#fff3e8;border:1px solid #f2d9b8;color:#9a6b1f;font-size:12px;font-weight:700}
 
 /* ===== 门店工作台 ===== */
 .store-hero { padding:calc(28px + env(safe-area-inset-top)) 18px 20px;background:linear-gradient(135deg,#3a566f,#243a4f);color:#fff; }
-.store-hero-top small { display:block;margin-top:5px;color:rgba(255,255,255,.7);font-size:10px; }
+.store-hero-top small { display:block;margin-top:5px;color:rgba(255,255,255,.7);font-size:12px; }
 .store-identity { margin-top:18px;display:flex;align-items:center;gap:12px; }
 .store-emoji { width:50px;height:50px;border-radius:14px;display:block;flex-shrink:0; }
 .store-identity text,.store-identity small { display:block; }
 .store-identity text { font-size:15px;font-weight:800; }
-.store-identity small { margin-top:4px;font-size:9px;opacity:.75; }
+.store-identity small { margin-top:4px;font-size:12px;opacity:.75; }
 .metric-band { margin-top:18px;display:grid;grid-template-columns:repeat(3,1fr);background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:10px; }
 .metric-band view { padding:12px 6px;text-align:center;border-right:1px solid rgba(255,255,255,.14); }
 .metric-band view:last-child { border:0; }
 .metric-band text,.metric-band strong { display:block; }
-.metric-band text { color:rgba(255,255,255,.72);font-size:9px; }
+.metric-band text { color:rgba(255,255,255,.72);font-size:12px; }
 .metric-band strong { margin-top:5px;font-size:14px; }
 .store-metrics { grid-template-columns:repeat(4,1fr); }
 .store-body { padding-top:16px; }
@@ -845,38 +877,38 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .section-head span { width:3px;height:16px;background:var(--farm-green);border-radius:2px; }
 .section-head text { font-size:15px;font-weight:900; }
 .quick-grid { margin:0 -16px;display:flex;gap:8px; }
-.quick-grid button { flex:1 1 0;min-width:0;width:100%;min-height:96px;padding:8px 4px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:11px;color:var(--farm-ink); }
-.quick-grid button small { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--farm-muted);font-size:8px;line-height:1.3; }
+.quick-grid button { flex:1 1 0;min-width:0;width:100%;min-height:96px;padding:8px 4px;background:#fff;border:1px solid var(--farm-line);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:13px;color:var(--farm-ink); }
+.quick-grid button small { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--farm-muted);font-size:13px;line-height:1.3; }
 .hot-list { display:grid;gap:9px;background:#fff;border:1px solid var(--farm-line);border-radius:12px;padding:12px; }
 .hot-item { display:grid;grid-template-columns:20px 40px 1fr auto;gap:9px;align-items:center; }
-.hot-rank { width:20px;height:20px;border-radius:6px;background:var(--farm-green-soft);color:var(--farm-green);display:grid;place-items:center;font-size:10px;font-weight:800; }
+.hot-rank { width:20px;height:20px;border-radius:6px;background:var(--farm-green-soft);color:var(--farm-green);display:grid;place-items:center;font-size:12px;font-weight:800; }
 .hot-item:nth-child(1) .hot-rank { background:var(--farm-gold);color:#fff; }
 .hot-item:nth-child(2) .hot-rank { background:#d9c78f;color:#fff; }
 .hot-emoji { width:40px;height:40px;border-radius:9px;display:block;flex-shrink:0; }
 .hot-main { min-width:0; }
 .hot-main text,.hot-main small { display:block; }
-.hot-main text { font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.hot-main small { margin-top:4px;color:var(--farm-muted);font-size:9px; }
+.hot-main text { font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.hot-main small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
 .hot-item strong { font-size:12px;color:var(--farm-red);white-space:nowrap; }
 .quick-grid .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
 .info-list { display:grid;gap:0;background:#fff;border:1px solid var(--farm-line);border-radius:10px;overflow:hidden; }
 .info-list>view { min-height:46px;padding:0 13px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #eef0eb; }
 .info-list>view:last-child { border:0; }
-.info-list small { color:var(--farm-muted);font-size:10px;flex:none; }
-.info-list text { font-size:11px;font-weight:700;text-align:right; }
-.member-footer { margin-top:22px;padding-bottom:10px;text-align:center;color:var(--farm-muted);font-size:9px; }
+.info-list small { color:var(--farm-muted);font-size:12px;flex:none; }
+.info-list text { font-size:12px;font-weight:700;text-align:right; }
+.member-footer { margin-top:22px;padding-bottom:10px;text-align:center;color:var(--farm-muted);font-size:12px; }
 
 /* ===== 联系客服 ===== */
 .contact-sheet { padding-top:12px; }
 .contact-hero { padding:20px 16px;background:linear-gradient(135deg,#3a566f,#243a4f);border-radius:12px;color:#fff;text-align:center; }
 .contact-hero .ui-icon { margin:0 auto;filter:brightness(0) invert(1); }
 .contact-hero text { display:block;margin-top:10px;font-size:15px;font-weight:900; }
-.contact-hero small { display:block;margin-top:6px;font-size:10px;opacity:.75;line-height:1.5; }
+.contact-hero small { display:block;margin-top:6px;font-size:12px;opacity:.75;line-height:1.5; }
 .contact-rows { margin-top:13px;display:grid;background:#fff;border:1px solid var(--farm-line);border-radius:10px;overflow:hidden; }
 .contact-row { min-height:46px;padding:0 13px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #eef0eb; }
 .contact-row:last-child { border:0; }
-.contact-row small { color:var(--farm-muted);font-size:10px;flex:none; }
-.contact-row text { font-size:11px;font-weight:700;text-align:right; }
+.contact-row small { color:var(--farm-muted);font-size:12px;flex:none; }
+.contact-row text { font-size:12px;font-weight:700;text-align:right; }
 .contact-actions { margin-top:15px;display:grid;gap:9px; }
 .contact-actions .primary-button,
 .contact-actions .outline-button { height:44px;margin:0; }
@@ -884,9 +916,9 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 /* ===== 收货地址 ===== */
 .address-sheet { padding-top:12px; }
 .address-card { padding:14px;background:#f7f8f4;border:1px solid var(--farm-line);border-radius:8px;display:grid;gap:8px; }
-.address-card small { color:var(--farm-muted);font-size:9px; }
+.address-card small { color:var(--farm-muted);font-size:12px; }
 .address-card text { font-size:12px;font-weight:800;line-height:1.5; }
-.address-note { display:block;margin:12px 2px;color:var(--farm-muted);font-size:10px;line-height:1.6; }
+.address-note { display:block;margin:12px 2px;color:var(--farm-muted);font-size:12px;line-height:1.6; }
 
 /* ===== 状态页 ===== */
 .state-page { min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--farm-muted);text-align:center; }
@@ -937,7 +969,7 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .login-head{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:24px}
 .login-logo{width:56px;height:56px;border-radius:16px;display:block}
 .login-title{font-size:19px;font-weight:800;color:#123}
-.login-sub{font-size:11.5px;color:#8a9a90}
+.login-sub{font-size:12px;color:#8a9a90}
 .login-tabs{display:flex;background:#f1f5f2;border-radius:11px;padding:4px;margin-bottom:18px}
 .login-tabs button{flex:1;min-height:38px;border-radius:8px;font-size:13.5px;font-weight:700;color:#6b7a70;display:flex;align-items:center;justify-content:center}
 .login-tabs button.active{background:#fff;color:#17633f;box-shadow:0 2px 8px rgba(23,99,63,.12)}
@@ -950,7 +982,7 @@ onBeforeUnmount(() => { disposeKeyboardButtons?.(); disposePlatformChanges?.(); 
 .code-button{min-height:46px;padding:0 14px;border-radius:10px;background:#17633f;color:#fff;font-size:13px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
 .code-button[disabled]{opacity:.55}
 .login-button{min-height:46px;border-radius:11px;background:linear-gradient(135deg,#17633f,#2f8a5b);color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center}
-.login-hint{display:block;text-align:center;margin-top:16px;font-size:11.5px;color:#8a9a90}
+.login-hint{display:block;text-align:center;margin-top:16px;font-size:12px;color:#8a9a90}
 .logout-button{width:100%;min-height:42px;margin:14px 0 4px;border-radius:12px;background:#f1f5f2;color:#555;font-size:13.5px;font-weight:700;border:1px solid #e2eae4;display:flex;align-items:center;justify-content:center}
 .sheet-line .business-image{width:54px;height:54px;border-radius:6px}.order-item-line .business-image{width:48px;height:48px;border-radius:5px}
 

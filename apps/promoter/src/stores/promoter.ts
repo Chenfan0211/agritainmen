@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { BusinessMediaValue, FarmStore, LiveRoom, MediaAssetRepository, MockScenario, PlatformPrincipal, Product, Promoter, PromoterAccount, ShareRecord, UserBinding } from '@agritainment/shared'
-import { authenticatePromoter, buildPromoterAccountSeeds, cloneSeed, createId, mergePlatformPromoterAccounts, promoters, readCatalogState, readPlatformCommissionLedger, readPlatformCommissionSettlement, readPlatformPromoterAccountState, readPlatformPromoterAccounts, readShareRecords, readStoreCatalogSelections, readUserBindings, removePlatformLive, replaceMediaReference, seedPlatformDemoData, writePlatformLive, writePlatformPromoterAccounts } from '@agritainment/shared'
+import { authenticatePromoter, buildPromoterAccountSeeds, cloneSeed, createId, mergePlatformEntities, mergePlatformPromoterAccounts, promoters, readCatalogState, readPlatformCommissionLedger, readPlatformCommissionSettlement, readPlatformEntities, readPlatformPromoterAccountState, readPlatformPromoterAccounts, readShareRecords, readStoreCatalogSelections, readUserBindings, removePlatformLive, replaceMediaReference, seedPlatformDemoData, writePlatformLive, writePlatformPromoterAccounts } from '@agritainment/shared'
 import { promoterRepository } from '../services/repository'
 
 const DEFAULT_LIVE_COVER: BusinessMediaValue = { source: 'builtin', path: '/static/images/farmhouse.webp' }
@@ -57,6 +57,9 @@ export const usePromoterStore = defineStore('promoter', {
     availableLedgerCommission: (state) => Math.round(Object.values(readPlatformCommissionLedger() || {}).filter((item) => item.beneficiaryId === state.promoter?.id && item.status === 'available').reduce((sum, item) => sum + item.amount, 0) * 100) / 100
   },
   actions: {
+    promoterDirectory(): Promoter[] {
+      return mergePlatformEntities(cloneSeed(promoters), readPlatformEntities()?.promoters)
+    },
     async initialize(force = false) {
       if ((!force && this.initialized) || this.loading) return
       this.loading = true
@@ -67,7 +70,7 @@ export const usePromoterStore = defineStore('promoter', {
           farms: data.farms,
           products: data.products,
           liveRooms: data.liveRooms,
-          promoter: this.auth.promoterId ? cloneSeed(promoters.find((item) => item.id === this.auth.promoterId) || null) : data.promoter,
+          promoter: this.auth.promoterId ? cloneSeed(this.promoterDirectory().find((item) => item.id === this.auth.promoterId) || null) : data.promoter,
           initialized: true
         })
         this.liveRooms.forEach((room) => {
@@ -88,13 +91,13 @@ export const usePromoterStore = defineStore('promoter', {
       }
     },
     promoterAccounts(): PromoterAccount[] {
-      const defaults = buildPromoterAccountSeeds(promoters)
+      const defaults = buildPromoterAccountSeeds(this.promoterDirectory())
       const saved = readPlatformPromoterAccounts()
       if (!saved || saved.length === 0) writePlatformPromoterAccounts(defaults, readPlatformPromoterAccountState()?.revision ?? 0)
       return mergePlatformPromoterAccounts(defaults, readPlatformPromoterAccounts())
     },
     login(phone: string, password: string) {
-      const result = authenticatePromoter(this.promoterAccounts(), promoters, phone, password)
+      const result = authenticatePromoter(this.promoterAccounts(), this.promoterDirectory(), phone, password)
       if (!result.ok) return false
       this.promoter = cloneSeed(result.promoter)
       const principal: PlatformPrincipal = { actorType: 'promoter', actorId: result.promoter.id, tenantId: result.promoter.id, status: 'active' }
@@ -104,7 +107,7 @@ export const usePromoterStore = defineStore('promoter', {
     async refreshSharedState() {
       if (!this.auth.isLoggedIn || !this.auth.accountId) return
       const account = this.promoterAccounts().find((item) => item.id === this.auth.accountId)
-      const promoter = promoters.find((item) => item.id === this.auth.promoterId)
+      const promoter = this.promoterDirectory().find((item) => item.id === this.auth.promoterId)
       if (!account?.enabled || !promoter || promoter.status !== 'active') {
         this.logout()
         return
@@ -171,8 +174,8 @@ export const usePromoterStore = defineStore('promoter', {
     removeLive(id: string) {
       const index = this.liveRooms.findIndex((item) => item.id === id)
       if (index < 0) return false
+      if (!removePlatformLive(id)) return false
       this.liveRooms.splice(index, 1)
-      removePlatformLive(id)
       return true
     }
   }
