@@ -211,10 +211,10 @@ onBeforeUnmount(() => {
         <view class="wallet-stats"><view><text>{{ money(pendingShare) }}</text><small>推广佣金<text v-if="store.promoter?.settled" class="settled-tag">已结算</text></small></view><view><text>{{ store.promoter?.fans ?? 0 }}</text><small>绑定用户</small></view><view><text>{{ store.myBoundUsers.filter((item) => item.status === 'bound').length }}</text><small>正式绑定</small></view></view>
       </view>
 
-      <view class="quick-tools">
-        <button @click="openCreateLive()"><UiIcon name="plus" :size="22" /><text>创建直播</text></button>
-        <button @click="sheet = 'shares'"><UiIcon name="badge-dollar-sign" :size="22" /><text>我的分成</text></button>
-        <button @click="sheet = 'bound-users'"><UiIcon name="users" :size="22" /><text>绑定用户</text></button>
+      <view class="quick-tools pc-tile-grid">
+        <button class="pc-tile pc-tile--green" @click="openCreateLive()"><view class="pc-tile-icon"><UiIcon name="plus" :size="26" /></view><text class="pc-tile-label">创建直播</text></button>
+        <button class="pc-tile pc-tile--amber" @click="sheet = 'shares'"><view class="pc-tile-icon"><UiIcon name="badge-dollar-sign" :size="26" /><text v-if="store.myShares.length" class="pc-tile-badge">{{ store.myShares.length > 99 ? '99+' : store.myShares.length }}</text></view><text class="pc-tile-label">我的分成</text></button>
+        <button class="pc-tile pc-tile--blue" @click="sheet = 'bound-users'"><view class="pc-tile-icon"><UiIcon name="users" :size="26" /><text v-if="store.myBoundUsers.filter((item) => item.status === 'bound').length" class="pc-tile-badge">{{ store.myBoundUsers.filter((item) => item.status === 'bound').length > 99 ? '99+' : store.myBoundUsers.filter((item) => item.status === 'bound').length }}</text></view><text class="pc-tile-label">绑定用户</text></button>
       </view>
 
       <view class="section-head"><view class="section-title"><span></span><text class="section-title-label">我的直播</text></view><small>{{ myLives.length }} 场</small></view>

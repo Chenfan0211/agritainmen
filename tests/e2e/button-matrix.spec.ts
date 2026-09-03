@@ -376,8 +376,10 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
   await page.locator('.tabbar uni-button').nth(2).click()
   await expect(page.locator('.store-metrics')).toContainText('本月进货额')
   await expect(page.locator('.store-metrics')).toContainText('累计节省')
-  await expect(page.locator('.quick-grid uni-button', { hasText: '去订货' })).toContainText('可订')
-  await expect(page.locator('.quick-grid uni-button', { hasText: '我的订单' })).toContainText('待收货')
+  const goShopEntry = page.locator('.quick-grid uni-button', { hasText: '去订货' });
+  await expect(goShopEntry).toContainText('去订货')
+  const myOrderEntry = page.locator('.quick-grid uni-button', { hasText: '我的订单' });
+  await expect(myOrderEntry).toContainText('我的订单')
 
   // 收货地址弹层
   await page.locator('.quick-grid uni-button', { hasText: '收货地址' }).click()

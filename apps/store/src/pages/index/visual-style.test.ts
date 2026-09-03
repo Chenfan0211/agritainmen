@@ -44,7 +44,7 @@ describe('门店端现代供应链视觉契约', () => {
   })
 
   it('主要卡片使用不超过八像素的统一圆角和克制阴影', () => {
-    for (const selector of ['.product-card', '.order-card', '.quick-grid button', '.hot-list', '.login-card']) {
+    for (const selector of ['.product-card', '.order-card', '.hot-list', '.login-card']) {
       expectRule(selector, /border-radius:\s*var\(--mobile-radius-card\)/)
       expectRule(selector, /box-shadow:\s*var\(--mobile-shadow-card\)/)
     }

@@ -111,10 +111,10 @@ describe('农家乐移动端视觉契约', () => {
 
   it('会员中心采用资产卡 + 快捷宫格并移除重复充值', () => {
     expect(template).toContain('class="member-hero pc-hero"')
-    expect(template).toContain('class="mine-list pc-grid"')
+    expect(template).toContain('class="mine-list pc-tile-grid"')
     expect(template).toContain('class="recharge pc-hero-action"')
     expect(template).toContain('class="member-footer pc-footer"')
-    expect(template).toContain('class="pc-grid-item"')
+    expect(template).toMatch(/class="pc-tile pc-tile--[a-z]+"/)
     expect(template).not.toContain('class="recharge-options"')
     expect(template).not.toContain('class="identity-row"')
   })

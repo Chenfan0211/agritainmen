@@ -112,12 +112,12 @@
         </view>
         <view class="page-pad store-body">
           <view class="section-head compact"><view><span></span><text>快捷入口</text></view></view>
-          <view class="quick-grid">
-            <button @click="goShop"><UiIcon name="shopping-bag" :size="22" /><text>去订货</text><small>可订 {{ store.products.length }} 款</small></button>
-            <button @click="goOrders"><UiIcon name="package-check" :size="22" /><text>我的订单</text><small>共 {{ store.orders.length }} 单 · 待收货 {{ store.orderMetrics.pendingReceipt }}</small></button>
-            <button @click="sheet = 'address'"><UiIcon name="map-pin" :size="22" /><text>收货地址</text><small>{{ store.info.address }}</small></button>
-            <button @click="sheet = 'contact'"><UiIcon name="headset" :size="22" /><text>联系客服</text><small>{{ store.info.phone }}</small></button>
-          </view>
+<view class="quick-grid pc-tile-grid">
+  <button class="pc-tile pc-tile--green" @click="goShop"><view class="pc-tile-icon"><UiIcon name="shopping-bag" :size="26" /><text v-if="store.products.length" class="pc-tile-badge">{{ store.products.length > 99 ? '99+' : store.products.length }}</text></view><text class="pc-tile-label">去订货</text></button>
+  <button class="pc-tile pc-tile--amber" @click="goOrders"><view class="pc-tile-icon"><UiIcon name="package-check" :size="26" /><text v-if="store.orders.length" class="pc-tile-badge">{{ store.orders.length > 99 ? '99+' : store.orders.length }}</text></view><text class="pc-tile-label">我的订单</text></button>
+  <button class="pc-tile pc-tile--coral" @click="sheet = 'address'"><view class="pc-tile-icon"><UiIcon name="map-pin" :size="26" /></view><text class="pc-tile-label">收货地址</text></button>
+  <button class="pc-tile pc-tile--blue" @click="sheet = 'contact'"><view class="pc-tile-icon"><UiIcon name="headset" :size="26" /></view><text class="pc-tile-label">联系客服</text></button>
+</view>
           <view class="section-head compact"><view><span></span><text>热销常订</text></view><small>按进货次数</small></view>
           <view class="hot-list">
             <view v-for="(item, index) in storeMetrics.hotOrders" :key="item.id" class="hot-item">

@@ -321,3 +321,66 @@ button:not(:disabled):active {
     border-inline: 1px solid rgba(19, 43, 29, .05);
   }
 }
+/* ===== 服务入口浅色底彩色矢量图标宫格 (pc-tile) ===== */
+.pc-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 8px;
+}
+.pc-tile {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--mobile-text);
+}
+.pc-tile-icon {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: #fff;
+}
+.pc-tile-icon .ui-icon { filter: brightness(0) invert(.18); }
+.pc-tile-label {
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-tile-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #d92c20;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+}
+.pc-tile--green .pc-tile-icon { background: #e3efe8; }
+.pc-tile--green .pc-tile-icon .ui-icon { filter: invert(31%) sepia(24%) saturate(1200%) hue-rotate(100deg); }
+.pc-tile--amber .pc-tile-icon { background: #f6ecd9; }
+.pc-tile--amber .pc-tile-icon .ui-icon { filter: invert(65%) sepia(55%) saturate(700%) hue-rotate(360deg); }
+.pc-tile--coral .pc-tile-icon { background: #f7e6e2; }
+.pc-tile--coral .pc-tile-icon .ui-icon { filter: invert(57%) sepia(44%) saturate(500%) hue-rotate(324deg); }
+.pc-tile--blue .pc-tile-icon { background: #e4eef6; }
+.pc-tile--blue .pc-tile-icon .ui-icon { filter: invert(50%) sepia(14%) saturate(900%) hue-rotate(176deg); }
+.pc-tile--purple .pc-tile-icon { background: #ede7f5; }
+.pc-tile--purple .pc-tile-icon .ui-icon { filter: invert(50%) sepia(12%) saturate(900%) hue-rotate(256deg); }
+.pc-tile--teal .pc-tile-icon { background: #e2f1ee; }
+.pc-tile--teal .pc-tile-icon .ui-icon { filter: invert(58%) sepia(12%) saturate(700%) hue-rotate(150deg); }
+.pc-tile--teal .pc-tile-icon { background: #4f9c92; }

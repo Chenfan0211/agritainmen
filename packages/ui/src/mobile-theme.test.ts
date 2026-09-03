@@ -87,6 +87,24 @@ describe('shared mobile visual theme', () => {
     expect(source).toMatch(/@media\s*\(min-width:\s*431px\)[\s\S]*radial-gradient/)
 
   })
+  it('provides the circular vector icon tile grid and wires it into every portal', () => {
+    const source = readFileSync(themePath, 'utf8')
+
+    expect(source).toMatch(/\.pc-tile-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)/)
+    expect(source).toMatch(/\.pc-tile-icon\s*\{[^}]*border-radius:\s*14px/)
+    expect(source).toMatch(/\.pc-tile-icon\s*\{[^}]*place-items:\s*center/)
+    expect(source).toMatch(/\.pc-tile-label\s*\{[^}]*text-overflow:\s*ellipsis/)
+    expect(source).toMatch(/\.pc-tile--green\s*\.pc-tile-icon\s*\{[^}]*background:/)
+    expect(source).toMatch(/\.pc-tile-badge\s*\{[^}]*background:\s*#d92c20/)
+    expect(source).toMatch(/\.pc-tile-badge\s*\{[^}]*font-size:\s*12px/)
+    expect(source).toMatch(/\.pc-tile-badge\s*\{[^}]*color:\s*#fff/)
+    expect(source).not.toMatch(/\.pc-tile--green[^}]*linear-gradient/)
+
+    for (const app of mobileApps) {
+      const src = readFileSync(resolve(root, `apps/${app}/src/pages/index/index.vue`), 'utf8')
+      expect(src, app).toContain('pc-tile')
+    }
+  })
   it('is loaded by every retained mobile portal', () => {
     for (const app of mobileApps) {
       const globalStyle = readFileSync(resolve(root, `apps/${app}/src/styles/global.scss`), 'utf8')

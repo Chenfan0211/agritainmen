@@ -138,9 +138,11 @@
             <view class="pc-hero-data"><view><small>供应商编号</small><strong>{{ store.auth.supplierId || '—' }}</strong></view><view><small>登录账号</small><strong>{{ store.auth.account }}</strong></view></view>
           </view>
           <view class="section-title">业务工作区</view>
-          <button v-for="item in supplierWorkItems" :key="item.key" class="work-link pc-row" data-typography-compact @click="openSecondaryWorkspace(item.key)">
-            <UiIcon :name="item.icon" :size="20" /><view class="row-main pc-row-main"><text>{{ item.label }}</text><text class="muted">{{ item.detail }}</text></view><UiIcon name="chevron-right" :size="16" />
+        <view class="pc-tile-grid mine-tile-grid">
+          <button v-for="(item, index) in supplierWorkItems" :key="item.key" class="work-link pc-tile" :class="'pc-tile--' + ['green','amber','coral','blue','purple','teal'][index % 6]" data-typography-compact @click="openSecondaryWorkspace(item.key)">
+            <view class="pc-tile-icon"><UiIcon :name="item.icon" :size="26" /></view><text class="pc-tile-label">{{ item.label }}</text>
           </button>
+        </view>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'drivers'" class="page-pad secondary-workspace" data-visual-view="workspace-drivers">
