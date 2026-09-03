@@ -1,4 +1,4 @@
-# 八端同源联调说明
+# 七端同源联调说明
 
 ## 入口与构建
 
@@ -13,13 +13,12 @@ node scripts/serve-single-origin.mjs
 - `/admin/`：中选科技供应链管理后台
 - `/dashboard/`：产业数据监管与赋能驾驶舱
 - `/farmhouse/`：中选科技农家乐门店端
-- `/alliance/`：中选科技联盟推客平台
 - `/store/`：中选科技门店订货商城
 - `/promoter/`：中选科技推客端
 - `/user/`：中选科技商城
 - `/supplier/`：中选科技供应商配送工作台
 
-8791-8798 只用于单端开发预览。不同端口即使使用同一台浏览器，`localStorage` 也不共享；涉及跨端共享数据的联调必须通过 `pnpm dev:single-origin` 启动的同源入口进行。生产部署设置 `VITE_PORTAL_ORIGIN`，不得使用 `127.0.0.1`、`localhost` 或 `demo.local`。
+8791、8792、8794-8798 只用于单端开发预览。不同端口即使使用同一台浏览器，`localStorage` 也不共享；涉及跨端共享数据的联调必须通过 `pnpm dev:single-origin` 启动的同源入口进行。生产部署设置 `VITE_PORTAL_ORIGIN`，不得使用 `127.0.0.1`、`localhost` 或 `demo.local`。
 
 同源产物位于 `apps/*/dist/single-origin/*`。静态资源使用 `/{app}/static/*` 路径，服务器只需按应用前缀提供普通静态文件，不需要实现 `/static/*` 跨应用回退。
 
@@ -49,19 +48,24 @@ node scripts/serve-single-origin.mjs
 
 H5 页面通过同源平台变更总线和页面重新可见事件读取共享快照；驾驶舱在 300ms 防抖后重新聚合，且不会回写业务状态。localStorage revision 只提供演示级乐观冲突检测，不能替代生产后端的鉴权、事务和原子库存扣减。
 
-驾驶舱只读取当前浏览器同域共享数据，权限过滤发生在指标聚合前。地图坐标来自门店主数据中的 GCJ-02 定位结果；非法坐标、定位失败和行政区不匹配门店只进入监管风险，不生成地图点位。省、市边界数据随 dashboard 静态产物发布，不在运行时请求外部 GeoJSON。门店预约在核销时由店员填写实际消费金额并写入共享预约；历史预约缺少金额时仍计订单量，但不估算交易额。
+驾驶舱只读取当前浏览器同域共享数据，权限过滤发生在指标聚合前。地图坐标来自门店主数据中的 GCJ-02 定位结果；非法坐标、定位失败和行政区不匹配门店只进入监管风险，不生成地图点位。腾讯 JS API GL 在运行时加载在线底图，业务点位不会修改或重算历史 GCJ-02 坐标。门店预约在核销时由店员填写实际消费金额并写入共享预约；历史预约缺少金额时仍计订单量，但不估算交易额。
 
-运营后台地理编码环境变量：
+腾讯地图环境变量：
 
 ```bash
-VITE_GEOCODER_ORDER=amap,tencent
-VITE_AMAP_KEY=
-VITE_TENCENT_MAP_KEY=
-VITE_AMAP_PROXY=
-VITE_TENCENT_MAP_PROXY=
+# 浏览器构建变量
+VITE_TENCENT_MAP_JS_KEY=
+VITE_TENCENT_MAP_STYLE_ID=
+VITE_TENCENT_MAP_GATEWAY=/api/tencent-map/geocode
+
+# Node 网关变量
+TENCENT_MAP_KEY=
+TENCENT_MAP_SECRET_KEY=
+TENCENT_MAP_ALLOWED_ORIGINS=
+TENCENT_MAP_TIMEOUT_MS=5000
 ```
 
-Key 和代理地址不提交到仓库。生产环境应优先使用服务端代理，当前公开账号、localStorage 聚合和浏览器侧区域权限均只适用于演示环境。
+Key 和 Secret 不提交到仓库。`VITE_*` 变量会进入浏览器构建，禁止把 WebService Secret 写入任何 `VITE_*` 变量。完整网关与 Nginx 配置见 [`docs/tencent-map.md`](tencent-map.md)。当前公开账号、localStorage 聚合和浏览器侧区域权限均只适用于演示环境。
 
 ## 跨平台限制
 

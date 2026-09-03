@@ -63,7 +63,8 @@ test('admin core layouts stay inside the 375, 768, short-desktop and wide viewpo
     { width: 375, height: 812 },
     { width: 768, height: 900 },
     { width: 1280, height: 600 },
-    { width: 1440, height: 900 }
+    { width: 1440, height: 900 },
+    { width: 1920, height: 1080 }
   ]) {
     await page.setViewportSize(viewport)
     await expect(page.locator('.admin-shell')).toBeVisible()
@@ -106,6 +107,24 @@ test('admin core layouts stay inside the 375, 768, short-desktop and wide viewpo
   await expect(page.locator('.booking-table-scroll')).toBeVisible()
   await expect.poll(() => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
   expect(consoleErrors).toEqual([])
+})
+
+test('all admin menu workspaces keep overflow inside their own data surfaces', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await loginAdmin(page)
+  const menuItems = page.locator('.nav-item')
+  const count = await menuItems.count()
+  expect(count).toBe(17)
+
+  for (let index = 0; index < count; index += 1) {
+    const menu = menuItems.nth(index)
+    const label = (await menu.innerText()).trim().split(/\r?\n/)[0]
+    const screenshotLabel = label.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+    await menu.click()
+    await expect(page.locator('.page-head h1')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth), { message: label }).toBeLessThanOrEqual(1)
+    await page.screenshot({ path: testInfo.outputPath(`admin-${String(index + 1).padStart(2, '0')}-${screenshotLabel}.png`), fullPage: false })
+  }
 })
 
 test('admin todo navigation keeps every matching order id visible and can be cleared', async ({ page }) => {
@@ -153,7 +172,7 @@ test('farmhouse manager verifies a confirmed shared booking from the page', asyn
     localStorage.clear()
     localStorage.setItem('agritainment-platform-bookings', JSON.stringify({
       'B-CONFIRMED-PAGE': {
-        id: 'B-CONFIRMED-PAGE', farmId: 'F001', farmName: '页面已确认预约', userId: 'U-PAGE', source: 'alliance',
+        id: 'B-CONFIRMED-PAGE', farmId: 'F001', farmName: '页面已确认预约', userId: 'U-PAGE', source: 'farmhouse',
         date: '2026-08-31', session: '午市 11:30', people: 4, amount: 328, status: 'confirmed', createdAt: '2026-08-30T10:00:00.000Z'
       }
     }))

@@ -5,8 +5,9 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const workspaceRoot = resolve(import.meta.dirname, '../../..')
-const appNames = ['user', 'farmhouse', 'promoter', 'alliance', 'store', 'supplier', 'dashboard'] as const
-const miniProgramApps = new Set(['user', 'farmhouse', 'promoter', 'alliance', 'supplier'])
+const appNames = ['user', 'farmhouse', 'promoter', 'store', 'supplier', 'dashboard'] as const
+const miniProgramApps = new Set(['user', 'farmhouse', 'promoter', 'supplier'])
+const activeApps = ['admin', ...appNames] as const
 
 function read(relativePath: string): string {
   return readFileSync(resolve(workspaceRoot, relativePath), 'utf8')
@@ -39,6 +40,12 @@ function resolveUiEntry(appName: string): string {
 }
 
 describe('cross-app media runtime wiring', () => {
+  it.each(activeApps)('%s 启动时清理已下线联盟端数据', (appName) => {
+    const main = read(`apps/${appName}/src/main.ts`)
+    expect(main).toContain('purgeRetiredAllianceData')
+    expect(main).toMatch(/createApp\(\)[\s\S]*purgeRetiredAllianceData\(\)/)
+  })
+
   it.each(appNames)('%s 配置 ui 依赖、类型源码和 H5 runtime', (appName) => {
     const packageJson = JSON.parse(read(`apps/${appName}/package.json`)) as { dependencies?: Record<string, string> }
     const tsconfig = read(`apps/${appName}/tsconfig.json`)

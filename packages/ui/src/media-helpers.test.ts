@@ -10,6 +10,23 @@ async function loadHelpers() {
 }
 
 describe('shared media helpers', () => {
+  it('allows compact thumbnails to hide the visible error badge without changing the default', () => {
+    const source = readFileSync(new URL('./BusinessImage.vue', import.meta.url), 'utf8')
+    expect(source).toContain('showError?: boolean')
+    expect(source).toContain('errorFallback?: MediaReference | string | null')
+    expect(source).toContain("showError: true")
+    expect(source).toContain('v-if="failed && showError"')
+    expect(source).toContain('watch(() => props.fallback')
+    expect(source).toContain('controller?.dispose()')
+  })
+
+  it('媒体运行时接管前可直接显示内置图和旧 URL', async () => {
+    const { initialResolvedMediaUrl } = await loadHelpers()
+    expect(initialResolvedMediaUrl('/static/images/tea.webp')).toBe('/static/images/tea.webp')
+    expect(initialResolvedMediaUrl({ source: 'legacy', url: 'https://example.com/tea.webp' })).toBe('https://example.com/tea.webp')
+    expect(initialResolvedMediaUrl({ source: 'asset', assetId: 'A1' })).toBe('')
+  })
+
   it('普通图和证照使用不同的压缩边界', async () => {
     const { mediaCompressionProfile } = await loadHelpers()
     expect(mediaCompressionProfile('normal')).toEqual({ maxEdge: 1600, quality: 0.82 })
@@ -102,6 +119,23 @@ describe('shared media helpers', () => {
     await controller.set({ source: 'asset', assetId: 'missing' })
     expect(onChange).toHaveBeenLastCalledWith('/static/images/fallback.webp')
     expect(onError).toHaveBeenLastCalledWith(true)
+  })
+
+  it('builtin fallback 自身加载失败时继续显示最终兜底图', async () => {
+    const { createResolvedMediaController } = await loadHelpers()
+    const onChange = vi.fn()
+    const controller = createResolvedMediaController({
+      fallbackUrl: '/static/images/categories/agricultural-products.webp',
+      errorFallbackUrl: '/static/images/categories/fallback.webp',
+      resolve: async (reference: MediaReference) => reference.source === 'builtin' ? reference.path : reference.source === 'legacy' ? reference.url : `blob:${reference.assetId}`,
+      release: () => undefined,
+      onChange
+    })
+
+    await controller.set({ source: 'builtin', path: '/static/images/categories/agricultural-products.webp' })
+    controller.fail('/static/images/categories/agricultural-products.webp')
+
+    expect(onChange).toHaveBeenLastCalledWith('/static/images/categories/fallback.webp')
   })
 
   it('图片加载失败时释放当前 object URL，并忽略旧 URL 的迟到错误', async () => {

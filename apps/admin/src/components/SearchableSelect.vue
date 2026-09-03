@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { BusinessImage } from '@agritainment/ui'
 import { createSearchableSelectId, filterSelectOptions, findNextEnabledOption } from './searchable-select'
 import type { SearchableSelectOption, SearchableSelectValue } from './searchable-select'
 import UiIcon from './UiIcon.vue'
@@ -196,8 +197,8 @@ onBeforeUnmount(() => {
       @click="toggleDropdown"
       @keydown="handleTriggerKeydown"
     >
-      <span class="searchable-select__value" :class="{ 'is-placeholder': !selectedOption }">{{ selectedOption?.label || placeholder }}</span>
-      <UiIcon name="chevron-down" :size="15" />
+      <span class="searchable-select__value" :class="{ 'is-placeholder': !selectedOption }"><BusinessImage v-if="selectedOption?.image" class="searchable-select__image" :src="selectedOption.image" :fallback="selectedOption.imageFallback" :error-fallback="selectedOption.imageErrorFallback" :show-error="false" mode="aspectFill" /><UiIcon v-else-if="selectedOption?.icon" :name="selectedOption.icon" :size="15" /><span>{{ selectedOption?.label || placeholder }}</span></span>
+      <UiIcon class="searchable-select__chevron" name="chevron-down" :size="15" />
     </div>
     <Teleport to="body">
       <div v-if="open" ref="panelEl" class="searchable-select__panel" :style="panelStyle">
@@ -233,7 +234,7 @@ onBeforeUnmount(() => {
             @mousedown.prevent
             @click="chooseOption(option)"
           >
-            <span>{{ option.label }}</span>
+            <span class="searchable-select__option-label"><BusinessImage v-if="option.image" class="searchable-select__image" :src="option.image" :fallback="option.imageFallback" :error-fallback="option.imageErrorFallback" :show-error="false" mode="aspectFill" /><UiIcon v-else-if="option.icon" :name="option.icon" :size="15" /><span>{{ option.label }}</span></span>
             <UiIcon v-if="Object.is(option.value, modelValue)" name="check" :size="14" />
           </div>
           <div v-if="!filteredOptions.length" class="searchable-select__empty">没有匹配选项</div>
@@ -250,10 +251,14 @@ onBeforeUnmount(() => {
 .searchable-select--small .searchable-select__trigger { height: 30px; padding: 0 8px; }
 .searchable-select--medium .searchable-select__trigger { height: 36px; padding: 0 8px; }
 .searchable-select__trigger:focus-visible { border-color: var(--admin-green-2, #287a4d); box-shadow: 0 0 0 2px rgba(40, 122, 77, .14); outline: 0; }
-.searchable-select__value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.searchable-select__value { min-width: 0; display:flex; align-items:center; gap:6px; overflow: hidden; white-space: nowrap; }
+.searchable-select__value span { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .searchable-select__value.is-placeholder { color: var(--admin-muted, #748177); }
-.searchable-select__trigger .ui-icon { flex: none; transition: transform .16s ease; }
-.searchable-select__trigger[aria-expanded="true"] .ui-icon { transform: rotate(180deg); }
+.searchable-select__image { width: 24px; height: 24px; flex: none; border: 1px solid var(--admin-line, #dfe5df); border-radius: 4px; background: #f4f6f3; }
+.searchable-select--small .searchable-select__image { width: 20px; height: 20px; }
+.searchable-select__trigger .ui-icon { flex: none; }
+.searchable-select__chevron { transition: transform .16s ease; }
+.searchable-select__trigger[aria-expanded="true"] .searchable-select__chevron { transform: rotate(180deg); }
 .searchable-select.is-disabled .searchable-select__trigger { background: #f4f6f3; color: #9aa39c; cursor: not-allowed; }
 .searchable-select__panel { position: fixed; z-index: 120; max-height: min(320px, calc(100vh - 16px)); overflow: hidden; border: 1px solid var(--admin-line, #dfe5df); border-radius: 6px; background: #fff; box-shadow: 0 14px 36px rgba(20, 36, 26, .16); }
 .searchable-select__search-wrap { height: 40px; margin: 8px; padding: 0 9px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--admin-line, #dfe5df); border-radius: 5px; background: #fff; }
@@ -261,6 +266,8 @@ onBeforeUnmount(() => {
 .searchable-select__search { min-width: 0; width: 100%; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font-size: 13px; }
 .searchable-select__options { max-height: max(0px, calc(var(--searchable-select-panel-max-height, 320px) - 56px)); overflow-y: auto; padding: 0 6px 6px; }
 .searchable-select__option { width: 100%; min-height: 36px; padding: 7px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.searchable-select__option-label { min-width:0; display:flex; align-items:center; gap:7px; }
+.searchable-select__option-label span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .searchable-select__option:hover, .searchable-select__option.is-active { background: var(--admin-green-soft, #edf6ef); }
 .searchable-select__option.is-selected { color: var(--admin-green-2, #287a4d); font-weight: 700; }
 .searchable-select__option.is-disabled { background: transparent; color: #a8afa9; cursor: not-allowed; }

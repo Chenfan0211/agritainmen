@@ -1,16 +1,17 @@
 @use "../../../../packages/ui/src/typography.scss";
+@use "../../../../packages/ui/src/mobile-theme.scss";
 
 :root {
-  --union-red: #b03a2e;
-  --union-red-deep: #9d2535;
-  --union-red-soft: #fae9eb;
-  --union-green: #17633f;
-  --union-gold: #b9872e;
-  --union-bg: #f7f3f2;
-  --union-panel: #ffffff;
-  --union-ink: #2a2424;
-  --union-muted: #6c6262;
-  --union-line: #e7dddd;
+  --union-red: var(--mobile-brand);
+  --union-red-deep: var(--mobile-brand-deep);
+  --union-red-soft: var(--mobile-brand-soft);
+  --union-green: var(--mobile-brand);
+  --union-gold: var(--mobile-warning);
+  --union-bg: var(--mobile-bg);
+  --union-panel: var(--mobile-surface);
+  --union-ink: var(--mobile-text);
+  --union-muted: var(--mobile-muted);
+  --union-line: var(--mobile-border);
 }
 
 page, body, #app {
@@ -29,4 +30,4 @@ button, input, select, textarea { font:inherit;letter-spacing:0; }
 button { border:0;transition:background-color .16s ease,color .16s ease,border-color .16s ease,opacity .16s ease,transform .12s ease; }
 button:not(:disabled):active { transform:scale(.98); }
 button:disabled { opacity:.48;pointer-events:none; }
-button:focus-visible,input:focus-visible { outline:2px solid rgba(200,50,69,.28);outline-offset:2px; }
+button:focus-visible,input:focus-visible { outline:2px solid rgba(23,99,63,.3);outline-offset:2px; }

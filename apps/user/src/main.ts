@@ -1,6 +1,6 @@
 import { createSSRApp } from 'vue'
 import { createPinia } from 'pinia'
-import { migratePersistedState, persistedEnvelope } from '@agritainment/shared'
+import { migratePersistedState, persistedEnvelope, purgeRetiredAllianceData } from '@agritainment/shared'
 import './media-runtime'
 import App from './App.vue'
 import { migrateUserCommerceData } from './stores/user'
@@ -8,6 +8,7 @@ import { migrateUserCommerceData } from './stores/user'
 const persistedKeys = ['farms', 'liveRooms', 'products', 'cProducts', 'auth'] as const
 
 export function createApp() {
+  purgeRetiredAllianceData()
   migrateUserCommerceData()
   const app = createSSRApp(App)
   const pinia = createPinia()

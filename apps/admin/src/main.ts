@@ -1,6 +1,6 @@
 import { createSSRApp } from 'vue'
 import { createPinia } from 'pinia'
-import { migratePersistedState, persistedEnvelope } from '@agritainment/shared'
+import { migratePersistedState, persistedEnvelope, purgeRetiredAllianceData } from '@agritainment/shared'
 import { configureMediaRuntime, createH5MediaRuntime } from '@agritainment/ui/h5'
 import App from './App.vue'
 
@@ -10,6 +10,7 @@ configureMediaRuntime(h5MediaRuntime)
 const persistedKeys = ['suppliers', 'products', 'categories', 'orders', 'afterSales', 'farms', 'promoters', 'policies', 'commissionRules', 'lastSettledAt', 'supplierSettlementRecords', 'commissionSettlementRecords', 'exportRecords', 'notificationsRead', 'auth', 'dictGroups', 'dictItems', 'storeAccounts'] as const
 
 export function createApp() {
+  purgeRetiredAllianceData()
   const app = createSSRApp(App)
   const pinia = createPinia()
   pinia.use(({ store }) => {

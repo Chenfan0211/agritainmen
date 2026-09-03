@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryMediaStorageAdapter, bindMediaReference, readMediaAsset } from '@agritainment/shared'
-import type { CatalogProduct, FarmStore, MediaReference, PlatformDictionaryState, Supplier, SupplierQualification } from '@agritainment/shared'
+import { DICTIONARY_SCHEMA_VERSION, MemoryMediaStorageAdapter, bindMediaReference, readMediaAsset } from '@agritainment/shared'
+import type { CatalogProduct, DictItem, FarmStore, MediaReference, PlatformDictionaryState, Supplier, SupplierQualification } from '@agritainment/shared'
 
 const helperUrl = new URL('./media-dictionary.ts', import.meta.url)
 
@@ -109,6 +109,20 @@ describe('admin media contracts', () => {
 })
 
 describe('admin media lifecycle', () => {
+  it('为商品品类图片建立稳定绑定并在替换后释放旧图', async () => {
+    const { dictionaryItemMediaBindings, persistAndFinalizeAdminMedia } = await loadHelpers()
+    const storage = lifecycleStorage()
+    const oldImage = await savedAsset(storage, 81)
+    const nextImage = await savedAsset(storage, 82)
+    const previous = { id: 'DPC-LIFE', type: 'productCategory', code: 'life', label: '生命周期品类', enabled: true, sort: 1, image: oldImage } as DictItem
+    const next = { ...previous, image: nextImage }
+    await bindMediaReference(storage, oldImage, 'dictionary-item:DPC-LIFE:image')
+
+    await persistAndFinalizeAdminMedia(storage, dictionaryItemMediaBindings(previous), () => dictionaryItemMediaBindings(next), async () => true, Boolean)
+
+    expect(await readMediaAsset(storage, oldImage.assetId)).toBeNull()
+    expect(await readMediaAsset(storage, nextImage.assetId)).toMatchObject({ bindings: ['dictionary-item:DPC-LIFE:image'] })
+  })
   it('业务保存成功后为商品 main/gallery/SKU 和供应商资质建立稳定绑定', async () => {
     const { catalogProductMediaBindings, persistAndFinalizeAdminMedia, supplierMediaBindings } = await loadHelpers()
     const storage = lifecycleStorage()
@@ -294,12 +308,19 @@ describe('admin media lifecycle', () => {
 
 describe('admin dictionary contracts', () => {
   const state: PlatformDictionaryState = {
-    schemaVersion: 1,
+    schemaVersion: DICTIONARY_SCHEMA_VERSION,
     revision: 3,
     updatedAt: '2026-08-26T00:00:00.000Z',
     groups: [{ id: 'DG', type: 'afterSaleReason', name: '售后原因', scope: 'business', locked: false, enabled: true }],
     items: [{ id: 'DI', type: 'afterSaleReason', code: 'quality', label: '质量问题', enabled: true, sort: 0 }]
   }
+
+  it('商品品类必须有图片，其他字典项不受影响', async () => {
+    const { validateDictionaryItemImage } = await loadHelpers()
+    expect(validateDictionaryItemImage('productCategory', null)).toBe('请上传商品品类图片')
+    expect(validateDictionaryItemImage('productCategory', asset('CATEGORY'))).toBe('')
+    expect(validateDictionaryItemImage('afterSaleReason', null)).toBe('')
+  })
 
   it('发布冲突时刷新共享状态且不静默覆盖', async () => {
     const { publishAdminDictionaryMutation } = await loadHelpers()
@@ -353,7 +374,8 @@ describe('admin source integration', () => {
     expect(storeSource).toContain('readPlatformDictionaries')
     expect(storeSource).toContain('canPublishPlatformDictionaries')
     expect(storeSource).toContain('writePlatformJson(PLATFORM_DICTIONARIES_STORAGE_KEY')
-    expect(storeSource).toContain("executeAdminTransaction('dictionary.manage'")
+    expect(storeSource).toContain("permission: AdminPermissionCode = 'dictionary.manage'")
+    expect(storeSource).toContain('executeAdminTransaction(permission')
     expect(storeSource).not.toMatch(/type === ['"]city['"]/)
     expect(pageSource).not.toMatch(/type === ['"]city['"]/)
   })

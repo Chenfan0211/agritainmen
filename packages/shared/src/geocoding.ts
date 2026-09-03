@@ -34,11 +34,32 @@ export interface GeocoderProvider {
 export type GeocodeProvider = GeocoderProvider
 
 export interface GeocodeOptions {
+  /** @deprecated New geocoding requests only use the Tencent same-origin gateway. */
   amapKey?: string
+  /** @deprecated New geocoding requests only use the Tencent same-origin gateway. */
   amapProxy?: string
+  /** @deprecated Tencent WebService credentials must stay in the server gateway. */
   tencentKey?: string
   tencentProxy?: string
+  /** @deprecated Provider ordering is retained only for source compatibility. */
   order?: readonly GeocodeProviderName[]
+  fetch?: typeof fetch
+}
+
+export type TencentCoordinateSource = 'GCJ-02' | 'WGS84' | 'SOGOU' | 'BAIDU' | 'MAPBAR' | 'SOGOU_MERCATOR'
+
+export interface TencentCoordinateTranslateRequest {
+  source: TencentCoordinateSource
+  locations: Gcj02Coordinate[]
+}
+
+export interface TencentCoordinateTranslateResponse {
+  coordinateSystem: 'GCJ-02'
+  locations: Gcj02Coordinate[]
+}
+
+export interface TencentCoordinateTranslateOptions {
+  proxy?: string
   fetch?: typeof fetch
 }
 
@@ -52,16 +73,8 @@ export interface GeocodeRunOptions {
   timeoutMs?: number
 }
 
-function configured(key?: string, proxy?: string): boolean {
-  return !!key?.trim() || !!proxy?.trim()
-}
-
-function endpoint(proxy: string | undefined, fallback: string): string {
-  return proxy?.trim() || fallback
-}
-
-function requestJson(url: string, request: typeof fetch): Promise<unknown> {
-  return request(url).then(async (response) => {
+function requestJson(url: string, request: typeof fetch, init?: RequestInit): Promise<unknown> {
+  return request(url, init).then(async (response) => {
     if (!response.ok) throw new Error(`地理编码请求失败：${response.status}`)
     return response.json()
   })
@@ -78,84 +91,68 @@ function coordinate(longitude: unknown, latitude: unknown): Gcj02Coordinate {
   return { longitude: Number(longitude), latitude: Number(latitude) }
 }
 
+function mercatorCoordinate(longitude: unknown, latitude: unknown): Gcj02Coordinate {
+  const normalized = { longitude: Number(longitude), latitude: Number(latitude) }
+  if (!Number.isFinite(normalized.longitude) || !Number.isFinite(normalized.latitude) ||
+      Math.abs(normalized.longitude) > 30_000_000 || Math.abs(normalized.latitude) > 30_000_000 ||
+      (normalized.longitude === 0 && normalized.latitude === 0)) throw new Error('坐标转换输入无效')
+  return normalized
+}
+
 function text(value: unknown): string {
   return Array.isArray(value) ? value.map(String).join('') : typeof value === 'string' ? value : value == null ? '' : String(value)
 }
 
-function buildLocation(input: Omit<FarmLocation, 'coordinateSystem' | 'geocodedAt'>): FarmLocation {
-  const validCoordinate = coordinate(input.longitude, input.latitude)
-  return { ...input, ...validCoordinate, coordinateSystem: 'GCJ-02', geocodedAt: new Date().toISOString() }
-}
-
-export function createAMapGeocodeProvider(options: GeocodeOptions = {}): GeocoderProvider {
-  return {
-    name: 'amap',
-    isConfigured: () => configured(options.amapKey, options.amapProxy),
-    async geocode(request: GeocodeRequest) {
-      const address = request.address.trim()
-      const query = new URLSearchParams({ address })
-      if (request.city?.trim()) query.set('city', request.city.trim())
-      if (options.amapKey?.trim()) query.set('key', options.amapKey.trim())
-      const payload = await requestJson(`${endpoint(options.amapProxy, 'https://restapi.amap.com/v3/geocode/geo')}?${query}`, options.fetch || fetch) as {
-        status?: string
-        geocodes?: Array<{ location?: string; adcode?: string; province?: string; city?: string | string[]; district?: string; formatted_address?: string }>
-      }
-      const geocode = payload.geocodes?.[0]
-      const [longitude, latitude] = geocode?.location?.split(',') || []
-      if (payload.status !== '1') throw new Error('高德地理编码失败')
-      return buildLocation({
-        ...coordinate(longitude, latitude),
-        provider: 'amap',
-        adCode: text(geocode?.adcode),
-        province: text(geocode?.province),
-        city: text(geocode?.city),
-        district: text(geocode?.district),
-        formattedAddress: text(geocode?.formatted_address) || address
-      })
-    }
-  }
-}
-
 export function createTencentGeocodeProvider(options: GeocodeOptions = {}): GeocoderProvider {
+  const proxy = options.tencentProxy?.trim() || ''
   return {
     name: 'tencent',
-    isConfigured: () => configured(options.tencentKey, options.tencentProxy),
+    isConfigured: () => !!proxy,
     async geocode(request: GeocodeRequest) {
       const address = request.address.trim()
-      const query = new URLSearchParams({ address })
-      if (request.city?.trim()) query.set('region', request.city.trim())
-      if (options.tencentKey?.trim()) query.set('key', options.tencentKey.trim())
-      const payload = await requestJson(`${endpoint(options.tencentProxy, 'https://apis.map.qq.com/ws/geocoder/v1/')}?${query}`, options.fetch || fetch) as {
-        status?: number
-        result?: {
-          location?: { lng?: number; lat?: number }
-          ad_info?: { adcode?: string | number }
-          address_components?: { province?: string; city?: string; district?: string }
-          title?: string
-          address?: string
-        }
-      }
-      if (payload.status !== 0) throw new Error('腾讯地理编码失败')
-      return buildLocation({
-        ...coordinate(payload.result?.location?.lng, payload.result?.location?.lat),
+      const city = request.city?.trim()
+      const body = city ? { address, city } : { address }
+      const payload = await requestJson(proxy, options.fetch || fetch, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }) as Partial<FarmLocation>
+      if (payload.coordinateSystem !== 'GCJ-02' || payload.provider !== 'tencent') throw new Error('腾讯地理编码响应无效')
+      const validCoordinate = coordinate(payload.longitude, payload.latitude)
+      return {
+        ...validCoordinate,
+        coordinateSystem: 'GCJ-02',
         provider: 'tencent',
-        adCode: text(payload.result?.ad_info?.adcode),
-        province: text(payload.result?.address_components?.province),
-        city: text(payload.result?.address_components?.city),
-        district: text(payload.result?.address_components?.district),
-        formattedAddress: text(payload.result?.address) || text(payload.result?.title) || address
-      })
+        adCode: text(payload.adCode),
+        province: text(payload.province),
+        city: text(payload.city),
+        district: text(payload.district),
+        formattedAddress: text(payload.formattedAddress) || address,
+        geocodedAt: text(payload.geocodedAt) || new Date().toISOString()
+      }
     }
   }
 }
 
 export function createGeocodeProviders(options: GeocodeOptions = {}): GeocoderProvider[] {
-  const providers: Record<GeocodeProviderName, GeocoderProvider> = {
-    amap: createAMapGeocodeProvider(options),
-    tencent: createTencentGeocodeProvider(options)
-  }
-  const order = options.order?.length ? options.order : ['amap', 'tencent']
-  return [...new Set(order)].filter((name): name is GeocodeProviderName => name === 'amap' || name === 'tencent').map((name) => providers[name])
+  return [createTencentGeocodeProvider(options)]
+}
+
+export async function translateTencentCoordinates(input: TencentCoordinateTranslateRequest, options: TencentCoordinateTranslateOptions = {}): Promise<TencentCoordinateTranslateResponse> {
+  if (!Array.isArray(input.locations) || input.locations.length === 0) throw new Error('坐标列表不能为空')
+  const locations = input.locations.map((item) => input.source === 'SOGOU_MERCATOR'
+    ? mercatorCoordinate(item.longitude, item.latitude)
+    : coordinate(item.longitude, item.latitude))
+  if (input.source === 'GCJ-02') return { coordinateSystem: 'GCJ-02', locations }
+  const sources: TencentCoordinateSource[] = ['WGS84', 'SOGOU', 'BAIDU', 'MAPBAR', 'SOGOU_MERCATOR']
+  if (!sources.includes(input.source)) throw new Error('不支持的坐标来源')
+  const payload = await requestJson(options.proxy?.trim() || '/api/tencent-map/translate', options.fetch || fetch, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: input.source, locations })
+  }) as Partial<TencentCoordinateTranslateResponse>
+  if (payload.coordinateSystem !== 'GCJ-02' || !Array.isArray(payload.locations) || payload.locations.length !== locations.length) throw new Error('坐标转换响应无效')
+  return { coordinateSystem: 'GCJ-02', locations: payload.locations.map((item) => coordinate(item.longitude, item.latitude)) }
 }
 
 function timeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {

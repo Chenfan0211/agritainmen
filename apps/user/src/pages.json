@@ -3,10 +3,14 @@
     {
       "path": "pages/index/index",
       "style": { "navigationStyle": "custom", "enableShareAppMessage": true, "enableShareTimeline": true }
+    },
+    {
+      "path": "pages/operations/index",
+      "style": { "navigationStyle": "custom" }
     }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#f7f3f2"
+    "backgroundColor": "#f4f7f5"
   }
 }

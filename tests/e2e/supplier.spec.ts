@@ -56,9 +56,9 @@ test('supplier workspace covers metrics, driver handovers and reassignment warni
     }
   })
   await todayTasks.first().locator('.task-nav').click()
-  await expect.poll(() => page.evaluate(() => (window as typeof window & { __navigationUrl?: string }).__navigationUrl || '')).toContain('uri.amap.com/navigation?to=')
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __navigationUrl?: string }).__navigationUrl || '')).toContain('apis.map.qq.com/uri/v1/routeplan?')
   const navigationUrl = await page.evaluate(() => (window as typeof window & { __navigationUrl?: string }).__navigationUrl || '')
-  expect(navigationUrl).toContain('109.8542,28.6267')
+  expect(navigationUrl).toContain('tocoord=28.6267%2C109.8542')
   expect(navigationUrl).toContain('%E7%9F%B3%E6%9D%BF%E6%BA%AA')
   await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
   const handovers = page.locator('.list-card')

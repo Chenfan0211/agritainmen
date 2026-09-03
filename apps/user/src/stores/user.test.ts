@@ -91,7 +91,7 @@ describe('C端商城 user store', () => {
   it('renders MOQ states and blocks unavailable cart checkout in the user page', () => {
     const source = readFileSync(resolve(import.meta.dirname, '../pages/index/index.vue'), 'utf8')
     expect(source).toContain('minimumOrderQuantity(')
-    expect(source).toContain('库存不足起订量')
+    expect(source).toContain('库存不足或购买数量未达要求')
     expect(source).toContain(':disabled="!canStartOrder(selectedSku)"')
     expect(source).toContain(':class="{ unavailable: line.unavailable }"')
     expect(source).toContain(':disabled="store.cartHasUnavailable"')
@@ -228,7 +228,7 @@ describe('C端商城 user store', () => {
 
     expect(await store.submitOrder()).toBe(false)
     expect(store.cart[0]).toMatchObject({ quantity: 2, minimumOrderQuantity: 4, unavailable: true })
-    expect(store.checkoutError).toContain('起订 4 件')
+    expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
   })
 
   it('rejects first add when stock is below the SKU MOQ', async () => {
@@ -239,7 +239,7 @@ describe('C端商城 user store', () => {
 
     expect(store.addToCart(product.id, product.skus[0].id)).toBe(false)
     expect(store.cart).toHaveLength(0)
-    expect(store.checkoutError).toContain('库存不足起订量')
+    expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
   })
 
   it('keeps Pinia unchanged when a stock revision conflicts before checkout', async () => {
@@ -2085,7 +2085,7 @@ describe('C端商城 user store', () => {
     store.products = [catalogProductToProduct(pkg)]
 
     expect(await store.buyLivePackage(pkg.id, pkg.skus[0].id, 2)).toBe(false)
-    expect(store.checkoutError).toContain('起订 3 件')
+    expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
     expect(readPlatformVoucherOrders()).toEqual(null)
     expect(await store.buyLivePackage(pkg.id, pkg.skus[0].id)).toBe(true)
     expect(Object.values(readPlatformVoucherOrders() || {})[0]).toMatchObject({ productId: pkg.id, quantity: 3, amount: 300 })

@@ -38,7 +38,7 @@ function go(n: number) {
     <view class="pg-btns">
       <button class="pg-btn pg-nav" :disabled="page <= 1" @click="go(page - 1)">‹ 上一页</button>
       <template v-for="(p, i) in pages" :key="`${i}-${p}`">
-        <button v-if="p !== '…'" class="pg-btn" :class="{ cur: p === page }" @click="go(p)">{{ p }}</button>
+        <button v-if="p !== '…'" class="pg-btn" :class="{ cur: p === page }" :aria-label="`第 ${p} 页`" :aria-current="p === page ? 'page' : undefined" @click="go(p)">{{ p }}</button>
         <text v-else class="pg-ellipsis">…</text>
       </template>
       <button class="pg-btn pg-nav" :disabled="page >= totalPages" @click="go(page + 1)">下一页 ›</button>
@@ -58,7 +58,7 @@ function go(n: number) {
   font-size: 13px;
 }
 .pg-total { color: var(--admin-muted); white-space: nowrap; }
-.pg-btns { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pg-btns { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
 .pg-btn {
   margin: 0;
   min-width: 30px;

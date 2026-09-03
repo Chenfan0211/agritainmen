@@ -1,4 +1,4 @@
-import { cloneSeed, demoDrivers, haversineKm, readPlatformDrivers, readPlatformEntities, readPlatformOrders, writePlatformDrivers, writePlatformOrder } from '@agritainment/shared'
+import { buildTencentMapSearchUrl, buildTencentNavigationUrl, cloneSeed, demoDrivers, haversineKm, readPlatformDrivers, readPlatformEntities, readPlatformOrders, writePlatformDrivers, writePlatformOrder } from '@agritainment/shared'
 import type { Order, OrderFlowEvent, Supplier, SupplierFulfillment } from '@agritainment/shared'
 import { SUPPLIER_DEMO_ID } from '@agritainment/shared'
 
@@ -82,9 +82,9 @@ export function supplierWarehouseOf(supplierId: string, supplierDirectory?: read
 
 export function buildNavigationUrl(storeName: string, destination: DeliveryLocation): string {
   if (destination.longitude !== undefined && destination.latitude !== undefined) {
-    return `https://uri.amap.com/navigation?to=${destination.longitude},${destination.latitude},${encodeURIComponent(storeName)}&mode=car`
+    return buildTencentNavigationUrl({ longitude: destination.longitude, latitude: destination.latitude, name: storeName }, 'agritainment-supplier')
   }
-  return `https://uri.amap.com/search?keyword=${encodeURIComponent(destination.address)}`
+  return buildTencentMapSearchUrl(destination.address, 'agritainment-supplier')
 }
 
 function dateOnly(offsetDays: number): string {

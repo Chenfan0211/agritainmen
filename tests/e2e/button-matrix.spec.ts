@@ -39,24 +39,6 @@ async function farmhouseSeedSelection(page: Page, count: number, filterText?: st
   await page.reload()
 }
 
-async function allianceLogin(page: Page) {
-  await page.locator('.tabbar uni-button').nth(3).click()
-  await page.locator('.promoter-login .primary-button').click()
-  await page.locator('.login-sheet .login-field input').nth(0).fill('13800000000')
-  await page.locator('.login-sheet .login-field input').nth(1).fill('123456')
-  await page.locator('.login-sheet .login-submit').click()
-  await expect(page.locator('.promoter-head')).toBeVisible()
-  await page.locator('.tabbar uni-button').nth(0).click()
-}
-
-async function seedAllianceLedger(page: Page, entries: Record<string, unknown>) {
-  await page.evaluate((data) => {
-    localStorage.setItem('agritainment-platform-commission-ledger', JSON.stringify(data))
-  }, entries)
-  await page.reload()
-  if (await page.locator('.promoter-login .primary-button').count()) await allianceLogin(page)
-}
-
 test('admin buttons open data surfaces and keep overflow local', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 })
   await page.goto('http://127.0.0.1:8791')
@@ -97,23 +79,6 @@ test('farmhouse buttons filter data and open persisted records', async ({ page }
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390)
   await page.setViewportSize({ width: 430, height: 932 })
   await page.reload()
-  expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(430)
-})
-
-test('alliance buttons create viewing, fan and booking feedback', async ({ page }) => {
-  await page.setViewportSize({ width: 430, height: 932 })
-  await page.goto('http://127.0.0.1:8793')
-  await page.evaluate(() => localStorage.clear())
-  await page.reload()
-  await allianceLogin(page)
-
-  await page.locator('.tabbar uni-button').nth(2).click()
-  await page.locator('.live-card').first().click()
-  await expect(page.locator('.live-detail')).toContainText('前端模拟直播间')
-  await page.locator('.sheet-head uni-button').click()
-  await page.locator('.tabbar uni-button').nth(3).click()
-  await page.locator('.promoter-tools uni-button', { hasText: '我的粉丝' }).click()
-  await expect(page.locator('.data-list')).toContainText('已锁粉')
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(430)
 })
 
@@ -177,37 +142,6 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await expect(page.locator('.ledger-list')).toContainText('会员储值充值')
 })
 
-test('alliance city, availability, route, live share and withdrawal flows persist', async ({ page }) => {
-  await page.setViewportSize({ width: 430, height: 932 })
-  await page.goto('http://127.0.0.1:8793')
-  await page.evaluate(() => localStorage.clear())
-  await page.reload()
-  await allianceLogin(page)
-  await seedAllianceLedger(page, { L1: { id: 'L1', sourceOrderId: 'O1', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 100, status: 'available', createdAt: '2026-08-24 12:00' } })
-
-  await page.locator('.city-button').click()
-  await page.locator('.city-chips uni-button', { hasText: '湘西州' }).click()
-  await expect(page.locator('.farm-list')).toContainText('石板溪农家乐')
-  await page.locator('.filter-row uni-button', { hasText: '可预订' }).click()
-  await expect(page.locator('.section-head').first()).toContainText('3 家')
-
-  await page.locator('.tabbar uni-button').nth(1).click()
-  await page.locator('.route-card uni-button').first().click()
-  await page.locator('.route-detail uni-button', { hasText: '报名参加' }).click()
-
-  await page.locator('.tabbar uni-button').nth(2).click()
-  await page.locator('.live-card').first().click()
-  await page.locator('.live-detail uni-button', { hasText: '分享直播赚佣金' }).click()
-  await page.locator('.sheet-head uni-button').click()
-  await page.locator('.tabbar uni-button').nth(3).click()
-  await page.locator('.promoter-tools uni-button', { hasText: '推广素材' }).click()
-  await expect(page.locator('.sheet-materials')).toBeVisible()
-  await page.locator('.sheet-head uni-button').click()
-  await page.locator('.wallet-top uni-button', { hasText: '提现' }).click()
-  await page.locator('.withdraw-form uni-button', { hasText: '确认提现' }).click()
-  await expect(page.locator('.sheet-mask')).toHaveCount(0)
-})
-
 test('admin supplier settlement is idempotent and after-sales has two stages', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('http://127.0.0.1:8791')
@@ -218,7 +152,7 @@ test('admin supplier settlement is idempotent and after-sales has two stages', a
   await page.locator('.nav-item', { hasText: '佣金结算' }).click()
   await page.locator('.head-actions uni-button', { hasText: '供应商结算' }).click()
   await page.getByText('OK', { exact: true }).click()
-  await page.locator('.filter-chips uni-button', { hasText: '供应商结算' }).click()
+  await page.locator('.commission-filter-tabs uni-button', { hasText: '供应商结算' }).click()
   await expect(page.locator('.settlement-history').filter({ hasText: '供应商结算记录' })).toContainText(/笔订单/)
   await expect(page.locator('.settlement-history').filter({ hasText: '供应商结算记录' })).toContainText('武陵蜂业专业合作社')
   const records = await page.locator('.settlement-history').filter({ hasText: '供应商结算记录' }).locator('.history-row').count()
@@ -343,36 +277,6 @@ test('manager verifies a booking and designs a signature dish', async ({ page })
   await expect(page.locator('.design-list')).toContainText('秘制辣子鸡')
 })
 
-test('alliance searches across types and writes pending commission', async ({ page }) => {
-  await page.setViewportSize({ width: 430, height: 932 })
-  await page.goto('http://127.0.0.1:8793')
-  await page.evaluate(() => localStorage.clear())
-  await page.reload()
-  await allianceLogin(page)
-  await seedAllianceLedger(page, { L2: { id: 'L2', sourceOrderId: 'O2', beneficiaryType: 'promoter', beneficiaryId: 'T001', role: 'promoter', amount: 10.78, status: 'pending', createdAt: '2026-08-24 12:00' } })
-
-  await page.locator('.search input').fill('黄桃')
-  await expect(page.locator('.search-results')).toContainText('特产')
-  await page.locator('.search-group').nth(1).locator('uni-button').first().click()
-  await page.locator('.share-sheet uni-button', { hasText: '复制专属推广链接' }).click()
-  await expect(page.locator('.share-record').first()).toContainText('已分享')
-  await page.locator('.sheet-head uni-button').click()
-  await page.locator('.tabbar uni-button').nth(3).click()
-  await expect(page.locator('.wallet-stats')).toContainText('本月订单')
-  await page.locator('.promoter-tools uni-button', { hasText: '佣金明细' }).click()
-  await expect(page.locator('.data-list')).toContainText('待结算')
-})
-
-test('mock failure state can retry into normal data', async ({ page }) => {
-  await page.setViewportSize({ width: 430, height: 932 })
-  await page.goto('http://127.0.0.1:8793?mock=failure')
-  await page.evaluate(() => localStorage.clear())
-  await page.reload()
-  await expect(page.locator('.state-page')).toContainText('模拟数据加载失败')
-  await page.locator('.state-page uni-button', { hasText: '重新加载' }).click()
-  await expect(page.locator('.discovery-head')).toContainText('发现身边的好农家乐')
-})
-
 test('empty mock scenario ignores persisted business data in all apps', async ({ page }) => {
   await page.goto('http://127.0.0.1:8791')
   await page.evaluate(() => localStorage.clear())
@@ -392,12 +296,6 @@ test('empty mock scenario ignores persisted business data in all apps', async ({
   await page.locator('.tabbar uni-button').nth(2).click()
   await expect(page.locator('.empty-page')).toContainText('没有找到相关商品')
 
-  await page.goto('http://127.0.0.1:8793')
-  await page.evaluate(() => localStorage.clear())
-  await page.reload()
-  await expect(page.locator('.farm-card')).not.toHaveCount(0)
-  await page.goto('http://127.0.0.1:8793?mock=empty')
-  await expect(page.locator('.farm-card')).toHaveCount(0)
 })
 
 test('yunshang tenant build isolates brand, farm data and theme', async ({ page }) => {
@@ -411,25 +309,6 @@ test('yunshang tenant build isolates brand, farm data and theme', async ({ page 
   await expect(page.locator('.product-card', { hasText: '武陵山野生土蜂蜜' })).toHaveCount(1)
   await expect(page.locator('.product-card', { hasText: '农家四人欢聚套餐券' })).toHaveCount(0)
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--farm-green').trim())).toBe('#355d4a')
-})
-
-test('alliance storefront entry opens the matching tenant app', async ({ page }) => {
-  await page.setViewportSize({ width: 430, height: 932 })
-  await page.goto('http://127.0.0.1:8793')
-  await page.evaluate(() => localStorage.clear())
-  await page.reload()
-  const yunshang = page.locator('.farm-card', { hasText: '云上人家山景农庄' })
-  await yunshang.locator('uni-button', { hasText: '进店' }).click()
-  await expect(page).toHaveURL('http://127.0.0.1:8794/')
-  await expect(page.locator('.hero-title')).toContainText('云上人家山景农庄')
-
-  await page.goto('http://127.0.0.1:8793')
-  await page.locator('.city-button').click()
-  await page.locator('.city-chips uni-button', { hasText: '湘西州' }).click()
-  const shibanxi = page.locator('.farm-card', { hasText: '石板溪农家乐' })
-  await shibanxi.locator('uni-button', { hasText: '进店' }).click()
-  await expect(page).toHaveURL('http://127.0.0.1:8792/')
-  await expect(page.locator('.hero-title')).toContainText('石板溪农家乐')
 })
 
 test('store orders supply products and tracks order status', async ({ page }) => {
@@ -453,9 +332,9 @@ test('store orders supply products and tracks order status', async ({ page }) =>
   await page.locator('.search-bar input').fill('')
   await page.locator('.chips uni-button', { hasText: '全部' }).click()
 
-  // 多商品加购（第 3/4 张卡片为单规格商品）
-  await page.locator('.product-card .product-foot uni-button').nth(2).click()
-  await page.locator('.product-card .product-foot uni-button').nth(3).click()
+  // 按商品名选择两个单规格商品，避免瀑布流分列改变 DOM 顺序。
+  await page.locator('.product-card', { hasText: '商用保鲜膜 300米' }).locator('.product-foot uni-button').click()
+  await page.locator('.product-card', { hasText: '古丈蒿子粑粑 6个装' }).locator('.product-foot uni-button').click()
   await expect(page.locator('.cart-bar')).toContainText('2')
 
   // 提交订单

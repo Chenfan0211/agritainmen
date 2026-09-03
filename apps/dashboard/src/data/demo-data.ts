@@ -104,7 +104,7 @@ function buildBookings(source: DashboardDataSource, range: DashboardRange): Dash
     const createdAt = timestampInRange(range, index, farms.length + 2)
     return {
       id: `DASH-SEED-B-${farm.id}`, farmId: farm.id, farmName: farm.name, userId: `DASH-SEED-BOOKER-${index + 1}`,
-      source: index % 2 ? 'farmhouse' : 'alliance', date: createdAt.slice(0, 10), session: index % 2 ? '晚餐' : '午餐',
+      source: 'farmhouse', date: createdAt.slice(0, 10), session: index % 2 ? '晚餐' : '午餐',
       people: 2 + index % 7, amount: 268 + index * 31, amountConfirmedAt: createdAt,
       status: index % 3 ? 'confirmed' : 'completed', createdAt, updatedAt: createdAt, dataOrigin: 'dashboard_demo'
     }

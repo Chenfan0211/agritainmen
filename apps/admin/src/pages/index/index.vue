@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import * as echarts from 'echarts'
 import type { ECharts } from 'echarts'
 import type { AdminAccount, AdminMenuKey, AdminPermissionCode, AdminRole, TravelRoute, AfterSale, AfterSaleStatus, BusinessMediaValue, CatalogProduct, CatalogProductSubmission, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, MediaReference, OperationalReportDimension, Order, OrderFlowEvent, OrderItem, OrderStatus, PlatformAuditLogEntry, PlatformDictionaryState, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier, WithdrawalRequest } from '@agritainment/shared'
-import { ALL_ADMIN_ACTION_PERMISSIONS, ALL_ADMIN_MENU_KEYS, PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, aggregateOperationalReport, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, pendingShareAmount, readPlatformAuditLogs, readPlatformDrivers, readPlatformRecoveryQueue, readPlatformWithdrawals, readShareConfig, readShareRecords, round2, subscribePlatformChanges, summarizeOperationalReport, todayString, toCsv, validatePricePolicy } from '@agritainment/shared'
+import { ALL_ADMIN_ACTION_PERMISSIONS, ALL_ADMIN_MENU_KEYS, PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, aggregateOperationalReport, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, defaultProductCategoryImage, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, normalizeMediaReference, pendingShareAmount, productCategoryImage, readPlatformAuditLogs, readPlatformDrivers, readPlatformRecoveryQueue, readPlatformWithdrawals, readShareConfig, readShareRecords, round2, subscribePlatformChanges, summarizeOperationalReport, todayString, toCsv, validatePricePolicy } from '@agritainment/shared'
 import { BusinessImage, ImageUploader, UI_TYPOGRAPHY, getMediaRuntime } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
@@ -36,7 +36,7 @@ import {
 
 import { ADMIN_PERMISSION_GROUPS, matchesAdminTodoItem, useAdminStore } from '../../stores/admin'
 import type { AdminTodo } from '../../stores/admin'
-import { AdminMediaFinalizeError, catalogProductMediaBindings, dictionaryOperationMessage, dictionaryUiPermissions, farmMediaBindings, inheritCatalogSkuImages, persistAndFinalizeAdminMedia, readSupplierQualificationFields, supplierMediaBindings, validateCatalogMedia } from '../../media-dictionary'
+import { AdminMediaFinalizeError, catalogProductMediaBindings, dictionaryItemMediaBindings, dictionaryOperationMessage, dictionaryUiPermissions, farmMediaBindings, inheritCatalogSkuImages, persistAndFinalizeAdminMedia, readSupplierQualificationFields, supplierMediaBindings, validateCatalogMedia, validateDictionaryItemImage } from '../../media-dictionary'
 
 type ModuleKey = AdminMenuKey
 
@@ -70,7 +70,7 @@ const platformVersion = ref(0)
 type DetailType = 'todos' | 'supplier' | 'order' | 'afterSale' | 'farm' | 'route' | 'auditLog'
 type TierFormRow = { minQty: number; maxQty: number | null | ''; price: number; discountOff: number }
 const detail = ref<{ type: DetailType; id?: string } | null>(null)
-const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部农家乐', discount: 8, tiers: [] as TierFormRow[], spec: '', image: null as BusinessMediaValue | null, images: [] as BusinessMediaValue[], region: '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null as BusinessMediaValue | null, permitNumber: '', permit: null as BusinessMediaValue | null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default' as NonNullable<DictItem['tone']>, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null as BusinessMediaValue | null })
+const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部农家乐', discount: 8, tiers: [] as TierFormRow[], spec: '', image: null as BusinessMediaValue | null, images: [] as BusinessMediaValue[], region: '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null as BusinessMediaValue | null, permitNumber: '', permit: null as BusinessMediaValue | null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], categoryImage: null as BusinessMediaValue | null, level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default' as NonNullable<DictItem['tone']>, dictImage: null as BusinessMediaValue | null, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null as BusinessMediaValue | null })
 const period = ref('本月')
 const dashboardRange = computed(() => {
   const to = todayString()
@@ -176,7 +176,7 @@ const afterTab = ref('售后工单')
 const selectedOrderIds = ref<string[]>([])
 const busy = ref(false)
 const operationKeys = ref<Record<string, boolean>>({})
-let pendingCreateMediaRetry: { dialog: 'supplier' | 'farm'; retryFinalize: () => Promise<void> } | null = null
+let pendingCreateMediaRetry: { dialog: 'supplier' | 'supplier-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'dict' | 'dict-edit'; retryFinalize: () => Promise<void> } | null = null
 let overlayTrigger: HTMLElement | null = null
 let disposeKeyboardButtons: () => void = () => undefined
 let disposeStorageSync: (() => void) | null = null
@@ -324,7 +324,7 @@ function cancelBooking(item: typeof store.bookings[number]) {
 }
 const filteredPolicies = computed(() => store.policies.filter((item) => `${item.name}${item.scope}${item.type}`.includes(keyword.value)))
 const dictionaryState = computed<PlatformDictionaryState>(() => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   revision: store.dictionaryRevision,
   groups: store.dictGroups,
   items: store.dictItems,
@@ -397,7 +397,7 @@ const reportStoreOptions = computed<SearchableSelectOption[]>(() => {
   return [{ value: '', label: '全部门店' }, ...options.values()]
 })
 const reportSupplierOptions = computed<SearchableSelectOption[]>(() => [{ value: '', label: '全部供应商' }, ...store.suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))])
-const reportCategoryOptions = computed<SearchableSelectOption[]>(() => [{ value: '', label: '全部品类' }, ...Array.from(new Set(store.products.map((product) => product.category).filter(Boolean))).map((category) => ({ value: category, label: category }))])
+const reportCategoryOptions = computed<SearchableSelectOption[]>(() => [{ value: '', label: '全部品类', image: productCategoryImage('全部', dictionaryState.value), imageFallback: defaultProductCategoryImage('全部'), imageErrorFallback: defaultProductCategoryImage() }, ...Array.from(new Set(store.products.map((product) => product.category).filter(Boolean))).map((category) => ({ value: category, label: category, image: productCategoryImage(category, dictionaryState.value), imageFallback: defaultProductCategoryImage(category), imageErrorFallback: defaultProductCategoryImage() }))])
 const reportFilter = computed(() => ({ from: reportFrom.value, to: reportTo.value, store: reportStoreFilter.value || undefined, supplierId: reportSupplierFilter.value || undefined, category: reportCategoryFilter.value || undefined }))
 const reportRows = computed(() => reportFilterError.value ? [] : aggregateOperationalReport(store.orders, store.products, reportFilter.value, reportDimension.value))
 const reportSummary = computed(() => reportFilterError.value ? { orderCount: 0, itemCount: 0, gmv: 0 } : summarizeOperationalReport(store.orders, store.products, reportFilter.value))
@@ -482,14 +482,19 @@ const selectedAfterSale = computed<AfterSale | undefined>(() => store.afterSales
 const selectedAuditLog = computed<PlatformAuditLogEntry | undefined>(() => auditLogEntries.value.find((entry) => entry.id === detail.value?.id))
 const selectedFarm = computed<FarmStore | undefined>(() => store.farms.find((item) => item.id === detail.value?.id))
 const editingFarm = computed<FarmStore | undefined>(() => store.farms.find((item) => item.id === form.value.id))
+const editingDictionaryCategory = computed(() => store.dictItems.some((item) => item.id === form.value.id && item.type === 'productCategory'))
 const supplierOptions = computed(() => ['平台自营', ...Array.from(new Set([...store.suppliers.map((item) => item.name), ...store.products.map((item) => item.supplier)]))])
-const productCategories = computed(() => dictionaryItems('productCategory').map((item) => ({ id: item.code, name: item.label, type: 'product' as const })))
+const productCategories = computed(() => dictionaryItems('productCategory').map((item) => ({ id: item.id, name: item.label, type: 'product' as const, image: productCategoryImage(item.code, dictionaryState.value) })))
+const managedProductCategories = computed<Category[]>(() => store.dictItems
+  .filter((item) => item.type === 'productCategory')
+  .sort((left, right) => left.sort - right.sort || left.label.localeCompare(right.label))
+  .map((item) => ({ id: item.id, name: item.label, type: 'product' })))
 const supplierCategories = computed(() => dictionaryItems('supplierCategory').map((item) => ({ id: item.code, name: item.label, type: 'supplier' as const })))
 const productCategoryFilterOptions = computed<SearchableSelectOption[]>(() => [
-  { value: '全部', label: '全品类' },
-  ...productCategories.value.map((option) => ({ value: option.name, label: option.name }))
+  { value: '全部', label: '全品类', image: productCategoryImage('全部', dictionaryState.value), imageFallback: defaultProductCategoryImage('全部'), imageErrorFallback: defaultProductCategoryImage() },
+  ...productCategories.value.map((option) => ({ value: option.name, label: option.name, image: option.image, imageFallback: defaultProductCategoryImage(option.name), imageErrorFallback: defaultProductCategoryImage() }))
 ])
-const productCategoryOptions = computed<SearchableSelectOption[]>(() => productCategories.value.map((option) => ({ value: option.name, label: option.name })))
+const productCategoryOptions = computed<SearchableSelectOption[]>(() => productCategories.value.map((option) => ({ value: option.name, label: option.name, image: option.image, imageFallback: defaultProductCategoryImage(option.name), imageErrorFallback: defaultProductCategoryImage() })))
 const supplierCategoryOptions = computed<SearchableSelectOption[]>(() => supplierCategories.value.map((option) => ({ value: option.name, label: option.name })))
 const promoterTypeOptions = computed<SearchableSelectOption[]>(() => [{ value: '全部', label: '全部类型' }, ...dictionaryItems('promoterType').map((item) => ({ value: item.label, label: item.label }))])
 const promoterFormTypeOptions = computed<SearchableSelectOption[]>(() => dictionaryItems('promoterType').map((item) => ({ value: item.label, label: item.label })))
@@ -534,7 +539,11 @@ const catalogProductChannelOptions = computed<SearchableSelectOption[]>(() => [
 ])
 const filteredCategories = computed(() => {
   const q = categoryKeyword.value.trim().toLowerCase()
-  return store.categories.filter((item) => {
+  const managedCategories: Category[] = [
+    ...managedProductCategories.value,
+    ...store.categories.filter((item) => item.type !== 'product')
+  ]
+  return managedCategories.filter((item) => {
     const typeText = item.type === 'product' ? '商品品类' : item.type === 'supplier' ? '供应商品类' : '通用'
     const matchesKeyword = !q || `${item.name}${typeText}`.toLowerCase().includes(q)
     const matchesType = categoryTypeFilter.value === '全部' || item.type === categoryTypeFilter.value
@@ -841,7 +850,7 @@ function setAdminAccountEnabled(account: AdminAccount) {
 function openDialog(type: 'supplier' | 'policy' | 'farm') {
   rememberOverlayTrigger()
   pendingCreateMediaRetry = null
-  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部农家乐', discount: 8, tiers: [], spec: '', image: null, images: [], region: type === 'farm' ? '' : '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null, permitNumber: '', permit: null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending', categoryType: 'product', level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default', dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null }
+  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部农家乐', discount: 8, tiers: [], spec: '', image: null, images: [], region: type === 'farm' ? '' : '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null, permitNumber: '', permit: null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending', categoryType: 'product', categoryImage: null, level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default', dictImage: null, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null }
   if (type === 'supplier') form.value.category = '生鲜农产'
   dialog.value = type
   if (type === 'supplier') workPage.value = { type: 'supplier', mode: 'create' }
@@ -1152,20 +1161,22 @@ function openCategoryDialog() {
 
 function openCategoryEdit(category: Category) {
   openDialog('farm')
-  Object.assign(form.value, { id: category.id, name: category.name, categoryType: category.type })
+  const dictionaryItem = store.dictItems.find((item) => item.id === category.id && item.type === 'productCategory')
+  Object.assign(form.value, { id: category.id, name: category.name, categoryType: category.type, categoryImage: dictionaryItem?.image || (category.type === 'product' ? productCategoryImage(category.name, dictionaryState.value) : null) })
   dialog.value = 'category-edit'
 }
 
 function openDictDialog(item?: DictItem) {
   openDialog('farm')
   if (item) {
-    Object.assign(form.value, { id: item.id, dictCode: item.code, dictLabel: item.label, dictSort: item.sort, dictTone: item.tone || 'default', enabled: item.enabled })
+    Object.assign(form.value, { id: item.id, dictCode: item.code, dictLabel: item.label, dictSort: item.sort, dictTone: item.tone || 'default', dictImage: item.type === 'productCategory' ? item.image || productCategoryImage(item.code, dictionaryState.value) : null, enabled: item.enabled })
     dialog.value = 'dict-edit'
   } else {
     form.value.dictCode = ''
     form.value.dictLabel = ''
     form.value.dictSort = 0
     form.value.dictTone = 'default'
+    form.value.dictImage = null
     form.value.enabled = true
     dialog.value = 'dict'
   }
@@ -1194,8 +1205,20 @@ function removeDictGroup(group: DictGroup) {
 }
 
 async function removeDictItem(id: string) {
-  const removed = await store.removeDictItem(id)
-  showToast(dictionaryOperationMessage(removed, '字典项已删除', store.error, '系统字典项不可删除'))
+  const previousItem = store.dictItems.find((item) => item.id === id)
+  try {
+    const removed = await persistAndFinalizeAdminMedia(
+      getMediaRuntime().storage,
+      dictionaryItemMediaBindings(previousItem),
+      () => [],
+      () => store.removeDictItem(id),
+      Boolean
+    )
+    showToast(dictionaryOperationMessage(removed, '字典项已删除', store.error, '系统字典项不可删除'))
+  } catch (error) {
+    if (error instanceof AdminMediaFinalizeError) offerMediaFinalizeRetry(error)
+    else showToast(error instanceof Error ? error.message : '图片资源解绑失败')
+  }
 }
 
 const shareConfig = ref(readShareConfig())
@@ -1223,9 +1246,37 @@ function openAccountDialog(item?: StoreAccount) {
   }
 }
 
+function offerMediaFinalizeRetry(error: AdminMediaFinalizeError) {
+  confirmAction('业务数据已保存，但图片关联尚未完成，是否立即重试？', async () => {
+    try {
+      await error.retryFinalize()
+      showToast('图片关联已恢复')
+    } catch (retryError) {
+      if (retryError instanceof AdminMediaFinalizeError) offerMediaFinalizeRetry(retryError)
+      else showToast(retryError instanceof Error ? retryError.message : '图片关联重试失败')
+    }
+  })
+}
+
 function removeCategory(category: Category) {
   confirmAction(`确认删除品类「${category.name}」？`, () => {
-    runOperation(`category-${category.id}`, () => store.removeCategory(category.id), '品类已删除', '该品类正在使用，无法删除')
+    runOperation(`category-${category.id}`, async () => {
+      const previousItem = store.dictItems.find((item) => item.id === category.id && item.type === 'productCategory')
+      try {
+        const removed = await persistAndFinalizeAdminMedia(
+          getMediaRuntime().storage,
+          dictionaryItemMediaBindings(previousItem),
+          () => [],
+          () => store.removeCategory(category.id),
+          Boolean
+        )
+        if (!removed) return false
+        showToast('品类已删除')
+      } catch (error) {
+        if (error instanceof AdminMediaFinalizeError) offerMediaFinalizeRetry(error)
+        else showToast(error instanceof Error ? error.message : '图片资源解绑失败')
+      }
+    }, '', '该品类正在使用，无法删除')
   })
 }
 function removeRoute(route: TravelRoute) {
@@ -1359,12 +1410,51 @@ async function saveDialog() {
     }
   }
   if (dialog.value === 'category') {
+    const categoryImage = normalizeMediaReference(form.value.categoryImage) || undefined
+    const imageError = validateDictionaryItemImage(form.value.categoryType === 'product' ? 'productCategory' : '', categoryImage)
     if (!form.value.name.trim()) { saved = false; errorMessage = '请填写品类名称' }
-    else saved = await store.addCategory(form.value.name, form.value.categoryType)
+    else if (imageError) { saved = false; errorMessage = imageError }
+    else if (form.value.categoryType !== 'product') saved = await store.addCategory(form.value.name, form.value.categoryType)
+    else {
+      try {
+        saved = await persistAndFinalizeAdminMedia(
+          getMediaRuntime().storage,
+          [],
+          () => dictionaryItemMediaBindings(store.dictItems.find((item) => item.type === 'productCategory' && item.label === form.value.name.trim())),
+          () => store.addCategory(form.value.name, 'product', categoryImage),
+          Boolean
+        )
+      } catch (error) {
+        saved = false
+        if (error instanceof AdminMediaFinalizeError) pendingCreateMediaRetry = { dialog: 'category', retryFinalize: error.retryFinalize }
+        errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+      }
+      if (!saved && !errorMessage) errorMessage = store.error
+    }
   }
   if (dialog.value === 'category-edit') {
+    const previousItem = store.dictItems.find((item) => item.id === form.value.id && item.type === 'productCategory')
+    const categoryImage = normalizeMediaReference(form.value.categoryImage) || undefined
+    const imageError = validateDictionaryItemImage(previousItem ? 'productCategory' : '', categoryImage)
     if (!form.value.name.trim()) { saved = false; errorMessage = '请填写品类名称' }
-    else saved = await store.updateCategory(form.value.id, form.value.name, form.value.categoryType)
+    else if (imageError) { saved = false; errorMessage = imageError }
+    else if (!previousItem) saved = await store.updateCategory(form.value.id, form.value.name, form.value.categoryType)
+    else {
+      try {
+        saved = await persistAndFinalizeAdminMedia(
+          getMediaRuntime().storage,
+          dictionaryItemMediaBindings(previousItem),
+          () => dictionaryItemMediaBindings(store.dictItems.find((item) => item.id === form.value.id)),
+          () => store.updateCategory(form.value.id, form.value.name, 'product', categoryImage),
+          Boolean
+        )
+      } catch (error) {
+        saved = false
+        if (error instanceof AdminMediaFinalizeError) pendingCreateMediaRetry = { dialog: 'category-edit', retryFinalize: error.retryFinalize }
+        errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+      }
+      if (!saved && !errorMessage) errorMessage = store.error
+    }
   }
   if (dialog.value === 'route' || dialog.value === 'route-edit') {
     if (!form.value.routeName.trim() || !form.value.routeCity.trim()) { saved = false; errorMessage = '请填写线路名称和城市' }
@@ -1375,17 +1465,48 @@ async function saveDialog() {
     }
   }
   if (dialog.value === 'dict') {
+    const dictImage = normalizeMediaReference(form.value.dictImage) || undefined
+    const imageError = validateDictionaryItemImage(dictTypeTab.value, dictImage)
     if (!form.value.dictCode.trim() || !form.value.dictLabel.trim()) { saved = false; errorMessage = '请填写字典编码和名称' }
+    else if (imageError) { saved = false; errorMessage = imageError }
     else {
-      saved = await store.addDictItem({ type: dictTypeTab.value, code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort), tone: form.value.dictTone })
-      if (!saved) errorMessage = store.error
+      try {
+        saved = await persistAndFinalizeAdminMedia(
+          getMediaRuntime().storage,
+          [],
+          () => dictionaryItemMediaBindings(store.dictItems.find((item) => item.type === dictTypeTab.value && item.code === form.value.dictCode.trim())),
+          () => store.addDictItem({ type: dictTypeTab.value, code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort), tone: form.value.dictTone, image: dictImage }),
+          Boolean
+        )
+      } catch (error) {
+        saved = false
+        if (error instanceof AdminMediaFinalizeError) pendingCreateMediaRetry = { dialog: 'dict', retryFinalize: error.retryFinalize }
+        errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+      }
+      if (!saved && !errorMessage) errorMessage = store.error
     }
   }
   if (dialog.value === 'dict-edit') {
+    const previousItem = store.dictItems.find((item) => item.id === form.value.id)
+    const dictImage = normalizeMediaReference(form.value.dictImage) || undefined
+    const imageError = validateDictionaryItemImage(previousItem?.type || dictTypeTab.value, dictImage)
     if (!form.value.dictCode.trim() || !form.value.dictLabel.trim()) { saved = false; errorMessage = '请填写字典编码和名称' }
+    else if (imageError) { saved = false; errorMessage = imageError }
     else {
-      saved = await store.updateDictItem(form.value.id, { code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort), tone: form.value.dictTone })
-      if (!saved) errorMessage = store.error
+      try {
+        saved = await persistAndFinalizeAdminMedia(
+          getMediaRuntime().storage,
+          dictionaryItemMediaBindings(previousItem),
+          () => dictionaryItemMediaBindings(store.dictItems.find((item) => item.id === form.value.id)),
+          () => store.updateDictItem(form.value.id, { code: form.value.dictCode, label: form.value.dictLabel, enabled: form.value.enabled, sort: Number(form.value.dictSort), tone: form.value.dictTone, image: dictImage }),
+          Boolean
+        )
+      } catch (error) {
+        saved = false
+        if (error instanceof AdminMediaFinalizeError) pendingCreateMediaRetry = { dialog: 'dict-edit', retryFinalize: error.retryFinalize }
+        errorMessage = error instanceof Error ? error.message : '媒体资源关联失败，业务数据已保存，请重试'
+      }
+      if (!saved && !errorMessage) errorMessage = store.error
     }
   }
   if (dialog.value === 'dict-group') {
@@ -1579,14 +1700,33 @@ function policyDesc(type: PricePolicy['type']) {
   } as Record<PricePolicy['type'], string>)[type]
 }
 
+function policyIcon(type: PricePolicy['type']) {
+  return ({ group: 'shopping-bag', ladder: 'list-tree', region: 'map-pin', member: 'crown' } as Record<PricePolicy['type'], string>)[type]
+}
+
+function policyLabel(type: PricePolicy['type']) {
+  return ({ group: '集采价', ladder: '阶梯价', region: '区域价', member: '会员价' } as Record<PricePolicy['type'], string>)[type]
+}
+
+function commissionRuleIcon(targetType: string) {
+  return targetType === 'farm' ? 'house' : targetType === 'product' ? 'package' : 'radio'
+}
+
 function productSkuNo(item: Product) {
   const n = Number(item.id.replace(/\D/g, '')) || 0
   return `SKU·${100000 + n * 26 + 260}`
 }
 
-function rowEmoji(name: string) {
-  const map: Record<string, string> = { 腊肉: '🥓', 黄桃: '🍑', 黑茶: '🍵', 蜂蜜: '🍯', 洗漱: '🛏', 鱼仔: '🐟', 剁辣椒: '🫙', 富硒米: '🌾' }
-  return map[Object.keys(map).find((k) => name.includes(k)) || ''] || '📦'
+function orderProductFallback(name = '') {
+  const map: Array<[string, string]> = [
+    ['腊肉', '/static/images/bacon.webp'],
+    ['黄桃', '/static/images/peach.webp'],
+    ['黑茶', '/static/images/tea.webp'],
+    ['蜂蜜', '/static/images/honey.webp'],
+    ['剁辣椒', '/static/images/chili.webp'],
+    ['富硒米', '/static/images/rice.webp']
+  ]
+  return map.find(([keyword]) => name.includes(keyword))?.[1] || '/static/images/field.webp'
 }
 
 function statusText(status: string) {
@@ -1828,12 +1968,12 @@ onBeforeUnmount(() => {
         <view class="crumb">中选科技供应链中台 / <strong>{{ titles[active].title }}</strong></view>
         <view class="top-actions">
           <label class="search-box"><UiIcon name="search" :size="17" /><input v-model="keyword" placeholder="搜索商品 / 供应商 / 订单号" /></label>
-          <button class="period-button" :class="{ on: period === '本月' }" @click="switchPeriod(period === '本月' ? '本周' : '本月')">📅 {{ period }}</button>
-          <button class="icon-button" title="待办提醒" @click="openDetail('todos')"><UiIcon name="bell" :size="19" /><span v-if="!store.notificationsRead && store.pendingTodos" class="notice-dot"></span></button>
+          <button class="period-button" :class="{ on: period === '本月' }" @click="switchPeriod(period === '本月' ? '本周' : '本月')"><UiIcon name="calendar-days" :size="15" />{{ period }}</button>
+          <button class="icon-button" aria-label="打开待办提醒" title="待办提醒" @click="openDetail('todos')"><UiIcon name="bell" :size="19" /><span v-if="!store.notificationsRead && store.pendingTodos" class="notice-dot"></span></button>
         </view>
       </header>
 
-      <view class="content">
+      <view class="content admin-workspace" :data-admin-workspace="active">
         <template v-if="workPage">
           <section class="work-page">
             <view class="work-page-head"><button class="button secondary" @click="closeOverlay"><UiIcon name="arrow-left" :size="16" />返回</button><view><h1>{{ workPage.type === 'supplier' ? (workPage.mode === 'create' ? '邀请供应商' : '修改供应商资料') : workPage.type === 'supplier-account' ? '供应商账号信息' : workPage.type === 'role' ? (workPage.mode === 'create' ? '新增角色' : '修改角色') : (workPage.mode === 'create' ? '新增后台账号' : '修改后台账号') }}</h1><p>保存后立即写入共享演示数据并记录操作日志</p></view></view>
@@ -1883,8 +2023,8 @@ onBeforeUnmount(() => {
             <button v-if="active === 'products' && store.can('product.create')" class="button primary" @click="openCatalogProductDialog()"><UiIcon name="plus" :size="16" />新增商品</button>
             <button v-if="active === 'categories' && store.can('category.manage')" class="button primary" @click="openCategoryDialog()"><UiIcon name="plus" :size="16" />新增品类</button>
             <button v-if="active === 'routes' && store.can('route.manage')" class="button primary" @click="openRouteDialog()"><UiIcon name="plus" :size="16" />新增线路</button>
-            <button v-if="active === 'prices' && store.can('price.manage')" class="button primary" @click="openDialog('policy')"><UiIcon name="plus" :size="16" />＋ 新建价格策略</button>
-            <button v-if="active === 'farms' && store.can('farm.manage')" class="button primary" @click="openDialog('farm')"><UiIcon name="plus" :size="16" />＋ 新增农家乐门店</button>
+            <button v-if="active === 'prices' && store.can('price.manage')" class="button primary" @click="openDialog('policy')"><UiIcon name="plus" :size="16" />新建价格策略</button>
+            <button v-if="active === 'farms' && store.can('farm.manage')" class="button primary" @click="openDialog('farm')"><UiIcon name="plus" :size="16" />新增农家乐门店</button>
             <button v-if="active === 'promoters' && store.can('promoter.manage')" class="button primary" @click="openPromoterDialog()"><UiIcon name="plus" :size="16" />新增推客</button>
             <button v-if="active === 'commissions' && store.can('commission.manage')" class="button secondary" :disabled="isOperating('supplier-settle')" @click="confirmAction('确认结算全部合作供应商的未结订单？', () => runOperation('supplier-settle', () => store.settleSuppliers(store.suppliers.map(item => item.id)), '供应商批量结算完成', '没有可结算的供应商订单'))">{{ isOperating('supplier-settle') ? '结算中...' : '供应商结算' }}</button><button v-if="active === 'commissions' && store.can('commission.manage')" class="button primary" :disabled="!store.totalCommission || isOperating('commission-settle')" @click="confirmAction('确认结算当前全部模拟佣金？', () => runOperation('commission-settle', () => store.settleCommissions(), '佣金已结算'))">{{ isOperating('commission-settle') ? '结算中...' : '发起佣金结算' }}</button><button v-if="active === 'commissions' && store.commissionRules.length && store.can('commission.manage')" class="button secondary" @click="openCommission(store.commissionRules[0])">佣金规则</button>
           </view>
@@ -1900,10 +2040,10 @@ onBeforeUnmount(() => {
 
         <template v-else-if="active === 'dashboard'">
           <view class="kpi-grid">
-            <view class="kpi-card"><span class="kpi-icon">💴</span><text>平台交易额(GMV)</text><strong>{{ money(metrics.gmv) }}</strong><small>共 {{ metrics.orderCount }} 笔订单</small></view>
-            <view class="kpi-card"><span class="kpi-icon">🏡</span><text>入驻农家乐</text><strong>{{ metrics.farmCount }} 家</strong><small>经营中 {{ metrics.farmStats.liveCount }} 家</small></view>
-            <view class="kpi-card"><span class="kpi-icon">🏭</span><text>合作供应商</text><strong>{{ metrics.supplierCount }} 家</strong><small>待审核 {{ store.pendingSuppliers }} 家</small></view>
-            <view class="kpi-card"><span class="kpi-icon">📦</span><text>履约订单</text><strong>{{ metrics.orderCount.toLocaleString('zh-CN') }} 单</strong><small>待发货 {{ metrics.orderStats.pending }} 单</small></view>
+            <view class="kpi-card"><span class="kpi-icon"><UiIcon name="badge-dollar-sign" :size="17" /></span><text>平台交易额(GMV)</text><strong>{{ money(metrics.gmv) }}</strong><small>共 {{ metrics.orderCount }} 笔订单</small></view>
+            <view class="kpi-card"><span class="kpi-icon"><UiIcon name="house" :size="17" /></span><text>入驻农家乐</text><strong>{{ metrics.farmCount }} 家</strong><small>经营中 {{ metrics.farmStats.liveCount }} 家</small></view>
+            <view class="kpi-card"><span class="kpi-icon"><UiIcon name="factory" :size="17" /></span><text>合作供应商</text><strong>{{ metrics.supplierCount }} 家</strong><small>待审核 {{ store.pendingSuppliers }} 家</small></view>
+            <view class="kpi-card"><span class="kpi-icon"><UiIcon name="package-check" :size="17" /></span><text>履约订单</text><strong>{{ metrics.orderCount.toLocaleString('zh-CN') }} 单</strong><small>待发货 {{ metrics.orderStats.pending }} 单</small></view>
           </view>
           <view class="chart-grid">
             <section class="panel trend-panel"><view class="panel-head"><h2>交易与订单趋势</h2><SearchableSelect v-model="trendRange" :options="trendRangeOptions" size="small" search-placeholder="搜索时间范围" /></view><div ref="trendEl" class="chart"></div></section>
@@ -1990,7 +2130,7 @@ onBeforeUnmount(() => {
           <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="categoryKeyword" placeholder="搜索品类名称 / 类型" /></label><SearchableSelect v-model="categoryTypeFilter" :options="categoryTypeFilterOptions" size="medium" search-placeholder="搜索品类类型" /></view>
           <view class="table-row table-head category-grid"><text>品类名称</text><text>类型</text><text>使用数量</text><text>操作</text></view>
           <view v-for="item in pagedCategories" :key="item.id" class="table-row category-grid">
-            <strong>{{ item.name }}</strong>
+            <strong class="category-label"><BusinessImage v-if="item.type === 'product'" class="category-thumb" :src="productCategoryImage(item.name, dictionaryState)" :fallback="defaultProductCategoryImage(item.name)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="item.name">{{ item.name }}</text></strong>
             <span class="status" :class="item.type">{{ item.type === 'product' ? '商品品类' : item.type === 'supplier' ? '供应商品类' : '通用' }}</span>
             <text>{{ categoryUsage(item) }} 处</text>
             <view class="row-actions"><button v-if="store.can('category.manage')" @click="openCategoryEdit(item)">修改</button><button v-if="store.can('category.manage')" class="danger" @click="removeCategory(item)">删除</button></view>
@@ -2018,7 +2158,7 @@ onBeforeUnmount(() => {
           <view v-for="product in productReviewFilter === '正式商品' ? pagedUnifiedProductRows : []" :key="product.id" class="table-row unified-product-grid">
             <view class="product-cell"><BusinessImage class="product-thumb" :src="product.image" mode="aspectFit" /><view><strong>{{ product.name }}</strong><view class="tag-row"><span v-for="tag in product.tags.slice(0, 3)" :key="tag" class="product-tag">{{ tag }}</span></view></view></view>
             <view class="channel-tags"><span class="channel-tag" :class="{ live: product.channel === 'live', store: product.channel === 'store' }">{{ product.channel === 'store' ? '门店商品' : product.channel === 'live' ? '直播商品' : '全部商品' }}</span></view>
-            <text>{{ product.category }}</text>
+            <view class="category-label"><BusinessImage class="category-thumb" :src="productCategoryImage(product.category, dictionaryState)" :fallback="defaultProductCategoryImage(product.category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="product.category">{{ product.category }}</text></view>
             <view class="price-cell">
               <strong>零售 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.retailPrice || 0) }}</strong><small class="sku-no">供货 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.cost || 0) }} · MOQ {{ activeCatalogSkus(product)[0]?.minimumOrderQuantity || 1 }} · 一级 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.level1Amount || 0) }} · 二级 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.level2Amount || 0) }}</small>
             </view>
@@ -2041,7 +2181,7 @@ onBeforeUnmount(() => {
             </view>
             <view v-if="!visibleProductSubmissions.length" class="empty-state">暂无{{ productReviewFilter }}商品</view>
           </view>
-          <view v-if="productRejectTarget" class="modal-mask" @click.self="productRejectTarget = null"><view class="modal"><view class="modal-head"><h2>驳回商品</h2><button class="icon-button" aria-label="关闭" @click="productRejectTarget = null"><UiIcon name="x" :size="18" /></button></view><label class="field"><text>驳回原因</text><textarea v-model="productRejectReason" placeholder="请填写具体原因" /></label><view class="modal-actions"><button class="button secondary" @click="productRejectTarget = null">取消</button><button class="button danger" @click="confirmRejectProductSubmission">确认驳回</button></view></view></view>
+          <view v-if="productRejectTarget" class="modal-mask" @click.self="productRejectTarget = null"><view class="modal"><view class="modal-head"><h2>驳回商品</h2><button class="icon-button" aria-label="关闭" @click="productRejectTarget = null"><UiIcon name="x" :size="18" /></button></view><view class="modal-body"><label class="field"><text>驳回原因</text><textarea v-model="productRejectReason" placeholder="请填写具体原因" /></label></view><view class="modal-actions"><button class="button secondary" @click="productRejectTarget = null">取消</button><button class="button danger" @click="confirmRejectProductSubmission">确认驳回</button></view></view></view>
         </section>
         <view v-else-if="active === 'prices'" class="policy-panels">
           <section class="panel pricing-defaults-panel">
@@ -2054,7 +2194,7 @@ onBeforeUnmount(() => {
             </view>
           </section>
           <section v-for="group in policyGroups" :key="group.type" class="panel policy-group">
-            <view class="panel-head policy-group-head"><view><h2>{{ group.type === 'group' ? '🏷 集采价' : group.type === 'ladder' ? '📶 阶梯价' : group.type === 'region' ? '🗺 区域价' : '👑 会员价' }}</h2><text>{{ policyDesc(group.type) }}</text></view><text class="policy-group-count">{{ group.items.length }} 条策略</text></view>
+            <view class="panel-head policy-group-head"><view><h2><UiIcon :name="policyIcon(group.type)" :size="16" /><text>{{ policyLabel(group.type) }}</text></h2><text>{{ policyDesc(group.type) }}</text></view><text class="policy-group-count">{{ group.items.length }} 条策略</text></view>
             <view class="policy-card-grid">
               <view v-for="item in group.items" :key="item.id" class="policy-data-card">
                 <view class="policy-data-top"><view><strong>{{ item.name }}</strong><text class="policy-scope">{{ item.scope }}</text></view><view v-if="store.can('price.manage')" class="policy-actions"><button class="compact-button" @click="openPolicyEdit(item)">编辑</button><button class="switch" :class="{ on: item.enabled }" :disabled="isOperating(`policy-${item.id}`)" :aria-label="item.enabled ? '停用价格策略' : '启用价格策略'" @click="runOperation(`policy-${item.id}`, () => store.togglePolicy(item.id), '价格策略状态已更新')"><span></span></button></view></view>
@@ -2074,15 +2214,15 @@ onBeforeUnmount(() => {
         <section v-else-if="active === 'orders'" class="data-panel">
            <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></label><SearchableSelect v-model="orderStoreFilter" :options="orderStoreSelectOptions" size="medium" search-placeholder="搜索门店" /><SearchableSelect v-model="orderChannelFilter" :options="orderChannelOptions" size="medium" search-placeholder="搜索订单来源" /><SearchableSelect v-model="orderStatusFilter" :options="orderStatusOptions" size="medium" search-placeholder="搜索订单状态" /><SearchableSelect v-model="orderAfterFilter" :options="orderAfterOptions" size="medium" search-placeholder="搜索售后状态" /></view><view class="toolbar-actions"><button v-if="store.can('order.ship')" class="button secondary" :disabled="!selectedOrderIds.length || isOperating('batch-ship')" @click="batchShip">{{ isOperating('batch-ship') ? '发货处理中...' : '批量发货' }}</button><button v-if="store.can('report.export')" class="button primary" @click="exportCurrent"><UiIcon name="download" :size="15" />导出订单</button></view></view>
           <view class="fulfill-strip">
-            <view class="done"><b>✓</b><small>下单付款</small><strong>{{ metrics.orderStats.total }} 单</strong></view>
-            <view class="done"><b>✓</b><small>中台接单</small><strong>自动分配供应商</strong></view>
+            <view class="done"><b><UiIcon name="check" :size="15" /></b><small>下单付款</small><strong>{{ metrics.orderStats.total }} 单</strong></view>
+            <view class="done"><b><UiIcon name="check" :size="15" /></b><small>中台接单</small><strong>自动分配供应商</strong></view>
             <view class="cur"><b>3</b><small>仓配发货</small><strong>{{ metrics.orderStats.pending }} 单处理中</strong></view>
             <view><b>4</b><small>司机配送</small><strong>在途 {{ metrics.orderStats.shipping }} 单</strong></view>
             <view><b>5</b><small>确认收货</small><strong>—</strong></view>
             <view><b>6</b><small>结算分账</small><strong>T+1 结算</strong></view>
           </view>
                     <view class="table-row table-head order-grid"><text>订单号</text><text>商品</text><text>数量</text><text>下单门店 / 渠道</text><text>金额</text><text>实付金额</text><text>来源</text><text>状态</text><text>售后状态</text><text>操作</text></view>
-          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><button v-if="item.status === 'pending' && store.can('order.ship')" class="order-select" :class="{ selected: selectedOrderIds.includes(item.id) }" :title="selectedOrderIds.includes(item.id) ? '取消选择' : '选择订单'" @click="toggleOrderSelection(item.id)"><UiIcon v-if="selectedOrderIds.includes(item.id)" name="check" :size="12" /></button><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><BusinessImage v-if="p.image" class="order-thumb" :src="p.image" mode="aspectFit" @click="previewImage" /><span v-else class="row-emoji">{{ rowEmoji(p.name) }}</span><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id) && store.can('afterSale.manage')" @click="openAfterSaleInit(item)">发起售后</button><button v-if="item.status === 'pending' && store.can('order.ship')" @click="confirmShip(item)">发货</button><button v-else @click="openDetail('order', item.id)">流转</button></view></view>
+          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><button v-if="item.status === 'pending' && store.can('order.ship')" class="order-select" :class="{ selected: selectedOrderIds.includes(item.id) }" :title="selectedOrderIds.includes(item.id) ? '取消选择' : '选择订单'" :aria-label="selectedOrderIds.includes(item.id) ? '取消选择订单' : '选择订单'" @click="toggleOrderSelection(item.id)"><UiIcon v-if="selectedOrderIds.includes(item.id)" name="check" :size="12" /></button><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><BusinessImage class="order-thumb" :src="p.image" :fallback="orderProductFallback(p.name)" :error-fallback="orderProductFallback()" :show-error="false" mode="aspectFit" @click="previewImage" /><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id) && store.can('afterSale.manage')" @click="openAfterSaleInit(item)">发起售后</button><button v-if="item.status === 'pending' && store.can('order.ship')" @click="confirmShip(item)">发货</button><button v-else @click="openDetail('order', item.id)">流转</button></view></view>
           <view v-if="!visibleOrders.length" class="empty-state">没有符合筛选条件的订单</view><PaginationBar :page="page" :page-size="pageSize" :total="visibleOrders.length" @change="page = $event" />
         </section>
 
@@ -2144,7 +2284,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'commissions'" class="data-panel">
-          <SearchableSelect v-model="commissionTab" :options="commissionTabOptions" size="medium" search-placeholder="搜索结算频道" />
+          <view class="filter-chips commission-filter-tabs"><button v-for="item in commissionTabOptions" :key="item.value" :class="{ active: commissionTab === item.value }" @click="commissionTab = item.value; page = 1">{{ item.label }}</button></view>
           <template v-if="commissionTab === '佣金结算'">
             <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" size="medium" search-placeholder="搜索结算状态" /></view>
             <view class="commission-status-table">
@@ -2186,7 +2326,7 @@ onBeforeUnmount(() => {
           </template>
           <template v-else-if="commissionTab === '佣金规则'">
             <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="ruleKeyword" placeholder="搜索规则名称" /></label></view>
-            <view class="commission-rules"><view class="panel-head"><h2>佣金规则</h2><text>本地模拟配置 · 点击编辑调整比例</text></view><view class="commission-rule-grid"><view v-for="rule in filteredRules" :key="rule.id" class="commission-rule-card"><view class="rule-top"><text class="rule-icon">{{ rule.targetType === 'farm' ? '🏡' : rule.targetType === 'product' ? '📦' : '📺' }}</text><button v-if="store.can('commission.manage')" class="compact-button" @click="openCommission(rule)">编辑</button></view><strong class="rule-name">{{ rule.name }}</strong><view class="rule-rate">{{ rule.rate }}<small>%</small></view><small class="rule-meta">{{ rule.targetType === 'farm' ? '门店推广' : rule.targetType === 'product' ? '商品推广' : '直播推广' }} · 更新于 {{ rule.updatedAt }}</small></view></view></view>
+            <view class="commission-rules"><view class="panel-head"><h2>佣金规则</h2><text>本地模拟配置 · 点击编辑调整比例</text></view><view class="commission-rule-grid"><view v-for="rule in filteredRules" :key="rule.id" class="commission-rule-card"><view class="rule-top"><view class="rule-icon"><UiIcon :name="commissionRuleIcon(rule.targetType)" :size="17" /></view><button v-if="store.can('commission.manage')" class="compact-button" @click="openCommission(rule)">编辑</button></view><strong class="rule-name">{{ rule.name }}</strong><view class="rule-rate">{{ rule.rate }}<small>%</small></view><small class="rule-meta">{{ rule.targetType === 'farm' ? '门店推广' : rule.targetType === 'product' ? '商品推广' : '直播推广' }} · 更新于 {{ rule.updatedAt }}</small></view></view></view>
           </template>
           <template v-else-if="commissionTab === '消费分成'">
             <view class="commission-rules"><view class="panel-head"><h2>消费分成设置</h2><text>用户消费后按正式绑定给推客 / 店员分成 · 全局比例</text></view><view class="share-config-row"><label class="field"><text>推客分成比例（%）</text><input v-model.number="shareConfig.promoterRate" type="number" min="0" max="100" /></label><label class="field"><text>店员分成比例（%）</text><input v-model.number="shareConfig.staffRate" type="number" min="0" max="100" /></label><button v-if="store.can('commission.manage')" class="button primary" @click="saveShareConfig">保存比例</button></view></view>
@@ -2214,7 +2354,7 @@ onBeforeUnmount(() => {
             </view>
           </view>
           <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="dictKeyword" placeholder="搜索编码 / 名称" /></label></view>
-          <view class="dict-table"><view class="table-row table-head dict-grid"><text>编码</text><text>名称</text><text>启用</text><text>排序</text><text>操作</text></view><view v-for="item in pagedDictItems" :key="item.id" class="table-row dict-grid"><strong>{{ item.code }}</strong><text>{{ item.label }}</text><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><text>{{ item.sort }}</text><view class="row-actions"><button v-if="store.can('dictionary.manage')" @click="openDictDialog(item)">修改</button><button v-if="activeDictionaryPermissions.deleteItem && store.can('dictionary.manage')" class="danger" @click="removeDictItem(item.id)">删除</button></view></view></view>
+          <view class="dict-table"><view class="table-row table-head dict-grid"><text>编码</text><text>名称</text><text>启用</text><text>排序</text><text>操作</text></view><view v-for="item in pagedDictItems" :key="item.id" class="table-row dict-grid"><strong>{{ item.code }}</strong><view class="category-label"><BusinessImage v-if="dictTypeTab === 'productCategory'" class="category-thumb" :src="productCategoryImage(item.code, dictionaryState)" :fallback="defaultProductCategoryImage(item.label)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="item.label">{{ item.label }}</text></view><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><text>{{ item.sort }}</text><view class="row-actions"><button v-if="store.can('dictionary.manage')" @click="openDictDialog(item)">修改</button><button v-if="activeDictionaryPermissions.deleteItem && store.can('dictionary.manage')" class="danger" @click="removeDictItem(item.id)">删除</button></view></view></view>
           <view v-if="!filteredDictItems.length" class="empty-state">暂无字典项</view>
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredDictItems.length" @change="page = $event" />
         </section>
@@ -2237,6 +2377,7 @@ onBeforeUnmount(() => {
      <view v-if="dialog && !workPage" class="modal-mask" :class="{ 'work-modal-mask': !['withdrawal-reject', 'supplier-pause', 'recovery-verify'].includes(dialog) }" @click.self="closeOverlay">
        <view class="modal" role="dialog" aria-modal="true" @keydown="trapFocus">
          <view class="modal-head"><view><h2>{{ dialog === 'withdrawal-reject' ? '驳回提现申请' : dialog === 'supplier-pause' ? '暂停供应商合作' : dialog === 'recovery-verify' ? (selectedRecoveryTask?.handlerKey ? '重试恢复任务' : '人工核验恢复任务') : dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'route' ? '新增旅游线路' : dialog === 'route-edit' ? '编辑旅游线路' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>{{ dialog === 'recovery-verify' ? '只有重试成功或人工回读确认后，任务才会关闭' : '保存后立即写入本地演示数据' }}</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
+        <view class="modal-body">
         <template v-if="dialog === 'withdrawal-reject'"><label class="field"><text>驳回备注（可选）</text><input v-model="withdrawalNote" placeholder="请输入驳回原因" /></label></template>
         <template v-if="dialog === 'supplier-pause'"><label class="field"><text>暂停合作原因</text><input v-model="supplierPauseReason" placeholder="必填，恢复合作后仍保留在审计日志" /></label><text class="drawer-muted">暂停合作后供应商和司机仍可登录并处理存量订单，但不能接收新订单或新增司机。</text></template>
         <template v-if="dialog === 'recovery-verify'">
@@ -2265,7 +2406,8 @@ onBeforeUnmount(() => {
         </template>
         <template v-if="dialog === 'category' || dialog === 'category-edit'">
           <label class="field"><text>品类名称</text><input v-model="form.name" placeholder="请输入品类名称" /></label>
-          <view class="field"><text>品类类型</text><SearchableSelect v-model="form.categoryType" :options="categoryTypeOptions" search-placeholder="搜索品类类型" /></view>
+          <view class="field"><text>品类类型</text><SearchableSelect v-model="form.categoryType" :options="categoryTypeOptions" search-placeholder="搜索品类类型" :disabled="dialog === 'category-edit' && editingDictionaryCategory" /></view>
+          <view v-if="form.categoryType === 'product'" class="field"><text>品类图片（必传）</text><ImageUploader v-model="form.categoryImage" purpose="product-category" @error="showToast" /></view>
         </template>
         <template v-if="dialog === 'route' || dialog === 'route-edit'">
           <label class="field"><text>线路名称</text><input v-model="form.routeName" placeholder="如：湘西风情两日游" /></label>
@@ -2277,6 +2419,7 @@ onBeforeUnmount(() => {
         <template v-if="dialog === 'dict' || dialog === 'dict-edit'">
           <label class="field"><text>字典编码</text><input v-model="form.dictCode" placeholder="如 pending / transport" :disabled="!activeDictionaryPermissions.editCode" /></label>
           <label class="field"><text>显示名称</text><input v-model="form.dictLabel" placeholder="如 待处理" /></label>
+          <view v-if="dictTypeTab === 'productCategory'" class="field"><text>品类图片（必传）</text><ImageUploader v-model="form.dictImage" purpose="product-category" @error="showToast" /></view>
           <label class="field"><text>排序</text><input v-model.number="form.dictSort" type="number" min="0" /></label>
           <view class="field"><text>显示色调</text><SearchableSelect v-model="form.dictTone" :options="dictionaryToneOptions" search-placeholder="搜索色调" /></view>
           <view class="field"><text>启用状态</text><SearchableSelect v-model="form.enabled" :options="enabledOptions" search-placeholder="搜索启用状态" /></view>
@@ -2322,6 +2465,7 @@ onBeforeUnmount(() => {
           <label class="field"><text>平均客单价</text><input v-model.number="form.averageSpend" type="number" min="0" /></label><label class="field"><text>人气值</text><input v-model.number="form.livePopularity" type="number" min="0" /></label>
           <view class="field"><text>经营状态</text><SearchableSelect v-model="form.farmStatus" :options="farmStatusOptions" search-placeholder="搜索经营状态" /></view>
         </template>
+        </view>
         <view class="modal-actions"><button class="button secondary" :disabled="busy" @click="closeOverlay">取消</button><button class="button primary" :class="{ 'danger-button': dialog === 'supplier-pause' }" :disabled="busy" @click="saveDialog">{{ busy ? '处理中...' : dialog === 'withdrawal-reject' ? '确认驳回' : dialog === 'supplier-pause' ? '确认暂停合作' : dialog === 'recovery-verify' ? (selectedRecoveryTask?.handlerKey ? '重试并核验' : '保存核验结果') : dialog === 'supplier' ? '发送邀请' : dialog === 'supplier-edit' || dialog === 'farm-edit' ? '保存修改' : '保存' }}</button></view>
       </view>
     </view>
@@ -2329,6 +2473,7 @@ onBeforeUnmount(() => {
     <view v-if="catalogProductDialog" class="modal-mask work-modal-mask" @click.self="catalogProductDialog = false">
       <view class="modal catalog-product-modal" role="dialog" aria-modal="true">
         <view class="modal-head"><view><h2>{{ store.catalogProducts.some((item) => item.id === catalogProductForm.id) ? '编辑商品' : '新增商品' }}</h2><p>门店、直播与全部商品使用同一商品目录</p></view><button class="icon-button" aria-label="关闭弹窗" @click="catalogProductDialog = false"><UiIcon name="x" :size="18" /></button></view>
+        <view class="modal-body catalog-product-body">
         <view class="catalog-form-grid">
           <label class="field"><text>商品名称</text><input v-model="catalogProductForm.name" placeholder="请输入商品名称" /></label>
           <view class="field"><text>商品渠道</text><SearchableSelect v-model="catalogProductForm.channel" :options="catalogProductChannelOptions" search-placeholder="搜索商品渠道" /></view>
@@ -2344,6 +2489,7 @@ onBeforeUnmount(() => {
           <label class="field"><text>门店佣金率 %</text><input v-model.number="catalogProductForm.storeCommissionRate" type="number" min="0" max="100" /></label>
         </view>
         <view class="c-sku-editor"><view class="tier-editor-head"><text>SKU 价格、起订量与共享库存</text><button class="mini-button" type="button" @click="addCatalogSku">＋ 添加 SKU</button></view><view class="catalog-sku-labels"><text>规格名称</text><text>规格图片</text><text>零售价</text><text>供货价</text><text>库存</text><text>起订量</text><text>一级金额</text><text>二级金额</text><text>操作</text></view><view v-for="(sku, index) in catalogProductForm.skus" :key="sku.id" class="c-sku-row" :class="{ retired: sku.status === 'retired' }"><input v-model="sku.name" :disabled="sku.status === 'retired'" placeholder="规格名称" /><ImageUploader v-model="sku.image" :purpose="`catalog-sku-${sku.id}`" :disabled="sku.status === 'retired'" @error="showToast" /><input v-model.number="sku.retailPrice" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="零售价" /><input v-model.number="sku.cost" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="供货价" /><input v-model.number="sku.stock" :disabled="sku.status === 'retired'" type="number" min="0" placeholder="库存" /><input v-model.number="sku.minimumOrderQuantity" :disabled="sku.status === 'retired'" type="number" min="1" step="1" placeholder="起订量" /><input v-model.number="sku.level1Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="一级金额" /><input v-model.number="sku.level2Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="二级金额" /><button v-if="sku.status === 'retired'" class="compact-button" type="button" @click="restoreCatalogSku(index)">恢复</button><button v-else class="compact-button danger" type="button" @click="removeCatalogSku(index)">{{ persistedCatalogSkuIds.has(sku.id) ? '停用' : '删除' }}</button></view></view>
+        </view>
         <view class="modal-actions"><button class="button secondary" @click="catalogProductDialog = false">取消</button><button class="button primary" @click="saveCatalogProductDialog">保存商品</button></view>
       </view>
     </view>
@@ -2364,7 +2510,7 @@ onBeforeUnmount(() => {
              <view v-if="!supplierProducts(selectedSupplier).length" class="empty-state">该供应商暂无商品</view>
              <view v-for="product in supplierProducts(selectedSupplier)" :key="product.id" class="supplier-product-row">
                <BusinessImage class="supplier-thumb" :src="product.image" mode="aspectFit" @click="previewImage" />
-               <view class="sp-name"><strong>{{ product.name }}</strong><small>{{ product.category }} · {{ product.supplier }}</small></view>
+                <view class="sp-name"><strong>{{ product.name }}</strong><small class="category-label"><BusinessImage class="category-thumb category-thumb--small" :src="productCategoryImage(product.category, dictionaryState)" :fallback="defaultProductCategoryImage(product.category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="`${product.category} · ${product.supplier}`">{{ product.category }} · {{ product.supplier }}</text></small></view>
                 <strong>¥{{ formatNumber(product.price) }}</strong>
                <span class="status" :class="product.status">{{ product.status === 'pending' ? '待审核' : statusText(product.status) }}</span>
              </view>
@@ -2401,26 +2547,26 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .admin-shell { min-height: 100vh; display: flex; background: var(--admin-bg); }
-.sidebar { position: fixed; inset: 0 auto 0 0; width: 236px; background: linear-gradient(180deg,#16322a,#101e16); color: #fff; display: flex; flex-direction: column; z-index: 10; }
+.sidebar { position: fixed; inset: 0 auto 0 0; width: 236px; background: #153e2c; color: #fff; display: flex; flex-direction: column; z-index: 10; }
 .brand { height: 76px; padding: 0 18px; display: flex; align-items: center; gap: 11px; border-bottom: 1px solid rgba(255,255,255,.1); }
 .brand-mark { width: 38px; height: 38px; border-radius: 7px; display: grid; place-items: center; background: #2b7a52; }
 .brand-mark .ui-icon { filter: brightness(0) invert(1); }
 .brand-title, .brand-sub { display: block; } .brand-title { font-size: 15px; font-weight: 800; } .brand-sub { color: #9fb7a9; font-size: 12px; margin-top: 3px; }
 .nav-list { min-height:0;padding:12px 10px;flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.24) transparent; } .nav-group { display: block; color: #5f7387; font-size: 13px; letter-spacing: 1px; font-weight: 700; padding: 14px 12px 6px; }
-.nav-item { width: 100%; padding: 10px 12px; display: flex; align-items: center; gap: 11px; color: #bcccdb; background: transparent; border-radius: 10px; cursor: pointer; text-align: left; margin-bottom: 2px; font-size: 13.5px; font-weight: 500; }
+.nav-item { width: 100%; padding: 10px 12px; display: flex; align-items: center; gap: 11px; color: #bcccdb; background: transparent; border-radius: var(--admin-radius-control); cursor: pointer; text-align: left; margin-bottom: 2px; font-size: 13.5px; font-weight: 500; }
 .nav-item .ui-icon { filter: brightness(0) invert(.75); } .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; } .nav-item.active { background: #1d6b44; color: #fff; font-weight: 700; } .nav-item.active .ui-icon { filter: brightness(0) invert(1); }
 .nav-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 7px; border-radius: 999px; background: #a8542b; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 700; }
 .operator { flex-shrink:0;padding:16px;border-top:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:10px;font-size:12px; } .operator small { display: block; color: #80998a; margin-top: 3px; font-size: 12px; } .avatar { width: 32px; height: 32px; border-radius: 6px; background: #315d48; display: grid; place-items: center; }
 .main { width: calc(100% - 236px); min-height: 100vh; margin-left: 236px; } .topbar { height: 60px; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--admin-line); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 8; }
 .crumb { font-size: 13px; color: var(--admin-muted); } .crumb strong { color: var(--admin-ink); } .top-actions, .head-actions, .row-actions { display: flex; align-items: center; gap: 8px; }
-.search-box { width: 240px; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #f4f4ef; border: 1px solid #e4e5dd; border-radius: 10px; } .search-box input { flex: 1; height: 100%; border: 0; outline: 0; background: transparent; font-size: 13px; }
-.icon-button { width: 38px; height: 38px; position:relative; display: grid; place-items: center; background: #f4f4ef; border: 1px solid #e4e5dd; border-radius: 10px; cursor: pointer; }.icon-button:hover{background:#e9eee8}.notice-dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:#b64e40;border:1px solid #fff}
+.search-box { width: 240px; height: var(--admin-control-height); display: flex; align-items: center; gap: 8px; padding: 0 12px; background: #f7f8f5; border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); } .search-box input { min-width:0;flex: 1; height: 100%; border: 0; outline: 0; background: transparent; font-size: 13px; }
+.icon-button { width: var(--admin-control-height); height: var(--admin-control-height); position:relative; display: grid; place-items: center; background: #f7f8f5; border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); cursor: pointer; }.icon-button:hover{background:#e9eee8}.notice-dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:#b64e40;border:1px solid #fff}
 .content { padding: 24px 28px 40px; max-width: 1600px; margin: 0 auto; } .page-head { min-height: 58px; margin-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .page-head p { margin-top: 6px; color: var(--admin-muted); font-size: 13px; }
 .todo-filter-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:-6px 0 16px;padding:11px 14px;border:1px solid #c9d8ce;border-radius:6px;background:var(--admin-green-soft);color:var(--admin-ink)}.todo-filter-banner>view{min-width:0}.todo-filter-banner strong,.todo-filter-banner small{display:block}.todo-filter-banner small{margin-top:3px;color:var(--admin-muted);overflow-wrap:anywhere}.todo-filter-banner .button{margin:0;flex:none}
-.button { min-height: 40px; padding: 0 14px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 700; font-size: 13px; } .button.primary { background: var(--admin-green-2); color: #fff; } .button.primary:hover{background:#155b39}.button.secondary { background: #fff; color: var(--admin-ink); border: 1px solid var(--admin-line); }.button.secondary:hover{background:#f7f8f4} .button:disabled { opacity: .45; cursor: default; }.button.wide{width:100%;margin-top:18px}
+.button { min-height: 40px; padding: 0 14px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 700; font-size: 13px; } .button.primary { background: var(--admin-green-2); color: #fff; min-height: 44px; } .button.primary:hover{background:#155b39}.button.secondary { background: #fff; color: var(--admin-ink); border: 1px solid var(--admin-line); }.button.secondary:hover{background:#f7f8f4} .button:disabled { opacity: .45; cursor: default; }.button.wide{width:100%;margin-top:18px}
 .loading { min-height: 420px; display: grid; place-items: center; color: var(--admin-muted); }
-.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 20px; } .kpi-card { padding: 18px; background: #fff; border: 1px solid var(--admin-line); border-radius: 16px; } .kpi-card text,.kpi-card small { display:block; color: var(--admin-muted); font-size: 12px; } .kpi-card strong { display:block; margin: 10px 0 7px; font-size: 27px; font-weight: 800; } .kpi-card .positive { color: #28724d; }
+.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 16px; } .kpi-card { min-width:0;padding: 16px; background: #fff; border: 1px solid var(--admin-line); border-radius: var(--admin-radius-panel); } .kpi-card text,.kpi-card small { display:block; color: var(--admin-muted); font-size: 12px; } .kpi-card strong { display:block; margin: 8px 0 5px; font-size: 25px; font-weight: 800;overflow-wrap:anywhere; } .kpi-card .positive { color: #28724d; }
 .chart-grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: 16px; margin-bottom: 16px; } .panel,.data-panel { background: #fff; border: 1px solid var(--admin-line); border-radius: 7px; overflow: hidden; } .data-panel{overflow-x:auto;scrollbar-width:thin;scrollbar-color:#c7ccc6 transparent}.panel { padding: 17px; } .panel-head { display:flex; align-items:center; justify-content:space-between; } .panel-head h2 { font-size: 15px; } .panel-head text { color:var(--admin-muted); font-size:12px; } .chart { height: 280px; width: 100%; }
 .lower-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:16px; } .rank-row { display:flex; align-items:center; gap:10px; padding:13px 0; border-bottom:1px solid #e5e1d6; } .rank-row .hot-emoji { width:34px; height:34px; border-radius:8px; background:#f1f6ef; display:grid; place-items:center; font-size:18px; flex-shrink:0; } .rank-row>view:nth-child(2) { flex:1; min-width:0; } .rank-row .hot-right { text-align:right; flex-shrink:0; } .rank-row .hot-right b { color:var(--admin-green-2); } .rank-row .hot-right small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .rank-row:last-child { border:0; } .rank-row image { width:42px;height:42px;border-radius:5px; } .rank-row strong,.rank-row small { display:block; } .rank-row strong { font-size:12px; } .rank-row small { color:var(--admin-muted);font-size:12px;margin-top:3px; } .rank-row b { color:var(--admin-green-2);font-size:12px; } .rank-no { font-weight:800;color:var(--admin-gold); }
 .todo-row { width:100%;min-height:56px;padding:9px 0;display:flex;align-items:center;gap:11px;background:transparent;border-bottom:1px solid #eef0eb;cursor:pointer;text-align:left;color:var(--admin-ink); } .todo-row .todo-emoji { width:32px; height:32px; border-radius:8px; background:#f1f6ef; display:grid; place-items:center; font-size:16px; flex-shrink:0; } .todo-row>view { flex:1; min-width:0; } .todo-row strong,.todo-row small { display:block; } .todo-row strong { font-size:13px; } .todo-row small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .todo-pill { font-size:12px; font-weight:600; border-radius:999px; padding:3px 10px; background:#eef0eb; color:#6b6b63; flex-shrink:0; } .todo-pill.wait { background:#fff3e0; color:#a65735; } .todo-pill.no { background:#fdeaea; color:#b03a2e; }
@@ -2433,9 +2579,9 @@ h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .pa
 .status { width:max-content;max-width:100%;padding:5px 8px;border-radius:4px;background:#eef0eb;color:#687168;font-size:12px;white-space:nowrap; }.status.active,.status.cooperating,.status.delivered,.status.resolved { background:#dcfce7;color:#15803d; }.status.pending,.status.processing { background:#fff4da;color:#997126; }.status.rejected,.status.after-sale { background:#f9e7e4;color:#a34339; }.status.shipping { background:#e7eef8;color:#45658d; }
 .row-actions button { min-height:30px;padding:5px 9px;background:#e7f1eb;color:#1d6b44;border-radius:4px;cursor:pointer;font-size:13px; }.row-actions button:hover{background:#d7e8dd}.row-actions button.danger { background:#f9e7e4;color:#a34339; }.row-actions button.danger:hover{background:#f1d6d2}
 
-.policy-panels { display:flex;flex-direction:column;gap:16px; }.policy-group { padding:0;overflow:hidden; }.policy-group-head { padding:14px 16px;border-bottom:1px solid var(--admin-line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }.policy-group-head h2 { font-size:15px;margin:0; }.policy-group-head text { display:block;color:var(--admin-muted);font-size:12px;margin-top:3px; }.policy-group-count { white-space:nowrap;font-size:12px;color:var(--admin-muted); }.policy-card-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding:16px; }.policy-data-card { border:1px solid var(--admin-line);border-radius:12px;padding:14px;background:#fff; }.policy-data-top { display:flex;align-items:flex-start;justify-content:space-between;gap:10px; }.policy-data-top strong { font-size:14px; }.policy-scope { display:block;margin-top:4px;color:var(--admin-muted);font-size:12px; }.policy-data-meta { display:flex;align-items:center;gap:10px;margin-top:10px; }.policy-discount { font-size:13px;font-weight:700;color:var(--admin-green-2); }.tier-table { margin-top:12px;border:1px solid #eceee8;border-radius:8px;overflow:hidden; }.tier-table .table-row { min-height:34px;padding:0 12px;font-size:12px; }.tier-table .tier-grid { grid-template-columns:1.3fr .8fr .7fr 1.2fr; }.tier-off { color:var(--admin-green-2);font-weight:700; }.tier-empty { margin-top:12px;padding:10px;border-radius:8px;background:#fafbf8;color:var(--admin-muted);font-size:12px;text-align:center; }.switch { width:42px;height:23px;padding:3px;border-radius:12px;background:#c7ccc6;cursor:pointer; }.switch span { display:block;width:17px;height:17px;border-radius:50%;background:#fff;transition:.2s; }.switch.on { background:var(--admin-green-2); }.switch.on span { transform:translateX(19px); }
+.policy-panels { display:flex;flex-direction:column;gap:14px; }.policy-group { padding:0;overflow:hidden; }.policy-group-head { padding:14px 16px;border-bottom:1px solid var(--admin-line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }.policy-group-head h2 { display:flex;align-items:center;gap:7px;font-size:15px;margin:0; }.policy-group-head h2>text{margin:0;color:var(--admin-ink);font-size:15px}.policy-group-head>view>text { display:block;color:var(--admin-muted);font-size:12px;margin-top:3px; }.policy-group-count { white-space:nowrap;font-size:12px;color:var(--admin-muted); }.policy-card-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:16px; }.policy-data-card { min-width:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px;background:#fff; }.policy-data-top { display:flex;align-items:flex-start;justify-content:space-between;gap:10px; }.policy-data-top strong { font-size:14px;overflow-wrap:anywhere; }.policy-scope { display:block;margin-top:4px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.policy-data-meta { display:flex;align-items:center;gap:10px;margin-top:10px; }.policy-discount { font-size:13px;font-weight:700;color:var(--admin-green-2); }.tier-table { margin-top:12px;border:1px solid #eceee8;border-radius:var(--admin-radius-panel);overflow:hidden; }.tier-table .table-row { min-height:34px;padding:0 12px;font-size:12px; }.tier-table .tier-grid { grid-template-columns:1.3fr .8fr .7fr 1.2fr; }.tier-off { color:var(--admin-green-2);font-weight:700; }.tier-empty { margin-top:12px;padding:10px;border-radius:var(--admin-radius-panel);background:#fafbf8;color:var(--admin-muted);font-size:12px;text-align:center; }.switch { width:42px;height:23px;padding:3px;border-radius:12px;background:#c7ccc6;cursor:pointer; }.switch span { display:block;width:17px;height:17px;border-radius:50%;background:#fff;transition:.2s; }.switch.on { background:var(--admin-green-2); }.switch.on span { transform:translateX(19px); }
 .summary-strip { display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--admin-line);background:#fafbf8; }.summary-strip view { padding:15px 18px;border-right:1px solid var(--admin-line); }.summary-strip view:last-child { border:0; }.summary-strip small,.summary-strip strong { display:block; }.summary-strip small { color:var(--admin-muted);font-size:12px; }.summary-strip strong { margin-top:4px;font-size:16px; }.commission-banner { min-height:108px;padding:18px;display:flex;align-items:center;justify-content:space-between;background:#f7f4ea;border-bottom:1px solid #e8dfc7; }.commission-banner small,.commission-banner strong,.commission-banner text { display:block; }.commission-banner small { color:#7a725e;font-size:12px; }.commission-banner strong { margin:5px 0;font-size:26px;color:#8c6b28; }.commission-banner text { color:#8c8370;font-size:12px; }.gold { color:#957027; }
-.modal-mask { position:fixed;inset:0;background:rgba(14,25,19,.46);z-index:30;display:grid;place-items:center; }.modal { width:440px;max-width:92vw;max-height:86vh;overflow-y:auto;background:#fff;border-radius:16px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.25); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px; }.modal-head h2 { font-size:19px; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:12px; }.field { display:block;margin-bottom:14px; }.field text { display:block;margin-bottom:6px;font-size:12px;font-weight:700; }.field>input { width:100%;height:40px;padding:0 11px;border:1px solid var(--admin-line);border-radius:5px;outline:0;background:#fff; }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
+.modal-mask { position:fixed;inset:0;background:rgba(14,25,19,.46);z-index:30;display:grid;place-items:center; }.modal,.catalog-product-modal { width:440px;max-width:92vw;max-height:86vh;overflow-y:auto;background:#fff;border-radius:var(--admin-radius-panel);padding:22px;box-shadow:0 18px 48px rgba(0,0,0,.22); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px; }.modal-head>view{min-width:0}.modal-head h2 { font-size:19px;overflow-wrap:anywhere; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.field { display:block;margin-bottom:14px;min-width:0; }.field text { display:block;margin-bottom:6px;font-size:12px;font-weight:700; }.field>input { width:100%;height:var(--admin-control-height);padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);outline:0;background:#fff; }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
 .location-info{display:flex;flex-direction:column;gap:6px;margin:-2px 0 14px;padding:10px;border:1px solid var(--admin-line);border-radius:6px;background:#f8f9f6;color:var(--admin-muted);font-size:12px;line-height:1.45}.location-info-head{display:flex;align-items:center;gap:8px;color:var(--admin-ink);font-weight:700}.location-info-head strong.resolved{color:var(--admin-green-2)}.location-info-head strong.failed{color:#a34339}.location-info-head .compact-button{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
 .drawer-mask{position:fixed;inset:0;background:rgba(14,25,19,.42);z-index:35;display:flex;justify-content:flex-end}.drawer{width:min(440px,100vw);max-width:100vw;height:100%;max-height:100dvh;padding:22px;background:#fff;box-shadow:-18px 0 48px rgba(12,31,21,.2);overflow-y:auto}.drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--admin-line)}.drawer-head small{display:block;color:var(--admin-muted);font-size:12px;margin-bottom:4px}.drawer-head h2{font-size:20px}.drawer-list{padding-top:18px}.todo-detail>button{width:100%;min-height:52px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;background:#f8f9f6;border-bottom:1px solid var(--admin-line);color:var(--admin-ink);text-align:left}.todo-detail>button:hover{background:var(--admin-green-soft)}.todo-detail b{color:var(--admin-green-2)}.export-history{margin-top:20px;padding:14px;background:#f7f4ea;border-radius:6px}.export-history strong,.export-history text{display:block}.export-history text{margin-top:8px;color:var(--admin-muted);font-size:12px}.detail-hero{display:flex;align-items:center;gap:12px;padding:14px;background:#f7f8f4;border-radius:7px}.detail-icon{width:46px;height:46px;border-radius:7px;background:var(--admin-green-soft);display:grid;place-items:center}.detail-hero h3,.drawer-list>h3{margin:0;font-size:17px}.detail-hero text,.drawer-muted{display:block;margin-top:5px;color:var(--admin-muted);font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.detail-grid view{padding:13px;background:#f8f9f6;border:1px solid #eceee8;border-radius:6px}.detail-grid small,.detail-grid strong{display:block}.detail-grid small{color:var(--admin-muted);font-size:12px}.detail-grid strong{margin-top:5px;font-size:14px}.tracking-number{margin:16px 0;padding:13px;border:1px dashed #c8d7cd;border-radius:6px}.tracking-number small,.tracking-number strong{display:block}.tracking-number small{color:var(--admin-muted);font-size:12px}.tracking-number strong{margin-top:5px;font-size:14px}.timeline-list>view{position:relative;display:grid;grid-template-columns:16px 1fr;gap:9px;padding-bottom:18px}.timeline-list>view>span{width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--admin-green-2);box-shadow:0 0 0 4px var(--admin-green-soft)}.timeline-list>view:not(:last-child)::after{content:"";position:absolute;left:4px;top:16px;bottom:2px;width:1px;background:#cbd8cf}.timeline-list strong,.timeline-list small,.timeline-list text{display:block}.timeline-list small,.timeline-list text{margin-top:4px;color:var(--admin-muted);font-size:12px}.history-row{padding:13px 0;border-bottom:1px solid #eceee8}.history-row strong,.history-row small{display:block}.history-row small{margin-top:5px;color:var(--admin-muted);font-size:12px}.history-items{margin-top:9px;display:grid;gap:6px}.history-items>view{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:12px;align-items:center;padding:8px 10px;border-radius:5px;background:#f7f8f4}.history-items span{font-size:12px;font-weight:700}.history-items small{margin:0;overflow-wrap:anywhere}.history-items b{color:var(--admin-green-2);font-size:12px}.farm-cover{width:100%;height:180px;border-radius:7px;margin-bottom:14px;cursor:zoom-in}
 @media(max-width:1180px){.commission-rule-grid{grid-template-columns:repeat(2,1fr)}.sidebar{width:184px}.main{width:calc(100% - 184px);margin-left:184px}.brand{padding:0 12px}.brand-title{font-size:13px}.nav-item{padding:0 9px;gap:8px}.content{padding:20px 18px 36px}.topbar{padding:0 18px}.search-box{width:210px}.kpi-grid{grid-template-columns:repeat(2,1fr)}.chart-grid,.lower-grid{grid-template-columns:1fr}.supplier-grid{min-width:760px}.product-grid,.order-grid,.after-grid,.farm-grid{min-width:860px}.promoter-grid{min-width:900px}}
@@ -2448,11 +2594,11 @@ h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .pa
 .page-time{display:block;margin-top:4px;font-size:12px;color:var(--muted,#6f786f)}
 .kpi-icon{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--soft,#eef2e9);font-size:16px;margin-bottom:8px}
 .period-button{min-height:32px;padding:0 10px;border:1px solid var(--line,#d9ddd6);border-radius:7px;background:#fff;color:var(--ink,#23291f);font-size:13px;cursor:pointer}.period-button.on{background:var(--green,#1d6b44);color:#fff;border-color:var(--green,#1d6b44)}
-.stat-strip{display:grid;gap:16px;margin-bottom:20px}.stat-strip.three{grid-template-columns:repeat(3,1fr)}.stat-strip.four{grid-template-columns:repeat(4,1fr)}.stat-strip>view{background:#fff;border:1px solid var(--line,#e5e1d6);border-radius:14px;padding:16px}.stat-strip small{display:block;font-size:12.5px;color:var(--muted,#6f786f)}.stat-strip strong{display:block;margin-top:6px;font-size:22px;font-weight:800}.stat-strip span{display:block;margin-top:6px;font-size:12px;color:var(--muted,#6f786f);line-height:1.4}.stat-strip .positive{color:var(--green,#1d6b44)}.stat-strip .pending-text{color:#a65735}
+.stat-strip{display:grid;gap:14px;margin-bottom:16px}.stat-strip.three{grid-template-columns:repeat(3,1fr)}.stat-strip.four{grid-template-columns:repeat(4,1fr)}.stat-strip>view{min-width:0;background:#fff;border:1px solid var(--line,#e5e1d6);border-radius:var(--admin-radius-panel);padding:14px 16px}.stat-strip small{display:block;font-size:12.5px;color:var(--muted,#6f786f)}.stat-strip strong{display:block;margin-top:5px;font-size:21px;font-weight:800;overflow-wrap:anywhere}.stat-strip span{display:block;margin-top:5px;font-size:12px;color:var(--muted,#6f786f);line-height:1.4;overflow-wrap:anywhere}.stat-strip .positive{color:var(--green,#1d6b44)}.stat-strip .pending-text{color:#a65735}
 .filter-chips{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}.filter-chips button{min-height:30px;padding:0 12px;border-radius:16px;border:1px solid var(--line,#d9ddd6);background:#fff;color:var(--ink,#23291f);font-size:13px;cursor:pointer}.filter-chips button.active{background:var(--green,#1d6b44);color:#fff;border-color:var(--green,#1d6b44)}
 .mini-button{min-height:24px;padding:0 8px;border-radius:5px;background:var(--green,#1d6b44);color:#fff;font-size:13px;border:none;cursor:pointer;margin-left:6px;vertical-align:2px}
-.fulfill-strip{display:flex;gap:0;margin-bottom:16px;background:#fff;border:1px solid var(--line,#e5e1d6);border-radius:14px;padding:14px 8px;overflow-x:auto}.fulfill-strip>view{flex:1;min-width:96px;text-align:center;position:relative;padding:2px 4px}.fulfill-strip>view:not(:last-child)::after{content:"→";position:absolute;right:-1px;top:12px;color:#cbd5e1;font-size:16px}.fulfill-strip b{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#d6d3c8;color:#fff;font-size:14px;font-weight:800;margin-bottom:6px}.fulfill-strip .done b{background:var(--green,#1d6b44)}.fulfill-strip .cur b{background:#c2a25a}.fulfill-strip small{display:block;font-size:12px;font-weight:700;color:var(--ink,#23291f)}.fulfill-strip strong{display:block;margin-top:4px;font-size:12px;font-weight:700;line-height:1.3}
-.settle-banner{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:stretch;margin-bottom:12px}.settle-banner>view{background:linear-gradient(135deg,#f7fbf5,#eef5e8);border:1px solid var(--line,#e5e1d6);border-radius:9px;padding:11px 13px}.settle-banner small{display:block;font-size:12px;color:var(--muted,#6f786f)}.settle-banner strong{display:block;margin-top:5px;font-size:18px;font-weight:800}.settle-banner span{display:block;margin-top:4px;font-size:12px;color:var(--muted,#6f786f)}.settle-banner .positive{color:var(--green,#1d6b44)}.settle-banner .button{min-height:40px;align-self:center;white-space:nowrap}
+.fulfill-strip{display:flex;gap:0;margin-bottom:16px;background:#fff;border:1px solid var(--line,#e5e1d6);border-radius:var(--admin-radius-panel);padding:12px 8px;overflow-x:auto}.fulfill-strip>view{flex:1;min-width:96px;text-align:center;position:relative;padding:2px 4px}.fulfill-strip>view:not(:last-child)::after{content:"→";position:absolute;right:-1px;top:12px;color:#cbd5e1;font-size:16px}.fulfill-strip b{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#d6d3c8;color:#fff;font-size:14px;font-weight:800;margin-bottom:6px}.fulfill-strip .done b{background:var(--green,#1d6b44)}.fulfill-strip .done b .ui-icon{filter:brightness(0) invert(1)}.fulfill-strip .cur b{background:#c2a25a}.fulfill-strip small{display:block;font-size:12px;font-weight:700;color:var(--ink,#23291f)}.fulfill-strip strong{display:block;margin-top:4px;font-size:12px;font-weight:700;line-height:1.3}
+.settle-banner{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:stretch;margin-bottom:12px}.settle-banner>view{min-width:0;background:#f4f8f3;border:1px solid var(--line,#e5e1d6);border-radius:var(--admin-radius-panel);padding:11px 13px}.settle-banner small{display:block;font-size:12px;color:var(--muted,#6f786f)}.settle-banner strong{display:block;margin-top:5px;font-size:18px;font-weight:800;overflow-wrap:anywhere}.settle-banner span{display:block;margin-top:4px;font-size:12px;color:var(--muted,#6f786f);overflow-wrap:anywhere}.settle-banner .positive{color:var(--green,#1d6b44)}.settle-banner .button{min-height:var(--admin-control-height);align-self:center;white-space:nowrap}
 .tier-grid{grid-template-columns:1.2fr 1fr 1fr 1.4fr 1fr}.tier-grid strong{font-weight:700}
 .status.delivered{background:#e8f2e4;color:var(--green,#1d6b44)}.status.pending{background:#fff3e0;color:#a65735}
 .promoter-grid>view strong{display:block}.promoter-grid>view small{display:block;margin-top:3px;color:var(--muted,#6f786f);font-size:12px}
@@ -2571,19 +2717,20 @@ button, uni-button { text-align: center; }
 .icon-button, .order-id uni-button { padding: 0; }
 /* ===== 登录页 ===== */
 .login-page{position:relative;isolation:isolate;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#173b2a url('/static/images/farmhouse.webp') center/cover no-repeat;padding:24px;overflow:hidden}
-.login-page::before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(8,35,24,.82),rgba(13,63,40,.58) 55%,rgba(8,35,24,.72));z-index:-1}
-.login-card{position:relative;width:min(380px,100%);background:rgba(255,255,255,.97);border:1px solid rgba(255,255,255,.8);border-radius:18px;padding:34px 30px 26px;box-shadow:0 24px 60px -24px rgba(0,0,0,.58)}
+.login-page::before{content:"";position:absolute;inset:0;background:rgba(8,35,24,.74);z-index:-1}
+.login-card{position:relative;width:min(380px,100%);background:rgba(255,255,255,.98);border:1px solid rgba(255,255,255,.8);border-radius:var(--admin-radius-panel);padding:32px 30px 26px;box-shadow:0 20px 48px -24px rgba(0,0,0,.58)}
 .login-brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}
-.login-brand .brand-mark{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#1d6b44,#2e8b57);display:grid;place-items:center;color:#fff}
+.login-brand .brand-mark{width:46px;height:46px;border-radius:var(--admin-radius-panel);background:#1d6b44;display:grid;place-items:center;color:#fff}
 .login-brand .brand-title{display:block;font-size:19px;font-weight:800;color:#123}
 .login-brand .brand-sub{display:block;font-size:12px;color:#8a9a90;margin-top:3px}
 .login-fields{display:flex;flex-direction:column;gap:14px;margin-bottom:20px}
 .login-field{display:flex;flex-direction:column;gap:6px}
 .login-field text{font-size:12px;color:#5a6a60;font-weight:700}
-.login-field input{height:46px;border:1px solid #dfe7e1;border-radius:10px;padding:0 14px;font-size:14px;background:#fafcfb}
-.login-button{min-height:46px;border-radius:11px;background:linear-gradient(135deg,#1d6b44,#2e8b57);color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.login-field input{height:46px;border:1px solid #dfe7e1;border-radius:var(--admin-radius-control);padding:0 14px;font-size:14px;background:#fafcfb}
+.login-button{min-height:46px;border-radius:var(--admin-radius-control);background:#1d6b44;color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center}
 .login-hint{display:block;text-align:center;margin-top:16px;font-size:12px;color:#8a9a90}
-.logout-button{min-height:26px;padding:0 10px;border-radius:6px;background:rgba(255,255,255,.14);color:#dcebe2;font-size:13px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+.logout-button{width:36px;height:36px;min-height:36px;padding:0;border-radius:6px;background:rgba(255,255,255,.14);color:#dcebe2;font-size:13px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;flex:none}
+.logout-button text{display:none}
 .logout-button .ui-icon{filter:brightness(0) invert(1)}
 
 
@@ -2601,10 +2748,10 @@ button, uni-button { text-align: center; }
 .flow-view{display:flex;flex-direction:column;gap:16px}
 .flow-view .settlement-history{margin:0}
 .commission-rule-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:16px}
-.commission-rule-card{border:1px solid var(--admin-line);border-radius:12px;padding:14px;background:#fff;display:flex;flex-direction:column;gap:8px;transition:border-color .16s ease,box-shadow .16s ease}
+.commission-rule-card{min-width:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px;background:#fff;display:flex;flex-direction:column;gap:8px;transition:border-color .16s ease,box-shadow .16s ease}
 .commission-rule-card:hover{border-color:#c8d8cb;box-shadow:0 4px 14px rgba(29,107,68,.08)}
 .rule-top{display:flex;align-items:center;justify-content:space-between}
-.rule-icon{width:34px;height:34px;border-radius:9px;background:var(--admin-green-soft);display:inline-grid;place-items:center;font-size:17px}
+.rule-icon{width:34px;height:34px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);display:inline-grid;place-items:center}
 .rule-name{font-size:14px}
 .rule-rate{font-size:26px;font-weight:800;color:var(--admin-green-2);line-height:1;margin-top:2px}
 .rule-rate small{font-size:13px;font-weight:700}
@@ -2732,4 +2879,76 @@ button, uni-button { text-align: center; }
 @media(max-width:1180px){.audit-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.work-modal-mask{left:184px}.operator>view:nth-child(2){min-width:0;flex:1}.operator>view:nth-child(2)>text,.operator>view:nth-child(2)>small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.operator .logout-button text{display:none}.operator .logout-button{width:32px;height:32px;min-height:32px;margin-left:0;padding:0;flex:none}}
 @media(max-width:768px){.report-filters{grid-template-columns:1fr}.audit-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.booking-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page{padding:18px 14px 96px}.work-page-head{flex-direction:column}.work-form-grid{grid-template-columns:1fr}.work-form-grid .full,.permission-section.full{grid-column:auto}.permission-grid,.permission-grid.actions{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page-actions{position:sticky;bottom:0;background:#fff;padding:12px 0 max(12px,env(safe-area-inset-bottom))}.supplier-grid{min-width:980px}.work-modal-mask{left:72px;top:96px;padding:12px}.work-modal-mask .modal:not(.catalog-product-modal){grid-template-columns:1fr}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:auto}}
 @media(max-width:420px){.report-filters{grid-template-columns:1fr}.report-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.report-summary>view:last-child{grid-column:1/-1}.booking-filters{grid-template-columns:1fr}.booking-table-scroll{margin:10px 8px}.permission-grid,.permission-grid.actions{grid-template-columns:1fr}.permission-group-head{align-items:flex-start}.work-page-head h1{font-size:20px}.work-modal-mask{left:56px;padding:8px}}
+.category-label{min-width:0;display:inline-flex;align-items:center;gap:6px}
+.category-label text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.category-thumb{width:32px;height:32px;flex:none;border:1px solid var(--admin-line);border-radius:5px;background:#f4f6f3}
+.category-thumb--small{width:22px;height:22px}
+
+/* ===== 后台桌面工作区视觉契约 ===== */
+.admin-workspace{min-width:0}
+.page-head>view:first-child,.panel-head>view,.module-search,.toolbar-actions{min-width:0}
+.page-head h1,.page-head p,.work-page-head h1,.work-page-head p{overflow-wrap:anywhere}
+.panel,.data-panel,.work-page,.policy-data-card,.commission-rule-card,.commission-rules,.settlement-history,.report-table-scroll,.booking-table-scroll,.dict-table{border-radius:var(--admin-radius-panel)}
+.button,.search-box,.icon-button,.field>input,.field textarea,.picker-field,.upload-button,.compact-button,.mini-button,.period-button{border-radius:var(--admin-radius-control)}
+.button{min-height:var(--admin-control-height)}
+.module-toolbar,.booking-filters,.report-filters,.audit-filters,.dict-toolbar{background:#fff;border-bottom:1px solid var(--admin-line)}
+.module-toolbar,.dict-toolbar{padding:12px 16px}
+.data-panel>.module-search,.data-panel>.goods-tools,.data-panel>.filter-chips{margin:0;padding:12px 16px;border-bottom:1px solid var(--admin-line);background:#fff}
+.data-panel>.filter-chips+.module-search{border-top:0}
+.table-row{min-height:var(--admin-row-height)}
+.table-head{min-height:42px}
+.table-row>text,.table-row>strong,.table-row>view{min-width:0}
+.table-row>text,.table-row>strong,.table-row>view,.empty-state,.loading{overflow-wrap:anywhere}
+.loading,.empty-state{width:100%;min-height:112px;padding:20px;display:grid;place-items:center;color:var(--admin-muted);text-align:center}
+.loading{min-height:320px;background:#fff;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel)}
+.state-panel{align-items:center;text-align:center;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:#fff}
+.kpi-icon .ui-icon,.rule-icon .ui-icon,.policy-group-head .ui-icon{opacity:.82}
+.modal-actions,.drawer-actions,.head-actions,.toolbar-actions{flex-wrap:wrap}
+.modal-actions .button,.drawer-actions .button{margin:0}
+.catalog-product-modal{width:min(960px,92vw)}
+.drawer{overflow-wrap:anywhere}
+
+.sidebar { width:var(--admin-sidebar-width); }
+.main { width:calc(100% - var(--admin-sidebar-width)); margin-left:var(--admin-sidebar-width); }
+.work-modal-mask { left:var(--admin-sidebar-width); }
+
+.modal,.catalog-product-modal { display:flex; flex-direction:column; overflow:hidden; padding:0; }
+.modal-head { min-height:68px; flex:none; margin:0; padding:16px 22px; border-bottom:1px solid var(--admin-line); }
+.modal-body { min-height:0; padding:16px 22px 4px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
+.modal-actions { flex:none; margin:0; padding:14px 22px 18px; border-top:1px solid var(--admin-line); background:#fff; }
+.catalog-product-body { padding-bottom:16px; }
+.work-modal-mask .modal:not(.catalog-product-modal) { display:flex; flex-direction:column; }
+.work-modal-mask .modal-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-content:start; gap:0 22px; width:100%; }
+.work-modal-mask .modal-body>.tier-editor { grid-column:1/-1; }
+
+.drawer { display:flex; flex-direction:column; overflow:hidden; }
+.drawer-head { flex:none; }
+.drawer-list { flex:1; min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
+.drawer-actions { position:sticky; bottom:0; z-index:2; padding:12px 0; background:#fff; }
+
+@media(max-width:1280px){
+  .admin-shell{--admin-sidebar-width:var(--admin-sidebar-compact-width)}
+  .content{padding:20px 18px 36px}
+}
+
+@media(max-width:768px){
+  .admin-shell{--admin-sidebar-width:72px}
+  .work-modal-mask .modal-body{grid-template-columns:1fr}
+  .work-modal-mask .modal-body>.tier-editor{grid-column:auto}
+}
+
+@media(max-width:420px){.admin-shell{--admin-sidebar-width:56px}}
+
+/* 主要保存、确认操作保留完整触控高度，表格行内按钮继续使用紧凑尺寸。 */
+.modal-actions .button.primary,
+.drawer-actions .button.primary,
+.work-page-actions .button.primary,
+.state-panel .button.primary,
+.button.wide {
+  min-height: 44px;
+}
+
+@media(max-width:420px){
+  .button{min-height:var(--admin-control-height)}
+}
 </style>

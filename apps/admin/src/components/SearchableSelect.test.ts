@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import type { MediaReference } from '@agritainment/shared'
 import { createSearchableSelectId, filterSelectOptions, findNextEnabledOption } from './searchable-select'
 import type { SearchableSelectOption } from './searchable-select'
 
@@ -37,7 +38,6 @@ const expectedBindings = [
   'farmStatusFilter -> farmStatusFilterOptions',
   'farmAccountFilter -> farmAccountSelectOptions',
   'promoterTypeFilter -> promoterTypeOptions',
-  'commissionTab -> commissionTabOptions',
   'commissionStatusFilter -> commissionStatusOptions',
   'withdrawalStatusFilter -> withdrawalStatusOptions',
   'logActor -> logActorOptions',
@@ -110,6 +110,24 @@ describe('searchable select helpers', () => {
     ])
     const componentSource = readFileSync(new URL('./SearchableSelect.vue', import.meta.url), 'utf8')
     expect(componentSource).toContain("emit('update:modelValue', option.value)")
+  })
+
+  it('supports media references and renders images before fallback icons', () => {
+    const image: MediaReference = { source: 'asset', assetId: 'CATEGORY-IMAGE' }
+    const mediaOption: SearchableSelectOption = { label: '土特产', value: 'local', image, icon: 'tags' }
+    expect(mediaOption.image).toEqual(image)
+
+    const componentSource = readFileSync(new URL('./SearchableSelect.vue', import.meta.url), 'utf8')
+    expect(componentSource).toContain("import { BusinessImage } from '@agritainment/ui'")
+    expect(componentSource).toContain('<BusinessImage v-if="selectedOption?.image"')
+    expect(componentSource).toContain(':fallback="selectedOption.imageFallback"')
+    expect(componentSource).toContain(':error-fallback="selectedOption.imageErrorFallback"')
+    expect(componentSource).toContain(':show-error="false"')
+    expect(componentSource).toContain('<UiIcon v-else-if="selectedOption?.icon"')
+    expect(componentSource).toContain('<BusinessImage v-if="option.image"')
+    expect(mediaOption).not.toHaveProperty('imageFallback')
+    expect(mediaOption).not.toHaveProperty('imageErrorFallback')
+    expect(componentSource).toContain('<UiIcon v-else-if="option.icon"')
   })
 
   it('keeps all admin model and option bindings on the shared component', () => {

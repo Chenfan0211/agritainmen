@@ -19,11 +19,6 @@ const portals = [
     keys: ['PLATFORM_STORE_ACCOUNTS_STORAGE_KEY', 'PLATFORM_ENTITIES_STORAGE_KEY', 'PLATFORM_BOOKINGS_STORAGE_KEY']
   },
   {
-    name: '联盟端',
-    path: 'apps/alliance/src/pages/index/index.vue',
-    keys: ['PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY', 'PLATFORM_ENTITIES_STORAGE_KEY', 'PLATFORM_WITHDRAWALS_STORAGE_KEY']
-  },
-  {
     name: '推客端',
     path: 'apps/promoter/src/pages/index/index.vue',
     keys: ['PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY', 'PLATFORM_ENTITIES_STORAGE_KEY', 'PLATFORM_LIVES_STORAGE_KEY']

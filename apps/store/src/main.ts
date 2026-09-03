@@ -1,13 +1,14 @@
 import { createSSRApp } from 'vue'
 import { createPinia } from 'pinia'
-import { initializePlatformRecoveryHandlers, migratePersistedState, persistedEnvelope, reconcilePendingPlatformTransactions } from '@agritainment/shared'
+import { initializePlatformRecoveryHandlers, migratePersistedState, persistedEnvelope, purgeRetiredAllianceData, reconcilePendingPlatformTransactions } from '@agritainment/shared'
 import './media-runtime'
 import App from './App.vue'
 import { createStoreAtomicRecoveryHandlerRegistrations } from './stores/store'
 
-const persistedKeys = ['info', 'products', 'cart', 'orders', 'overrides', 'auth'] as const
+const persistedKeys = ['info', 'products', 'cart', 'orders', 'auth'] as const
 
 export function createApp() {
+  purgeRetiredAllianceData()
   const recoveryHandlers = createStoreAtomicRecoveryHandlerRegistrations()
   initializePlatformRecoveryHandlers(recoveryHandlers)
   recoveryHandlers.forEach(({ key }) => reconcilePendingPlatformTransactions({ handlerKey: key }))

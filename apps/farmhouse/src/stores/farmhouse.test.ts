@@ -77,7 +77,7 @@ describe('farmhouse store interactions', () => {
   it('renders MOQ states and blocks unavailable storefront checkout in the farmhouse page', () => {
     const source = readFileSync(resolve(import.meta.dirname, '../pages/index/index.vue'), 'utf8')
     expect(source).toContain('minimumOrderQuantity(')
-    expect(source).toContain('库存不足起订量')
+    expect(source).toContain('库存不足或购买数量未达要求')
     expect(source).toContain(':disabled="!canStartOrder(selectedSku)"')
     expect(source).toContain(':class="{ shortage: item.unavailable }"')
     expect(source).toContain(':disabled="store.cartHasUnavailable"')
@@ -88,11 +88,14 @@ describe('farmhouse store interactions', () => {
     const directPurchase = source.indexOf("const explicitQuantity = typeof query.qty")
     const explicitValidation = source.indexOf('validateCatalogSkuOrderQuantity(sku, explicitQuantity)', directPurchase)
     const addToCart = source.indexOf('store.addToCart(directProduct, sku.id)', directPurchase)
+    const initialQuantity = source.indexOf('const initialQuantity = initialCatalogOrderQuantity(minimumOrderQuantity(sku))', addToCart)
     const changeCart = source.indexOf('store.changeCart(directProduct.id, sku.id', directPurchase)
 
     expect(directPurchase).toBeGreaterThan(-1)
     expect(explicitValidation).toBeGreaterThan(directPurchase)
     expect(explicitValidation).toBeLessThan(addToCart)
+    expect(initialQuantity).toBeGreaterThan(addToCart)
+    expect(initialQuantity).toBeLessThan(changeCart)
     expect(explicitValidation).toBeLessThan(changeCart)
     expect(source.slice(explicitValidation, addToCart)).toContain("validation.code === 'below_minimum_order_quantity'")
     expect(source.slice(explicitValidation, addToCart)).toContain('return')
@@ -212,6 +215,17 @@ describe('farmhouse store interactions', () => {
     expect(store.orders[0].items[0]).toMatchObject({ quantity: 3, minimumOrderQuantity: 3 })
   })
 
+  it('starts a zero-MOQ farmhouse cart line at one item', async () => {
+    const product = catalogProduct({ id: 'MOQ-ZERO', name: '无起订商品', skus: [{ id: 'MOQ-ZERO-SKU', name: '散装', image: '/static/images/rice.webp', retailPrice: 100, cost: 60, stock: 8, level1Amount: 10, level2Amount: 15, minimumOrderQuantity: 0 }] })
+    seedCatalog([product], 1)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: product.id, listed: true, retailPrice: 100 })).toBe(true)
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+
+    expect(store.addToCart(store.products[0], product.skus[0].id)).toBe('added')
+    expect(store.cart[0]).toMatchObject({ quantity: 1, minimumOrderQuantity: 0, unavailable: false })
+  })
+
   it('keeps a below-MOQ cart line and rejects checkout after catalog MOQ rises', async () => {
     const product = catalogProduct({ id: 'MOQ-RAISED', name: '提量商品', skus: [{ id: 'MOQ-RAISED-SKU', name: '整箱', image: '/static/images/rice.webp', retailPrice: 100, cost: 60, stock: 8, level1Amount: 10, level2Amount: 15, minimumOrderQuantity: 2 }] })
     seedCatalog([product], 1)
@@ -227,7 +241,7 @@ describe('farmhouse store interactions', () => {
 
     expect(await store.checkout()).toBe(false)
     expect(store.cart[0]).toMatchObject({ quantity: 2, minimumOrderQuantity: 4, unavailable: true })
-    expect(store.checkoutError).toContain('起订 4 件')
+    expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
   })
 
   it('rejects first add when stock is below the SKU MOQ', async () => {
@@ -239,7 +253,7 @@ describe('farmhouse store interactions', () => {
 
     expect(store.addToCart(store.products[0], product.skus[0].id)).toBe('out-of-stock')
     expect(store.cart).toHaveLength(0)
-    expect(store.checkoutError).toContain('库存不足起订量')
+    expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
   })
 
   it('stores order items and supports repurchase', async () => {
@@ -295,7 +309,7 @@ describe('farmhouse store interactions', () => {
 
   it('writes the confirmed amount to the shared booking', () => {
     const store = useFarmhouseStore()
-    expect(writePlatformBooking({ id: 'B-SHARED', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'alliance', date: '明天', session: '晚市', people: 4, status: 'submitted', createdAt: '2026-08-25T10:00:00.000Z' })).toBe(true)
+    expect(writePlatformBooking({ id: 'B-SHARED', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'farmhouse', date: '明天', session: '晚市', people: 4, status: 'submitted', createdAt: '2026-08-25T10:00:00.000Z' })).toBe(true)
     store.bookings = [{ id: 'B-SHARED', type: 'room', name: '观溪雅间', date: '明天', session: '晚市', people: 4, status: 'reserved' }]
 
     expect(store.verifyBooking('B-SHARED', 488)).toBe(true)
@@ -317,7 +331,7 @@ describe('farmhouse store interactions', () => {
 
   it('allows a confirmed shared booking to be verified locally', () => {
     const store = useFarmhouseStore()
-    expect(writePlatformBooking({ id: 'B-CONFIRMED-VERIFY', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'alliance', date: '明天', session: '晚市', people: 4, status: 'confirmed', createdAt: '2026-08-25T10:00:00.000Z' })).toBe(true)
+    expect(writePlatformBooking({ id: 'B-CONFIRMED-VERIFY', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'farmhouse', date: '明天', session: '晚市', people: 4, status: 'confirmed', createdAt: '2026-08-25T10:00:00.000Z' })).toBe(true)
     store.bookings = [{ id: 'B-CONFIRMED-VERIFY', type: 'room', name: '观溪雅间', date: '明天', session: '晚市', people: 4, status: 'confirmed' }]
 
     expect(store.verifyBooking('B-CONFIRMED-VERIFY', 588)).toBe(true)
@@ -327,7 +341,7 @@ describe('farmhouse store interactions', () => {
 
   it('allows a confirmed shared booking to be cancelled locally', () => {
     const store = useFarmhouseStore()
-    expect(writePlatformBooking({ id: 'B-CONFIRMED-CANCEL', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'alliance', date: '明天', session: '午市', people: 2, status: 'confirmed', createdAt: '2026-08-25T10:00:00.000Z' })).toBe(true)
+    expect(writePlatformBooking({ id: 'B-CONFIRMED-CANCEL', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'farmhouse', date: '明天', session: '午市', people: 2, status: 'confirmed', createdAt: '2026-08-25T10:00:00.000Z' })).toBe(true)
     store.bookings = [{ id: 'B-CONFIRMED-CANCEL', type: 'room', name: '观溪雅间', date: '明天', session: '午市', people: 2, status: 'confirmed' }]
 
     expect(store.cancelBooking('B-CONFIRMED-CANCEL')).toBe(true)
@@ -337,7 +351,7 @@ describe('farmhouse store interactions', () => {
 
   it('refreshes existing shared bookings through confirmed completed and cancelled states without crossing tenants', async () => {
     const store = useFarmhouseStore()
-    const base = { id: 'B-ADMIN-SYNC', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'alliance' as const, date: '2026-09-01', session: '午市', people: 4, createdAt: '2026-08-30T01:00:00.000Z' }
+    const base = { id: 'B-ADMIN-SYNC', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'farmhouse' as const, date: '2026-09-01', session: '午市', people: 4, createdAt: '2026-08-30T01:00:00.000Z' }
     expect(writePlatformBooking({ ...base, status: 'submitted' })).toBe(true)
     expect(writePlatformBooking({ ...base, id: 'B-OTHER-FARM', farmId: 'F002', farmName: '云上人家', status: 'confirmed' })).toBe(true)
     await store.initialize(false, 'F001')
@@ -664,6 +678,18 @@ describe('unified farmhouse catalog', () => {
   beforeEach(() => {
     localStorage.clear()
     setActivePinia(createPinia())
+  })
+
+  it('initializes assigned catalog products when the current farmhouse has no selections', async () => {
+    seedCatalog([catalogProduct({ id: 'CAT-DEFAULT', name: '默认上架商品', farmIds: ['F001'] })])
+    const store = useFarmhouseStore()
+
+    await store.initialize(false, 'F001')
+
+    expect(store.products).toEqual([expect.objectContaining({ id: 'CAT-DEFAULT', price: 100 })])
+    expect(readStoreCatalogSelections('F001')).toEqual([
+      expect.objectContaining({ storeId: 'F001', productId: 'CAT-DEFAULT', listed: true, skuRetailPrices: { 'CAT-DEFAULT-SKU': 100 } })
+    ])
   })
 
   it('loads only store-channel products into the selection pool and only listed products into the storefront', async () => {

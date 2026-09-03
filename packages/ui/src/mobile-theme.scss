@@ -1,0 +1,323 @@
+:root {
+  --mobile-brand: #17633f;
+  --mobile-brand-deep: #0f4a31;
+  --mobile-brand-soft: #e7f2eb;
+  --mobile-bg: #f4f7f5;
+  --mobile-surface: #ffffff;
+  --mobile-surface-subtle: #eef3ef;
+  --mobile-text: #18231d;
+  --mobile-muted: #66736b;
+  --mobile-border: #dde5df;
+  --mobile-price: #bd463a;
+  --mobile-warning: #a96f18;
+  --mobile-info: #2f6ea7;
+  --mobile-danger: #b83532;
+  --mobile-radius-control: 8px;
+  --mobile-radius-card: 8px;
+  --mobile-shadow-card: 0 1px 2px rgba(19, 43, 29, .04);
+  --mobile-shadow-float: 0 12px 30px rgba(19, 43, 29, .14);
+  --mobile-control-compact: 40px;
+  --mobile-control-primary: 44px;
+  --mobile-touch-target: var(--mobile-control-primary);
+  --mobile-tab-height: 64px;
+  --mobile-page-inline: 16px;
+  --mobile-section-gap: 12px;
+  --mobile-card-gap: 8px;
+  --mobile-card-padding: 14px;
+  --mobile-action-bar-height: 72px;
+  --mobile-sheet-header-height: 56px;
+  --mobile-sheet-max-height: 88dvh;
+  --mobile-bottom-safe: env(safe-area-inset-bottom);
+}
+
+page,
+body,
+#app {
+  background: var(--mobile-bg);
+  color: var(--mobile-text);
+  letter-spacing: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  letter-spacing: 0;
+}
+
+button,
+uni-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+button:not(:disabled):active {
+  transform: scale(.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ===== 个人中心共享布局契约 (pc-) ===== */
+.pc-page {
+  padding: 12px var(--mobile-page-inline) 0;
+  display: grid;
+  gap: var(--mobile-section-gap);
+}
+
+.pc-hero {
+  overflow: hidden;
+  padding: var(--mobile-card-padding);
+  border-radius: var(--mobile-radius-card);
+  background: linear-gradient(135deg, var(--mobile-brand), var(--mobile-brand-deep));
+  color: #fff;
+  box-shadow: none;
+}
+
+.pc-hero-badge {
+  width: fit-content;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .14);
+  font-size: 12px;
+}
+
+.pc-hero-name { margin-top: 10px; font-size: 19px; font-weight: 800; overflow-wrap: anywhere; }
+.pc-hero-uid { margin-top: 4px; font-size: 12px; opacity: .76; overflow-wrap: anywhere; }
+
+.pc-hero-data {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pc-hero-data small,
+.pc-hero-data strong { display: block; overflow-wrap: anywhere; }
+.pc-hero-data small { font-size: 12px; opacity: .72; }
+.pc-hero-data strong { margin-top: 4px; font-size: 20px; }
+
+.pc-hero-action {
+  width: 100%;
+  min-height: var(--mobile-control-primary);
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--mobile-radius-control);
+  background: #fff;
+  color: var(--mobile-brand-deep);
+  font-weight: 800;
+}
+
+.pc-section { display: grid; gap: 6px; }
+
+.pc-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--mobile-text);
+}
+
+.pc-bar { width: 3px; height: 14px; flex: none; border-radius: 2px; background: var(--mobile-brand); }
+
+.pc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mobile-card-gap);
+}
+
+.pc-grid-item {
+  min-height: 64px;
+  min-width: 0;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+  box-shadow: var(--mobile-shadow-card);
+  text-align: left;
+}
+
+.pc-grid-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--mobile-brand-soft);
+  color: var(--mobile-brand);
+}
+
+.pc-grid-main { min-width: 0; flex: 1; }
+.pc-grid-main text,
+.pc-grid-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-grid-main text { font-size: 13px; font-weight: 800; color: var(--mobile-text); }
+.pc-grid-main small { margin-top: 2px; font-size: 12px; color: var(--mobile-muted); }
+.pc-grid-count { flex: none; font-size: 12px; color: var(--mobile-price); font-weight: 800; }
+
+.pc-list { display: grid; gap: var(--mobile-card-gap); }
+
+.pc-row {
+  min-height: var(--mobile-control-compact);
+  min-width: 0;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+  box-shadow: var(--mobile-shadow-card);
+  text-align: left;
+}
+
+.pc-row-icon { width: 28px; height: 28px; flex: none; display: grid; place-items: center; color: var(--mobile-brand); }
+.pc-row-main { min-width: 0; flex: 1; }
+.pc-row-main text,
+.pc-row-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-row-main text { font-size: 13px; font-weight: 800; color: var(--mobile-text); }
+.pc-row-main small { margin-top: 2px; font-size: 12px; color: var(--mobile-muted); }
+.pc-row-arrow { flex: none; color: var(--mobile-muted); }
+
+.pc-card {
+  padding: var(--mobile-card-padding);
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+  box-shadow: var(--mobile-shadow-card);
+}
+
+.pc-seg {
+  padding: 3px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  border-radius: var(--mobile-radius-control);
+  background: var(--mobile-surface-subtle);
+}
+
+.pc-seg button {
+  min-height: var(--mobile-control-compact);
+  padding-inline: 6px;
+  border-radius: 6px;
+  color: var(--mobile-muted);
+  font-weight: 700;
+}
+
+.pc-seg button.active {
+  background: var(--mobile-surface);
+  color: var(--mobile-brand);
+  font-weight: 800;
+  box-shadow: 0 1px 2px rgba(19, 43, 29, .06);
+}
+
+.pc-help { color: var(--mobile-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.pc-footer { padding: 6px 8px 0; color: var(--mobile-muted); font-size: 12px; line-height: 1.5; text-align: center; }
+/* ===== 登录/空态/卡片质感 (pc-login|pc-state|pc-accent) ===== */
+.pc-login-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 30px 18px 40px;
+  border-radius: var(--mobile-radius-card);
+  background: linear-gradient(135deg, var(--mobile-brand), var(--mobile-brand-deep));
+  color: #fff;
+  text-align: center;
+}
+.pc-login-hero .pc-login-mark {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 10px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .28);
+}
+.pc-login-hero .pc-login-brand { display: block; font-size: 20px; font-weight: 800; letter-spacing: 0; }
+.pc-login-hero .pc-login-sub { display: block; margin-top: 6px; font-size: 13px; opacity: .85; }
+.pc-login-card {
+  position: relative;
+  margin-top: -14px;
+  padding: 18px 16px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+  box-shadow: var(--mobile-shadow-float);
+}
+
+.pc-empty,
+.pc-loading,
+.pc-error {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 28px 16px;
+  text-align: center;
+}
+.pc-empty .pc-state-icon,
+.pc-loading .pc-state-icon,
+.pc-error .pc-state-icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--mobile-brand-soft);
+  color: var(--mobile-brand);
+}
+.pc-empty text,
+.pc-loading text,
+.pc-error text { font-size: 14px; font-weight: 800; color: var(--mobile-text); }
+.pc-empty small,
+.pc-loading small,
+.pc-error small { font-size: 12px; color: var(--mobile-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.pc-empty .pc-state-action,
+.pc-loading .pc-state-action,
+.pc-error .pc-state-action {
+  min-height: var(--mobile-control-primary);
+  margin-top: 8px;
+  padding: 0 16px;
+  border-radius: var(--mobile-radius-control);
+  background: var(--mobile-brand);
+  color: #fff;
+  font-weight: 800;
+}
+
+.pc-card-accent { border-top: 2px solid var(--mobile-brand); }
+/* ===== 宽屏桌面预览框架（仅 >430px 生效，不改移动端） ===== */
+@media (min-width: 431px) {
+  page,
+  body,
+  #app {
+    background:
+      radial-gradient(1000px 620px at 50% -8%, rgba(23, 99, 63, .10), transparent 62%),
+      radial-gradient(1000px 620px at 50% 108%, rgba(23, 99, 63, .08), transparent 62%),
+      linear-gradient(180deg, #eef3ef, #f4f7f5 45%, #e7efea);
+  }
+
+  .app-shell {
+    box-shadow: 0 32px 90px rgba(19, 43, 29, .12);
+    border-inline: 1px solid rgba(19, 43, 29, .05);
+  }
+}

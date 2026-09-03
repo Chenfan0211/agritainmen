@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { extname, relative, resolve } from 'node:path'
+import { createTencentMapGatewayHandler } from '../packages/tencent-map-gateway/src/index.mjs'
 
 const portArgumentIndex = process.argv.findIndex((argument) => argument === '--port')
 const inlinePort = process.argv.find((argument) => argument.startsWith('--port='))?.slice('--port='.length)
@@ -9,7 +10,6 @@ const apps = {
   '/dashboard/': 'apps/dashboard/dist/single-origin/dashboard',
   '/admin/': 'apps/admin/dist/single-origin/admin',
   '/farmhouse/': 'apps/farmhouse/dist/single-origin/farmhouse',
-  '/alliance/': 'apps/alliance/dist/single-origin/alliance',
   '/store/': 'apps/store/dist/single-origin/store',
   '/promoter/': 'apps/promoter/dist/single-origin/promoter',
   '/user/': 'apps/user/dist/single-origin/user',
@@ -21,6 +21,7 @@ const mime = {
   '.gif': 'image/gif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
   '.otf': 'font/otf', '.wasm': 'application/wasm', '.map': 'application/json', '.webmanifest': 'application/manifest+json'
 }
+const tencentMapGateway = createTencentMapGatewayHandler()
 
 function isWithin(root, candidate) {
   const path = relative(root, candidate)
@@ -40,6 +41,10 @@ function streamFile(filePath, response) {
 }
 
 const server = createServer((request, response) => {
+  if ((request.url || '').startsWith('/api/tencent-map/')) {
+    void tencentMapGateway(request, response)
+    return
+  }
   let url
   try {
     url = decodeURIComponent((request.url || '/').split('?')[0])
@@ -50,8 +55,20 @@ const server = createServer((request, response) => {
   }
   if (url === '/') {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    const links = Object.keys(apps).map((p) => `<a style="display:block;margin:8px 0;font-size:18px" href="${p}">${p}</a>`).join('')
-    response.end(`<h2>农旅数字供应链演示（同源 8780 · 数据互通）</h2>${links}`)
+    const meta = {
+      '/dashboard/': ['产业驾驶舱', '监管监测 · 产业赋能', '#25332d'],
+      '/admin/': ['管理后台', '供应链运营管理', '#17633f'],
+      '/farmhouse/': ['农家乐门店端', '门店 · 预订 · 商城 · 会员', '#1f6b47'],
+      '/store/': ['门店订货商城', '供货价直采 · 中台直配', '#20714a'],
+      '/promoter/': ['推客分销端', '直播 · 分享 · 分成', '#1e6952'],
+      '/user/': ['用户商城', '购物 · 售后 · 分销', '#1d6b4e'],
+      '/supplier/': ['供应商配送', '订单 · 线路 · 交接 · 结算', '#17633f']
+    }
+    const cards = Object.keys(apps).map((p) => {
+      const [name, desc, accent] = meta[p] || [p, '演示入口', '#17633f']
+      return `<a href="${p}" style="display:block;text-decoration:none;color:#18231d;background:#fff;border:1px solid #dde5df;border-radius:8px;padding:16px 18px;box-shadow:0 1px 2px rgba(19,43,29,.04)"><span style="display:block;font-size:16px;font-weight:800;color:${accent}">${name}</span><span style="display:block;margin-top:4px;font-size:12px;color:#66736b">${desc}</span><span style="display:block;margin-top:10px;font-size:12px;color:#17633f;font-weight:700">${p}</span></a>`
+    }).join('')
+    response.end('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>农旅数字供应链演示</title></head><body style="margin:0;background:#f4f7f5;color:#18231d;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"><div style="max-width:960px;margin:0 auto;padding:48px 24px 64px"><p style="margin:0;font-size:13px;color:#17633f;font-weight:800;letter-spacing:.08em">AGRITAINMENT · DEMO HUB</p><h1 style="margin:10px 0 6px;font-size:26px;font-weight:800;color:#0f4a31">农旅数字供应链演示</h1><p style="margin:0 0 28px;font-size:14px;color:#66736b">同源 8780 · 数据互通 · 选择入口</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">' + cards + '</div><p style="margin-top:32px;font-size:12px;color:#98a49c">湖南省电子商务协会 · 中选科技供应链中台</p></div></body></html>')
     return
   }
   if (url === '/favicon.ico') { response.writeHead(204); response.end(); return }

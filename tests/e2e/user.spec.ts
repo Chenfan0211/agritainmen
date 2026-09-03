@@ -24,6 +24,26 @@ async function login(page: Page) {
   await expect(page.locator('.c-mall')).toBeVisible()
 }
 
+async function openHome(page: Page) {
+  await page.locator('.tab-item').filter({ hasText: /^首页$/ }).click()
+}
+
+async function openOrders(page: Page) {
+  await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
+  await page.locator('.order-entry').click()
+  await expect(page.locator('.orders-page')).toBeVisible()
+}
+
+async function openCart(page: Page) {
+  await page.locator('.tab-item').filter({ hasText: '购物车' }).click()
+  await expect(page.locator('.cart-page-content')).toBeVisible()
+}
+
+async function openCategory(page: Page) {
+  await page.locator('.tab-item').filter({ hasText: /^分类$/ }).click()
+  await expect(page.locator('.category-page')).toBeVisible()
+}
+
 async function syncSupplierShipping(page: Page, subIndex: number) {
   const supplierStatePage = await page.context().newPage()
   await supplierStatePage.goto(userUrl)
@@ -43,7 +63,7 @@ async function syncSupplierShipping(page: Page, subIndex: number) {
     localStorage.setItem('agritainment-platform-orders', JSON.stringify(platformOrders))
   }, subIndex)
   await supplierStatePage.close()
-  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await openOrders(page)
 }
 
 test('user C mall covers pricing, checkout, fulfillment, commission and live entry', async ({ page }) => {
@@ -60,14 +80,14 @@ test('user C mall covers pricing, checkout, fulfillment, commission and live ent
   await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
   await expect(page.locator('.switch-option')).toHaveCount(0)
   await expect(page.locator('.profile-role')).toContainText('普通用户')
-  await page.locator('.tab-item').filter({ hasText: /^商城$/ }).click()
+  await openHome(page)
   await expect(page.locator('.product-card').first().locator('.product-price')).toContainText('45.00')
-  await page.locator('.product-card').nth(1).click()
+  await page.locator('.product-card').filter({ hasText: '炎陵黄桃鲜果礼盒' }).first().click()
   await expect(page.locator('.detail-price')).toContainText('52.00')
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
-  await expect(page.locator('.cart-bar')).toContainText('2')
-  await page.locator('.cart-bar').click()
-  await page.locator('.primary-btn').filter({ hasText: '去结算' }).click()
+  await expect(page.locator('.tab-icon-wrap small')).toContainText('2')
+  await openCart(page)
+  await page.locator('.cart-checkout').getByText('去结算', { exact: true }).click()
   await page.locator('.address-select').click()
   await page.locator('.primary-btn').filter({ hasText: '新增地址' }).click()
   const addressInputs = page.locator('.address-form input')
@@ -114,13 +134,13 @@ test('user C mall covers pricing, checkout, fulfillment, commission and live ent
   expect(level2Commissions).toHaveLength(2)
   expect(level2Commissions.reduce((sum, item) => sum + item.amount, 0)).toBe(27)
   expect(level2Commissions.every((item) => item.status === 'available')).toBe(true)
-  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await openOrders(page)
   await receivedOrder.locator('.sub-order').nth(0).locator('.outline-small').filter({ hasText: '申请售后' }).click()
   await page.locator('.primary-btn').filter({ hasText: '提交售后申请' }).click()
   await expect(receivedOrder).toContainText('部分售后')
   await page.reload()
   await expect(page.locator('.c-mall')).toBeVisible()
-  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await openOrders(page)
   await expect(page.locator('.order-card').first()).toContainText('部分售后')
   await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
   await page.evaluate(() => {
@@ -156,6 +176,7 @@ test('user C mall filters catalog and manages addresses', async ({ page }) => {
   await expect(page.locator('.product-card')).toHaveCount(1)
   await expect(page.locator('.product-name')).toContainText('黄桃')
   await page.locator('.search-input input').fill('')
+  await openCategory(page)
   await page.locator('.category-item').filter({ hasText: '生鲜水果' }).click()
   await expect(page.locator('.product-card')).toHaveCount(1)
 
@@ -183,11 +204,11 @@ test('user C mall filters catalog and manages addresses', async ({ page }) => {
   await expect(page.locator('.address-content')).toBeVisible()
   await page.locator('.sheet-head uni-button').click()
 
-  await page.locator('.tab-item').filter({ hasText: /^商城$/ }).click()
+  await openHome(page)
   await page.locator('.product-card').first().click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
-  await page.locator('.cart-bar').click()
-  await page.locator('.primary-btn').filter({ hasText: '去结算' }).click()
+  await openCart(page)
+  await page.locator('.cart-checkout').getByText('去结算', { exact: true }).click()
   await page.locator('.address-select').click()
   await page.locator('.address-row').filter({ hasText: '王女士' }).click()
   await expect(page.locator('.checkout-content')).toContainText('王女士')
@@ -207,7 +228,7 @@ test('authorized identity ignores URL userId and isolates carts by openid', asyn
   await login(page)
   await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
   await expect(page.locator('.profile-id')).not.toContainText('U-MALICIOUS')
-  await page.locator('.tab-item').filter({ hasText: /^商城$/ }).click()
+  await openHome(page)
   await page.locator('.product-card').first().click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
   await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
@@ -217,13 +238,13 @@ test('authorized identity ignores URL userId and isolates carts by openid', asyn
   await page.evaluate(() => localStorage.setItem('agritainment-mock-openid', 'openid-e2e-b'))
   await page.reload()
   await login(page)
-  await expect(page.locator('.cart-bar')).toHaveCount(0)
+  await expect(page.locator('.tab-icon-wrap small')).toHaveCount(0)
   await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
   await page.locator('.settings-list > uni-view').last().click()
   await page.evaluate(() => localStorage.setItem('agritainment-mock-openid', 'openid-e2e-a'))
   await page.reload()
   await login(page)
-  await expect(page.locator('.cart-bar')).toContainText('1')
+  await expect(page.locator('.tab-icon-wrap small')).toContainText('1')
   await assertNoHorizontalOverflow(page)
   monitor.assertClean()
   monitor.dispose()
@@ -236,12 +257,12 @@ test('paid and shipped sub-order after-sale apply different inventory rules', as
   await page.reload()
   await login(page)
 
-  await page.locator('.product-card').nth(0).click()
+  await page.locator('.product-card').filter({ hasText: '湘西烟熏柴火腊肉' }).first().click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
-  await page.locator('.product-card').nth(1).click()
+  await page.locator('.product-card').filter({ hasText: '炎陵黄桃鲜果礼盒' }).first().click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
-  await page.locator('.cart-bar').click()
-  await page.locator('.primary-btn').filter({ hasText: '去结算' }).click()
+  await openCart(page)
+  await page.locator('.cart-checkout').getByText('去结算', { exact: true }).click()
   await page.locator('.address-select').click()
   await page.locator('.primary-btn').filter({ hasText: '新增地址' }).click()
   const inputs = page.locator('.address-form input')
@@ -326,13 +347,13 @@ test('homepage live room purchases a package and shows seeded demo orders', asyn
   })).toBe(true)
   await page.locator('.live-room [aria-label="关闭直播间"]').click()
 
-  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await openOrders(page)
   await expect(page.locator('.order-card').first()).toContainText('DEMO-ORD')
   await expect(page.locator('.demo-badge')).toHaveCount(4)
   await expect(page.locator('.voucher-card')).toBeVisible()
 })
 
-test('H5 keeps fixed controls inside the 375px phone frame', async ({ page }) => {
+test('H5 keeps fixed controls inside the responsive phone frame', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(userUrl)
   await page.evaluate(() => localStorage.clear())
@@ -341,24 +362,30 @@ test('H5 keeps fixed controls inside the 375px phone frame', async ({ page }) =>
 
   const shell = await page.locator('.app-shell').boundingBox()
   const tabs = await page.locator('.bottom-tabs').boundingBox()
-  expect(shell?.width).toBe(375)
-  expect(shell?.x).toBeCloseTo((1280 - 375) / 2, 0)
-  expect(tabs?.width).toBe(375)
+  expect(shell?.width).toBe(430)
+  expect(shell?.x).toBeCloseTo((1280 - 430) / 2, 0)
+  expect(tabs?.width).toBe(430)
   expect(tabs?.x).toBeCloseTo(shell!.x, 0)
 
   await page.locator('.product-card').first().click()
   const mask = await page.locator('.sheet-mask').boundingBox()
-  expect(mask?.width).toBe(375)
+  expect(mask?.width).toBe(430)
   expect(mask?.x).toBeCloseTo(shell!.x, 0)
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
-  const cart = await page.locator('.cart-bar').boundingBox()
-  expect(cart?.width).toBe(375)
-  expect(cart?.x).toBeCloseTo(shell!.x, 0)
+  await openCart(page)
+  const cart = await page.locator('.cart-checkout').boundingBox()
+  expect(cart).not.toBeNull()
+  expect(cart!.x).toBeGreaterThanOrEqual(shell!.x)
+  expect(cart!.x + cart!.width).toBeLessThanOrEqual(shell!.x + shell!.width)
   await assertNoHorizontalOverflow(page)
 
   await page.setViewportSize({ width: 375, height: 812 })
-  expect((await page.locator('.app-shell').boundingBox())?.width).toBe(375)
+  const mobileShell = await page.locator('.app-shell').boundingBox()
+  const mobileCart = await page.locator('.cart-checkout').boundingBox()
+  expect(mobileShell?.width).toBe(375)
   expect((await page.locator('.bottom-tabs').boundingBox())?.width).toBe(375)
-  expect((await page.locator('.cart-bar').boundingBox())?.width).toBe(375)
+  expect(mobileCart).not.toBeNull()
+  expect(mobileCart!.x).toBeGreaterThanOrEqual(mobileShell!.x)
+  expect(mobileCart!.x + mobileCart!.width).toBeLessThanOrEqual(mobileShell!.x + mobileShell!.width)
   await assertNoHorizontalOverflow(page)
 })

@@ -5,6 +5,7 @@
   "scripts": {
     "dev:h5": "uni -p h5 --host 127.0.0.1",
     "build:h5": "uni build -p h5 && node ../../scripts/check-dashboard-build.mjs",
+    "test:e2e": "playwright test --config playwright.config.ts",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

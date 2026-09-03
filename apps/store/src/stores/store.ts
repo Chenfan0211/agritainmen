@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AfterSale, BusinessMediaValue, CatalogState, MockScenario, Order, OrderItem, OrderStatus, PlatformJournalEntry, PlatformRecoveryHandlerKey, PlatformPrincipal, Product, PurchaseStatus, StoreAccount, StoreRole } from '@agritainment/shared'
-import { abortCatalogTransaction, applyCatalogStockOperation, applyPlatformMedia, buildSupplierAccountSeeds, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, ensureCatalogState, initializePlatformRecoveryHandlers, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, nextPurchaseStatus, normalizeMinimumOrderQuantity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, prepareCatalogTransaction, purchaseSteps, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformEntities, readPlatformMedia, readPlatformOrders, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, reconcilePendingPlatformTransactions, resolvePlatformJournal, runLockedPlatformTransaction, storeAccounts, supplierCanReceiveNewOrders, suppliers as supplierSeeds, updateCatalogStock, validateCatalogSkuOrderQuantity, validateSmsCode, writeCatalogState, writePlatformAfterSale, writePlatformAfterSales, writePlatformOrder, writePlatformOrders } from '@agritainment/shared'
+import { abortCatalogTransaction, applyCatalogStockOperation, applyPlatformMedia, buildSupplierAccountSeeds, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, ensureCatalogState, initializePlatformRecoveryHandlers, initialCatalogOrderQuantity, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, nextPurchaseStatus, normalizeMinimumOrderQuantity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, prepareCatalogTransaction, purchaseSteps, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformEntities, readPlatformMedia, readPlatformOrders, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, reconcilePendingPlatformTransactions, resolvePlatformJournal, runLockedPlatformTransaction, storeAccounts, supplierCanReceiveNewOrders, suppliers as supplierSeeds, validateCatalogSkuOrderQuantity, validateSmsCode, writeCatalogState, writePlatformAfterSale, writePlatformAfterSales, writePlatformOrder, writePlatformOrders } from '@agritainment/shared'
 import { storeInfo, storeInfoForFarm, storeRepository } from '../services/repository'
 
 interface CartLine {
@@ -63,7 +63,6 @@ interface StoreAuthState {
 interface StoreTenantSession {
   cart: CartLine[]
   orders: StoreOrder[]
-  overrides: Record<string, { stock?: Record<string, number>; listed?: boolean }>
 }
 
 interface StoreState {
@@ -77,7 +76,6 @@ interface StoreState {
   cart: CartLine[]
   orders: StoreOrder[]
   checkoutError: string
-  overrides: Record<string, { stock?: Record<string, number>; listed?: boolean }>
   auth: StoreAuthState
   tenantSessions: Record<string, StoreTenantSession>
 }
@@ -459,12 +457,10 @@ export const useStoreStore = defineStore('store', {
     cart: [],
     orders: seedOrders(),
     checkoutError: '',
-    overrides: {},
     auth: { isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null },
     tenantSessions: {}
   }),
   getters: {
-    isListed: (state) => (productId: string) => state.overrides[productId]?.listed !== false,
     cartCount: (state) => state.cart.reduce((sum, item) => sum + item.quantity, 0),
     cartTotal: (state) => calcCartTotal(state.cart.map(({ price, quantity }) => ({ price, quantity }))),
     cartHasUnavailable: (state) => state.cart.some((item) => item.unavailable),
@@ -534,8 +530,9 @@ export const useStoreStore = defineStore('store', {
       if (product.skus.length > 1 && !skuId) return 'sku-required' as const
       const sku = product.skus.find((item) => item.id === skuId) || product.skus[0]
       const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
-      if (!sku || !validateCatalogSkuOrderQuantity(sku, minimumOrderQuantity).ok) {
-        this.checkoutError = sku && sku.stock < minimumOrderQuantity ? `${product.name}库存不足起订量` : `${product.name}库存不足`
+      const initialQuantity = initialCatalogOrderQuantity(minimumOrderQuantity)
+      if (!sku || !validateCatalogSkuOrderQuantity(sku, initialQuantity).ok) {
+        this.checkoutError = sku && sku.stock < minimumOrderQuantity ? `${product.name}库存不足或购买数量未达要求` : `${product.name}库存不足`
         return 'out-of-stock' as const
       }
       const line = this.cart.find((item) => item.productId === product.id && item.skuId === sku.id)
@@ -549,7 +546,7 @@ export const useStoreStore = defineStore('store', {
         line.minimumOrderQuantity = minimumOrderQuantity
         line.unavailable = !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
       } else {
-        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity: minimumOrderQuantity, minimumOrderQuantity, unavailable: false })
+        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity: initialQuantity, minimumOrderQuantity, unavailable: false })
       }
       this.checkoutError = ''
       return 'added' as const
@@ -622,38 +619,6 @@ export const useStoreStore = defineStore('store', {
       const latest = readCatalogState()
       if (latest && latest.revision !== this.catalogRevision) this.applyCatalogState(latest)
     },
-    applyLocalOverrides() {
-      Object.entries(this.overrides).forEach(([productId, ov]) => {
-        const product = this.products.find((item) => item.id === productId)
-        if (!product || !ov.stock) return
-        product.skus.forEach((sku) => {
-          if (ov.stock![sku.id] !== undefined) sku.stock = Math.max(0, Math.round(ov.stock![sku.id]))
-        })
-        product.stock = product.skus.reduce((sum, item) => sum + item.stock, 0)
-      })
-    },
-    setSkuStock(productId: string, skuId: string, stock: number) {
-      const product = this.products.find((item) => item.id === productId)
-      const sku = product?.skus.find((item) => item.id === skuId)
-      if (!product || !sku) return false
-      const nextStock = Math.max(0, Math.round(Number(stock) || 0))
-      const quantity = nextStock - sku.stock
-      if (!quantity) return true
-      const next = updateCatalogStock([{ productId, skuId, quantity }], this.catalogRevision)
-      if (!next) {
-        this.refreshCatalog('商品库存已更新，请刷新后重试')
-        return false
-      }
-      this.applyCatalogState(next)
-      this.checkoutError = ''
-      return true
-    },
-    toggleListed(productId: string) {
-      if (!this.products.some((item) => item.id === productId)) return false
-      const ov = this.overrides[productId] || (this.overrides[productId] = {})
-      ov.listed = ov.listed === false ? true : false
-      return true
-    },
     async submitOrder(remark = '') {
       this.checkoutError = ''
       if (!this.cart.length) {
@@ -677,7 +642,7 @@ export const useStoreStore = defineStore('store', {
       if (insufficient) {
         const sku = this.products.find((item) => item.id === insufficient.productId)?.skus.find((item) => item.id === insufficient.skuId)
         const validation = sku ? validateCatalogSkuOrderQuantity(sku, insufficient.quantity) : null
-        this.checkoutError = !sku ? `${insufficient.name}（${insufficient.skuName}）规格已失效` : validation && !validation.ok && validation.code === 'below_minimum_order_quantity' ? `${insufficient.name}（${insufficient.skuName}）起订 ${validation.minimumOrderQuantity} 件` : sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity) ? `${insufficient.name}（${insufficient.skuName}）库存不足起订量` : `${insufficient.name}（${insufficient.skuName}）库存不足`
+        this.checkoutError = !sku ? `${insufficient.name}（${insufficient.skuName}）规格已失效` : validation && !validation.ok && (validation.code === 'below_minimum_order_quantity' || sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)) ? `${insufficient.name}（${insufficient.skuName}）库存不足或购买数量未达要求` : `${insufficient.name}（${insufficient.skuName}）库存不足`
         return false
       }
       if (revisionChanged) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
@@ -897,7 +862,7 @@ export const useStoreStore = defineStore('store', {
     },
     saveCurrentTenantSession() {
       if (!this.auth.farmId) return
-      this.tenantSessions[this.auth.farmId] = cloneSeed({ cart: this.cart, orders: this.orders, overrides: this.overrides })
+      this.tenantSessions[this.auth.farmId] = cloneSeed({ cart: this.cart, orders: this.orders })
     },
     activateStoreAccount(account: StoreAccount) {
       const previousFarmId = this.auth.farmId
@@ -906,11 +871,9 @@ export const useStoreStore = defineStore('store', {
       if (session) {
         this.cart = cloneSeed(session.cart)
         this.orders = cloneSeed(session.orders)
-        this.overrides = cloneSeed(session.overrides)
       } else if (previousFarmId !== account.farmId && account.farmId !== 'F001') {
         this.cart = []
         this.orders = seedOrders(account.farmId)
-        this.overrides = {}
       }
       const principal: PlatformPrincipal = { actorType: 'store', actorId: account.id, tenantId: account.farmId, status: 'active' }
       this.auth = {

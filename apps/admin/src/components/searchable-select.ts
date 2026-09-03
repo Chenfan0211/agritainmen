@@ -1,8 +1,14 @@
+import type { MediaReference } from '@agritainment/shared'
+
 export type SearchableSelectValue = string | number | boolean
 
 export interface SearchableSelectOption {
   label: string
   value: SearchableSelectValue
+  image?: MediaReference
+  imageFallback?: MediaReference
+  imageErrorFallback?: MediaReference
+  icon?: string
   disabled?: boolean
   keywords?: string[]
 }

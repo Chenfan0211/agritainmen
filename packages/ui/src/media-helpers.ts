@@ -3,6 +3,11 @@ import type { MediaReference } from '@agritainment/shared'
 
 export type MediaCompressionKind = 'normal' | 'license'
 
+export function initialResolvedMediaUrl(value: MediaReference | string | null | undefined): string {
+  const reference = normalizeMediaReference(value)
+  return reference?.source === 'builtin' ? reference.path : reference?.source === 'legacy' ? reference.url : ''
+}
+
 export function mediaCompressionProfile(kind: MediaCompressionKind): { maxEdge: number; quality: number } {
   return kind === 'license'
     ? { maxEdge: 2400, quality: 0.9 }
@@ -50,6 +55,7 @@ export function moveUploadedMedia(values: readonly MediaReference[], from: numbe
 
 interface ResolvedMediaControllerOptions {
   fallbackUrl: string
+  errorFallbackUrl?: string
   resolve: (reference: MediaReference) => Promise<string>
   release: (url: string) => void
   onChange: (url: string) => void
@@ -92,9 +98,14 @@ export function createResolvedMediaController(options: ResolvedMediaControllerOp
       }
     },
     fail(resolvedUrl) {
-      if (disposed || !currentUrl || resolvedUrl !== currentUrl) return
-      releaseCurrent()
-      options.onChange(options.fallbackUrl)
+      if (disposed) return
+      const fallbackFailed = resolvedUrl === options.fallbackUrl
+      if (resolvedUrl !== currentUrl && !fallbackFailed) return
+      if (resolvedUrl === currentUrl) releaseCurrent()
+      const nextUrl = fallbackFailed && options.errorFallbackUrl && options.errorFallbackUrl !== resolvedUrl
+        ? options.errorFallbackUrl
+        : options.fallbackUrl
+      if (nextUrl !== resolvedUrl) options.onChange(nextUrl)
       options.onError?.(true)
     },
     dispose() {

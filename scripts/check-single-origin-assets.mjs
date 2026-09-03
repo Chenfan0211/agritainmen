@@ -1,10 +1,20 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const apps = ['dashboard', 'admin', 'farmhouse', 'alliance', 'store', 'promoter', 'user', 'supplier']
+const apps = ['dashboard', 'admin', 'farmhouse', 'store', 'promoter', 'user', 'supplier']
+const productCategoryImageApps = ['admin', 'farmhouse', 'store', 'user', 'supplier']
+const productCategoryImageFiles = [
+  'agricultural-products.webp', 'prepared-foods.webp', 'ingredients-seasonings.webp',
+  'featured-ingredients.webp', 'local-specialties.webp', 'souvenirs.webp',
+  'cultural-tourism-gifts.webp', 'homestay-supplies.webp', 'packaging-consumables.webp',
+  'package-vouchers.webp', 'fresh-produce.webp', 'seasonal-fruit.webp',
+  'organic-vegetables.webp', 'grains-oils-noodles.webp', 'beverages.webp',
+  'all.webp', 'fallback.webp'
+]
 const mimeByExtension = new Map([
   ['.html', 'text/html'], ['.css', 'text/css'], ['.js', 'text/javascript'], ['.mjs', 'text/javascript'],
   ['.json', 'application/json'], ['.map', 'application/json'], ['.svg', 'image/svg+xml'], ['.webp', 'image/webp'],
@@ -22,6 +32,32 @@ function filesUnder(directory) {
     const path = join(directory, entry.name)
     return entry.isDirectory() ? filesUnder(path) : [path]
   })
+}
+
+function sha256(file) {
+  return createHash('sha256').update(readFileSync(file)).digest('hex')
+}
+
+function webpDimensions(file) {
+  const bytes = readFileSync(file)
+  if (bytes.subarray(0, 4).toString() !== 'RIFF' || bytes.subarray(8, 12).toString() !== 'WEBP') {
+    fail(`商品品类图片不是有效 WebP: ${relative(root, file)}`)
+  }
+  const format = bytes.subarray(12, 16).toString()
+  if (format === 'VP8X') {
+    return {
+      width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16),
+      height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16)
+    }
+  }
+  if (format === 'VP8L') {
+    return {
+      width: 1 + bytes[21] + ((bytes[22] & 0x3f) << 8),
+      height: 1 + ((bytes[22] & 0xc0) >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10)
+    }
+  }
+  if (format !== 'VP8 ') fail(`商品品类图片使用未知 WebP 编码: ${relative(root, file)}`)
+  return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff }
 }
 
 function isWithin(directory, file) {
@@ -123,6 +159,25 @@ for (const app of apps) {
   }
 }
 
+for (const file of productCategoryImageFiles) {
+  const masterFile = join(root, 'assets', 'product-categories', 'master', file)
+  if (!existsSync(masterFile)) fail(`缺少商品品类图片母版: ${file}`)
+  const dimensions = webpDimensions(masterFile)
+  if (dimensions.width !== 512 || dimensions.height !== 512) fail(`商品品类图片尺寸必须为 512x512: ${file}`)
+  if (statSync(masterFile).size > 150 * 1024) fail(`商品品类图片超过 150KB: ${file}`)
+  const masterHash = sha256(masterFile)
+  const sourceHashes = new Set()
+  for (const app of productCategoryImageApps) {
+    const sourceFile = join(root, 'apps', app, 'src', 'static', 'images', 'categories', file)
+    const outputFile = join(root, 'apps', app, 'dist', 'single-origin', app, 'static', 'images', 'categories', file)
+    if (!existsSync(sourceFile)) fail(`${app} 缺少商品品类图片: static/images/categories/${file}`)
+    if (!existsSync(outputFile)) fail(`${app} 单源产物缺少商品品类图片: static/images/categories/${file}`)
+    sourceHashes.add(sha256(sourceFile))
+  }
+  if (sourceHashes.size !== 1) fail(`商品品类图片哈希不一致: ${file}`)
+  if (!sourceHashes.has(masterHash)) fail(`商品品类图片与母版哈希不一致: ${file}`)
+}
+
 const sourceFiles = apps.flatMap((app) => filesUnder(join(root, 'apps', app, 'src')).filter((file) => /\.(vue|ts|scss)$/.test(file)))
 const source = sourceFiles.map((file) => readFileSync(file, 'utf8')).join('\n')
 if (source.includes('demo.local')) fail('源码仍包含 demo.local')
@@ -131,6 +186,7 @@ if (/127\.0\.0\.1:879[1-8]|localhost:879[1-8]/.test(source)) fail('应用源码�
 const distFiles = apps.flatMap((app) => filesUnder(join(root, 'apps', app, 'dist', 'single-origin', app)).filter((file) => /\.(html|css|js|mjs)$/.test(file)))
 const distSource = distFiles.map((file) => readFileSync(file, 'utf8')).join('\n')
 if (/127\.0\.0\.1|localhost|demo\.local/.test(distSource)) fail('同源构建产物仍包含本机或旧假域名')
+if (/(?:images\.)?(?:unsplash\.com|pexels\.com)/i.test(distSource)) fail('同源构建产物仍包含远程图片图库地址')
 
 const userSource = readFileSync(join(root, 'apps', 'user', 'src', 'stores', 'user.ts'), 'utf8')
 const supplierSource = readFileSync(join(root, 'apps', 'supplier', 'src', 'stores', 'supplier.ts'), 'utf8')

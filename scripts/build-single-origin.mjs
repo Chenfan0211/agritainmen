@@ -9,7 +9,6 @@ const apps = [
   { app: 'dashboard', prefix: '/dashboard/' },
   { app: 'admin', prefix: '/admin/' },
   { app: 'farmhouse', prefix: '/farmhouse/' },
-  { app: 'alliance', prefix: '/alliance/' },
   { app: 'store', prefix: '/store/' },
   { app: 'promoter', prefix: '/promoter/' },
   { app: 'user', prefix: '/user/' },
@@ -57,11 +56,8 @@ try {
 } finally {
   console.log('\n=== restoring per-port builds (base /) ===')
   for (const { app } of apps) {
-    const perPortStorefronts = app === 'alliance'
-      ? { VITE_STOREFRONT_SHIBANXI_URL: 'http://127.0.0.1:8792/', VITE_STOREFRONT_YUNSHANG_URL: 'http://127.0.0.1:8794/' }
-      : {}
     try {
-      build(app, '/', perPortStorefronts)
+      build(app, '/')
     } catch (error) {
       restoreErrors.push(new Error(`恢复 ${app} 根路径产物失败`, { cause: error }))
     }

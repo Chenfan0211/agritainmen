@@ -22,6 +22,20 @@ export interface MonitoringProvider { capture(input: { event: string; payload?: 
 export interface RouteOptimizationProvider { optimize(input: RouteOptimizationInput): Promise<ProviderResult<RouteOptimizationOutput>> }
 export interface PlatformProviders { payment: PaymentProvider; refund: RefundProvider; logistics: LogisticsProvider; map: MapNavigationProvider; sms: SmsProvider; media: MediaStorageProvider; backup: BackupProvider; monitoring: MonitoringProvider; routeOptimization: RouteOptimizationProvider }
 
+export function buildTencentNavigationUrl(input: { longitude: number; latitude: number; name: string }, referer = 'agritainment-platform'): string {
+  const query = new URLSearchParams({
+    type: 'drive',
+    to: input.name,
+    tocoord: `${input.latitude},${input.longitude}`,
+    referer
+  })
+  return `https://apis.map.qq.com/uri/v1/routeplan?${query}`
+}
+
+export function buildTencentMapSearchUrl(keyword: string, referer = 'agritainment-platform'): string {
+  return `https://apis.map.qq.com/uri/v1/search?${new URLSearchParams({ keyword, referer })}`
+}
+
 export function createMockPlatformProviders(): PlatformProviders {
   const paymentOperations = new Map<string, string>()
   const refundOperations = new Map<string, string>()
@@ -51,7 +65,7 @@ export function createMockPlatformProviders(): PlatformProviders {
       shipmentOperations.set(key, trackingNo)
       return { ok: true, value: { trackingNo } }
     }, async queryShipment() { return { ok: true, value: { status: 'shipping' } } } },
-    map: { navigationUrl(input) { return `https://uri.amap.com/navigation?to=${encodeURIComponent(`${input.longitude},${input.latitude},${input.name}`)}&mode=car` } },
+    map: { navigationUrl(input) { return buildTencentNavigationUrl(input) } },
     sms: { async sendCode() { return { ok: true } } },
     media: { async put(input) { return { ok: true, value: { url: `mock://${input.key}` } } }, async remove() { return { ok: true } } },
     backup: { async run() { return { ok: true, value: { backupId: `mock-backup-${Date.now()}` } } }, async restore() { return { ok: true } } },

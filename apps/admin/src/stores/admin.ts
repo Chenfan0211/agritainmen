@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AdminAccount, AdminMenuKey, AdminPermissionCode, AdminRole, TravelRoute, AfterSale, BusinessMediaValue, CCommissionAllocation, COrder, CProduct, CatalogProduct, CatalogProductSubmission, CatalogState, Category, CommissionRule, CommissionSettlementRecord, DictGroup, DictItem, FarmAdministrativeAddress, FarmStore, GeocodeRequest, GeocodeResult, MockScenario, Order, PlatformAuditLogEntry, PlatformDictionaryState, PlatformEntities, PlatformJournalEntry, PlatformRecoveryHandlerKey, PlatformTransactionStep, PricePolicy, PriceTier, PricingDefaults, Product, Promoter, ShareConfig, SharedBooking, StoreAccount, Supplier, SupplierAccount, SupplierSettlementRecord, WithdrawalRequestStatus, WriteResult } from '@agritainment/shared'
-import { ADMIN_SUPER_ROLE_ID, CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY, DEFAULT_PRICING_DEFAULTS, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, addDictGroup as addSharedDictGroup, addDictItem as addSharedDictItem, appendPlatformAuditLog, approveCatalogProductSubmission as approveSharedCatalogProductSubmission, authenticateAdmin, buildFarmAdministrativeAddress, buildSupplierAccountSeeds, buildPromoterAccountSeeds, canPublishPlatformDictionaries, catalogChannelFlags, catalogProductToCProduct, catalogProductToProduct, clearPlatformJson, cloneSeed, confirmCSubOrderReceiptAtSupplier, createCatalogProductReviewRecoveryHandlerRegistration, createCatalogProductSubmission, createGeocodeProviders, createId, createPlatformAuditLogEntry, createPlatformProductionRecoveryHandlerRegistration, createStrictSnapshotRecoveryHandlerRegistration, createUserAtomicRecoveryHandlerRegistrations, deriveCOrderStatus, emptyPlatformMedia, enqueuePlatformRecovery, ensureCatalogState, formatFarmAdministrativeAddress, geocodeAddress, getPlatformProviders, hasAdminMenu, hasAdminPermission, initializePlatformRecoveryHandlers, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformEntities, mergePlatformOrders, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, migrateFarmAdministrativeAddress, normalizeCProducts, normalizeMediaReference, pendingShareTotal, preparePlatformJournal, readCCommissionRecords, readCInventoryState, readCOrders, readCatalogProductSubmissionState, readCatalogState, readPlatformAdminAccounts, readPlatformAdminRoles, readPlatformAfterSales, readPlatformAuditLogs, readPlatformBookings, readPlatformCollectionRevision, readPlatformCommissionRules, readPlatformCommissionSettlementRecords, readPlatformDictionaries, readPlatformDrivers, readPlatformJournal, readPlatformJson, readPlatformMedia, readPlatformRoutes, mergePlatformRoutes, travelRoutes, readPlatformOrders, readPlatformStoreAccounts, readPlatformEntities, readPlatformPromoterAccountState, mergePlatformPromoterAccounts, writePlatformPromoterAccounts, readPlatformSupplierAccounts, readPlatformSupplierSettlements, readPricingDefaults, readShareConfig, readShareRecords, readPlatformWithdrawals, readPlatformRecoveryQueue, readPlatformCommissionSettlements, reconcilePendingPlatformTransactions, rejectCatalogProductSubmission as rejectSharedCatalogProductSubmission, removeDictGroup as removeSharedDictGroup, removeDictItem as removeSharedDictItem, resolvePlatformJournal, resolvePlatformRecoveryTask, retryPlatformRecoveryTask, round2, runLockedPlatformTransaction, saveCatalogProduct as persistCatalogProduct, seedCCommerceData, seedPlatformAdminSecurity, syncCSubOrderFromSupplier, todayString, updateDictGroup as updateSharedDictGroup, updateDictItem as updateSharedDictItem, persistPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, validatePhone, writeCCommissionRecords, writeCOrders, writeCatalogState, writePlatformAdminAccounts, writePlatformAdminRoles, writePlatformAfterSales, writePlatformCommissionRules, writePlatformCommissionSettlementRecords, writePlatformEntities, writePlatformJson, writePlatformCommissionSettlements, writePlatformMedia, writePlatformOrders, writePlatformSupplierSettlements, writePlatformStoreAccounts, writePlatformSupplierAccounts, writePricingDefaults, writeShareConfig, writeShareRecords } from '@agritainment/shared'
+import { ADMIN_SUPER_ROLE_ID, CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY, DEFAULT_PRICING_DEFAULTS, DICTIONARY_SCHEMA_VERSION, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, addDictGroup as addSharedDictGroup, addDictItem as addSharedDictItem, appendPlatformAuditLog, approveCatalogProductSubmission as approveSharedCatalogProductSubmission, authenticateAdmin, buildFarmAdministrativeAddress, buildSupplierAccountSeeds, buildPromoterAccountSeeds, canPublishPlatformDictionaries, catalogChannelFlags, catalogProductToCProduct, catalogProductToProduct, clearPlatformJson, cloneSeed, confirmCSubOrderReceiptAtSupplier, createCatalogProductReviewRecoveryHandlerRegistration, createCatalogProductSubmission, createGeocodeProviders, createId, createPlatformAuditLogEntry, createPlatformProductionRecoveryHandlerRegistration, createStrictSnapshotRecoveryHandlerRegistration, createUserAtomicRecoveryHandlerRegistrations, deriveCOrderStatus, emptyPlatformMedia, enqueuePlatformRecovery, ensureCatalogState, formatFarmAdministrativeAddress, geocodeAddress, getPlatformProviders, hasAdminMenu, hasAdminPermission, initializePlatformRecoveryHandlers, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformEntities, mergePlatformOrders, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, migrateFarmAdministrativeAddress, normalizeCProducts, normalizeMediaReference, pendingShareTotal, preparePlatformJournal, readCCommissionRecords, readCInventoryState, readCOrders, readCatalogProductSubmissionState, readCatalogState, readPlatformAdminAccounts, readPlatformAdminRoles, readPlatformAfterSales, readPlatformAuditLogs, readPlatformBookings, readPlatformCollectionRevision, readPlatformCommissionRules, readPlatformCommissionSettlementRecords, readPlatformDictionaries, readPlatformDrivers, readPlatformJournal, readPlatformJson, readPlatformMedia, readPlatformRoutes, mergePlatformRoutes, travelRoutes, readPlatformOrders, readPlatformStoreAccounts, readPlatformEntities, readPlatformPromoterAccountState, mergePlatformPromoterAccounts, writePlatformPromoterAccounts, readPlatformSupplierAccounts, readPlatformSupplierSettlements, readPricingDefaults, readShareConfig, readShareRecords, readPlatformWithdrawals, readPlatformRecoveryQueue, readPlatformCommissionSettlements, reconcilePendingPlatformTransactions, rejectCatalogProductSubmission as rejectSharedCatalogProductSubmission, removeDictGroup as removeSharedDictGroup, removeDictItem as removeSharedDictItem, resolvePlatformJournal, resolvePlatformRecoveryTask, retryPlatformRecoveryTask, round2, runLockedPlatformTransaction, saveCatalogProduct as persistCatalogProduct, seedCCommerceData, seedPlatformAdminSecurity, syncCSubOrderFromSupplier, todayString, updateDictGroup as updateSharedDictGroup, updateDictItem as updateSharedDictItem, persistPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, validatePhone, writeCCommissionRecords, writeCOrders, writeCatalogState, writePlatformAdminAccounts, writePlatformAdminRoles, writePlatformAfterSales, writePlatformCommissionRules, writePlatformCommissionSettlementRecords, writePlatformEntities, writePlatformJson, writePlatformCommissionSettlements, writePlatformMedia, writePlatformOrders, writePlatformSupplierSettlements, writePlatformStoreAccounts, writePlatformSupplierAccounts, writePricingDefaults, writeShareConfig, writeShareRecords } from '@agritainment/shared'
 import { PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY } from '@agritainment/shared'
 import { adminRepository } from '../services/repository'
 import { buildSupplierQualification, readSupplierQualificationFields } from '../media-dictionary'
@@ -706,13 +706,8 @@ function restoreRawPlatformCollection(key: string, snapshot: unknown): boolean {
 }
 
 const geocodeEnvironment = import.meta.env as Record<string, string | undefined>
-const geocodeOrder = geocodeEnvironment.VITE_GEOCODER_ORDER?.split(',').map((name) => name.trim()).filter((name): name is 'amap' | 'tencent' => name === 'amap' || name === 'tencent')
 const defaultFarmGeocoder: FarmGeocoder = (request) => geocodeAddress(request, createGeocodeProviders({
-  amapKey: geocodeEnvironment.VITE_AMAP_KEY,
-  amapProxy: geocodeEnvironment.VITE_AMAP_PROXY,
-  tencentKey: geocodeEnvironment.VITE_TENCENT_MAP_KEY,
-  tencentProxy: geocodeEnvironment.VITE_TENCENT_MAP_PROXY,
-  order: geocodeOrder
+  tencentProxy: geocodeEnvironment.VITE_TENCENT_MAP_GATEWAY || '/api/tencent-map/geocode'
 }))
 
 function resolveFarmAddress(payload: FarmSavePayload, current?: FarmStore): { address: string; city: string; region: string; regionCode?: string; structuredAddress?: FarmAdministrativeAddress } | null {
@@ -1316,8 +1311,23 @@ export const useAdminStore = defineStore('operations', {
       this.routes = this.routes.filter((item) => item.id !== id)
       return true
     },
-    async addCategory(name: string, type: Category['type']) {
+    async addCategory(name: string, type: Category['type'], image?: DictItem['image']) {
       const trimmed = name.trim()
+      if (type === 'product') {
+        const id = createId('DI')
+        const code = createId('PC')
+        const sort = this.dictItems
+          .filter((item) => item.type === 'productCategory')
+          .reduce((maximum, item) => Math.max(maximum, item.sort), 0) + 10
+        return this.publishDictionaryMutation(
+          { module: 'categories', action: 'category.create', targetType: 'category', targetId: id, deniedMessage: '无权新增品类' },
+          (state) => trimmed && !state.items.some((item) => item.type === 'productCategory' && item.label === trimmed)
+            ? addSharedDictItem(state, { id, type: 'productCategory', code, label: trimmed, enabled: true, sort, image })
+            : null,
+          !trimmed ? '请填写品类名称' : '品类名称已存在或未上传图片',
+          'category.manage'
+        )
+      }
       const next = { id: createId('C'), name: trimmed, type }
       const revision = readPlatformCollectionRevision(PLATFORM_ENTITIES_STORAGE_KEY)
       const persistedEntities = readPlatformEntities()
@@ -1343,8 +1353,19 @@ export const useAdminStore = defineStore('operations', {
       this.categories.unshift(next)
       return true
     },
-    async updateCategory(id: string, name: string, type: Category['type']) {
+    async updateCategory(id: string, name: string, type: Category['type'], image?: DictItem['image']) {
       const trimmed = name.trim()
+      const dictionaryItem = this.dictItems.find((item) => item.id === id && item.type === 'productCategory')
+      if (dictionaryItem) {
+        return this.publishDictionaryMutation(
+          { module: 'categories', action: 'category.update', targetType: 'category', targetId: id, deniedMessage: '无权修改品类' },
+          (state) => type === 'product' && trimmed && !state.items.some((item) => item.id !== id && item.type === 'productCategory' && item.label === trimmed)
+            ? updateSharedDictItem(state, id, { label: trimmed, image })
+            : null,
+          '品类不存在、名称为空、名称重复或未上传图片',
+          'category.manage'
+        )
+      }
       const revision = readPlatformCollectionRevision(PLATFORM_ENTITIES_STORAGE_KEY)
       const previous = cloneSeed(readPlatformEntities() || { updatedAt: new Date(0).toISOString() })
       const item = previous.categories?.[id] || this.categories.find((candidate) => candidate.id === id)
@@ -1361,6 +1382,16 @@ export const useAdminStore = defineStore('operations', {
       return true
     },
     async removeCategory(id: string) {
+      const dictionaryItem = this.dictItems.find((item) => item.id === id && item.type === 'productCategory')
+      if (dictionaryItem) {
+        const inUse = this.catalogProducts.some((product) => product.category === dictionaryItem.label)
+        return this.publishDictionaryMutation(
+          { module: 'categories', action: 'category.delete', targetType: 'category', targetId: id, deniedMessage: '无权删除品类' },
+          (state) => inUse ? null : removeSharedDictItem(state, id),
+          inUse ? '品类正在使用，无法删除' : '品类不存在',
+          'category.manage'
+        )
+      }
       const revision = readPlatformCollectionRevision(PLATFORM_ENTITIES_STORAGE_KEY)
       const previous = cloneSeed(readPlatformEntities() || { updatedAt: new Date(0).toISOString() })
       const item = previous.categories?.[id] || this.categories.find((candidate) => candidate.id === id)
@@ -1380,7 +1411,7 @@ export const useAdminStore = defineStore('operations', {
     },
     dictionaryState(): PlatformDictionaryState {
       return {
-        schemaVersion: 1,
+        schemaVersion: DICTIONARY_SCHEMA_VERSION,
         revision: this.dictionaryRevision,
         groups: this.dictGroups.map((group) => ({ ...group })),
         items: this.dictItems.map((item) => ({ ...item })),
@@ -1393,7 +1424,7 @@ export const useAdminStore = defineStore('operations', {
       this.dictionaryRevision = state.revision
       this.dictionaryUpdatedAt = state.updatedAt
     },
-    async publishDictionaryMutation(context: AdminAuditContext, mutate: (state: PlatformDictionaryState) => PlatformDictionaryState | null, invalidMessage = '字典操作无效') {
+    async publishDictionaryMutation(context: AdminAuditContext, mutate: (state: PlatformDictionaryState) => PlatformDictionaryState | null, invalidMessage = '字典操作无效', permission: AdminPermissionCode = 'dictionary.manage') {
       const current = this.dictionaryState()
       const rawPersisted = readPlatformJson(PLATFORM_DICTIONARIES_STORAGE_KEY)
       const persisted = readPlatformDictionaries()
@@ -1401,7 +1432,7 @@ export const useAdminStore = defineStore('operations', {
       const target = mutated ? { ...mutated, revision: current.revision + 1, updatedAt: new Date().toISOString() } : current
       const collectionRevision = readPlatformCollectionRevision(PLATFORM_DICTIONARIES_STORAGE_KEY)
       const stale = persisted.revision !== current.revision
-      const result = await this.executeAdminTransaction('dictionary.manage', {
+      const result = await this.executeAdminTransaction(permission, {
         ...context,
         deniedMessage: context.deniedMessage || '无权维护字典',
         validationMessage: stale ? '字典数据已更新，请重试' : invalidMessage
@@ -1430,16 +1461,22 @@ export const useAdminStore = defineStore('operations', {
     async removeDictGroup(id: string) {
       return this.publishDictionaryMutation({ module: 'dict', action: 'dictionary.group.delete', targetType: 'dictionary-group', targetId: id, deniedMessage: '无权删除字典分组' }, (state) => removeSharedDictGroup(state, id), '该分组下还有字典项，请先清空')
     },
-    async addDictItem(payload: { type: DictItem['type']; code: string; label: string; enabled?: boolean; sort?: number; tone?: DictItem['tone'] }) {
+    async addDictItem(payload: { type: DictItem['type']; code: string; label: string; enabled?: boolean; sort?: number; tone?: DictItem['tone']; image?: DictItem['image'] }) {
       return this.publishDictionaryMutation({ module: 'dict', action: 'dictionary.item.create', targetType: 'dictionary-item', deniedMessage: '无权新增字典项' }, (state) => addSharedDictItem(state, {
-        id: createId('DI'), type: payload.type, code: payload.code.trim(), label: payload.label.trim(), enabled: payload.enabled ?? true, sort: payload.sort ?? 0, tone: payload.tone
+        id: createId('DI'), type: payload.type, code: payload.code.trim(), label: payload.label.trim(), enabled: payload.enabled ?? true, sort: payload.sort ?? 0, tone: payload.tone, image: payload.image
       }))
     },
-    async updateDictItem(id: string, payload: { code?: string; label?: string; enabled?: boolean; sort?: number; tone?: DictItem['tone'] }) {
+    async updateDictItem(id: string, payload: { code?: string; label?: string; enabled?: boolean; sort?: number; tone?: DictItem['tone']; image?: DictItem['image'] }) {
       return this.publishDictionaryMutation({ module: 'dict', action: 'dictionary.item.update', targetType: 'dictionary-item', targetId: id, deniedMessage: '无权修改字典项' }, (state) => updateSharedDictItem(state, id, payload))
     },
     async removeDictItem(id: string) {
-      return this.publishDictionaryMutation({ module: 'dict', action: 'dictionary.item.delete', targetType: 'dictionary-item', targetId: id, deniedMessage: '无权删除字典项' }, (state) => removeSharedDictItem(state, id), '系统字典项不可删除')
+      const item = this.dictItems.find((candidate) => candidate.id === id)
+      const inUse = item?.type === 'productCategory' && this.catalogProducts.some((product) => product.category === item.label)
+      return this.publishDictionaryMutation(
+        { module: 'dict', action: 'dictionary.item.delete', targetType: 'dictionary-item', targetId: id, deniedMessage: '无权删除字典项' },
+        (state) => inUse ? null : removeSharedDictItem(state, id),
+        inUse ? '品类正在使用，无法删除' : '系统字典项不可删除'
+      )
     },
     async addStoreAccount(payload: { farmId: string; name: string; account: string; password: string; role: StoreAccount['role']; promoEnabled?: boolean }) {
       const valid = !!payload.farmId && !!payload.name.trim() && !!payload.account.trim() && !!payload.password.trim() && !this.storeAccounts.some((item) => item.farmId === payload.farmId && item.account === payload.account)

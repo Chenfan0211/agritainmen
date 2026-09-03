@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import type { AfterSale, BalanceEntry, Booking, BusinessMediaValue, CommissionLedgerEntry, FarmExperience, CAddress, CatalogProduct, CatalogState, FarmStore, Member, MockScenario, Order, PlatformJournalEntry, Product, PromotionRecord, Role, ShareRecord, SharedBooking, StoreAccount, StoreCatalogSelection, StorefrontOrder, TenantConfig, UserBinding, VoucherOrder } from '@agritainment/shared'
+import { ensureStoreCatalogSelectionDefaults } from '@agritainment/shared'
+import { initialCatalogOrderQuantity } from '@agritainment/shared'
 import { abortCatalogTransaction, allocateStoreCatalogCommission, applyCatalogStockOperation, applyPlatformMedia, buildPortalUrl, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductToStoreProduct, catalogProductsForAudience, clearPlatformJson, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, initializePlatformRecoveryHandlers, isExpressDeliverable, mediaValueToImage, markCatalogTransactionStockApplied, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformExperiences, mergePlatformStoreAccounts, normalizeMinimumOrderQuantity, prepareCatalogTransaction, promoters, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformBookings, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformJournal, readPlatformJson, readPlatformOrders, readPlatformStoreAccounts, readPlatformVoucherOrders, readShareConfig, readShareRecords, readStoreCatalogSelectionState, readUserBindings, reconcilePendingPlatformTransactions, resolveCatalogTransactionForRecovery, resolvePlatformJournal, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, runLockedPlatformTransaction, saveStoreCatalogSelection, simulateWechatLogin, storeAccounts, suppliers, updateCatalogStock, upsertUserBinding, validateCatalogSkuOrderQuantity, writeCatalogState, writeUserBindings, writePlatformJson, writePlatformVoucherOrders, readPlatformExperiences, writePlatformExperience, removePlatformExperience, writePlatformAfterSales, writePlatformBooking, writePlatformCommissionLedger, writePlatformOrder, writePlatformOrders, writePlatformStoreAccounts, writeShareRecord, writeShareRecords, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY } from '@agritainment/shared'
 import { resolveRuntimeTenant } from '../config/tenant'
 import { farmhouseRepository } from '../services/repository'
@@ -697,7 +699,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     },
     applyCatalogState(state: CatalogState) {
       const storeId = this.tenant?.farmId || this.farm?.id || 'F001'
-      const selectionState = readStoreCatalogSelectionState()
+      const selectionState = ensureStoreCatalogSelectionDefaults(storeId, state)
       const selections = selectionState.selections.filter((item) => item.storeId === storeId)
       const selectionByProduct = new Map(selections.map((item) => [item.productId, item]))
       const candidates = catalogProductsForAudience(state, 'farmhouse-selection')
@@ -794,8 +796,9 @@ export const useFarmhouseStore = defineStore('storefront', {
       if (product.skus.length > 1 && !skuId) return 'sku-required' as const
       const sku = product.skus.find((item) => item.id === skuId) || product.skus[0]
       const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
-      if (!sku || !validateCatalogSkuOrderQuantity(sku, minimumOrderQuantity).ok) {
-        this.checkoutError = sku && sku.stock < minimumOrderQuantity ? `${product.name}库存不足起订量` : `${product.name}库存不足`
+      const initialQuantity = initialCatalogOrderQuantity(minimumOrderQuantity)
+      if (!sku || !validateCatalogSkuOrderQuantity(sku, initialQuantity).ok) {
+        this.checkoutError = sku && sku.stock < minimumOrderQuantity ? `${product.name}库存不足或购买数量未达要求` : `${product.name}库存不足`
         return 'out-of-stock' as const
       }
       const line = this.cart.find((item) => item.productId === product.id && item.skuId === sku.id)
@@ -809,7 +812,7 @@ export const useFarmhouseStore = defineStore('storefront', {
         line.minimumOrderQuantity = minimumOrderQuantity
         line.unavailable = !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
       } else {
-        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.price, stock: sku.stock, quantity: minimumOrderQuantity, minimumOrderQuantity, unavailable: false })
+        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.price, stock: sku.stock, quantity: initialQuantity, minimumOrderQuantity, unavailable: false })
       }
       this.checkoutError = ''
       return 'added' as const
@@ -851,7 +854,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       if (insufficient) {
         const sku = this.products.find((item) => item.id === insufficient.productId)?.skus.find((item) => item.id === insufficient.skuId)
         const validation = sku ? validateCatalogSkuOrderQuantity(sku, insufficient.quantity) : null
-        this.checkoutError = !sku ? `${insufficient.name}规格已失效` : validation && !validation.ok && validation.code === 'below_minimum_order_quantity' ? `${insufficient.name}（${insufficient.skuName}）起订 ${validation.minimumOrderQuantity} 件` : sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity) ? `${insufficient.name}库存不足起订量` : `${insufficient.name}库存不足`
+        this.checkoutError = !sku ? `${insufficient.name}规格已失效` : validation && !validation.ok && (validation.code === 'below_minimum_order_quantity' || sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)) ? `${insufficient.name}库存不足或购买数量未达要求` : `${insufficient.name}库存不足`
         return false
       }
       if (revisionChanged) { this.checkoutError = '商品库存已更新，请重试'; return false }

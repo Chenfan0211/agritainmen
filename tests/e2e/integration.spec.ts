@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { assertFixedLayerWithinViewport, assertNoClippedText, assertNoPageOverflow, assertReadableText, monitorPageErrors } from './layout'
 
 
-const portals = ['admin', 'dashboard', 'farmhouse', 'alliance', 'store', 'promoter', 'user', 'supplier']
+const portals = ['admin', 'dashboard', 'farmhouse', 'store', 'promoter', 'user', 'supplier']
 
 async function loginUser(page: Page) {
   await page.evaluate(() => localStorage.setItem('agritainment-user-demo-orders-disabled', '1'))
@@ -13,8 +13,18 @@ async function loginUser(page: Page) {
 }
 
 async function clickUserWithdrawal(page: Page) {
-  await expect(page.locator('.withdraw-btn')).toBeVisible()
-  await page.locator('.withdraw-btn').click()
+  await page.locator('.operations-grid').getByText('我的收入', { exact: true }).click()
+  await expect(page.locator('[data-operation-view="income"]')).toBeVisible()
+  await expect(page.locator('.income-hero uni-button')).toBeVisible()
+  await page.locator('.income-hero uni-button').click()
+  await page.locator('.operation-header [aria-label="返回"]').click()
+  await expect(page.locator('.me-page')).toBeVisible()
+}
+
+async function openUserOrders(page: Page) {
+  await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
+  await page.locator('.order-entry').click()
+  await expect(page.locator('.orders-page')).toBeVisible()
 }
 
 async function loginAdmin(page: Page) {
@@ -27,18 +37,6 @@ async function loginAdmin(page: Page) {
     await page.locator('.login-button').click()
   }
   await expect(page.locator('.admin-shell')).toBeVisible()
-}
-
-async function loginAlliance(page: Page) {
-  await expect(page.locator('.tabbar uni-button')).toHaveCount(4)
-  await page.locator('.tabbar uni-button').nth(3).click()
-  if (await page.locator('.promoter-login .primary-button').count()) {
-    await page.locator('.promoter-login .primary-button').click()
-    await page.locator('.login-sheet .login-field input').nth(0).fill('13800000000')
-    await page.locator('.login-sheet .login-field input').nth(1).fill('123456')
-    await page.locator('.login-sheet .login-submit').click()
-  }
-  await expect(page.locator('.promoter-head')).toBeVisible()
 }
 
 async function submitSupplierLogin(page: Page, account: string, password = account) {
@@ -87,7 +85,9 @@ async function setDriverScope(page: Page, driverName: string, storeNames: string
 async function approveProductSubmission(page: Page, productName: string) {
   await loginAdmin(page)
   await page.locator('.nav-item').filter({ hasText: '商品库管理' }).click()
-  await page.locator('.product-review-tabs uni-button').filter({ hasText: '待审核' }).click()
+  const reviewSelect = page.locator('.data-panel > .searchable-select')
+  await reviewSelect.locator('.searchable-select__trigger').click()
+  await page.getByRole('option', { name: '待审核', exact: true }).click()
   const submission = page.locator('.product-submission-card').filter({ hasText: productName })
   await expect(submission).toHaveCount(1)
   await submission.locator('.row-actions uni-button').filter({ hasText: '通过' }).click()
@@ -139,37 +139,6 @@ async function openPromoterLiveEntry(page: Page) {
   expect(title).not.toBe('')
   await liveCard.locator('.live-actions uni-button').filter({ hasText: '分享/二维码' }).click()
   const link = (await page.locator('.share-link').textContent())?.trim() || ''
-  expect(link).toMatch(/^\/user\/#\/pages\/index\/index\?.*live=/)
-  await page.goto(link)
-  await loginUser(page)
-  await page.locator('.live-card-enter').click()
-  await expect(page.locator('.live-room')).toContainText(title)
-}
-
-async function openAllianceLiveEntry(page: Page) {
-  await page.goto('/alliance/')
-  await page.locator('.tabbar uni-button').filter({ hasText: /^直播$/ }).click()
-  const liveCard = page.locator('.live-card').filter({ hasText: '直播中' }).first()
-  await expect(liveCard).toBeVisible()
-  const title = (await liveCard.locator('.live-body > uni-text').first().textContent())?.trim() || ''
-  expect(title).not.toBe('')
-  await liveCard.click()
-  await page.locator('.live-detail .primary-button').filter({ hasText: '分享直播赚佣金' }).click()
-  if (await page.locator('.login-sheet').count()) {
-    await page.locator('.login-fields input').nth(0).fill('13800000000')
-    await page.locator('.login-fields input').nth(1).fill('123456')
-    await page.locator('.login-submit').click()
-  }
-  await page.waitForFunction((targetTitle) => {
-    const raw = JSON.parse(localStorage.getItem('agritainment-alliance-discovery') || '{}')
-    const saved = raw.data || raw
-    return saved.state?.promotionRecords?.some((record: { targetType: string; targetName: string; link: string }) => record.targetType === 'live' && record.targetName === targetTitle && record.link.includes('/user/'))
-  }, title)
-  const link = await page.evaluate((targetTitle) => {
-    const raw = JSON.parse(localStorage.getItem('agritainment-alliance-discovery') || '{}')
-    const saved = raw.data || raw
-    return saved.state.promotionRecords.find((record: { targetType: string; targetName: string }) => record.targetType === 'live' && record.targetName === targetTitle).link as string
-  }, title)
   expect(link).toMatch(/^\/user\/#\/pages\/index\/index\?.*live=/)
   await page.goto(link)
   await loginUser(page)
@@ -238,16 +207,15 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
   })
 
   await openPromoterLiveEntry(page)
-  await openAllianceLiveEntry(page)
 
   await page.goto('/user/#/pages/index/index?promoter=T002&live=L001')
   await loginUser(page)
   await expect(page.locator('.live-room')).toBeVisible()
   await page.locator('.live-room [aria-label="关闭直播间"]').click()
   await expect(page.locator('.product-card').first().locator('.product-price')).toContainText('48.00')
-  await page.locator('.product-card').nth(0).click()
+  await page.locator('.product-card').filter({ hasText: '湘西烟熏柴火腊肉' }).first().click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
-  await page.locator('.product-card').nth(1).click()
+  await page.locator('.product-card').filter({ hasText: '炎陵黄桃鲜果礼盒' }).first().click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
   await page.locator('.cart-bar').click()
   await page.locator('.primary-btn').filter({ hasText: '去结算' }).click()
@@ -290,7 +258,7 @@ test('admin, user and two suppliers complete an isolated C-mall fulfillment flow
 
   await page.goto('/user/')
   await loginUser(page)
-  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await openUserOrders(page)
   const refreshedOrder = page.locator('.order-card').first()
   const subA = refreshedOrder.locator('.sub-order').filter({ hasText: trackingA })
   const subB = refreshedOrder.locator('.sub-order').filter({ hasText: trackingB })
@@ -347,7 +315,7 @@ test('persisted payment confirmation recovers after refresh without duplicating 
   await page.locator('.product-card').first().click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
   await page.locator('.cart-bar').click()
-  await page.locator('.primary-btn').filter({ hasText: '去结算' }).click()
+  await page.locator('.cart-checkout .primary-btn').filter({ hasText: '去结算' }).click()
   await createCheckoutAddress(page, '支付恢复用户')
   await page.locator('.primary-btn').filter({ hasText: '提交订单' }).click()
   const pendingOrder = page.locator('.order-card').first()
@@ -371,7 +339,7 @@ test('persisted payment confirmation recovers after refresh without duplicating 
   }, { attemptsKey, cOrdersKey, orderId })
   await page.reload()
   await loginUser(page)
-  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await openUserOrders(page)
   const unresolvedOrder = page.locator('.order-card').filter({ hasText: orderId })
   await expect(unresolvedOrder).toContainText('支付结果确认中')
   await unresolvedOrder.locator('.primary-small').filter({ hasText: '查询支付结果' }).click()
@@ -402,7 +370,7 @@ test('persisted payment confirmation recovers after refresh without duplicating 
   }, { attemptsKey, orderId })
   await page.reload()
   await loginUser(page)
-  await page.locator('.tab-item').filter({ hasText: /^我的订单$/ }).click()
+  await openUserOrders(page)
   const recoveredOrder = page.locator('.order-card').filter({ hasText: orderId })
   await expect(recoveredOrder).toContainText('备货中')
   await expect(recoveredOrder).not.toContainText('支付结果确认中')
@@ -427,58 +395,6 @@ test('persisted payment confirmation recovers after refresh without duplicating 
   monitor.dispose()
 })
 
-test('alliance wallet keeps shared approved and rejected withdrawal review details after refresh', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile', '联盟提现移动布局只需在 375px 执行一次')
-  const monitor = monitorPageErrors(page)
-  const withdrawalKey = 'agritainment-platform-withdrawals'
-  const approvedNote = '资料核验通过，款项已由财务复核并完成处理'
-  const rejectedNote = '收款账户信息与实名资料不一致，请修改后重新提交申请'
-
-  await page.goto('/alliance/')
-  await page.evaluate(() => localStorage.clear())
-  await page.reload()
-  await loginAlliance(page)
-  await page.evaluate(({ withdrawalKey, approvedNote, rejectedNote }) => {
-    localStorage.setItem(withdrawalKey, JSON.stringify({
-      'WD-ALLIANCE-APPROVED': {
-        id: 'WD-ALLIANCE-APPROVED', requesterType: 'promoter', requesterId: 'T001', amount: 168.5,
-        method: '银行卡', status: 'approved', requestKey: 'WD-ALLIANCE-APPROVED', createdAt: '2026-08-30T09:00:00.000Z',
-        reviewedAt: '2026-08-31T10:15:00.000Z', reviewedBy: 'A-FINANCE', operator: '财务审核员', reviewedNote: approvedNote
-      },
-      'WD-ALLIANCE-REJECTED': {
-        id: 'WD-ALLIANCE-REJECTED', requesterType: 'promoter', requesterId: 'T001', amount: 88,
-        method: '微信', status: 'rejected', requestKey: 'WD-ALLIANCE-REJECTED', createdAt: '2026-08-31T09:00:00.000Z',
-        reviewedAt: '2026-08-31T11:20:00.000Z', reviewedBy: 'A-REVIEW', operator: '运营复核员', reviewedNote: rejectedNote
-      }
-    }))
-  }, { withdrawalKey, approvedNote, rejectedNote })
-
-  await page.reload()
-  await loginAlliance(page)
-  await page.locator('.wallet-top uni-button').filter({ hasText: '提现' }).click()
-  const history = page.locator('.withdrawal-history')
-  await expect(history).toContainText('已通过')
-  await expect(history).toContainText('已驳回')
-  await expect(history).toContainText('财务审核员')
-  await expect(history).toContainText('运营复核员')
-  await expect(history).toContainText(approvedNote)
-  await expect(history).toContainText(rejectedNote)
-  await expect(history).toContainText('¥168.5')
-  await expect(history).toContainText('¥88')
-  await assertFixedLayerWithinViewport(page.locator('.sheet-mask'))
-  await assertNoPageOverflow(page)
-  await assertNoClippedText(history.locator('.withdrawal-record small'))
-
-  await page.locator('.sheet-head uni-button').click()
-  await page.reload()
-  await loginAlliance(page)
-  await page.locator('.wallet-top uni-button').filter({ hasText: '提现' }).click()
-  await expect(page.locator('.withdrawal-history')).toContainText(approvedNote)
-  await expect(page.locator('.withdrawal-history')).toContainText(rejectedNote)
-  monitor.assertClean()
-  monitor.dispose()
-})
-
 test('supplier submission audit, listing, MOQ checkout and update draft stay consistent across portals', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', '跨门户业务闭环仅执行一次')
   const monitor = monitorPageErrors(page)
@@ -497,7 +413,19 @@ test('supplier submission audit, listing, MOQ checkout and update draft stay con
   await page.locator('.product-work-head .primary-button').filter({ hasText: '新增商品' }).click()
   const form = page.locator('.supplier-product-form')
   await form.locator('.form-field').filter({ hasText: '商品名称' }).locator('input').fill(originalName)
-  await form.locator('.form-field').filter({ hasText: '商品品类' }).locator('input').fill('腊味')
+  await form.locator('.form-field').filter({ hasText: '商品品类' }).locator('.category-picker-trigger').click()
+  await page.locator('.category-picker-option').filter({ hasText: '特色食材' }).click()
+  await page.evaluate(() => {
+    const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+    const blob = new Blob([bytes], { type: 'image/png' })
+    const url = URL.createObjectURL(blob)
+    const uniScope = (window as unknown as { uni?: Record<string, unknown> }).uni
+    if (uniScope) uniScope.chooseImage = (opts: { success: (result: { tempFilePaths: string[]; tempFiles: Array<{ path: string; file: Blob }> }) => void }) => opts.success({ tempFilePaths: [url], tempFiles: [{ path: url, file: blob }] })
+  })
+  const productImageField = form.locator('.media-field').filter({ hasText: '商品主图' })
+  await productImageField.locator('.business-uploader__choose').click()
+  await expect(productImageField.locator('.business-uploader__preview')).toBeVisible()
   const skuInputs = form.locator('.supplier-sku-fields input')
   await skuInputs.nth(0).fill('验收装')
   await skuInputs.nth(1).fill('66')
@@ -518,7 +446,7 @@ test('supplier submission audit, listing, MOQ checkout and update draft stay con
   expect(submitted.id).not.toBe('')
   expect(submitted.formalExists).toBe(false)
 
-  await page.locator('.product-work-head .icon-button').click()
+  await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
   await page.locator('.hero-logout').click()
   await approveProductSubmission(page, originalName)
   await expect.poll(() => page.evaluate((name) => {
@@ -541,20 +469,20 @@ test('supplier submission audit, listing, MOQ checkout and update draft stay con
   await loginUser(page)
   await page.locator('.search-input input').fill(originalName)
   const product = page.locator('.product-card').filter({ hasText: originalName })
-  await expect(product).toContainText('起订 3 件')
+  await expect(product).toBeVisible()
   await product.click()
-  await expect(page.locator('.detail-content')).toContainText('起订 3 件')
+  await expect(page.locator('.detail-content')).not.toContainText('起订')
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
   await page.locator('.cart-bar').click()
   await expect(page.locator('.cart-line .stepper')).toContainText('3')
   await page.locator('.cart-line .stepper uni-button').filter({ hasText: '−' }).click()
   await expect(page.locator('.cart-line .stepper')).toContainText('2')
-  await expect(page.locator('.cart-line')).toContainText('低于起订量或库存不足，不可结算')
+  await expect(page.locator('.cart-line')).toContainText('库存不足或购买数量未达要求')
   await expect(page.locator('.primary-btn').filter({ hasText: '去结算' })).toHaveAttribute('disabled', 'true')
   await page.locator('.cart-line .stepper uni-button').filter({ hasText: '+' }).click()
   await expect(page.locator('.cart-line .stepper')).toContainText('3')
   await expect(page.locator('.primary-btn').filter({ hasText: '去结算' })).toBeEnabled()
-  await page.locator('.primary-btn').filter({ hasText: '去结算' }).click()
+  await page.locator('.cart-checkout .primary-btn').filter({ hasText: '去结算' }).click()
   await createCheckoutAddress(page, 'MOQ 验收用户')
   await page.locator('.primary-btn').filter({ hasText: '提交订单' }).click()
   await expect(page.locator('.orders-page')).toBeVisible()
@@ -864,7 +792,7 @@ test('supplier and driver mobile workspaces stay usable at every acceptance view
   await assertNoClippedText(page.locator('.product-work-head uni-button:visible, .product-work-head uni-text:visible'))
   await assertNoClippedText(page.locator('.product-filter-chips uni-button:visible, .supplier-product-list uni-text:visible, .supplier-product-list uni-button:visible, .product-work-page .empty-state uni-text:visible'))
   await assertNoPageOverflow(page)
-  await page.locator('.product-work-head .icon-button').click()
+  await page.locator('.tab-item').filter({ hasText: /^我的$/ }).click()
 
   const driver = await page.evaluate(() => {
     const raw = JSON.parse(localStorage.getItem('agritainment-platform-drivers') || '[]')
@@ -973,10 +901,13 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
       formal: catalog.products?.some((item: { name: string }) => item.name === name) || false
     }
   }, productName)).toEqual({ pending: true, formal: false })
-  await page.locator('.product-review-tabs uni-button').filter({ hasText: '待审核' }).click()
+  const reviewChannel = page.locator('.data-panel > .searchable-select')
+  await reviewChannel.locator('.searchable-select__trigger').click()
+  await page.getByRole('option', { name: '待审核', exact: true }).click()
   const createdSubmission = page.locator('.product-submission-card').filter({ hasText: productName })
   await createdSubmission.locator('.row-actions uni-button').filter({ hasText: '通过' }).click()
-  await page.locator('.product-review-tabs uni-button').filter({ hasText: '正式商品' }).click()
+  await reviewChannel.locator('.searchable-select__trigger').click()
+  await page.getByRole('option', { name: '正式商品', exact: true }).click()
   await page.locator('.goods-tools .search-box input').fill(productName)
   const createdFormalProduct = page.locator('.unified-product-grid').filter({ hasText: productName })
   await expect(createdFormalProduct).toContainText('已下架')
@@ -1034,7 +965,7 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await page.locator('.product-card').filter({ hasText: productName }).click()
   await page.locator('.primary-btn').filter({ hasText: '加入购物车' }).click()
   await page.locator('.cart-bar').click()
-  await page.locator('.primary-btn').filter({ hasText: '去结算' }).click()
+  await page.locator('.cart-checkout .primary-btn').filter({ hasText: '去结算' }).click()
   await page.locator('.address-select').click()
   await page.locator('.primary-btn').filter({ hasText: '新增地址' }).click()
   const addressInputs = page.locator('.address-form input')

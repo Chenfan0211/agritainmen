@@ -94,10 +94,10 @@ function deferred<T>() {
 beforeEach(() => localStorage.clear())
 
 describe('catalog MOQ', () => {
-  it('normalizes missing, zero, and fractional MOQ to one while preserving valid integers', () => {
+  it('normalizes missing and fractional MOQ to one while preserving zero and valid integers', () => {
     expect(api.normalizeMinimumOrderQuantity).toBeTypeOf('function')
     if (!api.normalizeMinimumOrderQuantity) return
-    expect([undefined, 0, 1.5, 3].map(api.normalizeMinimumOrderQuantity)).toEqual([1, 1, 1, 3])
+    expect([undefined, 0, 1.5, 3].map(api.normalizeMinimumOrderQuantity)).toEqual([1, 0, 1, 3])
 
     const raw = catalogProduct({
       skus: [
@@ -108,7 +108,7 @@ describe('catalog MOQ', () => {
       ]
     })
     localStorage.setItem(catalogKey, JSON.stringify({ schemaVersion: 1, revision: 2, products: [raw] }))
-    expect(sharedModule.readCatalogState()?.products[0].skus.map((sku) => sku.minimumOrderQuantity)).toEqual([1, 1, 1, 6])
+    expect(sharedModule.readCatalogState()?.products[0].skus.map((sku) => sku.minimumOrderQuantity)).toEqual([1, 0, 1, 6])
   })
 
   it('projects MOQ to store and user SKUs and rejects quantities below MOQ or above stock', () => {

@@ -10,6 +10,13 @@
   --admin-ink: #202820;
   --admin-muted: #59645b;
   --admin-line: #dedfd8;
+  --admin-radius-panel: 8px;
+  --admin-radius-control: 6px;
+  --admin-control-height: 40px;
+  --admin-row-height: 56px;
+  --admin-sidebar-width: 220px;
+  --admin-sidebar-compact-width: 196px;
+  --admin-focus-ring: 0 0 0 3px rgba(29, 107, 68, .2);
 }
 
 page, body, #app {
@@ -30,7 +37,11 @@ button, input, select, textarea { font: inherit; letter-spacing: 0; }
 button { border: 0; }
 button { transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: translateY(1px); }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid rgba(29, 107, 68, .34); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="combobox"]:focus-visible {
+  outline: 2px solid rgba(29, 107, 68, .5);
+  outline-offset: 2px;
+  box-shadow: var(--admin-focus-ring);
+}
 
 @media (max-width: 420px) {
   .uni-sample-toast {

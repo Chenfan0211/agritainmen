@@ -181,12 +181,13 @@ describe('admin supplier and RBAC page', () => {
     expect(source).toContain("store.can('product.audit')")
     expect(source).toContain('submission.reviewNote')
   })
-  it('renders product and commission filters as searchable dropdowns', () => {
+  it('renders product review filters as searchable dropdowns and keeps commission tabs visible', () => {
     expect(source).not.toContain('product-review-tabs')
     expect(source).toContain('SearchableSelect v-model="productReviewFilter"')
     expect(source).toContain('productReviewFilters')
-    expect(source).not.toContain("['佣金结算','提现审核','供应商结算','佣金规则','消费分成']")
-    expect(source).toContain('SearchableSelect v-model="commissionTab"')
+    expect(source).toContain('class="filter-chips commission-filter-tabs"')
+    expect(source).toContain('v-for="item in commissionTabOptions"')
+    expect(source).not.toContain('SearchableSelect v-model="commissionTab"')
     expect(source).toContain('commissionTabOptions')
   })
 
@@ -252,5 +253,35 @@ describe('admin supplier and RBAC page', () => {
     expect(source).toContain('env(safe-area-inset-bottom)')
     expect(source).toContain('.drawer{width:min(440px,100vw)')
     expect(source).toContain('max-width:100vw')
+  })
+
+  it('uses uploaded product category images across admin product surfaces', () => {
+    expect(source).toContain('productCategoryImage')
+    expect(source).not.toContain('categoryIconName')
+    expect(source).toContain("image: productCategoryImage('全部', dictionaryState.value)")
+    expect(source).toContain('image: productCategoryImage(category, dictionaryState.value)')
+    expect(source).toContain(':src="productCategoryImage(product.category, dictionaryState)"')
+    expect(source).toContain(':src="productCategoryImage(item.name, dictionaryState)"')
+    expect(source).toContain("dictTypeTab === 'productCategory'")
+    expect(source).toContain('.category-thumb{width:32px;height:32px')
+    expect(source).toContain(':show-error="false"')
+  })
+
+  it('adds required image models and uploaders only to product category forms', () => {
+    expect(source).toContain('categoryImage: null as BusinessMediaValue | null')
+    expect(source).toContain('dictImage: null as BusinessMediaValue | null')
+    expect(source).toContain('v-if="form.categoryType === \'product\'" class="field"')
+    expect(source).toContain('v-model="form.categoryImage" purpose="product-category"')
+    expect(source).toContain('v-if="dictTypeTab === \'productCategory\'" class="field"')
+    expect(source).toContain('v-model="form.dictImage" purpose="product-category"')
+    expect(source).not.toContain('v-model="form.categoryImage" purpose="supplier-category"')
+  })
+
+  it('persists category-form images through the shared dictionary media lifecycle', () => {
+    expect(source).toContain('dictionaryItemMediaBindings')
+    expect(source).toContain('validateDictionaryItemImage')
+    expect(source).toContain("store.addCategory(form.value.name, 'product', categoryImage)")
+    expect(source).toContain('image: dictImage')
+    expect(source).toContain("store.categories.filter((item) => item.type !== 'product')")
   })
 })

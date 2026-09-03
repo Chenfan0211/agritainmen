@@ -3,7 +3,7 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 18 })
 </script>
 
 <template>
-  <image class="ui-icon" :src="`/static/icons/${name}.svg`" :style="{ width: `${size}px`, height: `${size}px` }" mode="aspectFit" />
+  <image aria-hidden="true" class="ui-icon" :src="`/static/icons/${name}.svg`" :style="{ width: `${size}px`, height: `${size}px` }" mode="aspectFit" />
 </template>
 
 <style scoped>

@@ -1,6 +1,7 @@
-import { PLATFORM_DICTIONARIES_STORAGE_KEY, DICTIONARY_SCHEMA_VERSION, selectDictOptions, builtInDictLabel, canPublishPlatformDictionaries, defaultDictionaryPublishLock, migratePlatformDictionaries, createInitialPlatformDictionaries } from './dictionaries'
+import { PLATFORM_DICTIONARIES_STORAGE_KEY, DICTIONARY_SCHEMA_VERSION, selectDictOptions, builtInDictLabel, canPublishPlatformDictionaries, defaultDictionaryPublishLock, migratePlatformDictionaries, createInitialPlatformDictionaries, mergeLegacyProductCategories } from './dictionaries'
 import { PlatformEventBus } from './platform-event-bus'
 import { normalizeMediaReference, type MediaReference } from './media'
+import { defaultProductCategoryImage } from './product-category-images'
 import type { DictionaryPublishLock, PlatformDictionaryState } from './dictionaries'
 import type { FarmLocation } from './geocoding'
 export type Role = 'customer' | 'staff' | 'manager'
@@ -87,17 +88,6 @@ export interface CommissionEntry {
   targetType?: PromotionRecord['targetType']
   targetId?: string
   requestKey?: string
-}
-
-export interface AllianceBooking {
-  id: string
-  farmId: string
-  farmName: string
-  date: string
-  session: string
-  people: number
-  status: 'submitted' | 'confirmed'
-  createdAt: string
 }
 
 export interface TenantConfig {
@@ -425,7 +415,7 @@ export const PLATFORM_PRODUCTION_RECOVERY_HANDLER_KEYS = [
   'user-commerce-recovery-v1', 'farmhouse-commerce-recovery-v1', 'admin-commission-rule-v1',
   'admin-supplier-settlement-v1', 'admin-commission-settlement-v1', 'admin-booking-v1',
   'admin-failure-audit-v1',
-  'catalog-product-review-v1', 'alliance-withdrawal-v1'
+  'catalog-product-review-v1'
 ] as const
 /** Stable keys accepted by new production recovery registrations. */
 export type PlatformProductionRecoveryHandlerKey = typeof PLATFORM_PRODUCTION_RECOVERY_HANDLER_KEYS[number]
@@ -1263,6 +1253,7 @@ export interface DictItem {
   enabled: boolean
   sort: number
   tone?: 'default' | 'success' | 'warning' | 'danger'
+  image?: MediaReference
 }
 
 export type StoreRole = 'owner' | 'staff'
@@ -1989,6 +1980,26 @@ export const categories: Category[] = [
   { id: 'C024', name: '研学亲子', type: 'general' }
 ]
 
+export function categoryIconName(category: string): string {
+  const value = category.trim().toLowerCase()
+  if (value === '全部') return 'layout-dashboard'
+  if (['套餐券', '代金券', '优惠券'].some((keyword) => value.includes(keyword))) return 'badge-percent'
+  if (['民宿', '住宿', '客房'].some((keyword) => value.includes(keyword))) return 'house'
+  if (['包装', '耗材'].some((keyword) => value.includes(keyword))) return 'package'
+  if (['体验', '采摘', '研学'].some((keyword) => value.includes(keyword))) return 'map-pin'
+  if (['土特产', '伴手礼', '礼品', '文旅'].some((keyword) => value.includes(keyword))) return 'shopping-bag'
+  if (['预制菜', '食材', '调料', '粮油', '米面', '饮料', '酒水', '腊味'].some((keyword) => value.includes(keyword))) return 'utensils'
+  if (['农产品', '农产', '生鲜', '水果', '果蔬', '蔬菜', '蜂蜜', '茶叶', '禽蛋', '水产', '养殖', '种植'].some((keyword) => value.includes(keyword))) return 'sprout'
+  return 'tags'
+}
+
+export function productCategoryImage(category: string, state: PlatformDictionaryState = readPlatformDictionaries()): MediaReference {
+  const normalized = category.trim()
+  const item = state.items.find((candidate) => candidate.type === 'productCategory'
+    && (candidate.code === normalized || candidate.label === normalized))
+  return normalizeMediaReference(item?.image) ?? defaultProductCategoryImage(normalized)
+}
+
 const rawFarms: Array<Omit<FarmStore, 'address' | 'location' | 'locationStatus' | 'locationError' | 'structuredAddress' | 'regionCode'>> = [
   { id: 'F001', core: true, emoji: '🏡', adminDesc: '样板店 · 柴火土菜', name: '石板溪农家乐', region: '湘西州永顺县', city: '湘西州', availability: 'bookable', livePopularity: 9842, distance: 0.8, rating: 4.9, monthlySales: 1280, averageSpend: 78, status: 'active', selectedCount: 86, gmv: 42860, image: '/static/images/farmhouse.webp', tags: ['柴火土菜', '临溪包厢', '可直播'], storeTags: ['柴火土灶', '山泉养鱼', '亲子研学'] },
   { id: 'F002', core: true, emoji: '⛰', adminDesc: '山景民宿', name: '云上人家山景农庄', region: '张家界永定区', city: '张家界市', availability: 'bookable', livePopularity: 8657, distance: 1.1, rating: 4.8, monthlySales: 960, averageSpend: 120, status: 'active', selectedCount: 64, gmv: 38420, image: '/static/images/mountain.webp', tags: ['山景民宿', '家宴大厅'] },
@@ -2067,81 +2078,81 @@ export const orders: Order[] = [
   { id: 'NJ202608110928', productName: '炎陵黄桃礼盒', quantity: 2, amount: 136, customer: '石板溪农家乐', channel: 'live', status: 'pending', createdAt: '2026-08-11 09:28', supplierId: 'S004', items: [{ productId: 'P002', skuId: 'P002-5J', name: '炎陵黄桃 5斤礼盒', skuName: '5斤礼盒', image: '/static/images/peach.webp', quantity: 2, price: 68 }], flow: [{ time: '2026-08-11 09:28', action: '用户下单', operator: '石板溪农家乐' }, { time: '2026-08-11 09:28', action: '订单支付成功', operator: '石板溪农家乐' }] },
   { id: 'NJ202608110915', productName: '湘西烟熏柴火腊肉', quantity: 5, amount: 277.7, customer: '云上人家山景农庄', channel: 'shop', status: 'pending', createdAt: '2026-08-11 09:15', supplierId: 'S002', items: [{ productId: 'P001', skuId: 'P001-500', name: '湘西烟熏柴火腊肉 500g', skuName: '500g', image: '/static/images/bacon.webp', quantity: 3, price: 59.9 }, { productId: 'P009', skuId: 'P009-1', name: '招牌酱板鸭 整只装', skuName: '整只装', image: '/static/images/bacon.webp', quantity: 2, price: 49 }] },
   { id: 'NJ202608110903', productName: '民宿一次性洗漱套装', quantity: 200, amount: 360, customer: '云上人家山景农庄', channel: 'purchase', status: 'shipping', createdAt: '2026-08-11 09:03', supplierId: 'S005', items: [{ productId: 'P014', skuId: 'P014-100', name: '民宿一次性洗漱套装', skuName: '100套/箱', image: '/static/images/field.webp', quantity: 200, price: 1.8 }], flow: [{ time: '2026-08-11 09:03', action: '用户下单', operator: '云上人家山景农庄' }, { time: '2026-08-11 09:03', action: '订单支付成功', operator: '云上人家山景农庄' }, { time: '2026-08-11 09:03', action: '已发货 · 已安排司机配送', operator: '运营管理员' }] },
-  { id: 'NJ202608110851', productName: '安化黑茶礼盒', quantity: 1, amount: 128, customer: '联盟推客 · 张同学', channel: 'live', status: 'shipping', createdAt: '2026-08-11 08:51', supplierId: 'S003', items: [{ productId: 'P003', skuId: 'P003-GIFT', name: '安化黑茶礼盒装', skuName: '雅藏礼盒', image: '/static/images/tea.webp', quantity: 1, price: 128 }] },
+  { id: 'NJ202608110851', productName: '安化黑茶礼盒', quantity: 1, amount: 128, customer: '推客 · 张同学', channel: 'live', status: 'shipping', createdAt: '2026-08-11 08:51', supplierId: 'S003', items: [{ productId: 'P003', skuId: 'P003-GIFT', name: '安化黑茶礼盒装', skuName: '雅藏礼盒', image: '/static/images/tea.webp', quantity: 1, price: 128 }] },
   { id: 'NJ202608110842', productName: '武陵山野生土蜂蜜', quantity: 3, amount: 264, customer: '稻香村生态农庄', channel: 'shop', status: 'delivered', createdAt: '2026-08-11 08:42', supplierId: 'S006', items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 3, price: 88 }], flow: [{ time: '2026-08-11 08:42', action: '用户下单', operator: '稻香村生态农庄' }, { time: '2026-08-11 08:42', action: '订单支付成功', operator: '稻香村生态农庄' }, { time: '2026-08-11 08:42', action: '已发货 · 已安排司机配送', operator: '运营管理员' }, { time: '2026-08-11 08:42', action: '已确认收货', operator: '运营管理员' }] },
   { id: 'NJ202608121030', productName: '湘西烟熏柴火腊肉', quantity: 6, amount: 359.4, customer: '石板溪农家乐', channel: 'shop', status: 'pending', createdAt: '2026-08-12 10:30', supplierId: 'S002', items: [{ productId: 'P001', skuId: 'P001-500', name: '湘西烟熏柴火腊肉 500g', skuName: '500g', image: '/static/images/bacon.webp', quantity: 6, price: 59.9 }] },
   { id: 'NJ202608121015', productName: '安化黑茶礼盒装', quantity: 2, amount: 256, customer: '云上人家山景农庄', channel: 'purchase', status: 'unpaid-cancelled', createdAt: '2026-08-12 10:15', supplierId: 'S003', items: [{ productId: 'P003', skuId: 'P003-GIFT', name: '安化黑茶礼盒装', skuName: '雅藏礼盒', image: '/static/images/tea.webp', quantity: 2, price: 128 }], flow: [{ time: '2026-08-12 10:15', action: '用户下单', operator: '云上人家山景农庄' }, { time: '2026-08-12 10:15', action: '未支付取消', operator: '云上人家山景农庄' }] },
-  { id: 'NJ202608120958', productName: '洞庭湖风干刁子鱼', quantity: 10, amount: 428, customer: '联盟推客 · 苗家阿妹', channel: 'live', status: 'shipping', createdAt: '2026-08-12 09:58', supplierId: 'S008', trackingNo: 'SF1493208660121', items: [{ productId: 'P016', skuId: 'P016-400', name: '洞庭湖风干刁子鱼 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 10, price: 42.8 }] },
+  { id: 'NJ202608120958', productName: '洞庭湖风干刁子鱼', quantity: 10, amount: 428, customer: '推客 · 苗家阿妹', channel: 'live', status: 'shipping', createdAt: '2026-08-12 09:58', supplierId: 'S008', trackingNo: 'SF1493208660121', items: [{ productId: 'P016', skuId: 'P016-400', name: '洞庭湖风干刁子鱼 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 10, price: 42.8 }] },
   { id: 'NJ202608120945', productName: '民宿一次性洗漱套装', quantity: 100, amount: 350, customer: '稻香村生态农庄', channel: 'purchase', status: 'shipping', createdAt: '2026-08-12 09:45', supplierId: 'S005', trackingNo: 'DB4321689092', logistics: [{ time: '2026-08-12 09:45', title: '商家已发货', detail: '订单已由 德邦快递 揽收' }, { time: '2026-08-12 11:02', title: '运输中', detail: '包裹已到达长沙转运中心' }], items: [{ productId: 'P014', skuId: 'P014-100', name: '民宿一次性洗漱套装', skuName: '100套/箱', image: '/static/images/field.webp', quantity: 100, price: 3.5 }] },
-  { id: 'NJ202608120931', productName: '武陵山野生土蜂蜜', quantity: 2, amount: 176, customer: '联盟推客 · 土家幺妹', channel: 'live', status: 'paid-cancelled', createdAt: '2026-08-12 09:31', supplierId: 'S006', trackingNo: 'ZT7231096554', items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 2, price: 88 }], flow: [{ time: '2026-08-12 09:31', action: '用户下单', operator: '联盟推客 · 土家幺妹' }, { time: '2026-08-12 09:31', action: '订单支付成功', operator: '联盟推客 · 土家幺妹' }, { time: '2026-08-12 09:31', action: '已支付取消', operator: '联盟推客 · 土家幺妹' }] },
+  { id: 'NJ202608120931', productName: '武陵山野生土蜂蜜', quantity: 2, amount: 176, customer: '推客 · 土家幺妹', channel: 'live', status: 'paid-cancelled', createdAt: '2026-08-12 09:31', supplierId: 'S006', trackingNo: 'ZT7231096554', items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 2, price: 88 }], flow: [{ time: '2026-08-12 09:31', action: '用户下单', operator: '推客 · 土家幺妹' }, { time: '2026-08-12 09:31', action: '订单支付成功', operator: '推客 · 土家幺妹' }, { time: '2026-08-12 09:31', action: '已支付取消', operator: '推客 · 土家幺妹' }] },
   { id: 'NJ202608120918', productName: '农家自制剁辣椒', quantity: 20, amount: 798, customer: '橘子洲畔农家院', channel: 'shop', status: 'delivered', createdAt: '2026-08-12 09:18', items: [{ productId: 'P004', skuId: 'P004-2', name: '农家自制剁辣椒 2瓶', skuName: '2瓶装', image: '/static/images/chili.webp', quantity: 20, price: 39.9 }] },
   { id: 'NJ202608120905', productName: '宁乡花猪腊肠', quantity: 15, amount: 582, customer: '衡山南岳农家乐', channel: 'shop', status: 'delivered', createdAt: '2026-08-12 09:05', supplierId: 'S009', trackingNo: 'YT7754219833', logistics: [{ time: '2026-08-11 16:20', title: '商家已发货', detail: '订单已由 圆通速递 揽收' }, { time: '2026-08-11 21:47', title: '运输中', detail: '包裹已到达衡阳分拨中心' }, { time: '2026-08-12 08:35', title: '派送中', detail: '快递员正在派送' }], items: [{ productId: 'P017', skuId: 'P017-400', name: '宁乡花猪腊肠 400g', skuName: '400g', image: '/static/images/bacon.webp', quantity: 15, price: 38.8 }] },
-  { id: 'NJ202608120851', productName: '农家四人欢聚套餐券', quantity: 3, amount: 864, customer: '联盟推客 · 湘农达人', channel: 'live', status: 'after-sale', createdAt: '2026-08-12 08:51', items: [{ productId: 'P007', skuId: 'P007-4P', name: '农家四人欢聚套餐券', skuName: '四人套餐券', image: '/static/images/farmhouse.webp', quantity: 3, price: 288 }] },
+  { id: 'NJ202608120851', productName: '农家四人欢聚套餐券', quantity: 3, amount: 864, customer: '推客 · 湘农达人', channel: 'live', status: 'after-sale', createdAt: '2026-08-12 08:51', items: [{ productId: 'P007', skuId: 'P007-4P', name: '农家四人欢聚套餐券', skuName: '四人套餐券', image: '/static/images/farmhouse.webp', quantity: 3, price: 288 }] },
   { id: 'NJ202608120842', productName: '山泉土鸡汤礼盒', quantity: 4, amount: 432, customer: '韶山红色记忆农庄', channel: 'purchase', status: 'shipping', createdAt: '2026-08-12 08:42', trackingNo: 'JDV00152633821', items: [{ productId: 'P011', skuId: 'P011-1', name: '山泉土鸡汤礼盒', skuName: '2只装', image: '/static/images/farmhouse.webp', quantity: 4, price: 108 }] },
   { id: 'NJ202608120830', productName: '安化擂茶粉', quantity: 8, amount: 319.2, customer: '益阳安化茶乡小院', channel: 'shop', status: 'delivered', createdAt: '2026-08-12 08:30', supplierId: 'S003', trackingNo: 'EMS555882761', items: [{ productId: 'P023', skuId: 'P023-500', name: '安化擂茶粉 500g', skuName: '500g', image: '/static/images/tea.webp', quantity: 8, price: 39.9 } ] },
   { id: 'NJ202607201600', productName: '宝庆糯米甜酒 2L坛装', quantity: 4, amount: 184, customer: '岳阳洞庭渔村', channel: 'shop', status: 'delivered', createdAt: '2026-07-20 16:00', supplierId: 'S012', trackingNo: 'DB4320001000', logistics: [{ time: '2026-07-20 16:00', title: '商家已发货', detail: '订单已由 德邦快递 揽收' }, { time: '2026-07-20 16:13', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-20 16:38', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-20 16:30', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P021', skuId: 'P021-2L', name: '宝庆糯米甜酒 2L坛装', skuName: '2L坛装', image: '/static/images/field.webp', quantity: 4, price: 46 }] },
   { id: 'NJ202607201109', productName: '麻阳猕猴桃汁 6瓶', quantity: 4, amount: 159.6, customer: '岳阳洞庭渔村', channel: 'shop', status: 'delivered', createdAt: '2026-07-20 11:09', supplierId: 'S025', trackingNo: 'YD8840001001', logistics: [{ time: '2026-07-20 11:09', title: '商家已发货', detail: '订单已由 韵达快递 揽收' }, { time: '2026-07-20 11:44', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-20 11:27', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-20 11:03', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P056', skuId: 'P056-6', name: '麻阳猕猴桃汁 6瓶', skuName: '6瓶装', image: '/static/images/field.webp', quantity: 4, price: 39.9 }] },
-  { id: 'NJ202607211215', productName: '白关丝瓜 3斤装', quantity: 2, amount: 39.8, customer: '联盟推客 · 湘农达人', channel: 'shop', status: 'delivered', createdAt: '2026-07-21 12:15', supplierId: 'S015', trackingNo: 'YD8840001002', logistics: [{ time: '2026-07-21 12:15', title: '商家已发货', detail: '订单已由 韵达快递 揽收' }, { time: '2026-07-21 12:01', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-21 12:38', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-21 12:03', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P026', skuId: 'P026-3J', name: '白关丝瓜 3斤装', skuName: '3斤装', image: '/static/images/field.webp', quantity: 2, price: 19.9 }] },
+  { id: 'NJ202607211215', productName: '白关丝瓜 3斤装', quantity: 2, amount: 39.8, customer: '推客 · 湘农达人', channel: 'shop', status: 'delivered', createdAt: '2026-07-21 12:15', supplierId: 'S015', trackingNo: 'YD8840001002', logistics: [{ time: '2026-07-21 12:15', title: '商家已发货', detail: '订单已由 韵达快递 揽收' }, { time: '2026-07-21 12:01', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-21 12:38', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-21 12:03', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P026', skuId: 'P026-3J', name: '白关丝瓜 3斤装', skuName: '3斤装', image: '/static/images/field.webp', quantity: 2, price: 19.9 }] },
   { id: 'NJ202607211740', productName: '宁乡花猪腊肠 400g', quantity: 6, amount: 691.2, customer: '橘子洲畔农家院', channel: 'shop', status: 'delivered', createdAt: '2026-07-21 17:40', supplierId: 'S009', trackingNo: 'EMS550001003', logistics: [{ time: '2026-07-21 17:40', title: '商家已发货', detail: '订单已由 邮政EMS 揽收' }, { time: '2026-07-21 17:30', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-21 17:01', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-21 17:28', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P017', skuId: 'P017-400', name: '宁乡花猪腊肠 400g', skuName: '400g', image: '/static/images/bacon.webp', quantity: 4, price: 38.8 }, { productId: 'P055', skuId: 'P055-1', name: '山景民宿一晚券', skuName: '1晚', image: '/static/images/mountain.webp', quantity: 2, price: 268 }] },
   { id: 'NJ202607221134', productName: '石门柑橘 5kg', quantity: 2, amount: 91.6, customer: '云上人家山景农庄', channel: 'live', status: 'delivered', createdAt: '2026-07-22 11:34', supplierId: 'S020', items: [{ productId: 'P028', skuId: 'P028-5K', name: '石门柑橘 5kg', skuName: '5kg', image: '/static/images/peach.webp', quantity: 2, price: 45.8 }] },
-  { id: 'NJ202607220823', productName: '靖州杨梅干 250g', quantity: 4, amount: 107.2, customer: '联盟推客 · 土家幺妹', channel: 'live', status: 'delivered', createdAt: '2026-07-22 08:23', supplierId: 'S001', items: [{ productId: 'P019', skuId: 'P019-250', name: '靖州杨梅干 250g', skuName: '250g', image: '/static/images/peach.webp', quantity: 4, price: 26.8 }] },
+  { id: 'NJ202607220823', productName: '靖州杨梅干 250g', quantity: 4, amount: 107.2, customer: '推客 · 土家幺妹', channel: 'live', status: 'delivered', createdAt: '2026-07-22 08:23', supplierId: 'S001', items: [{ productId: 'P019', skuId: 'P019-250', name: '靖州杨梅干 250g', skuName: '250g', image: '/static/images/peach.webp', quantity: 4, price: 26.8 }] },
   { id: 'NJ202607231022', productName: '竹纤维浴巾 20条', quantity: 2, amount: 500, customer: '游客 · 李女士', channel: 'live', status: 'delivered', createdAt: '2026-07-23 10:22', supplierId: 'S005', items: [{ productId: 'P044', skuId: 'P044-20', name: '竹纤维浴巾 20条', skuName: '20条/箱', image: '/static/images/field.webp', quantity: 2, price: 250 }] },
   { id: 'NJ202607240956', productName: '湘莲莲子羹 400g', quantity: 7, amount: 300.4, customer: '怀化侗乡渔寨', channel: 'purchase', status: 'delivered', createdAt: '2026-07-24 09:56', supplierId: 'S016', trackingNo: 'EMS550001004', logistics: [{ time: '2026-07-24 09:56', title: '商家已发货', detail: '订单已由 邮政EMS 揽收' }, { time: '2026-07-24 09:15', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-24 09:09', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-24 09:46', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P050', skuId: 'P050-400', name: '湘莲莲子羹 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 4, price: 46 }, { productId: 'P031', skuId: 'P031-300', name: '浏阳蒸火焙鱼 300g', skuName: '300g', image: '/static/images/field.webp', quantity: 3, price: 38.8 }] },
-  { id: 'NJ202607240808', productName: '湘西剁椒鱼头酱 500g', quantity: 2, amount: 59.8, customer: '联盟推客 · 岳阳小龙虾哥', channel: 'purchase', status: 'delivered', createdAt: '2026-07-24 08:08', supplierId: 'S002', trackingNo: 'EMS550001005', logistics: [{ time: '2026-07-24 08:08', title: '商家已发货', detail: '订单已由 邮政EMS 揽收' }, { time: '2026-07-24 08:40', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-24 08:21', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-24 08:00', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P018', skuId: 'P018-500', name: '湘西剁椒鱼头酱 500g', skuName: '500g', image: '/static/images/chili.webp', quantity: 2, price: 29.9 }] },
+  { id: 'NJ202607240808', productName: '湘西剁椒鱼头酱 500g', quantity: 2, amount: 59.8, customer: '推客 · 岳阳小龙虾哥', channel: 'purchase', status: 'delivered', createdAt: '2026-07-24 08:08', supplierId: 'S002', trackingNo: 'EMS550001005', logistics: [{ time: '2026-07-24 08:08', title: '商家已发货', detail: '订单已由 邮政EMS 揽收' }, { time: '2026-07-24 08:40', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-24 08:21', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-24 08:00', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P018', skuId: 'P018-500', name: '湘西剁椒鱼头酱 500g', skuName: '500g', image: '/static/images/chili.webp', quantity: 2, price: 29.9 }] },
   { id: 'NJ202607251625', productName: '亲子研学半日券', quantity: 4, amount: 392, customer: '炎陵云溪农庄', channel: 'shop', status: 'delivered', createdAt: '2026-07-25 16:25', trackingNo: 'JDV1500001006', logistics: [{ time: '2026-07-25 16:25', title: '商家已发货', detail: '订单已由 京东物流 揽收' }, { time: '2026-07-25 16:34', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-25 16:07', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-25 16:06', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P054', skuId: 'P054-2', name: '亲子研学半日券', skuName: '1大1小', image: '/static/images/field.webp', quantity: 4, price: 98 }] },
   { id: 'NJ202607250843', productName: '洞庭湖风干刁子鱼 400g', quantity: 3, amount: 128.4, customer: '韶山红色记忆农庄', channel: 'shop', status: 'delivered', createdAt: '2026-07-25 08:43', supplierId: 'S008', items: [{ productId: 'P016', skuId: 'P016-400', name: '洞庭湖风干刁子鱼 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 3, price: 42.8 }] },
-  { id: 'NJ202607261435', productName: '亲子研学半日券', quantity: 6, amount: 490, customer: '联盟推客 · 辣妹子', channel: 'shop', status: 'delivered', createdAt: '2026-07-26 14:35', items: [{ productId: 'P054', skuId: 'P054-2', name: '亲子研学半日券', skuName: '1大1小', image: '/static/images/field.webp', quantity: 4, price: 98 }, { productId: 'P009', skuId: 'P009-1', name: '招牌酱板鸭 整只装', skuName: '整只装', image: '/static/images/bacon.webp', quantity: 2, price: 49 }] },
+  { id: 'NJ202607261435', productName: '亲子研学半日券', quantity: 6, amount: 490, customer: '推客 · 辣妹子', channel: 'shop', status: 'delivered', createdAt: '2026-07-26 14:35', items: [{ productId: 'P054', skuId: 'P054-2', name: '亲子研学半日券', skuName: '1大1小', image: '/static/images/field.webp', quantity: 4, price: 98 }, { productId: 'P009', skuId: 'P009-1', name: '招牌酱板鸭 整只装', skuName: '整只装', image: '/static/images/bacon.webp', quantity: 2, price: 49 }] },
   { id: 'NJ202607271207', productName: '宝庆糯米甜酒 2L坛装', quantity: 3, amount: 138, customer: '韶山红色记忆农庄', channel: 'shop', status: 'delivered', createdAt: '2026-07-27 12:07', supplierId: 'S012', trackingNo: 'EMS550001007', logistics: [{ time: '2026-07-27 12:07', title: '商家已发货', detail: '订单已由 邮政EMS 揽收' }, { time: '2026-07-27 12:10', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-27 12:48', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-27 12:45', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P021', skuId: 'P021-2L', name: '宝庆糯米甜酒 2L坛装', skuName: '2L坛装', image: '/static/images/field.webp', quantity: 3, price: 46 }] },
   { id: 'NJ202607281702', productName: '湘西农家伴手礼大礼包', quantity: 2, amount: 316, customer: '游客 · 刘女士', channel: 'shop', status: 'delivered', createdAt: '2026-07-28 17:02', supplierId: 'S005', trackingNo: 'SF1490001008', logistics: [{ time: '2026-07-28 17:02', title: '商家已发货', detail: '订单已由 顺丰速运 揽收' }, { time: '2026-07-28 17:47', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-28 17:48', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-28 17:26', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P022', skuId: 'P022-8', name: '湘西农家伴手礼大礼包', skuName: '8件装', image: '/static/images/farmhouse.webp', quantity: 2, price: 158 }] },
-  { id: 'NJ202607281733', productName: '望城蔬果脆片 200g', quantity: 1, amount: 19.8, customer: '联盟推客 · 衡山云姐', channel: 'live', status: 'delivered', createdAt: '2026-07-28 17:33', supplierId: 'S013', trackingNo: 'JDV1500001009', items: [{ productId: 'P049', skuId: 'P049-200', name: '望城蔬果脆片 200g', skuName: '200g', image: '/static/images/field.webp', quantity: 1, price: 19.8 }] },
+  { id: 'NJ202607281733', productName: '望城蔬果脆片 200g', quantity: 1, amount: 19.8, customer: '推客 · 衡山云姐', channel: 'live', status: 'delivered', createdAt: '2026-07-28 17:33', supplierId: 'S013', trackingNo: 'JDV1500001009', items: [{ productId: 'P049', skuId: 'P049-200', name: '望城蔬果脆片 200g', skuName: '200g', image: '/static/images/field.webp', quantity: 1, price: 19.8 }] },
   { id: 'NJ202607291837', productName: '麻阳冰糖橙 5kg礼盒', quantity: 3, amount: 247.8, customer: '长沙捞刀河渔家乐', channel: 'live', status: 'delivered', createdAt: '2026-07-29 18:37', supplierId: 'S025', items: [{ productId: 'P025', skuId: 'P025-5K', name: '麻阳冰糖橙 5kg礼盒', skuName: '5kg礼盒', image: '/static/images/peach.webp', quantity: 2, price: 59.9 }, { productId: 'P010', skuId: 'P010-1', name: '安化黑茶 · 农家自藏', skuName: '礼盒装', image: '/static/images/tea.webp', quantity: 1, price: 128 }] },
   { id: 'NJ202607291457', productName: '武陵山野生土蜂蜜 500g', quantity: 2, amount: 176, customer: '衡山南岳农家乐', channel: 'live', status: 'delivered', createdAt: '2026-07-29 14:57', supplierId: 'S006', trackingNo: 'YD8840001010', logistics: [{ time: '2026-07-29 14:57', title: '商家已发货', detail: '订单已由 韵达快递 揽收' }, { time: '2026-07-29 14:15', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-29 14:29', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-29 14:29', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 2, price: 88 }] },
-  { id: 'NJ202607301917', productName: '武陵山野生土蜂蜜 500g', quantity: 2, amount: 176, customer: '联盟推客 · 衡山云姐', channel: 'purchase', status: 'delivered', createdAt: '2026-07-30 19:17', supplierId: 'S006', trackingNo: 'YD8840001011', logistics: [{ time: '2026-07-30 19:17', title: '商家已发货', detail: '订单已由 韵达快递 揽收' }, { time: '2026-07-30 19:43', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-30 19:06', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-30 19:07', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 2, price: 88 }] },
+  { id: 'NJ202607301917', productName: '武陵山野生土蜂蜜 500g', quantity: 2, amount: 176, customer: '推客 · 衡山云姐', channel: 'purchase', status: 'delivered', createdAt: '2026-07-30 19:17', supplierId: 'S006', trackingNo: 'YD8840001011', logistics: [{ time: '2026-07-30 19:17', title: '商家已发货', detail: '订单已由 韵达快递 揽收' }, { time: '2026-07-30 19:43', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-30 19:06', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-30 19:07', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P005', skuId: 'P005-500', name: '武陵山野生土蜂蜜 500g', skuName: '500g', image: '/static/images/honey.webp', quantity: 2, price: 88 }] },
   { id: 'NJ202607301510', productName: '民宿四件套床上用品', quantity: 2, amount: 178, customer: '云上人家山景农庄', channel: 'purchase', status: 'delivered', createdAt: '2026-07-30 15:10', supplierId: 'S005', trackingNo: 'ZT7230001012', logistics: [{ time: '2026-07-30 15:10', title: '商家已发货', detail: '订单已由 中通快递 揽收' }, { time: '2026-07-30 15:05', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-30 15:36', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-30 15:20', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P024', skuId: 'P024-1', name: '民宿四件套床上用品', skuName: '四件套', image: '/static/images/field.webp', quantity: 2, price: 89 }] },
   { id: 'NJ202607311634', productName: '民宿一次性凉拖 100双', quantity: 6, amount: 632, customer: '橘子洲畔农家院', channel: 'shop', status: 'delivered', createdAt: '2026-07-31 16:34', supplierId: 'S005', trackingNo: 'YT7750001013', logistics: [{ time: '2026-07-31 16:34', title: '商家已发货', detail: '订单已由 圆通速递 揽收' }, { time: '2026-07-31 16:42', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-07-31 16:26', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-07-31 16:13', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P043', skuId: 'P043-100', name: '民宿一次性凉拖 100双', skuName: '100双/箱', image: '/static/images/field.webp', quantity: 2, price: 180 }, { productId: 'P012', skuId: 'P012-1', name: '湘西柴火腊肉真空装', skuName: '500g', image: '/static/images/bacon.webp', quantity: 4, price: 68 }] },
-  { id: 'NJ202607311856', productName: '湘莲莲子羹 400g', quantity: 3, amount: 138, customer: '联盟推客 · 洞庭湖渔哥', channel: 'shop', status: 'delivered', createdAt: '2026-07-31 18:56', supplierId: 'S016', items: [{ productId: 'P050', skuId: 'P050-400', name: '湘莲莲子羹 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 3, price: 46 }] },
+  { id: 'NJ202607311856', productName: '湘莲莲子羹 400g', quantity: 3, amount: 138, customer: '推客 · 洞庭湖渔哥', channel: 'shop', status: 'delivered', createdAt: '2026-07-31 18:56', supplierId: 'S016', items: [{ productId: 'P050', skuId: 'P050-400', name: '湘莲莲子羹 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 3, price: 46 }] },
   { id: 'NJ202608011306', productName: '洞庭湖风干刁子鱼 400g', quantity: 3, amount: 128.4, customer: '长沙捞刀河渔家乐', channel: 'shop', status: 'delivered', createdAt: '2026-08-01 13:06', supplierId: 'S008', items: [{ productId: 'P016', skuId: 'P016-400', name: '洞庭湖风干刁子鱼 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 3, price: 42.8 }] },
   { id: 'NJ202608010857', productName: '商用保鲜膜 300米', quantity: 4, amount: 112, customer: '稻香村生态农庄', channel: 'shop', status: 'delivered', createdAt: '2026-08-01 08:57', supplierId: 'S005', trackingNo: 'SF1490001014', items: [{ productId: 'P046', skuId: 'P046-300', name: '商用保鲜膜 300米', skuName: '300米/卷', image: '/static/images/field.webp', quantity: 4, price: 28 }] },
-  { id: 'NJ202608010816', productName: '双峰辣酱 500g', quantity: 6, amount: 451.8, customer: '联盟推客 · 湘农达人', channel: 'shop', status: 'delivered', createdAt: '2026-08-01 08:16', supplierId: 'S026', trackingNo: 'DB4320001015', logistics: [{ time: '2026-08-01 08:16', title: '商家已发货', detail: '订单已由 德邦快递 揽收' }, { time: '2026-08-01 08:37', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-08-01 08:05', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-08-01 08:13', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P036', skuId: 'P036-500', name: '双峰辣酱 500g', skuName: '500g', image: '/static/images/chili.webp', quantity: 2, price: 29.9 }, { productId: 'P054', skuId: 'P054-2', name: '亲子研学半日券', skuName: '1大1小', image: '/static/images/field.webp', quantity: 4, price: 98 }] },
+  { id: 'NJ202608010816', productName: '双峰辣酱 500g', quantity: 6, amount: 451.8, customer: '推客 · 湘农达人', channel: 'shop', status: 'delivered', createdAt: '2026-08-01 08:16', supplierId: 'S026', trackingNo: 'DB4320001015', logistics: [{ time: '2026-08-01 08:16', title: '商家已发货', detail: '订单已由 德邦快递 揽收' }, { time: '2026-08-01 08:37', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-08-01 08:05', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-08-01 08:13', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P036', skuId: 'P036-500', name: '双峰辣酱 500g', skuName: '500g', image: '/static/images/chili.webp', quantity: 2, price: 29.9 }, { productId: 'P054', skuId: 'P054-2', name: '亲子研学半日券', skuName: '1大1小', image: '/static/images/field.webp', quantity: 4, price: 98 }] },
   { id: 'NJ202608021854', productName: '湘西剁椒鱼头酱 500g', quantity: 4, amount: 119.6, customer: '橘子洲畔农家院', channel: 'live', status: 'delivered', createdAt: '2026-08-02 18:54', supplierId: 'S002', trackingNo: 'JDV1500001016', items: [{ productId: 'P018', skuId: 'P018-500', name: '湘西剁椒鱼头酱 500g', skuName: '500g', image: '/static/images/chili.webp', quantity: 4, price: 29.9 }] },
   { id: 'NJ202608021520', productName: '平江香干 300g', quantity: 3, amount: 47.4, customer: '橘子洲畔农家院', channel: 'live', status: 'delivered', createdAt: '2026-08-02 15:20', supplierId: 'S019', trackingNo: 'DB4320001017', logistics: [{ time: '2026-08-02 15:20', title: '商家已发货', detail: '订单已由 德邦快递 揽收' }, { time: '2026-08-02 15:28', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-08-02 15:47', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-08-02 15:22', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P033', skuId: 'P033-300', name: '平江香干 300g', skuName: '300g', image: '/static/images/field.webp', quantity: 3, price: 15.8 }] },
-  { id: 'NJ202608021027', productName: '民宿一次性洗漱套装', quantity: 2, amount: 7, customer: '联盟推客 · 山里阿强', channel: 'live', status: 'delivered', createdAt: '2026-08-02 10:27', supplierId: 'S005', trackingNo: 'YT7750001018', logistics: [{ time: '2026-08-02 10:27', title: '商家已发货', detail: '订单已由 圆通速递 揽收' }, { time: '2026-08-02 10:20', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-08-02 10:16', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-08-02 10:09', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P014', skuId: 'P014-100', name: '民宿一次性洗漱套装', skuName: '100套/箱', image: '/static/images/field.webp', quantity: 2, price: 3.5 }] },
+  { id: 'NJ202608021027', productName: '民宿一次性洗漱套装', quantity: 2, amount: 7, customer: '推客 · 山里阿强', channel: 'live', status: 'delivered', createdAt: '2026-08-02 10:27', supplierId: 'S005', trackingNo: 'YT7750001018', logistics: [{ time: '2026-08-02 10:27', title: '商家已发货', detail: '订单已由 圆通速递 揽收' }, { time: '2026-08-02 10:20', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-08-02 10:16', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-08-02 10:09', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P014', skuId: 'P014-100', name: '民宿一次性洗漱套装', skuName: '100套/箱', image: '/static/images/field.webp', quantity: 2, price: 3.5 }] },
   { id: 'NJ202608021514', productName: '安化黑茶 · 农家自藏', quantity: 2, amount: 187.9, customer: '游客 · 李女士', channel: 'purchase', status: 'delivered', createdAt: '2026-08-02 15:14', items: [{ productId: 'P010', skuId: 'P010-1', name: '安化黑茶 · 农家自藏', skuName: '礼盒装', image: '/static/images/tea.webp', quantity: 1, price: 128 }, { productId: 'P025', skuId: 'P025-5K', name: '麻阳冰糖橙 5kg礼盒', skuName: '5kg礼盒', image: '/static/images/peach.webp', quantity: 1, price: 59.9 }] },
   { id: 'NJ202608031958', productName: '农家自制剁辣椒 2瓶', quantity: 3, amount: 119.7, customer: '邵阳崀山人家', channel: 'purchase', status: 'delivered', createdAt: '2026-08-03 19:58', trackingNo: 'YD8840001019', logistics: [{ time: '2026-08-03 19:58', title: '商家已发货', detail: '订单已由 韵达快递 揽收' }, { time: '2026-08-03 19:04', title: '运输中', detail: '包裹已到达长沙转运中心' }, { time: '2026-08-03 19:13', title: '派送中', detail: '快递员正在派送，请保持电话畅通' }, { time: '2026-08-03 19:10', title: '已签收', detail: '包裹已由本人签收，感谢使用' }], items: [{ productId: 'P004', skuId: 'P004-2', name: '农家自制剁辣椒 2瓶', skuName: '2瓶装', image: '/static/images/chili.webp', quantity: 3, price: 39.9 }] },
-  { id: 'NJ202608031449', productName: '武冈卤香干 400g', quantity: 4, amount: 91.2, customer: '联盟推客 · 苗家阿妹', channel: 'shop', status: 'delivered', createdAt: '2026-08-03 14:49', supplierId: 'S031', items: [{ productId: 'P034', skuId: 'P034-400', name: '武冈卤香干 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 4, price: 22.8 }] },
+  { id: 'NJ202608031449', productName: '武冈卤香干 400g', quantity: 4, amount: 91.2, customer: '推客 · 苗家阿妹', channel: 'shop', status: 'delivered', createdAt: '2026-08-03 14:49', supplierId: 'S031', items: [{ productId: 'P034', skuId: 'P034-400', name: '武冈卤香干 400g', skuName: '400g', image: '/static/images/field.webp', quantity: 4, price: 22.8 }] },
   { id: 'NJ202608030831', productName: '山景民宿一晚券', quantity: 1, amount: 268, customer: '石板溪农家乐', channel: 'shop', status: 'shipping', createdAt: '2026-08-03 08:31', items: [{ productId: 'P055', skuId: 'P055-1', name: '山景民宿一晚券', skuName: '1晚', image: '/static/images/mountain.webp', quantity: 1, price: 268 }] },
   { id: 'NJ202608031951', productName: '农家四人欢聚套餐券', quantity: 2, amount: 347.9, customer: '常德柳叶湖荷香农庄', channel: 'shop', status: 'shipping', createdAt: '2026-08-03 19:51', trackingNo: 'YD8840001020', items: [{ productId: 'P007', skuId: 'P007-4P', name: '农家四人欢聚套餐券', skuName: '四人套餐券', image: '/static/images/farmhouse.webp', quantity: 1, price: 288 }, { productId: 'P025', skuId: 'P025-5K', name: '麻阳冰糖橙 5kg礼盒', skuName: '5kg礼盒', image: '/static/images/peach.webp', quantity: 1, price: 59.9 }] },
-  { id: 'NJ202608030902', productName: '望城富硒米 10kg', quantity: 2, amount: 178, customer: '联盟推客 · 湘农达人', channel: 'shop', status: 'shipping', createdAt: '2026-08-03 09:02', supplierId: 'S013', trackingNo: 'DB4320001021', items: [{ productId: 'P060', skuId: 'P060-10K', name: '望城富硒米 10kg', skuName: '10kg', image: '/static/images/rice.webp', quantity: 2, price: 89 }] },
+  { id: 'NJ202608030902', productName: '望城富硒米 10kg', quantity: 2, amount: 178, customer: '推客 · 湘农达人', channel: 'shop', status: 'shipping', createdAt: '2026-08-03 09:02', supplierId: 'S013', trackingNo: 'DB4320001021', items: [{ productId: 'P060', skuId: 'P060-10K', name: '望城富硒米 10kg', skuName: '10kg', image: '/static/images/rice.webp', quantity: 2, price: 89 }] },
   { id: 'NJ202608041934', productName: '亲子研学半日券', quantity: 2, amount: 196, customer: '石板溪农家乐', channel: 'shop', status: 'shipping', createdAt: '2026-08-04 19:34', trackingNo: 'SF1490001022', items: [{ productId: 'P054', skuId: 'P054-2', name: '亲子研学半日券', skuName: '1大1小', image: '/static/images/field.webp', quantity: 2, price: 98 }] },
   { id: 'NJ202608041938', productName: '古丈毛尖礼盒', quantity: 2, amount: 276, customer: '游客 · 李女士', channel: 'live', status: 'shipping', createdAt: '2026-08-04 19:38', supplierId: 'S027', items: [{ productId: 'P042', skuId: 'P042-250', name: '古丈毛尖礼盒', skuName: '250g礼盒', image: '/static/images/tea.webp', quantity: 2, price: 138 }] },
-  { id: 'NJ202608041912', productName: '湘绣团扇伴手礼', quantity: 6, amount: 350.4, customer: '联盟推客 · 苗家阿妹', channel: 'live', status: 'shipping', createdAt: '2026-08-04 19:12', supplierId: 'S016', items: [{ productId: 'P052', skuId: 'P052-1', name: '湘绣团扇伴手礼', skuName: '单把装', image: '/static/images/field.webp', quantity: 3, price: 88 }, { productId: 'P029', skuId: 'P029-500', name: '祁东黄花菜 500g', skuName: '500g', image: '/static/images/field.webp', quantity: 3, price: 28.8 }] },
+  { id: 'NJ202608041912', productName: '湘绣团扇伴手礼', quantity: 6, amount: 350.4, customer: '推客 · 苗家阿妹', channel: 'live', status: 'shipping', createdAt: '2026-08-04 19:12', supplierId: 'S016', items: [{ productId: 'P052', skuId: 'P052-1', name: '湘绣团扇伴手礼', skuName: '单把装', image: '/static/images/field.webp', quantity: 3, price: 88 }, { productId: 'P029', skuId: 'P029-500', name: '祁东黄花菜 500g', skuName: '500g', image: '/static/images/field.webp', quantity: 3, price: 28.8 }] },
   { id: 'NJ202608050907', productName: '宝庆糯米甜酒 2L坛装', quantity: 1, amount: 46, customer: '郴州东江湖人家', channel: 'live', status: 'shipping', createdAt: '2026-08-05 09:07', supplierId: 'S012', trackingNo: 'YD8840001023', items: [{ productId: 'P021', skuId: 'P021-2L', name: '宝庆糯米甜酒 2L坛装', skuName: '2L坛装', image: '/static/images/field.webp', quantity: 1, price: 46 }] },
   { id: 'NJ202608051756', productName: '祁东黄花菜 500g', quantity: 4, amount: 115.2, customer: '石板溪农家乐', channel: 'purchase', status: 'shipping', createdAt: '2026-08-05 17:56', supplierId: 'S017', items: [{ productId: 'P029', skuId: 'P029-500', name: '祁东黄花菜 500g', skuName: '500g', image: '/static/images/field.webp', quantity: 4, price: 28.8 }] },
-  { id: 'NJ202608050803', productName: '山泉土鸡汤礼盒', quantity: 2, amount: 216, customer: '联盟推客 · 岳阳小龙虾哥', channel: 'purchase', status: 'shipping', createdAt: '2026-08-05 08:03', trackingNo: 'DB4320001024', items: [{ productId: 'P011', skuId: 'P011-1', name: '山泉土鸡汤礼盒', skuName: '2只装', image: '/static/images/farmhouse.webp', quantity: 2, price: 108 }] },
+  { id: 'NJ202608050803', productName: '山泉土鸡汤礼盒', quantity: 2, amount: 216, customer: '推客 · 岳阳小龙虾哥', channel: 'purchase', status: 'shipping', createdAt: '2026-08-05 08:03', trackingNo: 'DB4320001024', items: [{ productId: 'P011', skuId: 'P011-1', name: '山泉土鸡汤礼盒', skuName: '2只装', image: '/static/images/farmhouse.webp', quantity: 2, price: 108 }] },
   { id: 'NJ202608061158', productName: '浏阳蒸火焙鱼 300g', quantity: 7, amount: 253.6, customer: '岳阳洞庭渔村', channel: 'shop', status: 'shipping', createdAt: '2026-08-06 11:58', supplierId: 'S014', items: [{ productId: 'P031', skuId: 'P031-300', name: '浏阳蒸火焙鱼 300g', skuName: '300g', image: '/static/images/field.webp', quantity: 4, price: 38.8 }, { productId: 'P027', skuId: 'P027-5J', name: '江永香芋 5斤装', skuName: '5斤装', image: '/static/images/field.webp', quantity: 3, price: 32.8 }] },
   { id: 'NJ202608061224', productName: '亲子研学半日券', quantity: 4, amount: 392, customer: '长沙捞刀河渔家乐', channel: 'shop', status: 'shipping', createdAt: '2026-08-06 12:24', trackingNo: 'ZT7230001025', items: [{ productId: 'P054', skuId: 'P054-2', name: '亲子研学半日券', skuName: '1大1小', image: '/static/images/field.webp', quantity: 4, price: 98 }] },
-  { id: 'NJ202608061220', productName: '竹纤维浴巾 20条', quantity: 2, amount: 500, customer: '联盟推客 · 茶香小妹', channel: 'shop', status: 'shipping', createdAt: '2026-08-06 12:20', supplierId: 'S005', trackingNo: 'ZT7230001026', items: [{ productId: 'P044', skuId: 'P044-20', name: '竹纤维浴巾 20条', skuName: '20条/箱', image: '/static/images/field.webp', quantity: 2, price: 250 }] },
+  { id: 'NJ202608061220', productName: '竹纤维浴巾 20条', quantity: 2, amount: 500, customer: '推客 · 茶香小妹', channel: 'shop', status: 'shipping', createdAt: '2026-08-06 12:20', supplierId: 'S005', trackingNo: 'ZT7230001026', items: [{ productId: 'P044', skuId: 'P044-20', name: '竹纤维浴巾 20条', skuName: '20条/箱', image: '/static/images/field.webp', quantity: 2, price: 250 }] },
   { id: 'NJ202608070836', productName: '山景民宿一晚券', quantity: 1, amount: 268, customer: '怀化侗乡渔寨', channel: 'shop', status: 'shipping', createdAt: '2026-08-07 08:36', items: [{ productId: 'P055', skuId: 'P055-1', name: '山景民宿一晚券', skuName: '1晚', image: '/static/images/mountain.webp', quantity: 1, price: 268 }] },
   { id: 'NJ202608071039', productName: '桑植土蜂蜜 1kg', quantity: 5, amount: 191.2, customer: '常德柳叶湖荷香农庄', channel: 'shop', status: 'shipping', createdAt: '2026-08-07 10:39', supplierId: 'S034', items: [{ productId: 'P047', skuId: 'P047-1K', name: '桑植土蜂蜜 1kg', skuName: '1kg', image: '/static/images/honey.webp', quantity: 1, price: 128 }, { productId: 'P033', skuId: 'P033-300', name: '平江香干 300g', skuName: '300g', image: '/static/images/field.webp', quantity: 4, price: 15.8 }] },
-  { id: 'NJ202608070928', productName: '永州米粉干 2kg', quantity: 3, amount: 80.4, customer: '联盟推客 · 张同学', channel: 'live', status: 'shipping', createdAt: '2026-08-07 09:28', supplierId: 'S036', items: [{ productId: 'P038', skuId: 'P038-2K', name: '永州米粉干 2kg', skuName: '2kg', image: '/static/images/field.webp', quantity: 3, price: 26.8 }] },
+  { id: 'NJ202608070928', productName: '永州米粉干 2kg', quantity: 3, amount: 80.4, customer: '推客 · 张同学', channel: 'live', status: 'shipping', createdAt: '2026-08-07 09:28', supplierId: 'S036', items: [{ productId: 'P038', skuId: 'P038-2K', name: '永州米粉干 2kg', skuName: '2kg', image: '/static/images/field.webp', quantity: 3, price: 26.8 }] },
   { id: 'NJ202608081904', productName: '民宿四件套床上用品', quantity: 3, amount: 267, customer: '云上人家山景农庄', channel: 'live', status: 'pending', createdAt: '2026-08-08 19:04', supplierId: 'S005', items: [{ productId: 'P024', skuId: 'P024-1', name: '民宿四件套床上用品', skuName: '四件套', image: '/static/images/field.webp', quantity: 3, price: 89 }] },
   { id: 'NJ202608081249', productName: '麻阳猕猴桃汁 6瓶', quantity: 3, amount: 119.7, customer: '石板溪农家乐', channel: 'live', status: 'pending', createdAt: '2026-08-08 12:49', supplierId: 'S025', items: [{ productId: 'P056', skuId: 'P056-6', name: '麻阳猕猴桃汁 6瓶', skuName: '6瓶装', image: '/static/images/field.webp', quantity: 3, price: 39.9 }] },
-  { id: 'NJ202608080934', productName: '张家界莓茶礼盒', quantity: 4, amount: 652, customer: '联盟推客 · 辣妹子', channel: 'purchase', status: 'pending', createdAt: '2026-08-08 09:34', supplierId: 'S021', items: [{ productId: 'P040', skuId: 'P040-200', name: '张家界莓茶礼盒', skuName: '200g礼盒', image: '/static/images/tea.webp', quantity: 2, price: 168 }, { productId: 'P022', skuId: 'P022-8', name: '湘西农家伴手礼大礼包', skuName: '8件装', image: '/static/images/farmhouse.webp', quantity: 2, price: 158 }] },
+  { id: 'NJ202608080934', productName: '张家界莓茶礼盒', quantity: 4, amount: 652, customer: '推客 · 辣妹子', channel: 'purchase', status: 'pending', createdAt: '2026-08-08 09:34', supplierId: 'S021', items: [{ productId: 'P040', skuId: 'P040-200', name: '张家界莓茶礼盒', skuName: '200g礼盒', image: '/static/images/tea.webp', quantity: 2, price: 168 }, { productId: 'P022', skuId: 'P022-8', name: '湘西农家伴手礼大礼包', skuName: '8件装', image: '/static/images/farmhouse.webp', quantity: 2, price: 158 }] },
   { id: 'NJ202608080837', productName: '平江香干 300g', quantity: 3, amount: 47.4, customer: '游客 · 李女士', channel: 'purchase', status: 'pending', createdAt: '2026-08-08 08:37', supplierId: 'S019', items: [{ productId: 'P033', skuId: 'P033-300', name: '平江香干 300g', skuName: '300g', image: '/static/images/field.webp', quantity: 3, price: 15.8 }] },
   { id: 'NJ202608081036', productName: '湘西柴火腊肉真空装', quantity: 1, amount: 68, customer: '岳阳洞庭渔村', channel: 'shop', status: 'pending', createdAt: '2026-08-08 10:36', items: [{ productId: 'P012', skuId: 'P012-1', name: '湘西柴火腊肉真空装', skuName: '500g', image: '/static/images/bacon.webp', quantity: 1, price: 68 }] },
-  { id: 'NJ202608091500', productName: '湖南特产八件套', quantity: 2, amount: 336, customer: '联盟推客 · 岳阳小龙虾哥', channel: 'shop', status: 'pending', createdAt: '2026-08-09 15:00', supplierId: 'S014', items: [{ productId: 'P051', skuId: 'P051-8', name: '湖南特产八件套', skuName: '8件装', image: '/static/images/farmhouse.webp', quantity: 2, price: 168 }] },
+  { id: 'NJ202608091500', productName: '湖南特产八件套', quantity: 2, amount: 336, customer: '推客 · 岳阳小龙虾哥', channel: 'shop', status: 'pending', createdAt: '2026-08-09 15:00', supplierId: 'S014', items: [{ productId: 'P051', skuId: 'P051-8', name: '湖南特产八件套', skuName: '8件装', image: '/static/images/farmhouse.webp', quantity: 2, price: 168 }] },
   { id: 'NJ202608090803', productName: '湘西柴火腊肉真空装', quantity: 6, amount: 331.8, customer: '石板溪农家乐', channel: 'shop', status: 'pending', createdAt: '2026-08-09 08:03', items: [{ productId: 'P012', skuId: 'P012-1', name: '湘西柴火腊肉真空装', skuName: '500g', image: '/static/images/bacon.webp', quantity: 4, price: 68 }, { productId: 'P018', skuId: 'P018-500', name: '湘西剁椒鱼头酱 500g', skuName: '500g', image: '/static/images/chili.webp', quantity: 2, price: 29.9 }] },
   { id: 'NJ202608091348', productName: '民宿四件套床上用品', quantity: 3, amount: 267, customer: '衡山南岳农家乐', channel: 'shop', status: 'pending', createdAt: '2026-08-09 13:48', supplierId: 'S005', items: [{ productId: 'P024', skuId: 'P024-1', name: '民宿四件套床上用品', skuName: '四件套', image: '/static/images/field.webp', quantity: 3, price: 89 }] },
-  { id: 'NJ202608090937', productName: '耒阳红薯粉 1kg', quantity: 3, amount: 59.7, customer: '联盟推客 · 土家幺妹', channel: 'shop', status: 'pending', createdAt: '2026-08-09 09:37', supplierId: 'S030', items: [{ productId: 'P037', skuId: 'P037-1K', name: '耒阳红薯粉 1kg', skuName: '1kg', image: '/static/images/field.webp', quantity: 3, price: 19.9 }] },
+  { id: 'NJ202608090937', productName: '耒阳红薯粉 1kg', quantity: 3, amount: 59.7, customer: '推客 · 土家幺妹', channel: 'shop', status: 'pending', createdAt: '2026-08-09 09:37', supplierId: 'S030', items: [{ productId: 'P037', skuId: 'P037-1K', name: '耒阳红薯粉 1kg', skuName: '1kg', image: '/static/images/field.webp', quantity: 3, price: 19.9 }] },
   { id: 'NJ202608091559', productName: '东江鱼仔香辣味 200g', quantity: 1, amount: 32.8, customer: '常德柳叶湖荷香农庄', channel: 'live', status: 'pending', createdAt: '2026-08-09 15:59', items: [{ productId: 'P008', skuId: 'P008-200', name: '东江鱼仔香辣味 200g', skuName: '200g', image: '/static/images/field.webp', quantity: 1, price: 32.8 }] },
   { id: 'NJ202608101841', productName: '民宿一次性凉拖 100双', quantity: 5, amount: 444, customer: '游客 · 王先生', channel: 'live', status: 'pending', createdAt: '2026-08-10 18:41', supplierId: 'S005', items: [{ productId: 'P043', skuId: 'P043-100', name: '民宿一次性凉拖 100双', skuName: '100双/箱', image: '/static/images/field.webp', quantity: 2, price: 180 }, { productId: 'P046', skuId: 'P046-300', name: '商用保鲜膜 300米', skuName: '300米/卷', image: '/static/images/field.webp', quantity: 3, price: 28 }] },
-  { id: 'NJ202608101312', productName: '古丈蒿子粑粑 6个装', quantity: 1, amount: 22.8, customer: '联盟推客 · 岳阳小龙虾哥', channel: 'live', status: 'pending', createdAt: '2026-08-10 13:12', supplierId: 'S027', items: [{ productId: 'P048', skuId: 'P048-6', name: '古丈蒿子粑粑 6个装', skuName: '6个装', image: '/static/images/field.webp', quantity: 1, price: 22.8 }] },
+  { id: 'NJ202608101312', productName: '古丈蒿子粑粑 6个装', quantity: 1, amount: 22.8, customer: '推客 · 岳阳小龙虾哥', channel: 'live', status: 'pending', createdAt: '2026-08-10 13:12', supplierId: 'S027', items: [{ productId: 'P048', skuId: 'P048-6', name: '古丈蒿子粑粑 6个装', skuName: '6个装', image: '/static/images/field.webp', quantity: 1, price: 22.8 }] },
   { id: 'NJ202608101724', productName: '临武鸭蛋 20枚', quantity: 4, amount: 128, customer: '衡山南岳农家乐', channel: 'purchase', status: 'pending', createdAt: '2026-08-10 17:24', supplierId: 'S023', items: [{ productId: 'P059', skuId: 'P059-20', name: '临武鸭蛋 20枚', skuName: '20枚', image: '/static/images/farmhouse.webp', quantity: 4, price: 32 }] },
   { id: 'NJ202608101149', productName: '湘西烟熏柴火腊肉 500g', quantity: 3, amount: 179.7, customer: '云上人家山景农庄', channel: 'purchase', status: 'pending', createdAt: '2026-08-10 11:49', supplierId: 'S002', items: [{ productId: 'P001', skuId: 'P001-500', name: '湘西烟熏柴火腊肉 500g', skuName: '500g', image: '/static/images/bacon.webp', quantity: 3, price: 59.9 }] },
-  { id: 'NJ202608101542', productName: '君山银针礼盒', quantity: 3, amount: 571, customer: '联盟推客 · 湘农达人', channel: 'shop', status: 'pending', createdAt: '2026-08-10 15:42', supplierId: 'S032', items: [{ productId: 'P041', skuId: 'P041-250', name: '君山银针礼盒', skuName: '250g礼盒', image: '/static/images/tea.webp', quantity: 2, price: 198 }, { productId: 'P045', skuId: 'P045-500', name: '牛皮纸打包袋 ×500', skuName: '500只/箱', image: '/static/images/field.webp', quantity: 1, price: 175 }] },
+  { id: 'NJ202608101542', productName: '君山银针礼盒', quantity: 3, amount: 571, customer: '推客 · 湘农达人', channel: 'shop', status: 'pending', createdAt: '2026-08-10 15:42', supplierId: 'S032', items: [{ productId: 'P041', skuId: 'P041-250', name: '君山银针礼盒', skuName: '250g礼盒', image: '/static/images/tea.webp', quantity: 2, price: 198 }, { productId: 'P045', skuId: 'P045-500', name: '牛皮纸打包袋 ×500', skuName: '500只/箱', image: '/static/images/field.webp', quantity: 1, price: 175 }] },
   { id: 'NJ202608111521', productName: '南县稻虾米 5kg', quantity: 2, amount: 119.8, customer: '岳阳洞庭渔村', channel: 'shop', status: 'after-sale', createdAt: '2026-08-11 15:21', supplierId: 'S022', items: [{ productId: 'P030', skuId: 'P030-5K', name: '南县稻虾米 5kg', skuName: '5kg', image: '/static/images/rice.webp', quantity: 2, price: 59.9 }] },
   { id: 'NJ202608110926', productName: '农家自制剁辣椒 2瓶', quantity: 3, amount: 119.7, customer: '怀化侗乡渔寨', channel: 'shop', status: 'after-sale', createdAt: '2026-08-11 09:26', trackingNo: 'YT7750001027', items: [{ productId: 'P004', skuId: 'P004-2', name: '农家自制剁辣椒 2瓶', skuName: '2瓶装', image: '/static/images/chili.webp', quantity: 3, price: 39.9 }] },
-  { id: 'NJ202608111718', productName: '宝庆糯米甜酒 2L坛装', quantity: 4, amount: 184, customer: '联盟推客 · 洞庭湖渔哥', channel: 'shop', status: 'after-sale', createdAt: '2026-08-11 17:18', supplierId: 'S012', items: [{ productId: 'P021', skuId: 'P021-2L', name: '宝庆糯米甜酒 2L坛装', skuName: '2L坛装', image: '/static/images/field.webp', quantity: 4, price: 46 }] },
+  { id: 'NJ202608111718', productName: '宝庆糯米甜酒 2L坛装', quantity: 4, amount: 184, customer: '推客 · 洞庭湖渔哥', channel: 'shop', status: 'after-sale', createdAt: '2026-08-11 17:18', supplierId: 'S012', items: [{ productId: 'P021', skuId: 'P021-2L', name: '宝庆糯米甜酒 2L坛装', skuName: '2L坛装', image: '/static/images/field.webp', quantity: 4, price: 46 }] },
   { id: 'NJ202608111646', productName: '平江香干 300g', quantity: 6, amount: 214.8, customer: '炎陵云溪农庄', channel: 'shop', status: 'after-sale', createdAt: '2026-08-11 16:46', supplierId: 'S019', items: [{ productId: 'P033', skuId: 'P033-300', name: '平江香干 300g', skuName: '300g', image: '/static/images/field.webp', quantity: 2, price: 15.8 }, { productId: 'P028', skuId: 'P028-5K', name: '石门柑橘 5kg', skuName: '5kg', image: '/static/images/peach.webp', quantity: 4, price: 45.8 }] },
 { id: 'NJ202608121952', productName: '沅江芦笋 500g', quantity: 1, amount: 24.9, customer: '郴州东江湖人家', channel: 'live', status: 'after-sale', createdAt: '2026-08-12 19:52', supplierId: 'S035', items: [{ productId: 'P039', skuId: 'P039-500', name: '沅江芦笋 500g', skuName: '500g', image: '/static/images/field.webp', quantity: 1, price: 24.9 }] },
 ]
@@ -2192,30 +2203,30 @@ export const pricePolicies: PricePolicy[] = [
 
 export const afterSales: AfterSale[] = [
   { id: 'SH20582', orderId: 'NJ202608110928', productName: '黄桃礼盒', applicant: '石板溪农家乐', type: 'reship', amount: 136, status: 'processing', issue: '运输破损 2 盒', quantity: 2, image: '/static/images/peach.webp' },
-  { id: 'SH20577', orderId: 'NJ202608110851', productName: '黑茶礼盒', applicant: '联盟推客订单', type: 'refund', amount: 128, status: 'processing', issue: '客户七天无理由', quantity: 1, image: '/static/images/tea.webp' },
+  { id: 'SH20577', orderId: 'NJ202608110851', productName: '黑茶礼盒', applicant: '推客订单', type: 'refund', amount: 128, status: 'processing', issue: '客户七天无理由', quantity: 1, image: '/static/images/tea.webp' },
   { id: 'SH20561', orderId: 'NJ202608110915', productName: '柴火腊肉', applicant: '云上人家山景农庄', type: 'claim', amount: 59.9, status: 'refunded', issue: '质量问题理赔', quantity: 5, image: '/static/images/bacon.webp', refundAmount: 59.9, refundMethod: 'only', refundMode: 'full' },
-  { id: 'SH20590', orderId: 'NJ202608120851', productName: '四人套餐券', applicant: '联盟推客订单', type: 'claim', amount: 864, status: 'processing', issue: '到店核销人数不符', quantity: 3, image: '/static/images/farmhouse.webp', history: [{ time: '2026-08-12 09:12', action: '提交理赔申请', operator: '联盟推客 · 湘农达人' }] },
-  { id: 'SH20588', orderId: 'NJ202608120958', productName: '洞庭湖风干刁子鱼', applicant: '联盟推客订单', type: 'reship', amount: 428, status: 'processing', issue: '运输破损 2 袋', quantity: 2, image: '/static/images/field.webp', history: [{ time: '2026-08-12 10:05', action: '提交补发申请', operator: '联盟推客 · 苗家阿妹' }] },
+  { id: 'SH20590', orderId: 'NJ202608120851', productName: '四人套餐券', applicant: '推客订单', type: 'claim', amount: 864, status: 'processing', issue: '到店核销人数不符', quantity: 3, image: '/static/images/farmhouse.webp', history: [{ time: '2026-08-12 09:12', action: '提交理赔申请', operator: '推客 · 湘农达人' }] },
+  { id: 'SH20588', orderId: 'NJ202608120958', productName: '洞庭湖风干刁子鱼', applicant: '推客订单', type: 'reship', amount: 428, status: 'processing', issue: '运输破损 2 袋', quantity: 2, image: '/static/images/field.webp', history: [{ time: '2026-08-12 10:05', action: '提交补发申请', operator: '推客 · 苗家阿妹' }] },
   { id: 'SH20585', orderId: 'NJ202608120918', productName: '剁辣椒', applicant: '橘子洲畔农家院', type: 'refund', amount: 798, status: 'processing', issue: '口感风味不符', quantity: 8, image: '/static/images/chili.webp', refundAmount: 239.4, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-08-12 09:30', action: '申请部分退款', operator: '橘子洲畔农家院' }] },
   { id: 'SH20583', orderId: 'NJ202608120842', productName: '土鸡汤礼盒', applicant: '韶山红色记忆农庄', type: 'refund', amount: 432, status: 'processing', issue: '七天无理由', quantity: 4, image: '/static/images/farmhouse.webp', history: [{ time: '2026-08-12 09:02', action: '提交退款申请', operator: '韶山红色记忆农庄' }] },
   { id: 'SH20580', orderId: 'NJ202608121030', productName: '柴火腊肉', applicant: '石板溪农家乐', type: 'claim', amount: 359.4, status: 'processing', issue: '物流延误理赔', quantity: 6, image: '/static/images/bacon.webp', refundAmount: 119.8, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-08-12 10:45', action: '提交理赔申请', operator: '石板溪农家乐' } ] },
   { id: 'SH20601', orderId: 'NJ202608111521', productName: '南县稻虾米', applicant: '岳阳洞庭渔村', type: 'reship', amount: 119.8, status: 'processing', issue: '少发漏发', quantity: 2, image: '/static/images/rice.webp', history: [{ time: '2026-08-11 15:21', action: '提交补发申请', operator: '岳阳洞庭渔村' }] },
   { id: 'SH20602', orderId: 'NJ202608110926', productName: '农家自制剁辣椒', applicant: '怀化侗乡渔寨', type: 'claim', amount: 119.7, status: 'processing', issue: '质量问题', quantity: 3, image: '/static/images/chili.webp', history: [{ time: '2026-08-11 09:26', action: '提交理赔申请', operator: '怀化侗乡渔寨' }] },
-  { id: 'SH20603', orderId: 'NJ202608111718', productName: '宝庆糯米甜酒', applicant: '联盟推客订单', type: 'refund', amount: 184, status: 'refunded', issue: '口感风味不符', quantity: 4, image: '/static/images/field.webp', refundAmount: 55.2, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-08-11 17:18', action: '处理完成，退款到账', operator: '运营管理员' }] },
+  { id: 'SH20603', orderId: 'NJ202608111718', productName: '宝庆糯米甜酒', applicant: '推客订单', type: 'refund', amount: 184, status: 'refunded', issue: '口感风味不符', quantity: 4, image: '/static/images/field.webp', refundAmount: 55.2, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-08-11 17:18', action: '处理完成，退款到账', operator: '运营管理员' }] },
   { id: 'SH20604', orderId: 'NJ202608111646', productName: '平江香干', applicant: '炎陵云溪农庄', type: 'refund', amount: 214.8, status: 'processing', issue: '七天无理由', quantity: 2, image: '/static/images/field.webp', history: [{ time: '2026-08-11 16:46', action: '提交退款申请', operator: '炎陵云溪农庄' }] },
   { id: 'SH20605', orderId: 'NJ202608121952', productName: '沅江芦笋', applicant: '郴州东江湖人家', type: 'refund', amount: 24.9, status: 'processing', issue: '预约取消', quantity: 1, image: '/static/images/field.webp', history: [{ time: '2026-08-12 19:52', action: '提交退款申请', operator: '郴州东江湖人家' }] },
   { id: 'SH20606', orderId: 'NJ202607201600', productName: '宝庆糯米甜酒', applicant: '岳阳洞庭渔村', type: 'claim', amount: 184, status: 'refunded', issue: '其他', quantity: 4, image: '/static/images/field.webp', refundAmount: 55.2, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-07-20 16:00', action: '处理完成，退款到账', operator: '运营管理员' }] },
   { id: 'SH20607', orderId: 'NJ202607201109', productName: '麻阳猕猴桃汁', applicant: '岳阳洞庭渔村', type: 'reship', amount: 159.6, status: 'processing', issue: '运输破损', quantity: 4, image: '/static/images/field.webp', history: [{ time: '2026-07-20 11:09', action: '提交补发申请', operator: '岳阳洞庭渔村' }] },
-  { id: 'SH20608', orderId: 'NJ202607211215', productName: '白关丝瓜', applicant: '联盟推客订单', type: 'reship', amount: 39.8, status: 'processing', issue: '少发漏发', quantity: 2, image: '/static/images/field.webp', history: [{ time: '2026-07-21 12:15', action: '提交补发申请', operator: '联盟推客订单' }] },
+  { id: 'SH20608', orderId: 'NJ202607211215', productName: '白关丝瓜', applicant: '推客订单', type: 'reship', amount: 39.8, status: 'processing', issue: '少发漏发', quantity: 2, image: '/static/images/field.webp', history: [{ time: '2026-07-21 12:15', action: '提交补发申请', operator: '推客订单' }] },
   { id: 'SH20609', orderId: 'NJ202607211740', productName: '宁乡花猪腊肠', applicant: '橘子洲畔农家院', type: 'claim', amount: 691.2, status: 'refunded', issue: '质量问题', quantity: 4, image: '/static/images/bacon.webp', refundAmount: 207.4, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-07-21 17:40', action: '处理完成，退款到账', operator: '运营管理员' }] },
   { id: 'SH20610', orderId: 'NJ202607221134', productName: '石门柑橘', applicant: '云上人家山景农庄', type: 'refund', amount: 91.6, status: 'processing', issue: '口感风味不符', quantity: 2, image: '/static/images/peach.webp', history: [{ time: '2026-07-22 11:34', action: '提交退款申请', operator: '云上人家山景农庄' }] },
-  { id: 'SH20611', orderId: 'NJ202607220823', productName: '靖州杨梅干', applicant: '联盟推客订单', type: 'refund', amount: 107.2, status: 'processing', issue: '七天无理由', quantity: 4, image: '/static/images/peach.webp', history: [{ time: '2026-07-22 08:23', action: '提交退款申请', operator: '联盟推客订单' }] },
+  { id: 'SH20611', orderId: 'NJ202607220823', productName: '靖州杨梅干', applicant: '推客订单', type: 'refund', amount: 107.2, status: 'processing', issue: '七天无理由', quantity: 4, image: '/static/images/peach.webp', history: [{ time: '2026-07-22 08:23', action: '提交退款申请', operator: '推客订单' }] },
   { id: 'SH20612', orderId: 'NJ202607231022', productName: '竹纤维浴巾', applicant: '游客 · 李女士', type: 'refund', amount: 500, status: 'refunded', issue: '预约取消', quantity: 2, image: '/static/images/field.webp', refundAmount: 150, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-07-23 10:22', action: '处理完成，退款到账', operator: '运营管理员' }] },
   { id: 'SH20613', orderId: 'NJ202607240956', productName: '湘莲莲子羹', applicant: '怀化侗乡渔寨', type: 'claim', amount: 300.4, status: 'processing', issue: '其他', quantity: 4, image: '/static/images/field.webp', history: [{ time: '2026-07-24 09:56', action: '提交理赔申请', operator: '怀化侗乡渔寨' }] },
-  { id: 'SH20614', orderId: 'NJ202607240808', productName: '湘西剁椒鱼头酱', applicant: '联盟推客订单', type: 'reship', amount: 59.8, status: 'processing', issue: '运输破损', quantity: 2, image: '/static/images/chili.webp', history: [{ time: '2026-07-24 08:08', action: '提交补发申请', operator: '联盟推客订单' }] },
+  { id: 'SH20614', orderId: 'NJ202607240808', productName: '湘西剁椒鱼头酱', applicant: '推客订单', type: 'reship', amount: 59.8, status: 'processing', issue: '运输破损', quantity: 2, image: '/static/images/chili.webp', history: [{ time: '2026-07-24 08:08', action: '提交补发申请', operator: '推客订单' }] },
   { id: 'SH20615', orderId: 'NJ202607251625', productName: '亲子研学半日券', applicant: '炎陵云溪农庄', type: 'reship', amount: 392, status: 'refunded', issue: '少发漏发', quantity: 4, image: '/static/images/field.webp', refundAmount: 117.6, refundMethod: 'only', refundMode: 'ratio', history: [{ time: '2026-07-25 16:25', action: '处理完成，退款到账', operator: '运营管理员' }] },
   { id: 'SH20616', orderId: 'NJ202607250843', productName: '洞庭湖风干刁子鱼', applicant: '韶山红色记忆农庄', type: 'claim', amount: 128.4, status: 'processing', issue: '质量问题', quantity: 3, image: '/static/images/field.webp', history: [{ time: '2026-07-25 08:43', action: '提交理赔申请', operator: '韶山红色记忆农庄' }] },
-{ id: 'SH20617', orderId: 'NJ202607261435', productName: '亲子研学半日券', applicant: '联盟推客订单', type: 'refund', amount: 490, status: 'processing', issue: '口感风味不符', quantity: 4, image: '/static/images/field.webp', history: [{ time: '2026-07-26 14:35', action: '提交退款申请', operator: '联盟推客订单' }] },
+{ id: 'SH20617', orderId: 'NJ202607261435', productName: '亲子研学半日券', applicant: '推客订单', type: 'refund', amount: 490, status: 'processing', issue: '口感风味不符', quantity: 4, image: '/static/images/field.webp', history: [{ time: '2026-07-26 14:35', action: '提交退款申请', operator: '推客订单' }] },
 ]
 
 export const promoters: Promoter[] = [
@@ -2408,12 +2419,12 @@ export const farmhouseFoods = [
 ]
 
 export const travelRoutes: TravelRoute[] = [
-  { id: 'RT01', name: '湘西土家风情 2 日游', description: '凤凰古城 · 矮寨大桥 · 农家土菜宴', meta: '含 3 家联盟农家乐 · 沿途特产采购', price: 399, city: '湘西州', image: '/static/images/farmhouse.webp' },
-  { id: 'RT02', name: '张家界山水康养 3 日游', description: '天门山 · 大峡谷 · 山景民宿农庄', meta: '含 4 家联盟农家乐 · 直播同款好物', price: 599, city: '张家界市', image: '/static/images/mountain.webp' },
-  { id: 'RT03', name: '长沙窑文化一日游', description: '铜官窑 · 靖港古镇 · 渔家土菜', meta: '含 2 家联盟农家乐 · 非遗体验', price: 299, city: '长沙市', image: '/static/images/farmhouse.webp' },
-  { id: 'RT04', name: '常德桃花源二日游', description: '桃花源 · 柳叶湖 · 擂茶宴', meta: '含 2 家联盟农家乐 · 田园民宿', price: 469, city: '常德市', image: '/static/images/field.webp' },
-  { id: 'RT05', name: '怀化侗族风情三日游', description: '洪江古商城 · 通道侗寨 · 合拢宴', meta: '含 3 家联盟农家乐 · 侗歌侗舞', price: 629, city: '怀化市', image: '/static/images/farmhouse.webp' },
-  { id: 'RT06', name: '邵阳崀山丹霞二日游', description: '崀山八角寨 · 辣椒峰 · 农家腊味宴', meta: '含 2 家联盟农家乐 · 丹霞日出', price: 459, city: '邵阳市', image: '/static/images/mountain.webp' }
+  { id: 'RT01', name: '湘西土家风情 2 日游', description: '凤凰古城 · 矮寨大桥 · 农家土菜宴', meta: '含 3 家合作农家乐 · 沿途特产采购', price: 399, city: '湘西州', image: '/static/images/farmhouse.webp' },
+  { id: 'RT02', name: '张家界山水康养 3 日游', description: '天门山 · 大峡谷 · 山景民宿农庄', meta: '含 4 家合作农家乐 · 直播同款好物', price: 599, city: '张家界市', image: '/static/images/mountain.webp' },
+  { id: 'RT03', name: '长沙窑文化一日游', description: '铜官窑 · 靖港古镇 · 渔家土菜', meta: '含 2 家合作农家乐 · 非遗体验', price: 299, city: '长沙市', image: '/static/images/farmhouse.webp' },
+  { id: 'RT04', name: '常德桃花源二日游', description: '桃花源 · 柳叶湖 · 擂茶宴', meta: '含 2 家合作农家乐 · 田园民宿', price: 469, city: '常德市', image: '/static/images/field.webp' },
+  { id: 'RT05', name: '怀化侗族风情三日游', description: '洪江古商城 · 通道侗寨 · 合拢宴', meta: '含 3 家合作农家乐 · 侗歌侗舞', price: 629, city: '怀化市', image: '/static/images/farmhouse.webp' },
+  { id: 'RT06', name: '邵阳崀山丹霞二日游', description: '崀山八角寨 · 辣椒峰 · 农家腊味宴', meta: '含 2 家合作农家乐 · 丹霞日出', price: 459, city: '邵阳市', image: '/static/images/mountain.webp' }
 ]
 
 export interface DerivedPlatformMetrics {
@@ -3453,7 +3464,7 @@ export function readPlatformAfterSaleStatus(orderId: string): string | null {
   return map[work.status] || work.status
 }
 
-// ===== 佣金结算回流：中台结算后同步推客端/联盟端 =====
+// ===== 佣金结算回流：中台结算后同步推客端 =====
 export const PLATFORM_SETTLEMENTS_STORAGE_KEY = 'agritainment-platform-settlements'
 
 export interface PlatformCommissionSettlement {
@@ -3933,7 +3944,11 @@ function channelFromLegacy(input: { channels?: { store?: boolean; live?: boolean
 }
 
 export function normalizeMinimumOrderQuantity(value: unknown): number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : 1
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 1
+}
+
+export function initialCatalogOrderQuantity(minimumOrderQuantity: unknown): number {
+  return Math.max(1, normalizeMinimumOrderQuantity(minimumOrderQuantity))
 }
 
 export type CatalogSkuOrderQuantityValidation =
@@ -3961,7 +3976,7 @@ function normalizeCatalogSku(sku: CatalogSku): CatalogSku {
 }
 
 function catalogSkuIsValid(sku: CatalogSku): boolean {
-  return !!sku.id && !!sku.name && (!sku.status || sku.status === 'active' || sku.status === 'retired') && [sku.retailPrice, sku.cost, sku.stock, sku.level1Amount, sku.level2Amount].every((value) => Number.isFinite(value) && value >= 0) && Number.isInteger(sku.minimumOrderQuantity) && Number(sku.minimumOrderQuantity) >= 1 && sku.retailPrice >= sku.level1Amount + sku.level2Amount
+  return !!sku.id && !!sku.name && (!sku.status || sku.status === 'active' || sku.status === 'retired') && [sku.retailPrice, sku.cost, sku.stock, sku.level1Amount, sku.level2Amount].every((value) => Number.isFinite(value) && value >= 0) && Number.isInteger(sku.minimumOrderQuantity) && Number(sku.minimumOrderQuantity) >= 0 && sku.retailPrice >= sku.level1Amount + sku.level2Amount
 }
 
 function catalogProductIsValid(product: CatalogProduct): boolean {
@@ -4907,6 +4922,24 @@ export function readStoreCatalogSelections(storeId?: string): StoreCatalogSelect
   return cloneSeed(storeId ? selections.filter((item) => item.storeId === storeId) : selections)
 }
 
+export function ensureStoreCatalogSelectionDefaults(storeId: string, catalog: CatalogState): StoreCatalogSelectionState {
+  const current = readStoreCatalogSelectionState()
+  if (!storeId || current.selections.some((item) => item.storeId === storeId)) return current
+  const updatedAt = new Date().toISOString()
+  const defaults = catalogProductsForAudience(catalog, 'farmhouse-selection')
+    .filter((product) => product.farmIds.includes(storeId))
+    .map<StoreCatalogSelection>((product) => ({
+      storeId,
+      productId: product.id,
+      listed: true,
+      skuRetailPrices: Object.fromEntries(product.skus.filter((sku) => sku.status !== 'retired').map((sku) => [sku.id, round2(sku.retailPrice)])),
+      updatedAt
+    }))
+  if (!defaults.length) return current
+  const next: StoreCatalogSelectionState = { ...current, revision: current.revision + 1, selections: [...current.selections, ...defaults] }
+  return writePlatformJson(PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, next) ? cloneSeed(next) : current
+}
+
 export function saveStoreCatalogSelection(input: Omit<StoreCatalogSelection, 'updatedAt' | 'retailPrice'> & { updatedAt?: string }, expectedRevision: number): StoreCatalogSelectionState | null {
   const current = readStoreCatalogSelectionState()
   const product = readCatalogState()?.products.find((item) => item.id === input.productId)
@@ -5356,7 +5389,7 @@ export function deriveCOrderStatus(subOrders: readonly Pick<CSubOrder, 'status'>
   return 'pending_payment'
 }
 
-export type PortalTarget = 'admin' | 'farmhouse' | 'alliance' | 'store' | 'promoter' | 'user' | 'supplier'
+export type PortalTarget = 'admin' | 'farmhouse' | 'store' | 'promoter' | 'user' | 'supplier'
 
 const PORTAL_QUERY_KEYS = new Set(['promoter', 'promoterName', 'live', 'staff', 'farm', 'activity', 'store'])
 
@@ -5704,6 +5737,7 @@ export function seedCCommerceData(): void {
 
 export * from './auth'
 export * from './media'
+export * from './product-category-images'
 export * from './regions'
 export * from './dashboard'
 export * from './dashboard-source'
@@ -5718,7 +5752,7 @@ export interface SharedBooking {
   farmId: string
   farmName: string
   userId: string
-  source: 'alliance' | 'farmhouse'
+  source: 'farmhouse'
   date: string
   session: string
   people: number
@@ -5825,8 +5859,13 @@ export interface PlatformDictionaryCache {
 
 export function readPlatformDictionaries(): PlatformDictionaryState {
   const saved = readPlatformJson<unknown>(PLATFORM_DICTIONARIES_STORAGE_KEY)
-  if (!saved || typeof saved !== 'object') return createInitialPlatformDictionaries(dictGroupSeeds as unknown as DictGroup[], dictItemSeeds as unknown as DictItem[])
-  return migratePlatformDictionaries(saved, dictGroupSeeds as unknown as DictGroup[], dictItemSeeds as unknown as DictItem[])
+  const currentSchema = !!saved && typeof saved === 'object' && !Array.isArray(saved)
+    && (saved as { schemaVersion?: unknown }).schemaVersion === DICTIONARY_SCHEMA_VERSION
+  const state = saved && typeof saved === 'object'
+    ? migratePlatformDictionaries(saved, dictGroupSeeds as unknown as DictGroup[], dictItemSeeds as unknown as DictItem[])
+    : createInitialPlatformDictionaries(dictGroupSeeds as unknown as DictGroup[], dictItemSeeds as unknown as DictItem[])
+  if (currentSchema) return state
+  return mergeLegacyProductCategories(state, Object.values(readPlatformEntities()?.categories ?? {}))
 }
 
 const dictionariesEventBus = new PlatformEventBus('agritainment-platform-changes')
@@ -5902,14 +5941,45 @@ export function createPlatformDictionaryCache(options: { read?: () => PlatformDi
 }
 
 // ===== 兼容层：平台共享 CRUD 引擎 =====
+type PersistedBooking = Omit<SharedBooking, 'source'> & { source?: string }
+
 export function readPlatformBookings(): Record<string, SharedBooking> | null {
-  const data = readPlatformJson<Record<string, SharedBooking>>(PLATFORM_BOOKINGS_STORAGE_KEY)
-  return data && typeof data === 'object' ? data : null
+  const data = readPlatformJson<Record<string, PersistedBooking>>(PLATFORM_BOOKINGS_STORAGE_KEY)
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  return Object.fromEntries(Object.entries(data).filter(([, booking]) => booking?.source === 'farmhouse')) as Record<string, SharedBooking>
 }
 export function writePlatformBooking(booking: SharedBooking): boolean {
-  if (!booking?.id || !booking.farmId || !booking.date || !booking.session || !Number.isInteger(booking.people) || booking.people <= 0) return false
+  if (!booking?.id || booking.source !== 'farmhouse' || !booking.farmId || !booking.date || !booking.session || !Number.isInteger(booking.people) || booking.people <= 0) return false
   const bookings = readPlatformBookings() ?? {}
   return writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, { ...bookings, [booking.id]: { ...booking, updatedAt: booking.updatedAt || booking.createdAt } })
+}
+
+const RETIRED_ALLIANCE_STATE_STORAGE_KEY = 'agritainment-alliance-discovery'
+const RETIRED_ALLIANCE_RECOVERY_HANDLER_KEY = 'alliance-withdrawal-v1'
+const RETIRED_ALLIANCE_OPERATION_PREFIX = 'alliance-withdrawal-'
+
+function isRetiredAllianceRecovery(value: { operationId?: string; handlerKey?: string; recoveryHandlerKey?: string }): boolean {
+  return value.handlerKey === RETIRED_ALLIANCE_RECOVERY_HANDLER_KEY
+    || value.recoveryHandlerKey === RETIRED_ALLIANCE_RECOVERY_HANDLER_KEY
+    || value.operationId?.startsWith(RETIRED_ALLIANCE_OPERATION_PREFIX) === true
+}
+
+export function purgeRetiredAllianceData(): void {
+  if (readPlatformJson<unknown>(RETIRED_ALLIANCE_STATE_STORAGE_KEY) !== null) clearPlatformJson(RETIRED_ALLIANCE_STATE_STORAGE_KEY)
+
+  const bookings = readPlatformJson<Record<string, PersistedBooking>>(PLATFORM_BOOKINGS_STORAGE_KEY)
+  if (bookings && typeof bookings === 'object' && !Array.isArray(bookings)) {
+    const activeBookings = Object.fromEntries(Object.entries(bookings).filter(([, booking]) => booking?.source !== 'alliance'))
+    if (Object.keys(activeBookings).length !== Object.keys(bookings).length) writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, activeBookings)
+  }
+
+  const journals = readPlatformJournal()
+  const activeJournals = Object.fromEntries(Object.entries(journals).filter(([, journal]) => !isRetiredAllianceRecovery(journal)))
+  if (Object.keys(activeJournals).length !== Object.keys(journals).length) writePlatformJson(PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, activeJournals)
+
+  const recoveryQueue = readPlatformRecoveryQueue()
+  const activeRecoveryQueue = recoveryQueue.filter((task) => !isRetiredAllianceRecovery(task))
+  if (activeRecoveryQueue.length !== recoveryQueue.length) writePlatformJson(PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, activeRecoveryQueue)
 }
 export function readPlatformCommissionLedger(): Record<string, CommissionLedgerEntry> | null {
   const data = readPlatformJson<Record<string, CommissionLedgerEntry>>(PLATFORM_COMMISSION_LEDGER_STORAGE_KEY)
@@ -6272,7 +6342,7 @@ export function mergePlatformSupplierAccounts(defaults: SupplierAccount[], saved
 
 // ===== 兼容层：字典种子 =====
 export interface DictGroupSeed { id: string; type: string; name: string; scope: 'business' | 'system'; locked: boolean; enabled: boolean }
-export interface DictItemSeed { id: string; type: string; code: string; label: string; enabled: boolean; sort: number }
+export interface DictItemSeed { id: string; type: string; code: string; label: string; enabled: boolean; sort: number; image?: MediaReference }
 const dictGroupSeeds: DictGroupSeed[] = [
   { id: 'DG01', type: 'supplierStatus', name: '供应商状态', scope: 'system', locked: true, enabled: true },
   { id: 'DG02', type: 'afterSaleReason', name: '售后原因', scope: 'business', locked: false, enabled: true },
@@ -6352,8 +6422,21 @@ const dictItemSeeds: DictItemSeed[] = [
   { id: 'DIPS02', type: 'productSource', code: 'farmhouse', label: '门店商品', enabled: true, sort: 2 },
   { id: 'DIPT01', type: 'productType', code: 'goods', label: '实物商品', enabled: true, sort: 1 },
   { id: 'DIPT02', type: 'productType', code: 'package', label: '套餐券', enabled: true, sort: 2 },
-  { id: 'DPC01', type: 'productCategory', code: 'C001', label: '农产品', enabled: true, sort: 1 },
-  { id: 'DPC02', type: 'productCategory', code: 'C002', label: '特色食材', enabled: true, sort: 2 },
+  { id: 'DPC01', type: 'productCategory', code: 'C001', label: '农产品', enabled: true, sort: 1, image: defaultProductCategoryImage('农产品') },
+  { id: 'DPC02', type: 'productCategory', code: 'C002', label: '特色食材', enabled: true, sort: 2, image: defaultProductCategoryImage('特色食材') },
+  { id: 'DPC03', type: 'productCategory', code: 'C003', label: '预制菜', enabled: true, sort: 3, image: defaultProductCategoryImage('预制菜') },
+  { id: 'DPC04', type: 'productCategory', code: 'C004', label: '食材调料', enabled: true, sort: 4, image: defaultProductCategoryImage('食材调料') },
+  { id: 'DPC05', type: 'productCategory', code: 'C005', label: '土特产', enabled: true, sort: 5, image: defaultProductCategoryImage('土特产') },
+  { id: 'DPC06', type: 'productCategory', code: 'C006', label: '伴手礼', enabled: true, sort: 6, image: defaultProductCategoryImage('伴手礼') },
+  { id: 'DPC07', type: 'productCategory', code: 'C007', label: '文旅伴手礼', enabled: true, sort: 7, image: defaultProductCategoryImage('文旅伴手礼') },
+  { id: 'DPC08', type: 'productCategory', code: 'C008', label: '民宿用品', enabled: true, sort: 8, image: defaultProductCategoryImage('民宿用品') },
+  { id: 'DPC09', type: 'productCategory', code: 'C009', label: '包装耗材', enabled: true, sort: 9, image: defaultProductCategoryImage('包装耗材') },
+  { id: 'DPC10', type: 'productCategory', code: 'C010', label: '套餐券', enabled: true, sort: 10, image: defaultProductCategoryImage('套餐券') },
+  { id: 'DPC11', type: 'productCategory', code: 'C011', label: '生鲜农产', enabled: true, sort: 11, image: defaultProductCategoryImage('生鲜农产') },
+  { id: 'DPC12', type: 'productCategory', code: 'C012', label: '时令水果', enabled: true, sort: 12, image: defaultProductCategoryImage('时令水果') },
+  { id: 'DPC13', type: 'productCategory', code: 'C013', label: '有机蔬菜', enabled: true, sort: 13, image: defaultProductCategoryImage('有机蔬菜') },
+  { id: 'DPC14', type: 'productCategory', code: 'C014', label: '粮油米面', enabled: true, sort: 14, image: defaultProductCategoryImage('粮油米面') },
+  { id: 'DPC15', type: 'productCategory', code: 'C015', label: '酒水饮料', enabled: true, sort: 15, image: defaultProductCategoryImage('酒水饮料') },
   { id: 'DSC01', type: 'supplierCategory', code: 'C001', label: '生鲜农产', enabled: true, sort: 1 },
   { id: 'DSC02', type: 'supplierCategory', code: 'C002', label: '综合品类', enabled: true, sort: 2 },
   { id: 'DGC01', type: 'generalCategory', code: 'G001', label: '通用分类', enabled: true, sort: 1 },

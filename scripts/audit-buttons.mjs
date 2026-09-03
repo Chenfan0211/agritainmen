@@ -4,7 +4,6 @@ import { resolve } from 'node:path'
 const files = [
   'apps/admin/src/pages/index/index.vue',
   'apps/farmhouse/src/pages/index/index.vue',
-  'apps/alliance/src/pages/index/index.vue',
   'apps/store/src/pages/index/index.vue'
 ]
 

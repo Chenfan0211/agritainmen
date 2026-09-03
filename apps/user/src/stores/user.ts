@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { AfterSale, BusinessMediaValue, CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, CProduct, CProductSku, CUserLevel, CommissionLedgerEntry, FarmStore, LiveRoom, MockScenario, Order, PaymentAttempt, PlatformJournalEntry, Product, UserBinding, UserCommercePurchaseIntent, VoucherOrder, WithdrawalRequest } from '@agritainment/shared'
 import {
+  initialCatalogOrderQuantity,
   CATALOG_SCHEMA_VERSION, abortCatalogTransaction, allocateCCommissions, applyCatalogStockOperation, beginPaymentAttempt, buildSupplierAccountSeeds, cPriceForSku, catalogProductToCProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, cProducts as cProductSeeds, createId, demoCDistributorProfiles, deriveCOrderStatus, ensureCatalogState, ensureConfirmedPaymentRecoveryTask, markCatalogTransactionStockApplied, mergePlatformEntities, mergePlatformSupplierAccounts, migrateLegacyCatalog, normalizeCAddresses, normalizeCCommissionRecords, normalizeCOrders, normalizeCProducts, normalizeMinimumOrderQuantity, prepareCatalogTransaction, products as storeProductSeeds, promoters, readCAddresses, readCCommissionRecords, readCatalogState, readCOrders, readCUserSession, readCDistributorProfiles, readPendingCatalogTransactions, readPlatformJson, round2, seedCCommerceData,
   confirmCSubOrderReceiptAtSupplier, createUserAtomicRecoveryHandlerRegistrations, getPlatformProviders, initializePlatformRecoveryHandlers, isValidUserAtomicRecoveryJournal, markCSubOrderAfterSaleAtSupplier, readPaymentAttempts, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformEntities, readPlatformOrders, readPlatformSupplierAccounts, readPlatformWithdrawals, readUserBindings, readPlatformJournal, readUserCommercePurchaseIntents, reconcilePendingPlatformTransactions, resolveCReferralChain, resolveUserIdentity, retryPlatformRecoveryTask, runLockedPlatformCollectionTask, runLockedPlatformTransaction, simulateWechatLogin, splitCOrderItems, supplierCanReceiveNewOrders, suppliers as supplierSeeds, syncCSubOrderFromSupplier, transitionPaymentAttempt, upsertUserBinding, validateCatalogSkuOrderQuantity, writeUserBindings, writeCAddresses, writeCCommissionRecords, writeCOrder, writeCOrders, writeCUserSession, publishCSubOrderToSupplier, migrateLegacyCommissionsToLedger, readPlatformVoucherOrders, writePlatformAfterSales, writePlatformCommissionLedger, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformOrders, writePlatformVoucherOrder, writePlatformVoucherOrders, writePlatformWithdrawal, writeUserCommercePurchaseIntents, preparePlatformJournal, markPlatformJournalStep, resolvePlatformJournal, enqueuePlatformRecovery, writeCatalogState, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_MIGRATED_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_C_PRODUCTS_STORAGE_KEY, PLATFORM_C_SCHEMA_VERSION_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY
 } from '@agritainment/shared'
@@ -682,6 +683,7 @@ interface UserState {
   inventoryRevision: number
   liveRooms: LiveRoom[]
   liveId: string
+  launchProductId: string
   promoterId: string
   promoterName: string
   referralPromoterId: string
@@ -786,7 +788,7 @@ function syncPersistedFulfillment(orders: Record<string, COrder>): Record<string
 
 export const useUserStore = defineStore('user', {
   state: (): UserState => ({
-    initialized: false, loading: false, withdrawalsTick: 0, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, liveRooms: [], liveId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
+    initialized: false, loading: false, withdrawalsTick: 0, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, liveRooms: [], liveId: '', launchProductId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
     cart: [], orders: [], addresses: [], commissionRecords: [], auth: { isLoggedIn: false, openid: '' }, checkoutError: '', entryChecked: false, entryRestricted: false
   }),
   getters: {
@@ -971,6 +973,7 @@ export const useUserStore = defineStore('user', {
       const savedLive = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-live-id') : ''
       const savedName = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-promoter-name') : ''
       this.liveId = query.live || (typeof savedLive === 'string' ? savedLive : '') || ''
+      this.launchProductId = query.product?.trim() || ''
       this.promoterName = query.promoterName || (typeof savedName === 'string' ? savedName : '') || ''
       if (!this.userId && this.auth.isLoggedIn && this.auth.openid) this.userId = resolveUserIdentity(this.auth.openid)
       const bound = this.userId ? readUserBindings()?.[this.userId] : undefined
@@ -1045,11 +1048,11 @@ export const useUserStore = defineStore('user', {
       if (!product || !sku || product.status !== 'active' || product.shippingType !== 'courier' || !Number.isFinite(sku.stock) || sku.stock < 0 || sku.basePrice < 0 || sku.level1Commission < 0 || sku.level2Commission < 0) { this.checkoutError = '商品配置异常，暂不可购买'; return false }
       const line = this.cart.find((item) => item.productId === productId && item.skuId === skuId)
       const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)
-      const increment = quantity === undefined ? (line ? 1 : minimumOrderQuantity) : quantity
+      const increment = quantity === undefined ? (line ? 1 : initialCatalogOrderQuantity(minimumOrderQuantity)) : quantity
       const nextQuantity = (line?.quantity || 0) + increment
       const validation = validateCatalogSkuOrderQuantity(sku, nextQuantity)
       if (!validation.ok) {
-        this.checkoutError = validation.code === 'below_minimum_order_quantity' ? `${product.name}（${sku.name}）起订 ${minimumOrderQuantity} 件` : sku.stock < minimumOrderQuantity ? `${product.name}（${sku.name}）库存不足起订量` : `${product.name}（${sku.name}）库存不足`
+        this.checkoutError = validation.code === 'below_minimum_order_quantity' || sku.stock < minimumOrderQuantity ? `${product.name}（${sku.name}）库存不足或购买数量未达要求` : `${product.name}（${sku.name}）库存不足`
         return false
       }
       if (line) { line.quantity = nextQuantity; line.minimumOrderQuantity = minimumOrderQuantity; line.unavailable = false }
@@ -1130,7 +1133,7 @@ export const useUserStore = defineStore('user', {
           invalidLine.minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? invalidLine.minimumOrderQuantity)
           invalidLine.unavailable = true
         }
-        this.checkoutError = !product || product.status !== 'active' || product.shippingType !== 'courier' ? `${invalidLine.name}已下架或不支持快递配送` : !sku ? `${invalidLine.name}（${invalidLine.skuName}）规格已失效` : validation && !validation.ok && validation.code === 'below_minimum_order_quantity' ? `${invalidLine.name}（${invalidLine.skuName}）起订 ${validation.minimumOrderQuantity} 件` : sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity) ? `${invalidLine.name}（${invalidLine.skuName}）库存不足起订量` : `${invalidLine.name}（${invalidLine.skuName}）库存不足`
+        this.checkoutError = !product || product.status !== 'active' || product.shippingType !== 'courier' ? `${invalidLine.name}已下架或不支持快递配送` : !sku ? `${invalidLine.name}（${invalidLine.skuName}）规格已失效` : validation && !validation.ok && (validation.code === 'below_minimum_order_quantity' || sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)) ? `${invalidLine.name}（${invalidLine.skuName}）库存不足或购买数量未达要求` : `${invalidLine.name}（${invalidLine.skuName}）库存不足`
         return false
       }
       if (revisionChanged) return this.failStockConflict()
@@ -1329,10 +1332,10 @@ export const useUserStore = defineStore('user', {
       if (!catalog || !catalogProduct || !catalogSku) { this.checkoutError = '套餐已下架或规格失效'; return false }
       if (catalog.revision !== this.inventoryRevision) this.applyCatalogState(catalog)
       const minimumOrderQuantity = normalizeMinimumOrderQuantity(catalogSku.minimumOrderQuantity)
-      const qty = quantity === undefined ? minimumOrderQuantity : Number(quantity)
+      const qty = quantity === undefined ? initialCatalogOrderQuantity(minimumOrderQuantity) : Number(quantity)
       const validation = validateCatalogSkuOrderQuantity(catalogSku, qty)
       if (!validation.ok) {
-        this.checkoutError = validation.code === 'below_minimum_order_quantity' ? `套餐起订 ${minimumOrderQuantity} 件` : catalogSku.stock < minimumOrderQuantity ? '套餐库存不足起订量' : '套餐库存不足'
+        this.checkoutError = validation.code === 'below_minimum_order_quantity' || catalogSku.stock < minimumOrderQuantity ? '套餐库存不足或购买数量未达要求' : '套餐库存不足'
         return false
       }
       const amount = round2(sku.price * qty)

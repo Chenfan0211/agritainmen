@@ -57,7 +57,7 @@ function source(): DashboardDataSource {
       { id: 'DEMO-VO3', userId: 'U1', farmId: 'F-CS', productId: 'CP1', skuId: 'SKU1', quantity: 1, amount: 100, status: 'paid', createdAt: '2026-08-24T10:00:00.000Z' }
     ],
     bookings: [
-      { id: 'B1', farmId: 'F-CS', farmName: '长沙示范门店', userId: 'U1', source: 'alliance', date: '2026-08-24', session: '午餐', people: 4, amount: 80, status: 'completed', createdAt: '2026-08-23T10:00:00.000Z' }
+      { id: 'B1', farmId: 'F-CS', farmName: '长沙示范门店', userId: 'U1', source: 'farmhouse', date: '2026-08-24', session: '午餐', people: 4, amount: 80, status: 'completed', createdAt: '2026-08-23T10:00:00.000Z' }
     ],
     fulfillmentOrders: [
       { id: 'PO1', farmId: 'F-CS', amount: 100, status: 'delivered', createdAt: '2026-08-23T10:00:00.000Z' },

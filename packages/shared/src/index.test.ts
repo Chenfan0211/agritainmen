@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { CATALOG_SCHEMA_VERSION, C_COMMERCE_SCHEMA_VERSION, DEFAULT_PRICING_DEFAULTS, PLATFORM_CONFIG_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, allocateCatalogCommissions, allocateStoreCatalogCommission, applyCatalogStockOperation, buildPortalUrl, catalogPriceForSku, catalogProductToCProduct, catalogProductToProduct, catalogProductsForAudience, commitCatalogTransaction, deriveCOrderStatus, ensureCatalogState, ensureCCommerceSchemaVersion, markCatalogTransactionStockApplied, mergeCSubOrderFulfillment, migrateLegacyCatalog, normalizeCAddresses, normalizeCOrders, normalizeCProducts, PLATFORM_C_INVENTORY_STORAGE_KEY, PLATFORM_C_PRODUCTS_STORAGE_KEY, prepareCatalogTransaction, readCAddresses, readCatalogState, readCatalogTransactionJournal, readCCommerceSchemaVersion, readCInventoryState, readCProducts, readCCommissionRecords, readPendingCatalogTransactions, readPricingDefaults, readShareConfig, readStoreCatalogSelectionState, readStoreCatalogSelections, removeCAddress, resolveCReferralChain, saveCatalogProduct, saveStoreCatalogSelection, seedCCommerceData, updateCatalogStock, upsertStoreCatalogSelection, writeCatalogState, writeCAddresses, writeCCommissionRecords, writeCInventoryState, writePricingDefaults, writeShareConfig, publishCSubOrderToSupplier, syncCSubOrderFromSupplier, readVersionedRecord, writeVersionedRecord } from './index'
+import { CATALOG_SCHEMA_VERSION, C_COMMERCE_SCHEMA_VERSION, DEFAULT_PRICING_DEFAULTS, PLATFORM_CONFIG_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, allocateCatalogCommissions, allocateStoreCatalogCommission, applyCatalogStockOperation, buildPortalUrl, catalogPriceForSku, catalogProductToCProduct, catalogProductToProduct, catalogProductsForAudience, categoryIconName, commitCatalogTransaction, deriveCOrderStatus, ensureCatalogState, ensureCCommerceSchemaVersion, ensureStoreCatalogSelectionDefaults, markCatalogTransactionStockApplied, mergeCSubOrderFulfillment, migrateLegacyCatalog, normalizeCAddresses, normalizeCOrders, normalizeCProducts, PLATFORM_C_INVENTORY_STORAGE_KEY, PLATFORM_C_PRODUCTS_STORAGE_KEY, prepareCatalogTransaction, readCAddresses, readCatalogState, readCatalogTransactionJournal, readCCommerceSchemaVersion, readCInventoryState, readCProducts, readCCommissionRecords, readPendingCatalogTransactions, readPricingDefaults, readShareConfig, readStoreCatalogSelectionState, readStoreCatalogSelections, removeCAddress, resolveCReferralChain, saveCatalogProduct, saveStoreCatalogSelection, seedCCommerceData, updateCatalogStock, upsertStoreCatalogSelection, writeCatalogState, writeCAddresses, writeCCommissionRecords, writeCInventoryState, writePricingDefaults, writeShareConfig, publishCSubOrderToSupplier, syncCSubOrderFromSupplier, readVersionedRecord, writeVersionedRecord, normalizeMinimumOrderQuantity, validateCatalogSkuOrderQuantity } from './index'
 import type { CProduct, CProductSku, CatalogProduct, CatalogState, Order, OrderItem, OrderStatus, PlatformMedia, SupplierFulfillment } from './index'
 
 if (!globalThis.localStorage) {
@@ -1054,6 +1054,60 @@ describe('统一商品目录', () => {
     expect(catalogProductsForAudience(state, 'farmhouse-selection').map((item) => item.id)).toEqual(['STORE', 'ALL', 'VOUCHER'])
   })
 
+  it('为没有选品记录的门店初始化已分配的在售商品和 SKU 零售价', () => {
+    const assigned = { ...catalogProduct, id: 'ASSIGNED', channel: 'store' as const, farmIds: ['F001'] }
+    const otherFarm = { ...catalogProduct, id: 'OTHER-FARM', channel: 'store' as const, farmIds: ['F002'] }
+    const unassigned = { ...catalogProduct, id: 'UNASSIGNED', channel: 'store' as const, farmIds: [] }
+    const liveOnly = { ...catalogProduct, id: 'LIVE-ONLY', channel: 'live' as const, farmIds: ['F001'] }
+    const offline = { ...catalogProduct, id: 'OFFLINE', channel: 'store' as const, farmIds: ['F001'], status: 'offline' as const }
+    const state: CatalogState = { schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [assigned, otherFarm, unassigned, liveOnly, offline] }
+    expect(writeCatalogState(state)).toBe(true)
+
+    const initialized = ensureStoreCatalogSelectionDefaults('F001', state)
+
+    expect(initialized).toMatchObject({ revision: 1, selections: [{ storeId: 'F001', productId: 'ASSIGNED', listed: true, skuRetailPrices: { 'U001-500': 45 } }] })
+    expect(readStoreCatalogSelectionState()).toEqual(initialized)
+  })
+
+  it('已有本店选品记录时不覆盖主动下架状态或补充其他商品', () => {
+    const first = { ...catalogProduct, id: 'FIRST', farmIds: ['F001'] }
+    const second = { ...catalogProduct, id: 'SECOND', farmIds: ['F001'] }
+    const state: CatalogState = { schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [first, second] }
+    expect(writeCatalogState(state)).toBe(true)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'FIRST', listed: false, retailPrice: 52 })).toBe(true)
+
+    const initialized = ensureStoreCatalogSelectionDefaults('F001', state)
+
+    expect(initialized.revision).toBe(1)
+    expect(initialized.selections).toEqual([expect.objectContaining({ storeId: 'F001', productId: 'FIRST', listed: false, skuRetailPrices: { 'U001-500': 52 } })])
+  })
+
+  it('其他门店记录不阻止本店初始化且重复调用保持幂等', () => {
+    const assigned = { ...catalogProduct, id: 'SHARED-ASSIGNED', farmIds: ['F001', 'F002'] }
+    const state: CatalogState = { schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [assigned] }
+    expect(writeCatalogState(state)).toBe(true)
+    expect(upsertStoreCatalogSelection({ storeId: 'F002', productId: assigned.id, listed: true, retailPrice: 52 })).toBe(true)
+
+    const initialized = ensureStoreCatalogSelectionDefaults('F001', state)
+    const repeated = ensureStoreCatalogSelectionDefaults('F001', state)
+
+    expect(initialized.revision).toBe(2)
+    expect(initialized.selections.map((item) => item.storeId).sort()).toEqual(['F001', 'F002'])
+    expect(repeated).toEqual(initialized)
+  })
+
+  it('按商品分类语义返回统一图标并为未知分类回退', () => {
+    expect(categoryIconName('全部')).toBe('layout-dashboard')
+    expect(categoryIconName('生鲜农产')).toBe('sprout')
+    expect(categoryIconName('腊味/预制菜')).toBe('utensils')
+    expect(categoryIconName('文旅伴手礼')).toBe('shopping-bag')
+    expect(categoryIconName('民宿用品')).toBe('house')
+    expect(categoryIconName('包装耗材')).toBe('package')
+    expect(categoryIconName('套餐券')).toBe('badge-percent')
+    expect(categoryIconName('农家体验')).toBe('map-pin')
+    expect(categoryIconName('后台新建分类')).toBe('tags')
+  })
+
   it('新增编辑商品递增revision并拒绝过期写入和非法发布', () => {
     expect(writeCatalogState({ schemaVersion: 1, revision: 0, products: [] })).toBe(true)
     const created = saveCatalogProduct(catalogProduct, 0)
@@ -1140,5 +1194,17 @@ describe('统一商品目录', () => {
     expect(allocateStoreCatalogCommission(lines, { type: 'promoter', beneficiaryId: 'T001' }, 'OWNER')).toEqual({ beneficiaryId: 'T001', beneficiaryType: 'promoter', amount: 13.99 })
     expect(allocateStoreCatalogCommission(lines, { type: 'staff', beneficiaryId: 'STAFF' }, 'OWNER')).toEqual({ beneficiaryId: 'STAFF', beneficiaryType: 'staff', amount: 8 })
     expect(allocateStoreCatalogCommission(lines, null, 'OWNER')).toEqual({ beneficiaryId: 'OWNER', beneficiaryType: 'owner', amount: 8 })
+  })
+
+  it('允许零起订量但继续将缺失和非法值兼容为一件', () => {
+    expect(normalizeMinimumOrderQuantity(0)).toBe(0)
+    expect(normalizeMinimumOrderQuantity(3)).toBe(3)
+    expect(normalizeMinimumOrderQuantity(undefined)).toBe(1)
+    expect(normalizeMinimumOrderQuantity(-1)).toBe(1)
+  })
+
+  it('零起订量只要求首件数量不超过库存', () => {
+    expect(validateCatalogSkuOrderQuantity({ stock: 1, minimumOrderQuantity: 0 }, 1)).toMatchObject({ ok: true, minimumOrderQuantity: 0 })
+    expect(validateCatalogSkuOrderQuantity({ stock: 0, minimumOrderQuantity: 0 }, 1)).toMatchObject({ ok: false, code: 'insufficient_stock' })
   })
 })

@@ -54,7 +54,7 @@ describe('store ordering store interactions', () => {
   it('renders MOQ states and blocks unavailable procurement checkout in the store page', () => {
     const source = readFileSync(resolve(import.meta.dirname, '../pages/index/index.vue'), 'utf8')
     expect(source).toContain('minimumOrderQuantity(')
-    expect(source).toContain('库存不足起订量')
+    expect(source).toContain('库存不足或购买数量未达要求')
     expect(source).toContain(':disabled="!canStartOrder(selectedSku)"')
     expect(source).toContain(':class="{ shortage: item.unavailable }"')
     expect(source).toContain(':disabled="store.cartHasUnavailable"')
@@ -211,17 +211,17 @@ describe('store ordering store interactions', () => {
     expect(readPendingCatalogTransactions('store')).toEqual([expect.objectContaining({ id: `${order.id}:return-release`, status: 'stock-applied' })])
   })
 
-  it('refreshes catalog products and asks for retry after a revision conflict', async () => {
+  it('refreshes externally maintained catalog inventory', async () => {
     writeCatalog([catalogProduct({ id: 'CONFLICT', channel: 'store' })])
     const store = useStoreStore()
     await store.initialize()
     expect(updateCatalogStock([{ productId: 'CONFLICT', skuId: 'CONFLICT-SKU', quantity: -1 }], 0)?.revision).toBe(1)
 
-    expect(store.setSkuStock('CONFLICT', 'CONFLICT-SKU', 4)).toBe(false)
+    store.refreshCatalog()
 
     expect(store.catalogRevision).toBe(1)
     expect(store.products[0].skus[0].stock).toBe(7)
-    expect(store.checkoutError).toContain('重试')
+    expect(store.checkoutError).toBe('')
   })
 
   it('adds single-SKU products directly and requires SKU selection for multi-SKU', () => {
@@ -251,6 +251,16 @@ describe('store ordering store interactions', () => {
     expect(store.orders[0].items[0]).toMatchObject({ quantity: 3, minimumOrderQuantity: 3 })
   })
 
+  it('starts a zero-MOQ procurement line at one item and keeps the zero snapshot', async () => {
+    const product = catalogProduct({ id: 'MOQ-ZERO', channel: 'store', skus: [{ id: 'MOQ-ZERO-SKU', name: '散装', image: '/static/images/field.webp', retailPrice: 45, cost: 20, stock: 8, level1Amount: 10, level2Amount: 15, minimumOrderQuantity: 0 }] })
+    writeCatalog([product], 1)
+    const store = useStoreStore()
+    await store.initialize()
+
+    expect(store.addToCart(store.products[0])).toBe('added')
+    expect(store.cart[0]).toMatchObject({ quantity: 1, minimumOrderQuantity: 0, unavailable: false })
+  })
+
   it('keeps a below-MOQ cart line and rejects procurement after catalog MOQ rises', async () => {
     const product = catalogProduct({ id: 'MOQ-RAISED', channel: 'store', skus: [{ id: 'MOQ-RAISED-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 45, cost: 20, stock: 8, level1Amount: 10, level2Amount: 15, minimumOrderQuantity: 2 }] })
     writeCatalog([product], 1)
@@ -264,7 +274,7 @@ describe('store ordering store interactions', () => {
 
     expect(await store.submitOrder()).toBe(false)
     expect(store.cart[0]).toMatchObject({ quantity: 2, minimumOrderQuantity: 4, unavailable: true })
-    expect(store.checkoutError).toContain('起订 4 件')
+    expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
   })
 
   it('rejects first add when stock is below the SKU MOQ', async () => {
@@ -275,7 +285,7 @@ describe('store ordering store interactions', () => {
 
     expect(store.addToCart(store.products[0])).toBe('out-of-stock')
     expect(store.cart).toHaveLength(0)
-    expect(store.checkoutError).toContain('库存不足起订量')
+    expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
   })
 
   it('blocks increments at the stock limit', () => {
@@ -503,18 +513,15 @@ describe('deriveStoreMetrics', () => {
     const works = readPlatformAfterSales() || {}
     expect(Object.values(works)[0]?.status).toBe('processing')
   })
-  it('updates shared catalog stock while keeping the existing local listing control', () => {
+  it('exposes the shared catalog as a read-only procurement source', () => {
     const store = useStoreStore()
     const catalog = catalogProduct({ id: 'STOCK', channel: 'store' })
     writeCatalog([catalog])
     const tea = catalogProductToProduct(catalog)
-    store.$patch({ products: [tea], catalogRevision: 0, cart: [], orders: [], checkoutError: '', overrides: {} })
-    expect(store.setSkuStock(tea.id, tea.skus[0].id, 3)).toBe(true)
-    const product = store.products.find((item) => item.id === 'STOCK')!
-    expect(product.skus[0].stock).toBe(3)
-    expect(readCatalogState()?.products[0].skus[0].stock).toBe(3)
-    expect(store.toggleListed(tea.id)).toBe(true)
-    expect(store.isListed(tea.id)).toBe(false)
+    store.$patch({ products: [tea], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
+    expect('setSkuStock' in store).toBe(false)
+    expect('toggleListed' in store).toBe(false)
+    expect(store.products[0].skus[0].stock).toBe(catalog.skus[0].stock)
     expect(readPlatformEntities()?.products?.[tea.id]).toBeUndefined()
   })
   it('does not restore stock for a refund and restores it once when a return completes', async () => {

@@ -1,16 +1,17 @@
 @use "../../../../packages/ui/src/typography.scss";
+@use "../../../../packages/ui/src/mobile-theme.scss";
 
 :root {
-  --farm-green: #17633f;
-  --farm-green-deep: #10472f;
-  --farm-green-soft: #e7f2eb;
-  --farm-gold: #b8903f;
-  --farm-red: #a9473d;
-  --farm-bg: #f5f5ef;
-  --farm-panel: #ffffff;
-  --farm-ink: #222922;
-  --farm-muted: #626d64;
-  --farm-line: #e2e4dd;
+  --farm-green: var(--mobile-brand);
+  --farm-green-deep: var(--mobile-brand-deep);
+  --farm-green-soft: var(--mobile-brand-soft);
+  --farm-gold: var(--mobile-warning);
+  --farm-red: var(--mobile-price);
+  --farm-bg: var(--mobile-bg);
+  --farm-panel: var(--mobile-surface);
+  --farm-ink: var(--mobile-text);
+  --farm-muted: var(--mobile-muted);
+  --farm-line: var(--mobile-border);
 }
 
 page, body, #app {

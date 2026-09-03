@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  DICTIONARY_SCHEMA_VERSION,
   PLATFORM_DICTIONARIES_STORAGE_KEY,
+  PLATFORM_ENTITIES_STORAGE_KEY,
   PlatformEventBus,
   addDictGroup,
   addDictItem,
   dictLabel,
   getDictOptions,
   publishPlatformDictionaries,
+  productCategoryImage,
   readPlatformDictionaries,
   removeDictGroup,
   removeDictItem,
@@ -66,7 +69,7 @@ describe('platform dictionaries', () => {
     expect(initial.revision).toBe(0)
 
     const first = await publishPlatformDictionaries(withBusinessItem(initial), 0)
-    expect(first).toMatchObject({ schemaVersion: 1, revision: 1 })
+    expect(first).toMatchObject({ schemaVersion: DICTIONARY_SCHEMA_VERSION, revision: 1 })
     expect(readPlatformDictionaries().items).toContainEqual(expect.objectContaining({ code: 'agritourism', label: '农旅融合' }))
 
     const changed = updateDictItem(first!, 'DI-INDUSTRY-1', { label: '乡村文旅' })
@@ -135,7 +138,7 @@ describe('platform dictionaries', () => {
     }))
 
     const migrated = readPlatformDictionaries()
-    expect(migrated).toMatchObject({ schemaVersion: 1, revision: 4 })
+    expect(migrated).toMatchObject({ schemaVersion: DICTIONARY_SCHEMA_VERSION, revision: 4 })
     expect(migrated.groups.find((group) => group.type === 'orderStatus')).toMatchObject({ scope: 'system', locked: true, enabled: true })
     expect(migrated.groups.find((group) => group.type === 'industry')).toMatchObject({ scope: 'business', locked: false, enabled: true })
     expect(migrated.groups.some((group) => group.type === 'city')).toBe(false)
@@ -154,6 +157,65 @@ describe('platform dictionaries', () => {
     const agriculture = readPlatformDictionaries().items.filter((item) => item.type === 'productCategory' && (item.code === 'C001' || item.label === '农产品'))
     expect(agriculture).toHaveLength(1)
     expect(agriculture[0]).toMatchObject({ code: 'C001', label: '农产品' })
+  })
+
+  it('fills every migrated product category with a built-in image while preserving uploaded images', () => {
+    localStorage.setItem(PLATFORM_DICTIONARIES_STORAGE_KEY, JSON.stringify({
+      schemaVersion: 1,
+      revision: 7,
+      updatedAt: '2026-08-20T00:00:00.000Z',
+      groups: [{ id: 'legacy-product-category', type: 'productCategory', name: '商品品类' }],
+      items: [
+        { id: 'legacy-custom', type: 'productCategory', code: 'CUSTOM', label: '自定义山货', enabled: true, sort: 1 },
+        { id: 'legacy-uploaded', type: 'productCategory', code: 'UPLOADED', label: '上传品类', enabled: true, sort: 2, image: { source: 'asset', assetId: 'media-uploaded' } }
+      ]
+    }))
+
+    const migrated = readPlatformDictionaries()
+    const custom = migrated.items.find((item) => item.code === 'CUSTOM')
+    const uploaded = migrated.items.find((item) => item.code === 'UPLOADED')
+
+    expect(custom?.image).toEqual({ source: 'builtin', path: '/static/images/categories/fallback.webp' })
+    expect(uploaded?.image).toEqual({ source: 'asset', assetId: 'media-uploaded' })
+    expect(migrated.items.filter((item) => item.type === 'productCategory').every((item) => !!item.image)).toBe(true)
+  })
+
+  it('merges legacy managed product categories into the authoritative product category dictionary', () => {
+    localStorage.setItem(PLATFORM_ENTITIES_STORAGE_KEY, JSON.stringify({
+      updatedAt: '2026-08-20T00:00:00.000Z',
+      categories: {
+        'C-LEGACY': { id: 'C-LEGACY', name: '老品类山货', type: 'product' },
+        'C-SUPPLIER': { id: 'C-SUPPLIER', name: '供应商旧分类', type: 'supplier' }
+      }
+    }))
+
+    const state = readPlatformDictionaries()
+    expect(state.items).toContainEqual(expect.objectContaining({
+      type: 'productCategory', label: '老品类山货', image: { source: 'builtin', path: '/static/images/categories/fallback.webp' }
+    }))
+    expect(state.items.some((item) => item.label === '供应商旧分类')).toBe(false)
+  })
+
+  it('requires an image when creating or changing a product category', () => {
+    const initial = readPlatformDictionaries()
+    expect(addDictItem(initial, { id: 'NO-IMAGE', type: 'productCategory', code: 'NO-IMAGE', label: '无图片品类', enabled: true, sort: 99 })).toBeNull()
+
+    const created = addDictItem(initial, {
+      id: 'WITH-IMAGE', type: 'productCategory', code: 'WITH-IMAGE', label: '有图片品类', enabled: true, sort: 99,
+      image: { source: 'asset', assetId: 'media-category' }
+    })
+    expect(created?.items.find((item) => item.id === 'WITH-IMAGE')?.image).toEqual({ source: 'asset', assetId: 'media-category' })
+    expect(updateDictItem(created!, 'WITH-IMAGE', { label: '修改后的品类', image: undefined })).toBeNull()
+  })
+
+  it('resolves product category images by code or label without falling back to system icons', () => {
+    const state = readPlatformDictionaries()
+    const agriculture = state.items.find((item) => item.type === 'productCategory' && item.label === '农产品')!
+
+    expect(productCategoryImage('农产品', state)).toEqual(agriculture.image)
+    expect(productCategoryImage(agriculture.code, state)).toEqual(agriculture.image)
+    expect(productCategoryImage('全部', state)).toEqual({ source: 'builtin', path: '/static/images/categories/all.webp' })
+    expect(productCategoryImage('历史未知品类', state)).toEqual({ source: 'builtin', path: '/static/images/categories/fallback.webp' })
   })
 
   it('keeps all specified initial business and locked system groups', () => {
@@ -192,13 +254,13 @@ describe('platform dictionaries', () => {
   })
 
   it('locks known system types in pure CRUD even when legacy group flags are missing', () => {
-    const legacy: PlatformDictionaryState = {
+    const legacy = {
       schemaVersion: 1,
       revision: 2,
       updatedAt: '2026-08-20T00:00:00.000Z',
       groups: [{ id: 'legacy-order-status', type: 'orderStatus', name: '订单状态' }],
       items: [{ id: 'legacy-order-pending', type: 'orderStatus', code: 'pending', label: '待发货', enabled: true, sort: 1 }]
-    }
+    } as unknown as PlatformDictionaryState
 
     expect(addDictItem(legacy, { id: 'invented', type: 'orderStatus', code: 'invented', label: '伪造', enabled: true, sort: 2 })).toBeNull()
     expect(removeDictGroup(legacy, 'legacy-order-status')).toBeNull()

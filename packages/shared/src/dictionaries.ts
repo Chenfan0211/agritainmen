@@ -1,6 +1,8 @@
 import type { DictGroup, DictItem, DictType } from './index'
+import { normalizeMediaReference } from './media'
+import { defaultProductCategoryImage } from './product-category-images'
 
-export const DICTIONARY_SCHEMA_VERSION = 1 as const
+export const DICTIONARY_SCHEMA_VERSION = 2 as const
 export const PLATFORM_DICTIONARIES_STORAGE_KEY = 'agritainment-platform-dictionaries'
 export const PLATFORM_DICTIONARY_PUBLISH_LOCK_NAME = 'agritainment-platform-dictionaries:publish'
 
@@ -134,6 +136,7 @@ function normalizeItem(value: unknown): DictItem | null {
   const tone = typeof value.tone === 'string' && tones.has(value.tone as NonNullable<DictItem['tone']>)
     ? value.tone as NonNullable<DictItem['tone']>
     : undefined
+  const image = normalizeMediaReference(value.image as DictItem['image'])
   return {
     id,
     type,
@@ -141,7 +144,8 @@ function normalizeItem(value: unknown): DictItem | null {
     label,
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
     sort: typeof value.sort === 'number' && Number.isFinite(value.sort) ? value.sort : 0,
-    ...(tone ? { tone } : {})
+    ...(tone ? { tone } : {}),
+    ...(type === 'productCategory' ? { image: image ?? defaultProductCategoryImage(label) } : image ? { image } : {})
   }
 }
 
@@ -215,6 +219,53 @@ export function migratePlatformDictionaries(
   }
 }
 
+export function mergeLegacyProductCategories(state: PlatformDictionaryState, values: unknown): PlatformDictionaryState {
+  if (!Array.isArray(values)) return state
+  const categories = values
+    .filter(isRecord)
+    .map((value) => ({
+      id: typeof value.id === 'string' ? value.id.trim() : '',
+      name: typeof value.name === 'string' ? value.name.trim() : '',
+      type: value.type
+    }))
+    .filter((value) => value.id && value.name && value.type === 'product')
+    .sort((left, right) => left.id.localeCompare(right.id) || left.name.localeCompare(right.name))
+  if (!categories.length) return state
+
+  const next = cloneState(state)
+  const productItems = next.items.filter((item) => item.type === 'productCategory')
+  const labels = new Set(productItems.map((item) => item.label.trim()))
+  const codes = new Set(productItems.map((item) => item.code))
+  const ids = new Set(next.items.map((item) => item.id))
+  let sort = productItems.reduce((maximum, item) => Math.max(maximum, item.sort), 0)
+  const uniqueValue = (base: string, used: Set<string>): string => {
+    if (!used.has(base)) return base
+    let suffix = 2
+    while (used.has(`${base}-${suffix}`)) suffix += 1
+    return `${base}-${suffix}`
+  }
+
+  categories.forEach((category) => {
+    if (labels.has(category.name)) return
+    const code = uniqueValue(category.id, codes)
+    const id = uniqueValue(`legacy-product-category-${category.id}`, ids)
+    sort += 10
+    next.items.push({
+      id,
+      type: 'productCategory',
+      code,
+      label: category.name,
+      enabled: true,
+      sort,
+      image: defaultProductCategoryImage(category.name)
+    })
+    labels.add(category.name)
+    codes.add(code)
+    ids.add(id)
+  })
+  return next
+}
+
 export function addDictGroup(state: PlatformDictionaryState, input: NewDictGroup): PlatformDictionaryState | null {
   const group = normalizeGroup({ ...input, scope: 'business', locked: false, enabled: input.enabled ?? true })
   if (!group || systemTypes.has(group.type) || state.groups.some((candidate) => candidate.id === group.id || candidate.type === group.type)) return null
@@ -256,6 +307,7 @@ export function removeDictGroup(state: PlatformDictionaryState, id: string): Pla
 }
 
 export function addDictItem(state: PlatformDictionaryState, input: NewDictItem): PlatformDictionaryState | null {
+  if (input.type === 'productCategory' && !normalizeMediaReference(input.image)) return null
   const item = normalizeItem(input)
   const group = item ? state.groups.find((candidate) => candidate.type === item.type) : undefined
   if (!item || !group || isSystemGroup(group)) return null
@@ -274,7 +326,10 @@ export function updateDictItem(state: PlatformDictionaryState, id: string, chang
   const code = changes.code?.trim() || current.code
   const label = changes.label?.trim() || current.label
   const tone = changes.tone === undefined ? current.tone : changes.tone
+  const imageChanged = Object.prototype.hasOwnProperty.call(changes, 'image')
+  const image = imageChanged ? normalizeMediaReference(changes.image) : normalizeMediaReference(current.image)
   if (!type || !code || !label || (tone !== undefined && !tones.has(tone))) return null
+  if (type === 'productCategory' && !image) return null
   if (isSystemGroup(currentGroup)) {
     if (type !== current.type || code !== current.code) return null
   } else {
@@ -290,7 +345,8 @@ export function updateDictItem(state: PlatformDictionaryState, id: string, chang
     label,
     enabled: changes.enabled ?? item.enabled,
     sort: changes.sort ?? item.sort,
-    ...(tone === undefined ? {} : { tone })
+    ...(tone === undefined ? {} : { tone }),
+    ...(image ? { image } : {})
   } : item)
   return next
 }
@@ -326,6 +382,7 @@ export function canPublishPlatformDictionaries(current: PlatformDictionaryState,
   for (const item of ni) {
     const key = `${item.type}\u0000${item.code}`
     if (!item.id || !item.code || !item.label || !groupTypes.has(item.type) || itemIds.has(item.id) || itemCodes.has(key)) return false
+    if (item.type === 'productCategory' && !normalizeMediaReference(item.image)) return false
     itemIds.add(item.id)
     itemCodes.add(key)
   }

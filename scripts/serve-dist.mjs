@@ -5,7 +5,6 @@ import { extname, join, normalize } from 'node:path'
 const roots = [
   [8791, 'apps/admin/dist/build/h5'],
   [8792, 'apps/farmhouse/dist/build/h5'],
-  [8793, 'apps/alliance/dist/build/h5'],
   [8794, 'apps/farmhouse/dist/tenants/yunshang/h5'],
   [8795, 'apps/store/dist/build/h5'],
   [8796, 'apps/promoter/dist/build/h5'],
@@ -46,4 +45,4 @@ for (const [port, relativeRoot] of roots) {
   }).listen(port, process.env.HOST || '127.0.0.1')
 }
 
-console.log('H5 previews ready on ports 8791-8798')
+console.log('H5 previews ready on ports 8791, 8792, 8794-8798')

@@ -10,11 +10,9 @@ export default defineConfig({
   build: buildOutDir ? { outDir: buildOutDir } : undefined,
   plugins: [uni()],
   resolve: {
+    preserveSymlinks: true,
     alias: [
-      { find: '@agritainment/shared', replacement: fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)) },
-      { find: '@agritainment/ui/h5', replacement: fileURLToPath(new URL('../../packages/ui/src/h5.ts', import.meta.url)) },
-      { find: '@agritainment/ui/mp', replacement: fileURLToPath(new URL('../../packages/ui/src/mp.ts', import.meta.url)) },
-      { find: '@agritainment/ui', replacement: fileURLToPath(new URL('../../packages/ui/src/index.ts', import.meta.url)) }
+      { find: '@agritainment/shared', replacement: fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)) }
     ]
   }
 })

@@ -1,4 +1,4 @@
-export type PlatformActorType = 'admin' | 'farmhouse' | 'store' | 'promoter' | 'alliance' | 'user' | 'supplier'
+export type PlatformActorType = 'admin' | 'farmhouse' | 'store' | 'promoter' | 'user' | 'supplier'
 
 export interface PlatformPrincipal {
   actorType: PlatformActorType

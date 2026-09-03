@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { farms } from './index'
-import { createAMapGeocodeProvider, createGeocodeProviders, createTencentGeocodeProvider, geocodeAddress } from './geocoding'
+import { createGeocodeProviders, createTencentGeocodeProvider, geocodeAddress, translateTencentCoordinates } from './geocoding'
 import type { FarmLocation } from './index'
 import type { GeocodeProvider } from './geocoding'
 
@@ -61,8 +61,8 @@ describe('geocodeAddress', () => {
     })
   })
 
-  it('按配置顺序创建腾讯优先的 provider 链', () => {
-    expect(createGeocodeProviders({ amapKey: 'amap-key', tencentKey: 'tencent-key', order: ['tencent', 'amap'] }).map((provider) => provider.name)).toEqual(['tencent', 'amap'])
+  it('新地址解析只创建腾讯同源网关 provider', () => {
+    expect(createGeocodeProviders({ amapKey: 'legacy-amap-key', tencentProxy: '/api/tencent-map/geocode', order: ['amap', 'tencent'] }).map((provider) => provider.name)).toEqual(['tencent'])
   })
 
   it('所有已配置供应商失败时返回 failed', async () => {
@@ -73,21 +73,6 @@ describe('geocodeAddress', () => {
     }
 
     await expect(geocodeAddress('湖南省长沙市', [failed])).resolves.toEqual({ status: 'failed', reason: 'REQUEST_FAILED' })
-  })
-
-  it('解析高德完整行政区元数据', async () => {
-    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      status: '1', geocodes: [{ location: '112.9388,28.2282', adcode: '430104', province: '湖南省', city: '长沙市', district: '岳麓区', formatted_address: '湖南省长沙市岳麓区潇湘中路' }]
-    }), { status: 200 }))
-    const provider = createAMapGeocodeProvider({
-      amapKey: 'test-key',
-      fetch: request
-    })
-
-    await expect(provider.geocode({ address: '岳麓区潇湘中路', city: '长沙市' })).resolves.toMatchObject({
-      longitude: 112.9388, latitude: 28.2282, coordinateSystem: 'GCJ-02', provider: 'amap', adCode: '430104', province: '湖南省', city: '长沙市', district: '岳麓区', formattedAddress: '湖南省长沙市岳麓区潇湘中路'
-    })
-    expect(request).toHaveBeenCalledWith(expect.stringContaining('city=%E9%95%BF%E6%B2%99%E5%B8%82'))
   })
 
   it('高德返回非法中国境外坐标时回退腾讯', async () => {
@@ -109,21 +94,24 @@ describe('geocodeAddress', () => {
   })
 
   it('解析腾讯完整行政区元数据', async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      longitude: 112.9388, latitude: 28.2282, coordinateSystem: 'GCJ-02', provider: 'tencent',
+      adCode: '430104', province: '湖南省', city: '长沙市', district: '岳麓区',
+      formattedAddress: '湖南省长沙市岳麓区潇湘中路', geocodedAt: '2026-09-02T08:00:00.000Z'
+    }), { status: 200 }))
     const provider = createTencentGeocodeProvider({
-      tencentKey: 'test-key',
-      fetch: vi.fn().mockResolvedValue(new Response(JSON.stringify({
-        status: 0,
-        result: {
-          location: { lng: 112.9388, lat: 28.2282 }, ad_info: { adcode: '430104' },
-          address_components: { province: '湖南省', city: '长沙市', district: '岳麓区' },
-          title: '潇湘中路', address: '湖南省长沙市岳麓区潇湘中路'
-        }
-      }), { status: 200 }))
+      tencentProxy: '/api/tencent-map/geocode',
+      fetch: request
     })
 
     await expect(provider.geocode({ address: '湖南省长沙市岳麓区潇湘中路' })).resolves.toMatchObject({
       longitude: 112.9388, latitude: 28.2282, coordinateSystem: 'GCJ-02', provider: 'tencent', adCode: '430104', province: '湖南省', city: '长沙市', district: '岳麓区', formattedAddress: '湖南省长沙市岳麓区潇湘中路'
     })
+    expect(request).toHaveBeenCalledWith('/api/tencent-map/geocode', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ address: '湖南省长沙市岳麓区潇湘中路' })
+    }))
+    expect(JSON.stringify(request.mock.calls)).not.toContain('test-key')
   })
 
   it('每个 provider 超时五秒后标记 TIMEOUT', async () => {
@@ -140,5 +128,46 @@ describe('geocodeAddress', () => {
     await expect(geocodeAddress('湖南省长沙市')).resolves.toEqual({ status: 'failed', reason: 'NOT_CONFIGURED' })
     const invalid: GeocodeProvider = { name: 'amap', isConfigured: () => true, geocode: vi.fn().mockResolvedValue(location('amap', 0, 0)) }
     await expect(geocodeAddress('湖南省长沙市', [invalid])).resolves.toEqual({ status: 'failed', reason: 'INVALID_COORDINATE' })
+  })
+})
+
+describe('translateTencentCoordinates', () => {
+  it('keeps GCJ-02 input unchanged and declares the output coordinate system', async () => {
+    const request = vi.fn()
+    await expect(translateTencentCoordinates({
+      source: 'GCJ-02',
+      locations: [{ longitude: 112.9388, latitude: 28.2282 }]
+    }, { fetch: request })).resolves.toEqual({
+      coordinateSystem: 'GCJ-02',
+      locations: [{ longitude: 112.9388, latitude: 28.2282 }]
+    })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('posts external coordinates to the same-origin Tencent gateway', async () => {
+    const response = { coordinateSystem: 'GCJ-02' as const, locations: [{ longitude: 112.94, latitude: 28.23 }] }
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200 }))
+    await expect(translateTencentCoordinates({
+      source: 'WGS84',
+      locations: [{ longitude: 112.93, latitude: 28.22 }]
+    }, { proxy: '/api/tencent-map/translate', fetch: request })).resolves.toEqual(response)
+    expect(request).toHaveBeenCalledWith('/api/tencent-map/translate', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ source: 'WGS84', locations: [{ longitude: 112.93, latitude: 28.22 }] })
+    }))
+  })
+
+  it('forwards Sogou Mercator values without treating them as geographic degrees', async () => {
+    const response = { coordinateSystem: 'GCJ-02' as const, locations: [{ longitude: 112.94, latitude: 28.23 }] }
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200 }))
+    await expect(translateTencentCoordinates({
+      source: 'SOGOU_MERCATOR',
+      locations: [{ longitude: 12958160, latitude: 4825907 }]
+    }, { fetch: request })).resolves.toEqual(response)
+  })
+
+  it('rejects malformed gateway output', async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({ coordinateSystem: 'WGS84', locations: [] }), { status: 200 }))
+    await expect(translateTencentCoordinates({ source: 'BAIDU', locations: [{ longitude: 112.93, latitude: 28.22 }] }, { fetch: request })).rejects.toThrow('坐标转换响应无效')
   })
 })

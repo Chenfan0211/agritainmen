@@ -7,7 +7,6 @@
 - `apps/admin`：中选科技供应链管理后台，仅构建 H5。
 - `apps/dashboard`：产业数据监管与赋能驾驶舱，仅构建 PC H5；读取其他端同源共享数据并按登录主体做区域权限聚合。
 - `apps/farmhouse`：中选科技农家乐门店端，构建 H5 和微信小程序。
-- `apps/alliance`：中选科技联盟推客平台，构建 H5 和微信小程序。
 - `apps/store`：中选科技门店订货商城，门店以供货价向中选科技供应链中台直采下单并查看订单，仅构建 H5。
 - `apps/promoter`：中选科技推客端（H5 + 微信小程序），推客创建直播、选择多个门店及套餐券商品推广，管理直播、查看消费分成与绑定用户。
 - `apps/user`：中选科技用户端 C 端分销商城（H5 + 微信小程序），浏览快递直发商品、按普通/一级/二级分销身份显示价格、购物车结算、查看多供应商子订单和佣金；直播专区作为活动入口保留。
@@ -21,7 +20,6 @@ pnpm install
 pnpm dev:admin
 pnpm dev:dashboard
 pnpm dev:farmhouse
-pnpm dev:alliance
 pnpm dev:store
 pnpm dev:promoter
 pnpm dev:user
@@ -39,13 +37,13 @@ pnpm typecheck
 pnpm build
 ```
 
-`pnpm build` 会依次构建后台和驾驶舱 H5、门店 H5/微信小程序、联盟 H5/微信小程序、中选科技门店订货商城 H5、供应商端微信小程序（H5 仅开发预览）。
+`pnpm build` 会依次构建后台和驾驶舱 H5、门店 H5/微信小程序、中选科技门店订货商城 H5、供应商端微信小程序（H5 仅开发预览）。
 
-预览端口：admin 8791、farmhouse 8792、alliance 8793、云上人家 8794、store 8795、promoter 8796、user 8797、supplier 8798（见 `scripts/serve-dist.mjs`），dashboard 开发服务默认使用 5182。完整跨端 H5 联调使用 `pnpm build:single-origin`、`node scripts/serve-single-origin.mjs` 和 `pnpm check:single-origin`，统一从 `http://127.0.0.1:8780` 下的 `/dashboard/`、`/admin/`、`/user/`、`/supplier/` 等路径访问。生产部署通过 `VITE_PORTAL_ORIGIN` 注入真实域名，业务代码不会生成本机地址。
+预览端口：admin 8791、farmhouse 8792、云上人家 8794、store 8795、promoter 8796、user 8797、supplier 8798（见 `scripts/serve-dist.mjs`），dashboard 开发服务默认使用 5182。完整跨端 H5 联调使用 `pnpm build:single-origin`、`node scripts/serve-single-origin.mjs` 和 `pnpm check:single-origin`，统一从 `http://127.0.0.1:8780` 下的 `/dashboard/`、`/admin/`、`/user/`、`/supplier/` 等路径访问。生产部署通过 `VITE_PORTAL_ORIGIN` 注入真实域名，业务代码不会生成本机地址。
 
-驾驶舱地图边界随仓库本地构建：省级展示 14 个市州，市级按需加载所属县区 GeoJSON，运行时不访问外部地图边界服务。运营后台新增、改址或手动重新定位门店时才调用地理编码，默认高德优先、腾讯备用，可通过 `VITE_GEOCODER_ORDER=tencent,amap` 调整顺序。浏览器直连使用 `VITE_AMAP_KEY`、`VITE_TENCENT_MAP_KEY`；生产环境建议配置 `VITE_AMAP_PROXY`、`VITE_TENCENT_MAP_PROXY` 由服务端代理并保护密钥。每个服务 5 秒超时，县区编码不一致时保留地址并标记定位失败。
+驾驶舱使用腾讯地图 JS API GL 展示在线底图，省级展示城市聚合气泡，市县级展示门店状态点。浏览器只读取 `VITE_TENCENT_MAP_JS_KEY` 和可选的 `VITE_TENCENT_MAP_STYLE_ID`；运营后台地址解析固定调用同源 `/api/tencent-map/geocode`。腾讯 WebService Key 与 Secret 仅配置在 Node 网关环境变量中，不会进入前端构建产物。详细配置和 Nginx 反代示例见 [`docs/tencent-map.md`](docs/tencent-map.md)。
 
-同源构建会把静态资源重写为 `/{app}/static/*`，避免八个应用的同名图片互相覆盖。dashboard 构建额外校验单个 JavaScript 文件不超过 650KB，且不会复制运营后台未引用的 `static/images`。完整目录、数据键和联调流程见 [`docs/integration.md`](docs/integration.md)。
+同源构建会把静态资源重写为 `/{app}/static/*`，避免七个应用的同名图片互相覆盖。dashboard 构建额外校验单个 JavaScript 文件不超过 650KB，且不会复制运营后台未引用的 `static/images`。完整目录、数据键和联调流程见 [`docs/integration.md`](docs/integration.md)。
 首次执行端到端测试前运行 `pnpm exec playwright install chromium` 安装测试浏览器。
 
 ## 门店多租户构建
@@ -63,7 +61,7 @@ pnpm --filter @agritainment/farmhouse build:mp:yunshang
 
 - admin 中选科技供应链管理后台：账号 `admin` / 密码 `123456`
 - dashboard 产业数据驾驶舱：`leader`、`regulator`、`service` / 密码均为 `123456`；角色和根区域由账号绑定。
-- store 中选科技门店订货商城、alliance 中选科技联盟推客平台：手机号 `13800000000` / 密码 `123456`，验证码 `123456`（页面自动填充，可直接一键登录）
+- store 中选科技门店订货商城：手机号 `13800000000` / 密码 `123456`，验证码 `123456`（页面自动填充，可直接一键登录）
 - farmhouse 中选科技农家乐门店端：微信一键登录（本地模拟 openid，无真实后端）；登录前先选择演示身份（顾客 / 店员 / 店长）
 - supplier 供应商端：登录时选择角色；供应商账号由中控台按联系人手机号自动生成，初始密码同手机号。演示账号 `13787366688` / `13787366688`（湘西腊味合作社）、`13574902233` / `13574902233`（炎陵果业有限公司）；预置司机 `driver01`~`driver03` / `123456`（张伟 / 李强 / 王芳）。
   - 供应商端工作台底部可一键「重置演示数据」（清空本地订单/司机/交接数据并重播种子；H5 同源下会同步重置各端共享的演示订单集）。
@@ -74,7 +72,7 @@ pnpm --filter @agritainment/farmhouse build:mp:yunshang
 - 中选科技用户端（apps/user）：商城是主入口，商品目录独立于门店订货商品，所有商品统一快递配送。普通用户、一级分销商、二级分销商分别按基础价、基础价加一级分佣、基础价加一级和二级分佣显示价格。
 - 管理端商品库可切换“门店订货商品 / C 端商城商品”，C 端商品独立维护基础价、一级分佣、二级分佣、库存和上下架状态，固定快递配送。
 - 用户端订单使用前端 mock/localStorage 完成购物车、地址、多供应商拆单和模拟支付；支付后按供应商生成稳定履约订单，由供应商端接单、快递发货并写回物流，用户端只查看物流、确认收货和发起售后，不接真实支付和后端接口。
-- H5 同源部署支持管理端、用户端和供应商端共享 localStorage 联调，包括供应商账号创建、换号和改密；演示密码以明文保存在浏览器本地存储中。微信小程序跨应用不能依赖 localStorage，只通过跳转参数传递推广和直播信息，生产环境的供应商账号必须改为服务端哈希密码与鉴权，并通过后端或云开发数据库实现跨应用同步；推客和联盟直播链接统一进入用户端直播专区。
+- H5 同源部署支持管理端、用户端和供应商端共享 localStorage 联调，包括供应商账号创建、换号和改密；演示密码以明文保存在浏览器本地存储中。微信小程序跨应用不能依赖 localStorage，只通过跳转参数传递推广和直播信息，生产环境的供应商账号必须改为服务端哈希密码与鉴权，并通过后端或云开发数据库实现跨应用同步；推客直播链接统一进入用户端直播专区。
 - 用户绑定与消费分成：首次扫码为临时绑定，用户在门店端下单后转为正式绑定并永久锁定；一个用户只能绑定一个推客或一个店员。中控台（admin）可设置全局推客/店员分成比例并查看分成记录。
 - 店员推广权限：店长在门店端「店员管理」或中控台「门店账号」给店员开启推广权限；开启后店员可生成自己的推广码。
 

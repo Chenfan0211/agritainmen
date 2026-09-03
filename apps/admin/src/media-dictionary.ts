@@ -1,5 +1,5 @@
 import { MediaReplacementFinalizeError, normalizeMediaReference, replaceMediaReference } from '@agritainment/shared'
-import type { CatalogProduct, DictGroup, FarmStore, MediaAssetRepository, MediaReference, PlatformDictionaryState, Supplier, SupplierQualification } from '@agritainment/shared'
+import type { CatalogProduct, DictGroup, DictItem, FarmStore, MediaAssetRepository, MediaReference, PlatformDictionaryState, Supplier, SupplierQualification } from '@agritainment/shared'
 
 type MediaValue = MediaReference | string | null | undefined
 
@@ -28,6 +28,12 @@ export function supplierMediaBindings(supplier?: Supplier | null): AdminMediaBin
     { bindingId: `supplier:${supplier.id}:qualification:businessLicense`, value: qualification.businessLicense },
     { bindingId: `supplier:${supplier.id}:qualification:permit`, value: qualification.permit }
   ]
+}
+
+export function dictionaryItemMediaBindings(item?: DictItem | null): AdminMediaBinding[] {
+  return item?.type === 'productCategory'
+    ? [{ bindingId: `dictionary-item:${item.id}:image`, value: item.image }]
+    : []
 }
 
 export class AdminMediaFinalizeError extends Error {
@@ -114,6 +120,10 @@ export function validateCatalogMedia(input: { image: MediaValue; images: readonl
   if (!normalizeMediaReference(input.image)) return '请上传商品主图'
   if (input.images.length > 9) return '商品图库最多上传 9 张'
   return ''
+}
+
+export function validateDictionaryItemImage(type: string, image: MediaValue): string {
+  return type === 'productCategory' && !normalizeMediaReference(image) ? '请上传商品品类图片' : ''
 }
 
 export function inheritCatalogSkuImages(product: CatalogProduct): CatalogProduct {

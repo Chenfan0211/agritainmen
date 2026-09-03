@@ -1655,9 +1655,9 @@ describe('admin store interactions', () => {
     store.categories = cloneSeed(categories)
     store.products = cloneSeed(products)
     store.suppliers = cloneSeed(suppliers)
-    expect(await store.addCategory('有机杂粮', 'product')).toBe(true)
-    expect(store.categories[0]).toMatchObject({ name: '有机杂粮', type: 'product' })
-    expect(await store.addCategory('有机杂粮', 'supplier')).toBe(false)
+    expect(await store.addCategory('有机杂粮', 'supplier')).toBe(true)
+    expect(store.categories[0]).toMatchObject({ name: '有机杂粮', type: 'supplier' })
+    expect(await store.addCategory('有机杂粮', 'general')).toBe(false)
     expect(await store.updateCategory(store.categories[0].id, '有机杂粮礼盒', 'general')).toBe(true)
     expect(await store.removeCategory('C007')).toBe(false)
     expect(await store.removeCategory('C018')).toBe(true)
@@ -2345,6 +2345,45 @@ describe('admin auth', () => {
     expect(store.dictItems.find((i) => i.id === item.id)?.label).toBe('每日新鲜直供')
     expect(await store.removeDictItem(item.id)).toBe(true)
     expect(store.dictItems.some((candidate) => candidate.id === item.id)).toBe(false)
+  })
+
+  it('persists required product category images through dictionary CRUD', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    expect(await store.login('admin', '123456')).toBe(true)
+    expect(await store.addDictItem({ type: 'productCategory', code: 'IMAGE-REQUIRED', label: '无图新品类' })).toBe(false)
+    expect(await store.addDictItem({
+      type: 'productCategory', code: 'IMAGE-CATEGORY', label: '图片品类',
+      image: { source: 'asset', assetId: 'media-product-category' }
+    })).toBe(true)
+    const item = store.dictItems.find((candidate) => candidate.code === 'IMAGE-CATEGORY')!
+    expect(item.image).toEqual({ source: 'asset', assetId: 'media-product-category' })
+    expect(await store.updateDictItem(item.id, { label: '图片品类已更新', image: undefined })).toBe(false)
+    store.catalogProducts = [{ category: item.label } as CatalogProduct]
+    expect(await store.removeDictItem(item.id)).toBe(false)
+    store.catalogProducts = []
+    expect(await store.removeDictItem(item.id)).toBe(true)
+  })
+
+  it('uses the product category dictionary as the category-management source of truth', async () => {
+    const store = useAdminStore()
+    await store.initialize()
+    expect(await store.login('admin', '123456')).toBe(true)
+    const image = { source: 'asset', assetId: 'media-managed-category' } as const
+    const replacement = { source: 'asset', assetId: 'media-managed-category-next' } as const
+
+    expect(await store.addCategory('后台统一新品类', 'product', image)).toBe(true)
+    const created = store.dictItems.find((item) => item.type === 'productCategory' && item.label === '后台统一新品类')!
+    expect(created.image).toEqual(image)
+    expect(Object.values(readPlatformEntities()?.categories ?? {}).some((item) => item.name === '后台统一新品类')).toBe(false)
+
+    expect(await store.updateCategory(created.id, '后台统一新品类已改', 'product', replacement)).toBe(true)
+    expect(store.dictItems.find((item) => item.id === created.id)).toMatchObject({ label: '后台统一新品类已改', image: replacement })
+    store.catalogProducts = [{ category: '后台统一新品类已改' } as CatalogProduct]
+    expect(await store.removeCategory(created.id)).toBe(false)
+    store.catalogProducts = []
+    expect(await store.removeCategory(created.id)).toBe(true)
+    expect(store.dictItems.some((item) => item.id === created.id)).toBe(false)
   })
 
   it('manages dictionary groups and blocks deleting non-empty ones', async () => {
