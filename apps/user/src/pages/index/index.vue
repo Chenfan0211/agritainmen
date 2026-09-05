@@ -314,8 +314,8 @@ onBeforeUnmount(() => {
       <view v-else-if="activeTab === 'category'" class="page-content category-page" data-visual-view="user-category">
         <view class="page-heading"><text class="page-title">商品分类</text><text class="page-sub">按品类挑选产地好物</text></view>
         <view class="search-box"><UiIcon name="search" :size="17" /><input v-model="searchText" class="search-input" placeholder="搜索商品、供应商或标签" /></view>
-        <view class="category-row category-tabs"><button v-for="category in categories" :key="category" class="category-item" :class="{ active: activeCategory === category }" :aria-label="category" :title="category" data-typography-compact @click="activeCategory = category"><BusinessImage class="category-image" :src="productCategoryImage(category, dictionaryState)" :fallback="defaultProductCategoryImage(category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-label">{{ category }}</text></button></view>
-        <view class="waterfall-grid compact-feed"><view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column"><view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)"><BusinessImage class="product-image" :src="product.image" mode="aspectFill" /><view class="product-body"><text class="product-name">{{ product.name }}</text><text class="supplier-name">{{ product.supplierName }}</text><view class="product-foot"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><button class="product-action" @click.stop="openProduct(product)">选购</button></view></view></view></view></view>
+        <view class="category-grid"><button v-for="category in categories" :key="category" class="category-grid-item" :class="{ active: activeCategory === category }" :aria-label="category" :title="category" @click="activeCategory = category"><BusinessImage class="category-grid-img" :src="productCategoryImage(category, dictionaryState)" :fallback="defaultProductCategoryImage(category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ category }}</text></button></view>
+        <view class="waterfall-grid compact-feed"><view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column"><view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)"><BusinessImage class="product-image" :src="product.image" mode="aspectFill" /><view class="product-body"><view class="product-name-row"><text v-for="tag in product.tags.slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text><text class="product-name">{{ product.name }}</text></view><text class="supplier-name">{{ product.supplierName }}</text><view class="product-foot"><view class="product-price-box"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><del v-if="(product.skus[0]?.basePrice ?? 0) > store.priceForSku(product.skus[0])" class="product-original">¥{{ (product.skus[0]?.basePrice ?? 0).toFixed(2) }}</del></view><button class="product-action" @click.stop="openProduct(product)">选购</button></view></view></view></view></view>
         <view v-if="!visibleProducts.length" class="empty-block pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-bag" :size="24" /></view><text>该分类暂无商品</text></view>
       </view>
 
@@ -340,6 +340,11 @@ onBeforeUnmount(() => {
       <view v-else class="page-content me-page" data-visual-view="user-me">
         <view class="page-heading"><text class="page-title">我的</text><text class="page-sub">分销与订单都在这里管理</text></view>
         <view class="profile-panel"><view class="avatar">{{ roleLabel.slice(0, 1) }}</view><view class="profile-main"><text class="profile-role">{{ roleLabel }}</text><text class="profile-id">用户 {{ store.userId || '演示用户' }}</text></view><text class="profile-state">已登录</text></view>
+        <view class="role-switch">
+          <button :class="{ active: store.level === 'normal' }" @click="store.setDemoDistributorLevel('normal')">普通用户</button>
+          <button :class="{ active: store.level === 'level1' }" @click="store.setDemoDistributorLevel('level1')">一级分销商</button>
+          <button :class="{ active: store.level === 'level2' }" @click="store.setDemoDistributorLevel('level2')">二级分销商</button>
+        </view>
         <view v-if="store.currentDistributor" class="operations-hero commission-summary"><text>销售统计</text><view><view><strong>¥{{ store.pendingCommission.toFixed(2) }}</strong><small>待结算收入</small></view><view><strong>¥{{ store.availableCommission.toFixed(2) }}</strong><small>可提现收入</small></view><view><strong>¥{{ operations.personalPerformance.toFixed(2) }}</strong><small>个人业绩</small></view><view><strong>¥{{ operations.teamPerformance.toFixed(2) }}</strong><small>团队业绩</small></view></view></view>
 <view v-if="store.currentDistributor" class="operations-grid pc-tile-grid"><button class="pc-tile pc-tile--coral" @click="openOperations('income')"><view class="pc-tile-icon"><UiIcon name="badge-dollar-sign" :size="26" /></view><text class="pc-tile-label">我的收入</text></button><button class="pc-tile pc-tile--blue" @click="openOperations('fans')"><view class="pc-tile-icon"><UiIcon name="user-round-check" :size="26" /><text v-if="operations.directFans.length" class="pc-tile-badge">{{ operations.directFans.length > 99 ? '99+' : operations.directFans.length }}</text></view><text class="pc-tile-label">我的粉丝</text></button><button class="pc-tile pc-tile--green" @click="openOperations('orders')"><view class="pc-tile-icon"><UiIcon name="package-check" :size="26" /><text v-if="operations.teamOrders.length" class="pc-tile-badge">{{ operations.teamOrders.length > 99 ? '99+' : operations.teamOrders.length }}</text></view><text class="pc-tile-label">团队订单</text></button><button class="pc-tile pc-tile--amber" @click="openOperations('performance')"><view class="pc-tile-icon"><UiIcon name="chart-no-axes-combined" :size="26" /></view><text class="pc-tile-label">团队业绩</text></button></view>
         <view v-else class="normal-summary"><UiIcon name="shield-check" :size="19" /><view><text>安心购物</text><small>订单、地址与售后服务都在这里</small></view></view>
@@ -593,10 +598,13 @@ onBeforeUnmount(() => {
 .detail-tags { display: flex; gap: 5px; overflow: hidden; flex-wrap: wrap; max-height: 23px; }
 .tag { max-width: 96px; overflow: hidden; padding: 3px 6px; border-radius: 4px; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
 
+.product-name-row { display: flex; align-items: flex-start; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.product-name-row .tag { font-size: 12px; line-height: 1.4; border-radius: 4px; }
 .product-name {
+  flex: 1;
+  min-width: 0;
   display: -webkit-box;
   overflow: hidden;
-  margin-top: 4px;
   color: var(--mobile-text);
   font-size: 14px;
   font-weight: 800;
@@ -616,7 +624,9 @@ onBeforeUnmount(() => {
 .cart-checkout strong,
 .commission-row .strong-text { color: var(--mobile-price); font-variant-numeric: tabular-nums; }
 
-.product-price { display: block; font-size: 18px; font-weight: 900; }
+.product-price { display: inline; font-size: 18px; font-weight: 900; }
+.product-price-box { display: inline-flex; align-items: baseline; gap: 4px; }
+.product-original { font-size: 13px; color: var(--mobile-muted); }
 .share-income { display: block; overflow: hidden; margin-top: 2px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 .product-action {
@@ -773,6 +783,31 @@ onBeforeUnmount(() => {
 .outline-small,
 .outline-btn { border: 1px solid #b9ccbf; background: var(--mobile-surface); color: var(--mobile-brand-deep); }
 
+.role-switch {
+  display: flex;
+  gap: 8px;
+  margin: 0 16px 12px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--mobile-surface-subtle);
+  border: 1px solid var(--mobile-border);
+}
+.role-switch button {
+  flex: 1;
+  min-height: 40px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  color: var(--mobile-muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.role-switch button.active {
+  background: var(--mobile-surface);
+  color: var(--mobile-brand);
+  font-weight: 800;
+  box-shadow: 0 1px 2px rgba(19, 43, 29, .06);
+}
 .profile-panel {
   display: flex;
   align-items: center;

@@ -12,6 +12,14 @@
   --farm-ink: var(--mobile-text);
   --farm-muted: var(--mobile-muted);
   --farm-line: var(--mobile-border);
+  /* === 门店橙色主题（仅本 app，不影响其它端）=== */
+  --mobile-brand: #f0810f;
+  --mobile-brand-deep: #d66a00;
+  --mobile-brand-soft: #fdebd7;
+  --mobile-price: #e8501e;
+  --mobile-warning: #c77a1e;
+  --mobile-bg: #f7f3ee;
+  --mobile-surface-subtle: #f3e9df;
 }
 
 page, body, #app {
@@ -30,4 +38,4 @@ button, input, select, textarea { font: inherit; letter-spacing: 0; }
 button { border: 0; transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: scale(.98); }
 button:disabled { opacity: .48; pointer-events: none; }
-button:focus-visible, input:focus-visible { outline: 2px solid rgba(23, 99, 63, .3); outline-offset: 2px; }
+button:focus-visible, input:focus-visible { outline: 2px solid rgba(240, 129, 15, .3); outline-offset: 2px; }

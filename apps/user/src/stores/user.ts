@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import type { AfterSale, BusinessMediaValue, CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, CProduct, CProductSku, CUserLevel, CommissionLedgerEntry, FarmStore, LiveRoom, MockScenario, Order, PaymentAttempt, PlatformJournalEntry, Product, UserBinding, UserCommercePurchaseIntent, VoucherOrder, WithdrawalRequest } from '@agritainment/shared'
 import {
   initialCatalogOrderQuantity,
-  CATALOG_SCHEMA_VERSION, abortCatalogTransaction, allocateCCommissions, applyCatalogStockOperation, beginPaymentAttempt, buildSupplierAccountSeeds, cPriceForSku, catalogProductToCProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, cProducts as cProductSeeds, createId, demoCDistributorProfiles, deriveCOrderStatus, ensureCatalogState, ensureConfirmedPaymentRecoveryTask, markCatalogTransactionStockApplied, mergePlatformEntities, mergePlatformSupplierAccounts, migrateLegacyCatalog, normalizeCAddresses, normalizeCCommissionRecords, normalizeCOrders, normalizeCProducts, normalizeMinimumOrderQuantity, prepareCatalogTransaction, products as storeProductSeeds, promoters, readCAddresses, readCCommissionRecords, readCatalogState, readCOrders, readCUserSession, readCDistributorProfiles, readPendingCatalogTransactions, readPlatformJson, round2, seedCCommerceData,
+  CATALOG_SCHEMA_VERSION, abortCatalogTransaction, allocateCCommissions, applyCatalogStockOperation, beginPaymentAttempt, buildSupplierAccountSeeds, cPriceForSku, catalogProductToCProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, cProducts as cProductSeeds, createId, demoCDistributorProfiles, deriveCOrderStatus, ensureCatalogState, ensureConfirmedPaymentRecoveryTask, markCatalogTransactionStockApplied, mergePlatformEntities, mergePlatformSupplierAccounts, migrateLegacyCatalog, normalizeCAddresses, normalizeCCommissionRecords, normalizeCOrders, normalizeCProducts, normalizeMinimumOrderQuantity, prepareCatalogTransaction, products as storeProductSeeds, promoters, readCAddresses, readCCommissionRecords, readCatalogState, readCOrders, readCUserSession, readCDistributorProfiles, writeCDistributorProfiles, readPendingCatalogTransactions, readPlatformJson, round2, seedCCommerceData,
   confirmCSubOrderReceiptAtSupplier, createUserAtomicRecoveryHandlerRegistrations, getPlatformProviders, initializePlatformRecoveryHandlers, isValidUserAtomicRecoveryJournal, markCSubOrderAfterSaleAtSupplier, readPaymentAttempts, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformEntities, readPlatformOrders, readPlatformSupplierAccounts, readPlatformWithdrawals, readUserBindings, readPlatformJournal, readUserCommercePurchaseIntents, reconcilePendingPlatformTransactions, resolveCReferralChain, resolveUserIdentity, retryPlatformRecoveryTask, runLockedPlatformCollectionTask, runLockedPlatformTransaction, simulateWechatLogin, splitCOrderItems, supplierCanReceiveNewOrders, suppliers as supplierSeeds, syncCSubOrderFromSupplier, transitionPaymentAttempt, upsertUserBinding, validateCatalogSkuOrderQuantity, writeUserBindings, writeCAddresses, writeCCommissionRecords, writeCOrder, writeCOrders, writeCUserSession, publishCSubOrderToSupplier, migrateLegacyCommissionsToLedger, readPlatformVoucherOrders, writePlatformAfterSales, writePlatformCommissionLedger, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformOrders, writePlatformVoucherOrder, writePlatformVoucherOrders, writePlatformWithdrawal, writeUserCommercePurchaseIntents, preparePlatformJournal, markPlatformJournalStep, resolvePlatformJournal, enqueuePlatformRecovery, writeCatalogState, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_MIGRATED_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_C_PRODUCTS_STORAGE_KEY, PLATFORM_C_SCHEMA_VERSION_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY
 } from '@agritainment/shared'
 import { seedDemoUserOrders } from '../data/demo-orders'
@@ -675,6 +675,7 @@ interface UserState {
   initialized: boolean
   loading: boolean
   withdrawalsTick: number
+  distributorTick: number
   error: string
   mockScenario: MockScenario
   farms: FarmStore[]
@@ -788,20 +789,22 @@ function syncPersistedFulfillment(orders: Record<string, COrder>): Record<string
 
 export const useUserStore = defineStore('user', {
   state: (): UserState => ({
-    initialized: false, loading: false, withdrawalsTick: 0, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, liveRooms: [], liveId: '', launchProductId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
+    initialized: false, loading: false, withdrawalsTick: 0, distributorTick: 0, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, liveRooms: [], liveId: '', launchProductId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
     cart: [], orders: [], addresses: [], commissionRecords: [], auth: { isLoggedIn: false, openid: '' }, checkoutError: '', entryChecked: false, entryRestricted: false
   }),
   getters: {
     currentLive: (state) => state.liveRooms.find((item) => item.id === state.liveId) || null,
     availableLives: (state) => state.liveRooms.filter((room) => saleableLiveFarms(state, room.id).length > 0),
     liveFarms: (state) => saleableLiveFarms(state, state.liveId),
-    distributorProfiles: (): Record<string, CDistributorProfile> => readCDistributorProfiles() || {},
-    level: (state): CUserLevel => (readCDistributorProfiles()?.[state.userId]?.status === 'active' ? readCDistributorProfiles()?.[state.userId]?.level : 'normal') || 'normal',
+    distributorProfiles: (state): Record<string, CDistributorProfile> => { void state.distributorTick; return readCDistributorProfiles() || {} },
+    level: (state): CUserLevel => { void state.distributorTick; return (readCDistributorProfiles()?.[state.userId]?.status === 'active' ? readCDistributorProfiles()?.[state.userId]?.level : 'normal') || 'normal' },
     currentDistributor: (state) => {
+      void state.distributorTick
       const profile = readCDistributorProfiles()?.[state.userId]
       return profile && profile.status === 'active' ? profile : null
     },
     priceFor: (state) => {
+      void state.distributorTick
       const userId = state.userId
       return (sku: CProductSku, level?: CUserLevel) => {
       const profile = readCDistributorProfiles()?.[userId]
@@ -815,6 +818,8 @@ export const useUserStore = defineStore('user', {
     defaultAddress: (state) => state.addresses.find((item) => item.isDefault) || state.addresses[0] || null,
     vouchers: (state): VoucherOrder[] => Object.values(readPlatformVoucherOrders() || {}).filter((item) => item.userId === state.userId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     myCommissionRecords: (state) => {
+      void state.distributorTick
+      void state.distributorTick
       const profile = readCDistributorProfiles()?.[state.userId]
       const beneficiaryId = profile?.status === 'active' ? profile.promoterId : undefined
       return state.commissionRecords.filter((item) => item.beneficiaryId === beneficiaryId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -1040,6 +1045,17 @@ export const useUserStore = defineStore('user', {
       this.referralPromoterId = value; this.promoterId = value; this.persistSession()
       this.entryChecked = true; this.entryRestricted = false
       return true
+    },
+    setDemoDistributorLevel(level: CUserLevel) {
+      const userId = this.userId || (this.userId = 'U-DEMO-L1')
+      const list = { ...(readCDistributorProfiles() || {}) }
+      if (level === 'normal') delete list[userId]
+      else if (level === 'level1') list[userId] = { userId, promoterId: 'T001', level: 'level1', status: 'active' }
+      else list[userId] = { userId, promoterId: 'T002', level: 'level2', parentPromoterId: 'T001', status: 'active' }
+      writeCDistributorProfiles(list)
+      this.entryChecked = true
+      this.entryRestricted = false
+      this.distributorTick = (this.distributorTick || 0) + 1
     },
     priceForSku(sku: CProductSku) { return cPriceForSku(sku, this.level) },
     addToCart(productId: string, skuId: string, quantity?: number) {

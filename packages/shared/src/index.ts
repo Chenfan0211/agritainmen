@@ -7007,3 +7007,36 @@ export function createUserAtomicRecoveryHandlerRegistrations(): PlatformRecovery
   })
   return [...registrations, createPaymentConfirmationRecoveryHandlerRegistration()]
 }
+export interface TieredPriceResult {
+  unitPrice: number
+  discountOff: number
+  matchedPolicy: PricePolicy | null
+  tier: PriceTier | null
+}
+
+function policyScopeKeywords(scope: string): string[] {
+  return scope
+    .replace(/类商品|商品|类目|类$/g, '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+export function matchesPolicyScope(scope: string, category: string, name: string): boolean {
+  const text = `${category} ${name}`.toLowerCase()
+  const keywords = policyScopeKeywords(scope).map((keyword) => keyword.toLowerCase())
+  return keywords.length > 0 && keywords.some((keyword) => text.includes(keyword))
+}
+
+export function tieredUnitPrice(
+  input: { category: string; name: string; basePrice: number; quantity: number },
+  policies: readonly PricePolicy[]
+): TieredPriceResult {
+  const fallback: TieredPriceResult = { unitPrice: input.basePrice, discountOff: 0, matchedPolicy: null, tier: null }
+  if (!Number.isFinite(input.quantity) || input.quantity < 1) return fallback
+  const matchedPolicy = policies.find((policy) => policy.enabled && policy.type === 'ladder' && matchesPolicyScope(policy.scope, input.category, input.name))
+  if (!matchedPolicy || !matchedPolicy.tiers?.length) return fallback
+  const tier = matchedPolicy.tiers.find((candidate) => candidate.minQty <= input.quantity && (candidate.maxQty === null || input.quantity <= candidate.maxQty))
+  if (!tier) return fallback
+  return { unitPrice: round2(tier.price), discountOff: tier.discountOff, matchedPolicy, tier }
+}

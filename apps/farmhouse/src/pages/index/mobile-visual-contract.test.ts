@@ -118,4 +118,11 @@ describe('农家乐移动端视觉契约', () => {
     expect(template).not.toContain('class="recharge-options"')
     expect(template).not.toContain('class="identity-row"')
   })
+  it('店铺经营工作台采用图二风格白色圆角卡宫格', () => {
+    expect(template).toContain('class="workbench pc-tile-grid"')
+    expect(template).toContain('class="pc-tile-icon"')
+    expect(template).toContain('class="pc-tile-label">订单核销<')
+    expect(template).toContain('class="pc-tile-label">选品上架<')
+    expect(styles).toMatch(/\.workbench\.pc-tile-grid \.pc-tile\s*\{[^}]*border-radius:\s*14px/)
+  })
 })

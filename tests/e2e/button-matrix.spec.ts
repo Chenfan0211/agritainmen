@@ -396,7 +396,7 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
 
   // 订单汇总 + 各状态筛选均有数据
   await page.locator('.tabbar uni-button').nth(1).click()
-  await expect(page.locator('.order-summary')).toContainText('共 15 单')
+  await expect(page.locator('.order-summary')).toContainText('15 单')
   await page.locator('.order-chips uni-button', { hasText: '已完成' }).click()
   await expect(page.locator('.order-card').first()).toContainText('已完成')
   await page.locator('.order-chips uni-button', { hasText: '待接单' }).click()

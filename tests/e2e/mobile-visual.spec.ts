@@ -163,7 +163,7 @@ test('store mobile views stay inside all supported widths', async ({ page }, tes
     await page.setViewportSize(viewport)
     await assertMobileFrame(page, viewport.width)
   }
-  await auditTabs(page, '.tabbar uni-button', 3, testInfo, 'store')
+  await auditTabs(page, '.tabbar uni-button', 4, testInfo, 'store')
 })
 
 test('user mobile views stay inside all supported widths', async ({ page }, testInfo) => {

@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(import.meta.dirname, 'index.vue'), 'utf8')
-const template = source.match(/<template>([\s\S]*?)<\/template>/)?.[1] || ''
+const template = source.slice(source.indexOf('<template>') + '<template>'.length, source.lastIndexOf('</template>'))
 const styles = source.match(/<style scoped lang="scss">([\s\S]*?)<\/style>/)?.[1] || ''
 
 function expectRule(selector: string, declarations: RegExp) {
@@ -23,7 +23,7 @@ describe('门店端现代供应链视觉契约', () => {
   })
 
   it('商品和订单缩略图统一使用裁切填充', () => {
-    for (const className of ['product-emoji', 'order-emoji', 'hot-emoji', 'product-detail-emoji']) {
+    for (const className of ['product-emoji', 'order-thumb', 'hot-emoji', 'product-detail-emoji']) {
       expect(template).toMatch(new RegExp(`class="${className}"[^>]*mode="aspectFill"`))
       expect(template).not.toMatch(new RegExp(`class="${className}"[^>]*mode="aspectFit"`))
     }

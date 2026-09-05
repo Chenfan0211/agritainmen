@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import type { CatalogProduct, CUserLevel } from '@agritainment/shared'
-import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, acceptSupplierOrder, catalogProductToProduct, cloneSeed, configurePlatformProviders, demoCDistributorProfiles, enqueuePlatformRecovery, normalizeMediaReference, preparePlatformJournal, readCAddresses, readCatalogTransactionJournal, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPaymentAttempts, readPendingCatalogTransactions, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformAfterSales, readPlatformJournal, readPlatformOrders, readPlatformRecoveryQueue, readPlatformVoucherOrders, readPlatformWithdrawals, readStoreCatalogSelectionState, readUserBindings, readUserCommercePurchaseIntents, resolvePlatformJournal, retryPlatformRecoveryTask, saveStoreCatalogSelection, shipSupplierCourier, suppliers, todayString, transitionPlatformWithdrawal, updateCatalogStock, upsertPlatformEntity, upsertUserBinding, writeCAddresses, writeCCommissionRecords, writeCDistributorProfiles, writeCOrders, writeCUserSession, writeCatalogState, writePlatformCommissionLedger, writePlatformLive, writePlatformOrder, writePlatformWithdrawal, writeUserCommercePurchaseIntents } from '@agritainment/shared'
+import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, acceptSupplierOrder, catalogProductToProduct, cloneSeed, configurePlatformProviders, demoCDistributorProfiles, enqueuePlatformRecovery, normalizeMediaReference, preparePlatformJournal, readCAddresses, readCatalogTransactionJournal, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPaymentAttempts, readPendingCatalogTransactions, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformAfterSales, readPlatformJournal, readPlatformOrders, readPlatformRecoveryQueue, readPlatformVoucherOrders, readPlatformWithdrawals, readStoreCatalogSelectionState, readUserBindings, readUserCommercePurchaseIntents, resolvePlatformJournal, retryPlatformRecoveryTask, saveStoreCatalogSelection, shipSupplierCourier, suppliers, todayString, transitionPlatformWithdrawal, updateCatalogStock, upsertPlatformEntity, upsertUserBinding, writeCAddresses, writeCCommissionRecords, readCDistributorProfiles, writeCDistributorProfiles, writeCOrders, writeCUserSession, writeCatalogState, writePlatformCommissionLedger, writePlatformLive, writePlatformOrder, writePlatformWithdrawal, writeUserCommercePurchaseIntents } from '@agritainment/shared'
 import { migrateUserCommerceData, useUserStore } from './user'
 
 if (!globalThis.localStorage) {
@@ -2620,5 +2620,35 @@ describe('C端商城 user store', () => {
     const orders = Object.values(readCOrders() || {})
     expect(orders.filter((item) => item.userId === 'U-DEMO-FIRST')).toHaveLength(4)
     expect(orders.filter((item) => item.userId === 'U-DEMO-SECOND')).toHaveLength(4)
+  })
+  describe('分销角色演示切换', () => {
+    it('切到一级/二级分销商会写入当前用户分销档案并解除 entry 限制', () => {
+      const store = allowedStore()
+      store.setDemoDistributorLevel('level1')
+      expect(store.level).toBe('level1')
+      expect(store.currentDistributor?.promoterId).toBe('T001')
+      expect(store.entryRestricted).toBe(false)
+      store.setDemoDistributorLevel('level2')
+      expect(store.level).toBe('level2')
+      expect(store.currentDistributor?.promoterId).toBe('T002')
+      expect(store.currentDistributor?.parentPromoterId).toBe('T001')
+    })
+
+    it('切回普通用户移除档案并恢复普通用户身份', () => {
+      const store = allowedStore()
+      store.setDemoDistributorLevel('level1')
+      expect(store.level).toBe('level1')
+      store.setDemoDistributorLevel('normal')
+      expect(store.level).toBe('normal')
+      expect(store.currentDistributor).toBeNull()
+    })
+
+    it('重复切换不产生多余分销档案', () => {
+      const store = allowedStore()
+      store.setDemoDistributorLevel('level1')
+      store.setDemoDistributorLevel('level1')
+      const profiles = readCDistributorProfiles() || {}
+      expect(Object.values(profiles).filter((item) => item.userId === store.userId)).toHaveLength(1)
+    })
   })
 })

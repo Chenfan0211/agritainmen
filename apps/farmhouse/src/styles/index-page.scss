@@ -995,6 +995,8 @@ uni-button::after {
   padding: 9px;
 }
 
+.product-name-row { display: flex; align-items: flex-start; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.product-name-row .item-title { flex: 1; min-width: 0; }
 .product-body .item-title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -2766,6 +2768,29 @@ uni-button::after {
   background: var(--farm-panel);
   color: var(--farm-ink);
 }
+.workbench.pc-tile-grid {
+  padding: 14px;
+  gap: 10px;
+}
+.workbench.pc-tile-grid .workbench-title { grid-column: 1 / -1; }
+.workbench.pc-tile-grid .pc-tile {
+  min-height: 0;
+  width: auto;
+  padding: 12px 8px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--farm-ink);
+  background: #fff;
+  border: 1px solid var(--farm-line);
+  border-radius: 14px;
+  box-shadow: var(--mobile-shadow-card);
+}
+.workbench.pc-tile-grid .pc-tile-icon { width: 44px; height: 44px; border-radius: 12px; }
+.workbench.pc-tile-grid .pc-tile-label { font-size: 12px; font-weight: 700; }
+.workbench.pc-tile-grid .pc-tile-sub { margin-top: 0; font-size: 12px; color: var(--farm-muted); }
 
 .workbench .section-head text,
 .workbench > button {

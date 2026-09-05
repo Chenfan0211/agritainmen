@@ -15,7 +15,7 @@
       <text class="login-hint">演示手机号 13800000001　密码 123456　验证码 123456</text>
     </view>
   </view>
-  <view v-else class="app-shell" :class="{ 'has-cart-bar': activeTab === 'shop' && store.cartCount }">
+  <view v-else class="app-shell" :class="{ 'has-cart-bar': (activeTab === 'home' || activeTab === 'category') && store.cartCount }">
     <view v-if="store.loading" class="loading pc-loading">正在准备中选科技门店订货商城...</view>
     <view v-else-if="store.error" class="state-page">
       <UiIcon name="radio" :size="28" />
@@ -23,22 +23,17 @@
       <button class="primary-button" @click="retryLoad">重新加载</button>
     </view>
     <template v-else>
-      <view v-if="activeTab === 'shop'" class="tab-page shop-page">
+      <view v-if="activeTab === 'home'" class="tab-page shop-page">
         <view class="mall-hero">
           <text class="mall-hero-title">中选科技门店订货商城</text>
           <text class="mall-hero-sub">中选科技供应链 · 供货价直采 · 中台直配到店</text>
-          <view class="mall-hero-meta"><view><UiIcon name="store" :size="15" /><text>{{ store.info.name }}</text></view><view><UiIcon name="map-pin" :size="15" /><text>{{ store.info.region }} · 账期月结</text></view></view>
         </view>
         <view class="page-pad">
-          <view class="shop-metrics">
-            <view><small>在售商品</small><strong>{{ storeMetrics.activeCount }} 款</strong></view>
-            <view><small>可订商品</small><strong>{{ store.products.length }} 款</strong></view>
-            <view><small>直采累计节省</small><strong>{{ money(storeMetrics.savedTotal) }}</strong></view>
-          </view>
           <view class="search-bar"><UiIcon name="search" :size="18" /><input v-model="keyword" placeholder="搜索供应链商品 / 供应商" confirm-type="search" /></view>
-          <view class="supply-note"><UiIcon name="factory" :size="18" /><text>带「中台供」标识的商品来自<b>中选科技供应链中台</b>，统一品控、统一履约、供货价直采。</text></view>
           <view v-if="activePolicies.length" class="policy-hint"><UiIcon name="badge-percent" :size="18" /><text>中台价格策略：<b>{{ activePolicies.map((p) => p.name).join('、') }}</b> 已生效</text></view>
-          <view class="chip-scroll"><view class="chips"><button v-for="item in categories" :key="item.key" :class="{ active: category === item.key }" :aria-label="item.label" :title="item.label" @click="category = item.key"><BusinessImage class="category-image" :src="productCategoryImage(item.key, dictionaryState)" :fallback="defaultProductCategoryImage(item.key)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-label">{{ item.label }}</text><text class="chip-count" data-typography-compact>{{ item.count }}</text></button></view></view>
+          <view class="category-grid">
+            <button v-for="item in homeCategories" :key="item.key" class="category-grid-item" @click="category = item.key"><BusinessImage class="category-grid-img" :src="productCategoryImage(item.key, dictionaryState)" :fallback="defaultProductCategoryImage(item.key)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ item.label }}</text></button>
+          </view>
           <view v-if="visibleProducts.length" class="result-count">共 {{ visibleProducts.length }} 款商品 · 中台直配到店</view>
           <view v-if="visibleProducts.length" class="waterfall-grid">
             <view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column">
@@ -55,6 +50,7 @@
                   <del>{{ money(product.price) }}</del>
                   <span>省 {{ savePercent(product) }}%</span>
                 </view>
+                <text v-if="ladderTiersFor(product).length" class="ladder-hint">阶梯价 起 ¥{{ money(ladderTiersFor(product)[0].price) }}</text>
                 <view class="product-divider"></view>
                 <view class="product-foot">
                   <view class="product-stats">
@@ -71,27 +67,79 @@
         </view>
       </view>
 
-      <view v-else-if="activeTab === 'orders'" class="tab-page orders-page page-pad">
+      <view v-else-if="activeTab === 'category'" class="tab-page category-page">
+        <view class="page-pad">
+          <view class="mobile-head"><text class="page-title">商品分类</text><text class="page-sub">按品类挑选产地好物</text></view>
+          <view class="category-layout">
+            <view class="category-side">
+              <button v-for="item in categories" :key="item.key" class="side-item" :class="{ active: category === item.key }" :title="item.label" @click="category = item.key">{{ item.key === '全部' ? '所有商品' : item.label }}</button>
+            </view>
+            <view class="category-main">
+              <view class="search-bar"><UiIcon name="search" :size="18" /><input v-model="keyword" placeholder="搜索供应链商品 / 供应商" confirm-type="search" /></view>
+              <view v-if="visibleProducts.length" class="category-products">
+                <view v-for="product in visibleProducts" :key="product.id" class="cat-product" @click="openProduct(product)">
+                  <BusinessImage class="cat-product-img" :src="product.image" mode="aspectFill" />
+                  <view class="cat-product-body">
+                    <view class="cat-name-row"><text v-for="tag in product.tags.slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text><text class="cat-product-name">{{ product.name }}</text></view>
+                    <text class="cat-stock">已售 {{ product.sales.toLocaleString('zh-CN') }} | 剩余 {{ product.stock }}</text>
+                    <view class="cat-foot"><view class="cat-price-box"><strong class="cat-price">{{ money(product.cost) }}</strong><del v-if="product.price > product.cost" class="cat-original">{{ money(product.price) }}</del></view><button class="cat-add" :disabled="!canStartProductOrder(product)" :aria-label="`加入${product.name}到进货单`" @click.stop="addProduct(product)"><UiIcon name="plus" :size="16" /></button></view>
+                  </view>
+                </view>
+              </view>
+              <view v-else class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="search" :size="26" /></view><text>该分类暂无商品</text></view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view v-else-if="activeTab === 'cart'" class="tab-page cart-page">
+        <view class="page-pad">
+          <view class="mobile-head"><text class="page-title">购物车</text><text class="page-sub">共 {{ store.cartCount }} 件 · 供货价直采</text></view>
+          <view v-if="!store.cart.length" class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>进货单还是空的</text><small>去首页下一单吧～</small></view>
+          <template v-else>
+            <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="cart-row" :class="{ unavailable: item.unavailable }">
+              <button class="cart-check" :class="{ on: isCartSelected(item) }" :aria-label="`选择${item.name}`" @click="toggleCartSelect(item)"><UiIcon name="check" :size="14" /></button>
+              <BusinessImage class="cart-row-img" :src="item.image" mode="aspectFill" />
+              <view class="cart-row-main">
+                <text class="cart-row-name">{{ item.name }}</text>
+                <small class="cart-row-sub">{{ item.skuName }} · 按件下单</small>
+                <small class="cart-row-stock" :class="{ warn: item.unavailable }">剩余库存 {{ item.stock }}<template v-if="item.unavailable"> · 库存不足或未达起订量</template></small>
+                <view class="cart-row-bottom"><strong class="cart-row-price">{{ money(item.price) }}</strong><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view>
+              </view>
+            </view>
+            <view class="cart-footer">
+              <button class="cart-all" @click="toggleCartAll"><span class="cart-all-check" :class="{ on: cartAllSelected }"><UiIcon name="check" :size="14" /></span><text>全选</text></button>
+              <view class="cart-footer-total"><text>合计</text><strong>{{ money(store.cartTotal) }}</strong></view>
+              <button class="cart-del" @click="removeSelectedCart">删除</button>
+              <button class="cart-checkout" :disabled="!store.cart.length || store.cartHasUnavailable" @click="goCheckout">结算({{ store.cartCount }})</button>
+            </view>
+          </template>
+        </view>
+      </view>
+
+      <view v-else-if="activeTab === 'mine' && mineSection === 'orders'" class="tab-page orders-page page-pad">
         <view class="mobile-head"><text class="page-title">我的订货单</text><text class="page-sub">中选科技供应链中台统一履约 · 直配到店</text></view>
         <view class="order-summary">
-          <text>共 {{ store.orders.length }} 单</text>
-          <text>待收货 {{ store.orderMetrics.pendingReceipt }}</text>
-          <text>本月进货 {{ money(store.orderMetrics.monthAmount) }}</text>
+          <view class="order-stat"><small>共订单</small><strong>{{ store.orders.length }} 单</strong></view>
+          <view class="order-stat"><small>待收货</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
+          <view class="order-stat order-stat--amount"><small>本月进货</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
         </view>
         <view class="chip-scroll"><view class="chips order-chips"><button v-for="item in orderFilters" :key="item.key" :class="{ active: orderFilter === item.key }" @click="orderFilter = item.key">{{ item.label }}<text class="chip-count" data-typography-compact>{{ item.count }}</text></button></view></view>
         <view v-if="filteredOrders.length" class="order-list">
           <button v-for="order in filteredOrders" :key="order.id" class="order-card" data-typography-compact @click="openOrder(order.id)">
-            <view class="order-top"><text class="order-no">{{ order.id }}</text><span class="status-badge" :class="order.status">{{ displayStatus(order) }}</span></view>
+            <span class="order-accent" :class="order.status" aria-hidden="true"></span>
+            <view class="order-head"><text class="order-no">订单号 {{ order.id }}</text><span class="status-badge" :class="order.status">{{ displayStatus(order) }}</span></view>
             <view class="order-main">
-              <BusinessImage class="order-emoji" :src="order.items[0]?.image" mode="aspectFill" />
+              <BusinessImage class="order-thumb" :src="order.items[0]?.image" mode="aspectFill" />
               <view class="order-info">
                 <text class="order-title">{{ orderTitle(order) }}</text>
-                <small>{{ order.createdAt }} · 共 {{ order.itemCount }} 件 · {{ order.trackingNo ? '运单 ' + order.trackingNo : '等待接单' }}</small>
+                <small class="order-sub">共 {{ order.itemCount }} 件 · {{ order.items.length }} 款商品</small>
+                <small class="order-meta">{{ order.createdAt }}<template v-if="order.trackingNo"> · 运单 {{ order.trackingNo }}</template></small>
               </view>
             </view>
             <view class="order-bottom">
-              <small v-if="order.saved">较零售省 {{ money(order.saved) }}</small>
-              <strong>{{ money(order.amount) }}</strong>
+              <small v-if="order.saved" class="order-saved">较零售省 {{ money(order.saved) }}</small>
+              <view class="order-amount"><small>合计</small><strong>{{ money(order.amount) }}</strong></view>
               <UiIcon name="chevron-right" :size="17" />
             </view>
           </button>
@@ -103,6 +151,13 @@
         <view class="store-hero">
           <view class="store-hero-top"><text class="page-title">门店工作台</text><small>供货价直采 · 中选科技供应链中台直配</small></view>
           <view class="store-identity"><BusinessImage class="store-emoji" :src="store.info.image" mode="aspectFit" /><view><text>{{ store.info.name }}</text><small>{{ store.info.region }} · {{ store.info.contact }}</small></view></view>
+          <view class="store-info">
+            <view><small>门店账号</small><text>{{ store.info.accountNo }}</text></view>
+            <view><small>登录账号</small><text>{{ store.auth.phone }}</text></view>
+            <view><small>结算方式</small><text>{{ store.info.account }}</text></view>
+            <view><small>客服电话</small><text>{{ store.info.phone }}</text></view>
+            <view class="store-info-address"><small>收货地址</small><text>{{ store.info.address }}</text></view>
+          </view>
           <view class="metric-band store-metrics">
             <view><small>本月进货额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
             <view><small>订货单数</small><strong>{{ store.orderMetrics.orderCount }}</strong></view>
@@ -128,29 +183,20 @@
             </view>
           </view>
           <view class="catalog-boundary"><UiIcon name="shield-check" :size="19" /><view><text>门店商品由供应链统一提供</text><small>中台统一维护商品状态与库存，门店可直接浏览和采购</small></view></view>
-          <view class="section-head compact"><view><span></span><text>门店信息</text></view></view>
-          <view class="info-list">
-            <view><small>门店名称</small><text>{{ store.info.name }}</text></view>
-            <view><small>门店账号</small><text>{{ store.info.accountNo }}</text></view>
-            <view><small>登录账号</small><text>{{ store.auth.phone }}</text></view>
-            <view><small>结算方式</small><text>{{ store.info.account }}</text></view>
-            <view><small>收货地址</small><text>{{ store.info.address }}</text></view>
-            <view><small>客服电话</small><text>{{ store.info.phone }}</text></view>
-          </view>
           <button class="logout-button" @click="logout">退出登录</button>
           <view class="security-note"><UiIcon name="shield-check" :size="18" /><text>门店以<b>供货价</b>向中选科技供应链中台直采，统一品控、统一履约、直配到店；建议零售仅作毛利参考，请勿外泄供货价。</text></view>
           <view class="member-footer">平台支持 · 湖南省电子商务协会 · 中选科技供应链中台</view>
         </view>
       </view>
 
-      <view v-if="activeTab === 'shop' && store.cartCount" class="cart-bar">
+      <view v-if="(activeTab === 'home' || activeTab === 'category') && store.cartCount" class="cart-bar">
         <button class="cart-count" @click="openCart"><UiIcon name="shopping-cart" :size="21" /><span>{{ store.cartCount }}</span></button>
         <view><small>合计</small><strong>{{ money(store.cartTotal) }}</strong></view>
         <button @click="openCart">去下单</button>
       </view>
 
       <view class="tabbar">
-        <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="chooseTab(tab.key)"><view class="tab-icon-wrap"><UiIcon :name="tab.icon" :size="21" /><text v-if="tab.key === 'orders' && store.orderMetrics.pendingReceipt" class="tab-badge" data-typography-compact>{{ store.orderMetrics.pendingReceipt }}</text></view><text class="tab-label">{{ tab.label }}</text></button>
+        <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="chooseTab(tab.key)"><view class="tab-icon-wrap"><UiIcon :name="tab.icon" :size="21" /><text v-if="tab.key === 'cart' && store.cartCount" class="tab-badge" data-typography-compact>{{ store.cartCount > 99 ? '99+' : store.cartCount }}</text></view><text class="tab-label">{{ tab.label }}</text></button>
       </view>
 
       <view v-if="sheet" class="sheet-mask" @click.self="sheet = null">
@@ -166,6 +212,10 @@
             <text>{{ selectedProduct.name }}</text>
             <small>{{ selectedProduct.supplier }} · {{ selectedProduct.tags.join(' / ') }}</small>
             <view class="detail-price"><strong>{{ money(selectedSku?.cost ?? selectedProduct.cost) }}</strong><del>{{ money(selectedProduct.price) }}</del><span>省 {{ savePercent(selectedProduct) }}%</span></view>
+            <view v-if="ladderTiersFor(selectedProduct).length" class="ladder-table">
+              <text class="ladder-table-title">阶梯采购价</text>
+              <text v-for="tier in ladderTiersFor(selectedProduct)" :key="tier.minQty" class="ladder-tier">{{ tier.minQty }}–{{ tier.maxQty ?? '以上' }} · ¥{{ money(tier.price) }} · 让利 {{ tier.discountOff }}%</text>
+            </view>
             <view v-if="selectedProduct.skus.length > 1" class="sku-options">
               <button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" @click="selectedSkuId = sku.id">
                 <text>{{ sku.name }}</text><small>供货价 {{ money(sku.cost) }} · 库存 {{ sku.stock }}</small><small v-if="!canStartOrder(sku)" class="stock-warning">库存不足或数量未达要求</small>
@@ -286,14 +336,15 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { Product, PurchaseStatus } from '@agritainment/shared'
+import type { PriceTier, Product, PurchaseStatus } from '@agritainment/shared'
+import { pricePolicies, tieredUnitPrice } from '@agritainment/shared'
 import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, installKeyboardButtonSupport, money, normalizeMinimumOrderQuantity, orderStatusText, productCategoryImage, purchaseSteps, readPlatformAfterSaleStatus, readPlatformDictionaries, readPlatformEntities, readPlatformOrder, subscribePlatformChanges, validateCatalogSkuOrderQuantity, validatePhone } from '@agritainment/shared'
 import { BusinessImage } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import { deriveStoreMetrics } from '../../services/repository'
 import { useStoreStore } from '../../stores/store'
 
-type TabKey = 'shop' | 'orders' | 'store'
+type TabKey = 'home' | 'category' | 'cart' | 'mine'
 type SheetKey = 'product' | 'cart' | 'checkout' | 'order' | 'address' | 'contact' | null
 
 const store = useStoreStore()
@@ -303,17 +354,36 @@ let disposeDictionaryImages: () => void = () => undefined
 const storeMetrics = computed(() => deriveStoreMetrics(store.products))
 const activePolicies = computed(() => Object.values(readPlatformEntities()?.policies || {}).filter((item) => item.enabled))
 const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
-  { key: 'shop', label: '商城', icon: 'shopping-bag' },
-  { key: 'orders', label: '订单', icon: 'package-check' },
-  { key: 'store', label: '门店', icon: 'store' }
+  { key: 'home', label: '首页', icon: 'house' },
+  { key: 'category', label: '商品分类', icon: 'layout-dashboard' },
+  { key: 'cart', label: '购物车', icon: 'shopping-cart' },
+  { key: 'mine', label: '我的', icon: 'user-round' }
 ]
 
-const activeTab = ref<TabKey>('shop')
+const activeTab = ref<TabKey>('home')
+const mineSection = ref<'main' | 'orders'>('main')
 const category = ref('全部')
 const keyword = ref('')
 const orderFilter = ref<'all' | PurchaseStatus>('all')
 const sheet = ref<SheetKey>(null)
 const selectedProduct = ref<Product | null>(null)
+const cartKey = (item: { productId: string; skuId: string }) => `${item.productId}:${item.skuId}`
+const cartSelected = ref<string[]>([])
+const cartAllSelected = computed(() => store.cart.length > 0 && store.cart.every((item) => cartSelected.value.includes(cartKey(item))))
+const isCartSelected = (item: { productId: string; skuId: string }) => cartSelected.value.includes(cartKey(item))
+function toggleCartSelect(item: { productId: string; skuId: string }) {
+  const key = cartKey(item)
+  cartSelected.value = cartSelected.value.includes(key) ? cartSelected.value.filter((k) => k !== key) : [...cartSelected.value, key]
+}
+function toggleCartAll() {
+  cartSelected.value = cartAllSelected.value ? [] : store.cart.map(cartKey)
+}
+function removeSelectedCart() {
+  if (!cartSelected.value.length) return toast('请先选择要删除的商品')
+  cartSelected.value.forEach((key) => { const [pid, sid] = key.split(':'); store.removeLine(pid, sid) })
+  cartSelected.value = []
+  toast('已删除选中商品')
+}
 const selectedSkuId = ref('')
 const selectedOrderId = ref('')
 const remark = ref('')
@@ -337,6 +407,8 @@ const categories = computed(() => {
     count: key === '全部' ? store.products.length : store.products.filter((product) => product.category === key).length
   }))
 })
+
+const homeCategories = computed(() => categories.value.filter((item) => item.key !== '全部').slice(0, 10))
 
 const visibleProducts = computed(() => {
   const kw = keyword.value.trim()
@@ -403,6 +475,12 @@ const sheetTitle = computed(() => {
 function savePercent(product: Product) {
   return Math.max(0, Math.round((1 - product.cost / product.price) * 100))
 }
+function ladderTiersFor(product: Product | null | undefined): PriceTier[] {
+  if (!product) return []
+  const policies = activePolicies.value.length ? activePolicies.value : pricePolicies
+  const result = tieredUnitPrice({ category: product.category, name: product.name, basePrice: product.cost, quantity: 1 }, policies)
+  return result.matchedPolicy?.tiers ?? []
+}
 
 function totalStock(product: Product) {
   return product.skus.reduce((sum, sku) => sum + sku.stock, 0)
@@ -425,7 +503,8 @@ function stockText(product: Product) {
 
 
 function orderTitle(order: { items: Array<{ name: string; quantity: number }> }) {
-  return order.items.map((line) => `${line.name} ×${line.quantity}`).join('、')
+  const first = order.items[0]
+  return first ? `${first.name} ×${first.quantity}` : ''
 }
 
 function toast(title: string) {
@@ -440,16 +519,18 @@ function retryLoad() {
 function chooseTab(key: TabKey) {
   activeTab.value = key
   sheet.value = null
+  if (key === 'mine') mineSection.value = 'main'
   uni.pageScrollTo({ scrollTop: 0, duration: 0 })
 }
 
 function goShop() {
-  activeTab.value = 'shop'
+  activeTab.value = 'home'
   uni.pageScrollTo({ scrollTop: 0, duration: 0 })
 }
 
 function goOrders() {
-  activeTab.value = 'orders'
+  activeTab.value = 'mine'
+  mineSection.value = 'orders'
   orderFilter.value = 'all'
   uni.pageScrollTo({ scrollTop: 0, duration: 0 })
 }
@@ -489,7 +570,8 @@ async function submitOrder() {
   if (!await store.submitOrder(remark.value)) return toast(store.checkoutError || '进货单为空')
   sheet.value = 'order'
   selectedOrderId.value = store.orders[0].id
-  activeTab.value = 'orders'
+  activeTab.value = 'mine'
+  mineSection.value = 'orders'
   toast('订单已提交')
 }
 
@@ -606,7 +688,7 @@ onMounted(async () => {
     disposeVisibilitySync = () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }
   if (typeof document !== 'undefined') {
-    document.documentElement.style.setProperty('--farm-green', '#17633f')
+    document.documentElement.style.setProperty('--farm-green', '#f0810f')
     document.title = '中选科技门店订货商城'
   }
 })
@@ -644,7 +726,6 @@ onBeforeUnmount(() => {
 .mall-hero-meta .ui-icon { filter:brightness(0) invert(1);opacity:.82; }
 
 /* ===== 商城运营数据条 ===== */
-.shop-metrics { margin-top:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px; }
 .shop-metrics view { min-width:0;padding:10px 5px;background:var(--farm-panel);border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);text-align:center;box-shadow:var(--mobile-shadow-card); }
 .shop-metrics small,.shop-metrics strong { display:block; }
 .shop-metrics small { color:var(--farm-muted);font-size:12px; }
@@ -661,12 +742,14 @@ onBeforeUnmount(() => {
 .security-note { background:var(--farm-green-soft);border-color:#cfe2d6;color:#315e48; }
 .supply-note b,.security-note b { font-weight:800; }
 .supply-note .ui-icon,.security-note .ui-icon,.policy-hint .ui-icon { margin-top:1px;flex:none;filter:invert(31%) sepia(18%) saturate(1090%) hue-rotate(95deg); }
-.policy-hint{margin:10px 0;padding:10px 12px;border-radius:var(--mobile-radius-card);background:#eef5ef;border:1px solid #cfe2d6;color:#315e48;font-size:12px;font-weight:700;display:flex;align-items:flex-start;gap:8px;line-height:1.5}.policy-hint b{color:var(--farm-green)}
+.policy-hint{margin:10px 0;padding:10px 12px;border-radius:var(--mobile-radius-card);background:#fdebd7;border:1px solid #f2cfa3;color:#a5520a;font-size:12px;font-weight:700;display:flex;align-items:flex-start;gap:8px;line-height:1.5}.policy-hint b{color:#d66a00}
 
 /* ===== 订单汇总 ===== */
-.order-summary { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;gap:4px;margin:12px 0 0;padding:11px 8px;background:var(--farm-panel);border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card); }
-.order-summary text { min-width:0;color:var(--farm-muted);font-size:12px;text-align:center;overflow-wrap:anywhere; }
-.order-summary text:first-child { font-weight:800;color:var(--farm-ink); }
+.order-summary { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0 0;padding:12px 6px;background:var(--farm-panel);border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card); }
+.order-summary .order-stat { min-width:0;display:grid;gap:4px;justify-items:center;text-align:center; }
+.order-summary .order-stat small { color:var(--farm-muted);font-size:12px; }
+.order-summary .order-stat strong { font-size:16px;font-weight:800;color:var(--farm-ink);overflow-wrap:anywhere; }
+.order-summary .order-stat--amount strong { color:var(--farm-red); }
 .chip-count { display:inline-grid;place-items:center;min-width:17px;height:17px;margin-left:4px;padding:0 4px;border-radius:9px;background:var(--farm-green-soft);color:var(--farm-green);font-size:12px;font-weight:800;vertical-align:middle; }
 .chips button.active .chip-count { background:rgba(255,255,255,.24);color:#fff; }
 
@@ -694,6 +777,10 @@ onBeforeUnmount(() => {
 .cost-line span { margin-left:auto;font-size:12px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:1px 5px; }
 .product-foot { margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:8px; }
 .product-divider { height:1px;background:#eef0eb;margin:8px 0; }
+.ladder-hint { margin-top:4px;font-size:12px;color:var(--farm-green);font-weight:700; }
+.ladder-table { margin-top:12px;padding:10px 12px;border:1px solid var(--farm-line);border-radius:8px;background:#fffaf0; }
+.ladder-table-title { display:block;font-size:12px;font-weight:800;color:var(--farm-ink);margin-bottom:6px; }
+.ladder-tier { display:block;font-size:12px;color:var(--farm-muted);line-height:1.6; }
 .product-stats { display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;flex:1; }
 .product-stats-top { display:flex;align-items:center;gap:4px;min-width:0; }
 .product-stock { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis; }
@@ -707,22 +794,23 @@ onBeforeUnmount(() => {
 .product-foot button .ui-icon { filter:brightness(0) invert(1); }
 
 /* ===== 底部购物车栏 ===== */
-.cart-bar { position:fixed;left:12px;right:12px;bottom:calc(var(--mobile-tab-height) + 8px + env(safe-area-inset-bottom));height:56px;padding:6px 7px 6px 12px;background:#183a2b;color:#fff;border-radius:8px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:0 8px 25px rgba(0,0,0,.2); }
+.cart-bar { position:fixed;left:12px;right:12px;bottom:calc(var(--mobile-tab-height) + 8px + env(safe-area-inset-bottom));height:56px;padding:6px 7px 6px 12px;background:#e0660a;color:#fff;border-radius:8px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:0 8px 25px rgba(0,0,0,.2); }
 .cart-count { width:44px;height:44px;position:relative;border-radius:var(--mobile-radius-control);background:#fff;display:grid;place-items:center;padding:0; }
 .cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:9px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:12px; }
 .cart-bar>view { flex:1; }
 .cart-bar small,.cart-bar strong { display:block; }
 .cart-bar small { opacity:.7;font-size:12px; }
 .cart-bar strong { font-size:14px; }
-.cart-bar>button:last-child { min-height:var(--mobile-touch-target);padding:0 16px;border-radius:var(--mobile-radius-control);background:#d2ae5b;color:#2c271b;font-weight:800;font-size:13px;display:inline-flex;align-items:center;justify-content:center; }
+.cart-bar>button:last-child { min-height:var(--mobile-touch-target);padding:0 16px;border-radius:var(--mobile-radius-control);background:#fff;color:#d66a00;font-weight:800;font-size:13px;display:inline-flex;align-items:center;justify-content:center; }
 
 /* ===== 底部 tab ===== */
-.tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--mobile-surface);border-top:1px solid var(--farm-line);display:grid;grid-template-columns:repeat(3,1fr);z-index:20; }
+.tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--mobile-surface);border-top:1px solid var(--farm-line);display:grid;grid-template-columns:repeat(4,1fr);z-index:20; }
 .tabbar button { min-height:var(--mobile-touch-target);background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#7b877f;font-size:13px; }
 .tab-icon-wrap { position:relative;display:grid;place-items:center; }
 .tab-badge { position:absolute;top:-5px;right:-11px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:800; }
 .tabbar button.active { color:var(--farm-green);font-weight:800; }
-.tabbar button.active .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
+.tabbar button.active .ui-icon { filter:invert(51%) sepia(85%) saturate(3037%) hue-rotate(359deg) brightness(0.94); }
+.tab-label { display:block;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis; }
 
 /* ===== 弹层 ===== */
 .sheet-mask { position:fixed;inset:0;background:rgba(14,25,19,.52);z-index:40;display:flex;align-items:flex-end; }
@@ -798,24 +886,33 @@ onBeforeUnmount(() => {
 /* ===== 订单 ===== */
 .order-chips { padding:0; }
 .order-list { margin-top:14px;display:grid;gap:11px; }
-.order-card { width:100%;padding:13px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);text-align:left;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card); }
-.order-top { display:flex;align-items:center;justify-content:space-between;gap:10px; }
-.order-no { font-size:12px;font-weight:800;color:var(--farm-muted); }
-.status-badge { padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700; }
+.order-card { position:relative;display:block;width:100%;padding:13px 13px 12px 17px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);text-align:left;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card);overflow:hidden; }
+.order-accent { position:absolute;left:0;top:0;bottom:0;width:3px;background:#9aa09a; }
+.order-accent.accepted,.order-accent.shipped { background:#2b6a9c; }
+.order-accent.delivering { background:#9a722b; }
+.order-accent.received,.order-accent.completed { background:#17633f; }
+.order-accent.cancelled { background:#9aa09a; }
+.order-head { display:flex;align-items:center;justify-content:space-between;gap:10px; }
+.order-no { font-size:13px;font-weight:800;color:var(--farm-ink);letter-spacing:.2px;white-space:nowrap;flex-shrink:0; }
+.status-badge { flex:none;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700; }
 .status-badge.submitted { background:#f2f3ee;color:#6e7368; }
 .status-badge.accepted { background:#e8f0f7;color:#2b6a9c; }
 .status-badge.shipped { background:#e7f2eb;color:#17633f; }
 .status-badge.delivering { background:#fdf3df;color:#9a722b; }
 .status-badge.received { background:#e7f2eb;color:#17633f; }
 .status-badge.completed { background:#eef0eb;color:#6e7368; }
-.order-main { margin-top:11px;display:flex;align-items:center;gap:11px; }
-.order-emoji { width:56px;height:56px;border-radius:var(--mobile-radius-card);display:block;flex-shrink:0;background:var(--mobile-surface-subtle); }
-.order-info { flex:1;min-width:0; }
-.order-title { display:block;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.order-info small { display:-webkit-box;margin-top:5px;color:var(--farm-muted);font-size:12px;line-height:1.45;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
+.status-badge.cancelled { background:#eef0eb;color:#6e7368; }
+.order-main { margin-top:11px;display:flex;align-items:flex-start;gap:11px; }
+.order-thumb { width:72px;height:72px;border-radius:10px;display:block;flex-shrink:0;overflow:hidden;background:var(--mobile-surface-subtle); }
+.order-info { flex:1;min-width:0;display:grid;gap:4px;align-content:start; }
+.order-title { font-size:14px;font-weight:800;color:var(--farm-ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere; }
+.order-sub { font-size:12px;color:var(--farm-muted); }
+.order-meta { font-size:12px;color:var(--farm-muted);overflow-wrap:anywhere; }
 .order-bottom { margin-top:11px;padding-top:10px;border-top:1px solid #eef0eb;display:flex;align-items:center;gap:8px; }
-.order-bottom small { color:var(--farm-green);font-size:12px; }
-.order-bottom strong { margin-left:auto;font-size:14px;color:var(--farm-red); }
+.order-saved { color:var(--farm-green);font-size:12px;white-space:nowrap; }
+.order-amount { margin-left:auto;display:inline-flex;align-items:baseline;gap:3px;flex-shrink:0;white-space:nowrap; }
+.order-amount small { font-size:12px;color:var(--farm-muted); }
+.order-amount strong { font-size:16px;font-weight:800;color:var(--farm-red); }
 .order-bottom .ui-icon { filter:invert(45%); }
 
 /* ===== 订单详情 ===== */
@@ -858,6 +955,12 @@ onBeforeUnmount(() => {
 .store-identity text,.store-identity small { display:block; }
 .store-identity text { font-size:15px;font-weight:800; }
 .store-identity small { margin-top:4px;font-size:12px;opacity:.75; }
+.store-info { margin-top:12px;padding:9px 11px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.13);border-radius:var(--mobile-radius-card);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 12px; }
+.store-info > view { min-width:0; }
+.store-info small,.store-info text { display:block; }
+.store-info small { color:rgba(255,255,255,.66);font-size:12px; }
+.store-info text { margin-top:3px;font-size:12px;font-weight:600;overflow-wrap:anywhere; }
+.store-info-address { grid-column:1 / -1; }
 .metric-band { margin-top:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.13);border-radius:var(--mobile-radius-card); }
 .metric-band view { padding:12px 6px;text-align:center;border-right:1px solid rgba(255,255,255,.14); }
 .metric-band view:last-child { border:0; }
@@ -871,8 +974,8 @@ onBeforeUnmount(() => {
 .section-head>view { display:flex;align-items:center;gap:7px; }
 .section-head span { width:3px;height:16px;background:var(--farm-green);border-radius:2px; }
 .section-head text { font-size:15px;font-weight:900; }
-.quick-grid { margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
-.quick-grid button { min-width:0;width:100%;min-height:84px;padding:10px 8px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:13px;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card); }
+.quick-grid { margin:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px; }
+.quick-grid button { min-width:0;width:100%;min-height:56px;padding:8px 4px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card); }
 .quick-grid button small { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--farm-muted);font-size:13px;line-height:1.3; }
 .hot-list { display:grid;gap:9px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);padding:12px;box-shadow:var(--mobile-shadow-card); }
 .hot-item { display:grid;grid-template-columns:20px 40px 1fr auto;gap:9px;align-items:center; }
@@ -886,11 +989,6 @@ onBeforeUnmount(() => {
 .hot-main small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
 .hot-item strong { font-size:12px;color:var(--farm-red);white-space:nowrap; }
 .quick-grid .ui-icon { filter:invert(30%) sepia(18%) saturate(1320%) hue-rotate(98deg); }
-.info-list { display:grid;gap:0;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);overflow:hidden;box-shadow:var(--mobile-shadow-card); }
-.info-list>view { min-height:46px;padding:0 13px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #eef0eb; }
-.info-list>view:last-child { border:0; }
-.info-list small { color:var(--farm-muted);font-size:12px;flex:none; }
-.info-list text { min-width:0;font-size:12px;font-weight:700;text-align:right;overflow-wrap:anywhere; }
 .member-footer { margin-top:14px;padding-bottom:calc(8px + var(--mobile-bottom-safe));text-align:center;color:var(--farm-muted);font-size:12px; }
 
 /* ===== 联系客服 ===== */
@@ -925,7 +1023,7 @@ onBeforeUnmount(() => {
 .chip-scroll::-webkit-scrollbar { display:none; }
 
 /* ===== 键盘可访问 ===== */
-.app-shell button:focus-visible,.app-shell input:focus-visible,.app-shell textarea:focus-visible { outline:3px solid rgba(23,99,63,.28);outline-offset:2px; }
+.app-shell button:focus-visible,.app-shell input:focus-visible,.app-shell textarea:focus-visible { outline:3px solid rgba(240,129,15,.28);outline-offset:2px; }
 
 @media (min-width:700px) {
   .app-shell { max-width:430px;margin:0 auto;box-shadow:0 0 0 1px #e1e3dc; }
@@ -980,10 +1078,60 @@ onBeforeUnmount(() => {
 .code-button[disabled]{opacity:.55}
 .login-button{min-height:46px;border-radius:var(--mobile-radius-control);background:var(--farm-green);color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center}
 .login-hint{display:block;text-align:center;margin-top:16px;font-size:12px;color:#8a9a90}
-.logout-button{width:100%;min-height:var(--mobile-touch-target);margin:14px 0 4px;border-radius:var(--mobile-radius-control);background:#f1f5f2;color:#555;font-size:13px;font-weight:700;border:1px solid #e2eae4;display:flex;align-items:center;justify-content:center}
+.logout-button{width:100%;min-height:var(--mobile-touch-target);margin:14px 0 4px;border-radius:var(--mobile-radius-control);background:#f4f1ec;color:#555;font-size:13px;font-weight:700;border:1px solid #e6e1d8;display:flex;align-items:center;justify-content:center}
 .sheet-line .business-image{width:54px;height:54px;border-radius:6px}.order-item-line .business-image{width:48px;height:48px;border-radius:5px}
-.catalog-boundary{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:13px;border:1px solid #dfe8e1;border-radius:8px;background:#f5faf6;color:#17633f}.catalog-boundary>view{min-width:0}.catalog-boundary text,.catalog-boundary small{display:block}.catalog-boundary text{font-size:13px;font-weight:800}.catalog-boundary small{margin-top:4px;color:#617268;font-size:12px;line-height:1.45}
+.catalog-boundary{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:13px;border:1px solid #f2cfa3;border-radius:8px;background:#fdebd7;color:#d66a00}.catalog-boundary>view{min-width:0}.catalog-boundary text,.catalog-boundary small{display:block}.catalog-boundary text{font-size:13px;font-weight:800}.catalog-boundary small{margin-top:4px;color:#a5520a;font-size:12px;line-height:1.45}
 
 .chips button{display:inline-flex;align-items:center;justify-content:center;gap:5px}
 .category-image{width:26px;height:26px;flex:0 0 26px;border-radius:4px;background:#eef2ee}.category-label{max-width:104px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ===== 商品分类页 ===== */
+.category-layout { margin-top:12px;display:flex;gap:0;align-items:stretch; }
+.category-side { width:88px;flex:none;background:#f3f2ef;border-right:1px solid var(--farm-line);display:grid;gap:4px;align-content:start; }
+.side-item { min-width:0;min-height:40px;padding:0 10px;font-size:13px;color:var(--farm-muted);text-align:left;display:flex;align-items:center;justify-content:flex-start; }
+.side-item.active { color:var(--farm-green);font-weight:800;background:#fff;border-left:3px solid var(--farm-green); }
+.category-main { flex:1;min-width:0;margin-left:12px; }
+.category-products { margin-top:12px;display:grid;gap:11px; }
+.cat-product { display:flex;gap:10px;padding:8px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card); }
+.cat-product-img { width:76px;height:96px;border-radius:10px;flex:none;overflow:hidden;background:var(--mobile-surface-subtle); }
+.cat-product-body { flex:1;min-width:0;display:flex;flex-direction:column;gap:3px; }
+.cat-name-row { display:flex;align-items:flex-start;gap:4px;flex-wrap:wrap; }
+.cat-name-row .tag { font-size:12px;line-height:1.4;border-radius:4px; }
+.cat-product-name { flex:1;min-width:0;font-size:13px;font-weight:800;color:var(--farm-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere; }
+
+.cat-stock { font-size:12px;color:var(--farm-muted); }
+.cat-foot { margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px; }
+.cat-price { font-size:15px;font-weight:800;color:var(--farm-red); }
+.cat-price-box { display:inline-flex;align-items:baseline;gap:4px; }
+.cat-original { font-size:12px;color:var(--farm-muted); }
+.cat-add { width:26px;height:26px;border-radius:50%;background:var(--farm-green);color:#fff;display:inline-flex;align-items:center;justify-content:center;padding:0;flex:none; }
+
+/* ===== 购物车页 ===== */
+.cart-page-body { padding-top:0; }
+.cart-row { display:grid;grid-template-columns:20px 64px minmax(0,1fr);gap:10px;align-items:center;padding:11px 12px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card);margin-bottom:9px; }
+.cart-row.unavailable { opacity:.64; }
+.cart-check { width:20px;height:20px;border-radius:50%;border:1px solid #cfd8d2;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#fff;padding:0; }
+.cart-check.on { background:var(--farm-green);border-color:var(--farm-green); }
+.cart-check .ui-icon { opacity:0; }
+.cart-check.on .ui-icon { opacity:1; }
+.cart-row-img { width:68px;height:80px;border-radius:8px;overflow:hidden;background:var(--mobile-surface-subtle); }
+.cart-row-main { min-width:0;display:grid;gap:3px;align-content:start; }
+.cart-row-name { font-size:13px;font-weight:800;color:var(--farm-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere; }
+.cart-row-sub,.cart-row-stock { display:block;font-size:12px;color:var(--farm-muted); }
+.cart-row-stock.warn { color:var(--farm-red); }
+.cart-row-bottom { margin-top:3px;display:flex;align-items:center;justify-content:space-between;gap:8px; }
+.cart-row-price { font-size:15px;font-weight:800;color:var(--farm-red); }
+.cart-row-bottom .stepper { display:flex;align-items:center;gap:8px; }
+.cart-row-bottom .stepper button { width:26px;height:26px;border-radius:6px;border:1px solid var(--farm-line);background:#fff;display:grid;place-items:center;padding:0;font-size:15px; }
+.cart-row-bottom .stepper text { min-width:22px;text-align:center;font-size:13px;font-weight:700; }
+.cart-footer { position:sticky;bottom:calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));z-index:5;margin-top:10px;padding:10px 12px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-float);display:flex;align-items:center;gap:10px; }
+.cart-all { display:inline-flex;align-items:center;gap:6px;color:var(--farm-muted);font-size:12px;padding:0; }
+.cart-all-check { width:20px;height:20px;border-radius:50%;border:1px solid #cfd8d2;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#fff; }
+.cart-all-check.on { background:var(--farm-green);border-color:var(--farm-green); }
+.cart-all-check .ui-icon { opacity:0; }
+.cart-all-check.on .ui-icon { opacity:1; }
+.cart-footer-total { display:flex;align-items:baseline;gap:4px;color:var(--farm-muted);font-size:12px; }
+.cart-footer-total strong { font-size:17px;font-weight:800;color:var(--farm-red); }
+.cart-del { min-height:40px;padding:0 14px;border-radius:999px;border:1px solid var(--farm-red);color:var(--farm-red);background:#fff;font-size:12px;font-weight:700; }
+.cart-checkout { min-height:40px;padding:0 18px;border-radius:999px;background:var(--farm-green);color:#fff;font-size:13px;font-weight:800; }
+
 </style>

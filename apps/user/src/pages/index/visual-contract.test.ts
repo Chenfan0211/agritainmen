@@ -108,4 +108,11 @@ describe('用户端现代零售视觉契约', () => {
       for (const emoji of decorativeEmoji) expect(template).not.toContain(emoji)
     }
   })
+  it('“我的”页提供一二三级用户分销角色演示切换入口', () => {
+    expect(indexPage).toContain('class="role-switch"')
+    expect(indexPage).toContain("store.setDemoDistributorLevel('normal')")
+    expect(indexPage).toContain("store.setDemoDistributorLevel('level1')")
+    expect(indexPage).toContain("store.setDemoDistributorLevel('level2')")
+    expect(indexPage).toMatch(/\.role-switch\s*\{[^}]*display:\s*flex/)
+  })
 })
