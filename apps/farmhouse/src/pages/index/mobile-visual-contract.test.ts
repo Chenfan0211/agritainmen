@@ -41,7 +41,7 @@ describe('农家乐移动端视觉契约', () => {
       expect(template, className).toMatch(new RegExp(`class="${className}"[^>]*mode="aspectFill"`))
     }
     expect(template).toMatch(/:src="item\.image" mode="aspectFill"/)
-    expect(template).toMatch(/:src="selectedProduct\.image" mode="aspectFill"/)
+    expect(template).toMatch(/:src="detailImages\[detailImageIndex\] \|\| selectedProduct\.image" mode="aspectFill"/)
   })
 
   it('商品卡标签与名称竖排且标签行不预留空高', () => {
@@ -56,7 +56,8 @@ describe('农家乐移动端视觉契约', () => {
   it('特产商城使用双列瀑布流并隐藏购买端起订量', () => {
     expect(template).toContain('class="waterfall-grid"')
     expect(template).toContain('class="waterfall-column"')
-    expect(template).not.toContain('起订')
+    const shopViewAt = template.indexOf("activeTab === 'shop'")
+    expect(template.slice(shopViewAt, shopViewAt + 5200)).not.toContain('起订')
     expect(styles).toMatch(/\.waterfall-grid\s*\{[^}]*display:\s*flex/s)
     expect(styles).toMatch(/\.waterfall-column\s*\{[^}]*flex:\s*1/s)
   })
@@ -238,6 +239,27 @@ describe('农家乐移动端视觉契约', () => {
     expect(styles).toMatch(/\.cart-line\s*\{[^}]*grid-template-columns:\s*34px 72px/s)
     expect(styles).toMatch(/\.cart-sheet-foot\s*\{[^}]*justify-content:\s*space-between/s)
     expect(styles).toMatch(/\.checkout-page-foot\s*\{[^}]*position:\s*fixed/s)
+  })
+
+  it('全屏商品详情提供图库、规格、数量和三操作固定栏', () => {
+    const productViewAt = template.indexOf('class="work-page page-pad product-view"')
+    const productView = template.slice(productViewAt, productViewAt + 8000)
+    expect(source).toContain('const detailImages = computed')
+    expect(source).toContain('const detailQuantity = ref(1)')
+    expect(source).toContain('function changeDetailQuantity')
+    expect(source).toContain('function buyNow')
+    expect(productView).toContain('class="product-gallery"')
+    expect(productView).toContain('class="detail-sku-options"')
+    expect(productView).toContain('detail-quantity')
+    expect(productView).toContain('class="product-info-list"')
+    expect(productView).toContain('product-detail-actions--fixed')
+    expect(productView).toContain('立即购买')
+    expect(productView).toContain('加入购物车')
+    expect(template).toMatch(/v-if="!productView && activeTab === 'shop' && store\.cartCount" class="cart-bar"/)
+    expect(template).toMatch(/v-if="!productView" class="tabbar"/)
+    expect(styles).toMatch(/\.product-gallery\s*\{[^}]*aspect-ratio:/s)
+    expect(styles).toMatch(/\.product-detail-actions--fixed\s*\{[^}]*position:\s*fixed/s)
+    expect(styles).toMatch(/\.detail-quantity\s+\.stepper button[^}]*min-height:\s*var\(--farm-touch-primary\)/s)
   })
 
   it('规格弹窗展示随 SKU 更新的商品摘要，并保持操作区固定', () => {

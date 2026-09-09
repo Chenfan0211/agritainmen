@@ -876,6 +876,39 @@ describe('farmhouse courier fulfillment', () => {
     expect(store.cart).toEqual([expect.objectContaining({ productId: courier.id })])
   })
 
+  it('adds an explicit quantity and partially checks out only that quantity', async () => {
+    const product = catalogProduct({ id: 'DETAIL-QUANTITY', name: '详情数量商品', expressDelivery: false })
+    seedCatalog([product], 1)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: product.id, listed: true, retailPrice: product.skus[0].retailPrice })).toBe(true)
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    store.$patch({ member: { ...cloneSeed(members[0]), balance: 1000 }, cart: [], orders: [], balanceEntries: [] })
+    const loaded = store.products[0]
+
+    expect(store.addToCart(loaded, loaded.skus[0].id, 5)).toBe('added')
+    expect(store.addToCart(loaded, loaded.skus[0].id, 2)).toBe('added')
+    expect(store.cart[0]).toMatchObject({ quantity: 7 })
+    expect(await store.checkout({ deliveryMode: 'pickup', selectedLines: [{ productId: loaded.id, skuId: loaded.skus[0].id, quantity: 3 }] })).toBe(true)
+    expect(store.orders[0].items[0]).toMatchObject({ productId: loaded.id, quantity: 3 })
+    expect(store.cart).toEqual([expect.objectContaining({ productId: loaded.id, quantity: 4 })])
+  })
+
+  it('rejects an immediate-buy quantity that is not valid for the selected cart line', async () => {
+    const product = catalogProduct({ id: 'DETAIL-INVALID-QUANTITY', name: '详情校验商品', expressDelivery: false })
+    seedCatalog([product], 1)
+    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: product.id, listed: true, retailPrice: product.skus[0].retailPrice })).toBe(true)
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    store.$patch({ member: { ...cloneSeed(members[0]), balance: 1000 }, cart: [], orders: [], balanceEntries: [] })
+    const loaded = store.products[0]
+    expect(store.addToCart(loaded, loaded.skus[0].id, 2)).toBe('added')
+
+    expect(await store.checkout({ deliveryMode: 'pickup', selectedLines: [{ productId: loaded.id, skuId: loaded.skus[0].id, quantity: 0 }] })).toBe(false)
+    expect(store.checkoutError).toContain('数量')
+    expect(store.cart).toEqual([expect.objectContaining({ productId: loaded.id, quantity: 2 })])
+    expect(store.orders).toHaveLength(0)
+  })
+
   it('rejects a checkout request that mixes pickup and courier lines', async () => {
     const courierProduct = catalogProduct({ id: 'MIX-REJECT-COURIER', name: '快递商品', expressDelivery: true })
     const pickupProduct = catalogProduct({ id: 'MIX-REJECT-PICKUP', name: '普通商品', expressDelivery: false })

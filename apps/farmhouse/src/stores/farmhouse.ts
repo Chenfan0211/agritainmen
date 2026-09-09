@@ -816,27 +816,39 @@ export const useFarmhouseStore = defineStore('storefront', {
     setRole(role: Role) {
       this.role = role
     },
-    addToCart(product: Product, skuId?: string) {
+    addToCart(product: Product, skuId?: string, quantity?: number) {
       if (product.skus.length > 1 && !skuId) return 'sku-required' as const
       const sku = product.skus.find((item) => item.id === skuId) || product.skus[0]
       const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
       const initialQuantity = initialCatalogOrderQuantity(minimumOrderQuantity)
+      const explicitQuantity = quantity !== undefined
+      const requestedQuantity = explicitQuantity ? Number(quantity) : initialQuantity
+      if (explicitQuantity && (!Number.isInteger(requestedQuantity) || requestedQuantity < minimumOrderQuantity || requestedQuantity <= 0)) {
+        this.checkoutError = `${product.name}购买数量无效，至少购买 ${minimumOrderQuantity || 1} 件`
+        return 'out-of-stock' as const
+      }
       if (!sku || !validateCatalogSkuOrderQuantity(sku, initialQuantity).ok) {
         this.checkoutError = sku && sku.stock < minimumOrderQuantity ? `${product.name}库存不足或购买数量未达要求` : `${product.name}库存不足`
         return 'out-of-stock' as const
       }
       const line = this.cart.find((item) => item.productId === product.id && item.skuId === sku.id)
       if (line) {
-        if (line.quantity >= sku.stock) {
+        const addQuantity = explicitQuantity ? requestedQuantity : 1
+        const nextQuantity = line.quantity + addQuantity
+        if (!validateCatalogSkuOrderQuantity(sku, nextQuantity).ok) {
           this.checkoutError = `${product.name}（${sku.name}）库存不足`
           return 'out-of-stock' as const
         }
-        line.quantity += 1
+        line.quantity = nextQuantity
         line.stock = sku.stock
         line.minimumOrderQuantity = minimumOrderQuantity
         line.unavailable = !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
       } else {
-        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.price, stock: sku.stock, quantity: initialQuantity, minimumOrderQuantity, unavailable: false })
+        if (!sku || !validateCatalogSkuOrderQuantity(sku, requestedQuantity).ok) {
+          this.checkoutError = `${product.name}库存不足或购买数量未达要求`
+          return 'out-of-stock' as const
+        }
+        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.price, stock: sku.stock, quantity: requestedQuantity, minimumOrderQuantity, unavailable: false })
       }
       this.checkoutError = ''
       return 'added' as const
@@ -860,13 +872,13 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.checkoutError = ''
       return true
     },
-    async checkout(payload: { deliveryMode?: 'pickup' | 'courier'; addressId?: string; payMethod?: 'balance' | 'wechat'; selectedLines?: Array<{ productId: string; skuId: string }>; remark?: string } = {}) {
+    async checkout(payload: { deliveryMode?: 'pickup' | 'courier'; addressId?: string; payMethod?: 'balance' | 'wechat'; selectedLines?: Array<{ productId: string; skuId: string; quantity?: number }>; remark?: string } = {}) {
       this.checkoutError = ''
       if (!this.cart.length) {
         this.checkoutError = '购物车为空'
         return false
       }
-      const selectedLineRefs = payload.selectedLines === undefined
+      const selectedLineRefs: Array<{ productId: string; skuId: string; quantity?: number }> = payload.selectedLines === undefined
         ? this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId }))
         : payload.selectedLines
       if (!selectedLineRefs.length) {
@@ -878,13 +890,19 @@ export const useFarmhouseStore = defineStore('storefront', {
         const key = `${ref.productId}-${ref.skuId}`
         if (selectedKeys.has(key)) return null
         selectedKeys.add(key)
-        return this.cart.find((line) => line.productId === ref.productId && line.skuId === ref.skuId) || null
+        const line = this.cart.find((candidate) => candidate.productId === ref.productId && candidate.skuId === ref.skuId)
+        return line ? { line, quantity: ref.quantity === undefined ? line.quantity : Number(ref.quantity) } : null
       })
       if (selectedCart.some((line) => !line)) {
         this.checkoutError = '购物车商品已变化，请重新选择'
         return false
       }
-      const selectedLines = selectedCart as CartLine[]
+      const selectedEntries = selectedCart as Array<{ line: CartLine; quantity: number }>
+      if (selectedEntries.some(({ line, quantity }) => !Number.isInteger(quantity) || quantity <= 0 || quantity > line.quantity)) {
+        this.checkoutError = '结算数量无效，请重新选择'
+        return false
+      }
+      const selectedLines = selectedEntries.map(({ line, quantity }) => ({ ...line, quantity }))
       const legacyCheckout = payload.selectedLines === undefined && payload.deliveryMode === undefined
       const selectedModes = selectedLines.map((line) => {
         const product = this.products.find((item) => item.id === line.productId)
@@ -1059,7 +1077,13 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.member.balance = localSnapshot.memberBalance
       this.member.points = localSnapshot.memberPoints
       this.balanceEntries = cloneSeed(localSnapshot.balanceEntries)
-      this.cart = this.cart.filter((line) => !selectedKeys.has(`${line.productId}-${line.skuId}`))
+      this.cart = this.cart.flatMap((line) => {
+        const purchasedQuantity = selectedEntries.find(({ line: selected }) => selected.productId === line.productId && selected.skuId === line.skuId)?.quantity || 0
+        const remainingQuantity = line.quantity - purchasedQuantity
+        if (remainingQuantity <= 0) return []
+        const remainingSku = this.products.find((product) => product.id === line.productId)?.skus.find((sku) => sku.id === line.skuId)
+        return [{ ...line, quantity: remainingQuantity, unavailable: !remainingSku || !validateCatalogSkuOrderQuantity(remainingSku, remainingQuantity).ok }]
+      })
       return true
     },
     async cancelStorefrontOrder(id: string) {

@@ -400,6 +400,74 @@ test('farmhouse checkout falls back to pickup after removing the last courier it
   expect(order?.items?.[0]?.name).toContain('炎陵黄桃')
 })
 
+test('farmhouse product detail keeps gallery, quantity controls and fixed actions visible', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.setViewportSize(viewports[0])
+  await reset(page, 'http://127.0.0.1:8792')
+  await page.evaluate(() => {
+    const catalog = JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}') as { products?: Array<{ id: string; image?: string; images?: string[]; skus?: Array<{ name: string; stock: number; retailPrice?: number; price?: number }> }> }
+    const peach = catalog.products?.find((item) => item.id === 'P002')
+    if (!peach || !peach.skus?.length) throw new Error('统一目录缺少详情验收商品')
+    peach.images = [peach.image || '', peach.image || '', '/static/images/farmhouse.webp']
+    peach.skus = peach.skus.map((sku, index) => ({ ...sku, name: index === 0 ? '5斤家庭分享装（长规格名称）' : '10斤节日礼盒家庭装（长规格名称）', stock: index === 0 ? 6 : 8 }))
+    localStorage.setItem('agritainment-platform-catalog', JSON.stringify(catalog))
+  })
+  await page.reload()
+  await page.waitForLoadState('networkidle')
+  await loginFarmhouseManager(page)
+  await page.locator('.tabbar uni-button').filter({ hasText: '商城' }).click()
+
+  const product = page.locator('.product-card').filter({ hasText: '炎陵黄桃' })
+  await product.locator('.product-open').click()
+  await expect(page.locator('.product-view')).toBeVisible()
+  await expect(page.locator('.gallery-count')).toHaveText('1 / 2')
+  await expect(page.locator('.detail-product-name')).toContainText('炎陵黄桃')
+  await expect(page.locator('.product-detail-actions--fixed')).toBeVisible()
+  await expect(page.locator('.tabbar')).toHaveCount(0)
+  await expect(page.locator('.cart-bar')).toHaveCount(0)
+
+  const firstPrice = await page.locator('.product-summary-card .detail-price').innerText()
+  await page.locator('.gallery-arrow-next').click()
+  await expect(page.locator('.gallery-count')).toHaveText('2 / 2')
+  const secondSku = page.locator('.detail-sku-options uni-button').nth(1)
+  await secondSku.click()
+  await expect(page.locator('.product-summary-card .detail-price')).not.toHaveText(firstPrice)
+  await expect(page.locator('.detail-quantity-row')).toContainText('1 件')
+
+  const minus = page.getByLabel('减少购买数量')
+  const plus = page.getByLabel('增加购买数量')
+  await expect(minus).toHaveAttribute('disabled', 'true')
+  await plus.click()
+  await expect(page.locator('.detail-quantity-row')).toContainText('2 件')
+  await assertMobileFrame(page, viewports[0].width)
+
+  await page.locator('.product-detail-scroll').evaluate((host) => {
+    const candidates = [host, ...host.querySelectorAll<HTMLElement>('.uni-scroll-view')]
+    const scrollable = candidates.find((element) => element.scrollHeight > element.clientHeight) || host
+    scrollable.scrollTop = scrollable.scrollHeight
+  })
+  const actionGap = await page.locator('.detail-gallery-section .detail-gallery-image').last().evaluate((content) => {
+    const contentBottom = content.getBoundingClientRect().bottom
+    const actionTop = document.querySelector('.product-detail-actions--fixed')?.getBoundingClientRect().top || 0
+    return actionTop - contentBottom
+  })
+  expect(actionGap).toBeGreaterThanOrEqual(0)
+
+  await page.locator('.product-detail-actions--fixed .primary-button').filter({ hasText: '立即购买' }).click()
+  await expect(page.locator('[data-visual-view="checkout"]')).toBeVisible()
+  await expect(page.locator('.checkout-items .checkout-line')).toHaveCount(1)
+  await expect(page.locator('.checkout-items')).toContainText('炎陵黄桃')
+  await expect(page.locator('.checkout-items')).toContainText('× 2')
+  await page.locator('.checkout-page-foot .primary-button').click()
+  await expect(page.locator('[data-visual-view="orders"]')).toBeVisible()
+  await page.getByLabel('返回会员中心').click()
+  await page.locator('.tabbar uni-button').filter({ hasText: '商城' }).click()
+  await expect(page.locator('.cart-bar')).toBeVisible()
+  await page.locator('.cart-bar .cart-count').click()
+  await expect(page.locator('.sheet-line')).toContainText('炎陵黄桃')
+  await expect(page.locator('.sheet-line .stepper')).toContainText('1')
+})
+
 test('store mobile views stay inside all supported widths', async ({ page }, testInfo) => {
   await page.setViewportSize(viewports[1])
   await reset(page, 'http://127.0.0.1:8795')

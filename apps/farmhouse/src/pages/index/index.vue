@@ -46,7 +46,7 @@ const addressForm = reactive({ id: '', receiver: '', phone: '', region: ['湖南
 const selectedDeliveryAddress = computed(() => store.addresses.find((address) => address.id === selectedAddressId.value) || store.defaultAddress || null)
 const cartCategory = ref<'community' | 'express'>('community')
 const selectedCartLineKeys = reactive(new Set<string>())
-const checkoutLineRefs = ref<Array<{ productId: string; skuId: string }>>([])
+const checkoutLineRefs = ref<Array<{ productId: string; skuId: string; quantity?: number }>>([])
 const checkoutRemark = ref('')
 const cartLineKey = (line: { productId: string; skuId: string }) => `${line.productId}-${line.skuId}`
 const cartLineCategory = (line: { productId: string }) => {
@@ -60,7 +60,10 @@ const selectedCartTotal = computed(() => selectedCartItems.value.reduce((sum, li
 const cartCategoryAllSelected = computed(() => !!cartCategoryItems.value.length && cartCategoryItems.value.every((line) => selectedCartLineKeys.has(cartLineKey(line))))
 const cartCategoryHasUnavailable = computed(() => selectedCartItems.value.some((line) => line.unavailable))
 const cartCategoryCount = (category: 'community' | 'express') => store.cart.filter((line) => cartLineCategory(line) === category).reduce((sum, line) => sum + line.quantity, 0)
-const checkoutItems = computed(() => checkoutLineRefs.value.map((ref) => store.cart.find((line) => line.productId === ref.productId && line.skuId === ref.skuId)).filter((line): line is typeof store.cart[number] => !!line))
+const checkoutItems = computed(() => checkoutLineRefs.value.map((checkoutRef) => {
+  const line = store.cart.find((candidate) => candidate.productId === checkoutRef.productId && candidate.skuId === checkoutRef.skuId)
+  return line ? { ...line, quantity: checkoutRef.quantity ?? line.quantity } : null
+}).filter((line): line is typeof store.cart[number] => !!line))
 const checkoutTotal = computed(() => checkoutItems.value.reduce((sum, line) => sum + line.price * line.quantity, 0))
 const checkoutIsCourier = computed(() => deliveryMode.value === 'courier')
 const checkoutCanPayWithBalance = computed(() => store.balance >= checkoutTotal.value)
@@ -84,6 +87,8 @@ const retailDraft = reactive<Record<string, number>>({})
 const rechargeAmount = ref(100)
 const selectedProduct = ref<Product | null>(null)
 const productView = ref(false)
+const detailImageIndex = ref(0)
+const detailQuantity = ref(1)
 const selectedService = ref<FarmExperience | null>(null)
 const serviceBooking = reactive({ date: bookingDates[1], people: 2 })
 const bookingAmounts = reactive<Record<string, string>>({})
@@ -94,6 +99,20 @@ const paying = ref(false)
 const canPayWithBalance = computed(() => !!payContext.value && store.balance >= payContext.value.amount)
 const selectedSkuId = ref('')
 const selectedSku = computed(() => selectedProduct.value?.skus.find((sku) => sku.id === selectedSkuId.value) || selectedProduct.value?.skus[0] || null)
+const detailImages = computed<BusinessMediaValue[]>(() => {
+  if (!selectedProduct.value) return []
+  const candidates = [selectedProduct.value.image, ...(selectedProduct.value.images || [])]
+  const seen = new Set<string>()
+  return candidates.filter((image) => {
+    const key = mediaValueToImage(image)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+})
+const detailMinimumQuantity = computed(() => minimumOrderQuantity(selectedSku.value))
+const detailTotalStock = computed(() => selectedProduct.value?.skus.reduce((sum, sku) => sum + Math.max(0, Number(sku.stock) || 0), 0) || 0)
+const detailDeliveryLabel = computed(() => selectedProduct.value && isExpressDeliverable(selectedProduct.value) ? '快递直发' : '到店自提')
 const canPromote = computed(() => store.role !== 'customer')
 
 function cartLineDeliveryMode(line: { productId: string }): 'pickup' | 'courier' {
@@ -288,7 +307,9 @@ function chooseRole(role: Role) {
 
 function openProduct(product: Product) {
   selectedProduct.value = product
-  selectedSkuId.value = product.skus[0].id
+  selectedSkuId.value = product.skus.find((sku) => canStartOrder(sku))?.id || product.skus[0]?.id || ''
+  detailImageIndex.value = 0
+  detailQuantity.value = initialCatalogOrderQuantity(minimumOrderQuantity(selectedSku.value))
   productView.value = true
   sheet.value = null
 }
@@ -313,6 +334,48 @@ function addSelectedProduct() {
   if (result === 'out-of-stock') return toast('该规格库存不足')
   sheet.value = null
   toast('已加入购物车')
+}
+
+function changeDetailQuantity(delta: number) {
+  const sku = selectedSku.value
+  if (!sku) return
+  const minimum = detailMinimumQuantity.value || 1
+  const next = Math.min(Math.max(detailQuantity.value + delta, minimum), Math.max(minimum, sku.stock))
+  if (next === detailQuantity.value && delta > 0 && sku.stock < next) return toast('库存不足')
+  detailQuantity.value = next
+}
+
+function selectDetailSku(skuId: string) {
+  selectedSkuId.value = skuId
+  detailQuantity.value = initialCatalogOrderQuantity(minimumOrderQuantity(selectedSku.value))
+  detailImageIndex.value = 0
+}
+
+function addDetailToCart() {
+  if (!selectedProduct.value || !selectedSku.value) return
+  const result = store.addToCart(selectedProduct.value, selectedSku.value.id, detailQuantity.value)
+  if (result === 'out-of-stock') return toast(store.checkoutError || '库存不足')
+  toast('已加入购物车')
+}
+
+function buyNow() {
+  if (!requireLogin(() => buyNow())) return
+  if (!selectedProduct.value || !selectedSku.value || !canStartOrder(selectedSku.value) || !validateCatalogSkuOrderQuantity(selectedSku.value, detailQuantity.value).ok) {
+    return toast('请选择有效规格和数量')
+  }
+  const result = store.addToCart(selectedProduct.value, selectedSku.value.id, detailQuantity.value)
+  if (result === 'out-of-stock') return toast(store.checkoutError || '库存不足')
+  checkoutLineRefs.value = [{ productId: selectedProduct.value.id, skuId: selectedSku.value.id, quantity: detailQuantity.value }]
+  deliveryMode.value = isExpressDeliverable(selectedProduct.value) ? 'courier' : 'pickup'
+  payMethod.value = store.balance >= selectedSku.value.price * detailQuantity.value ? 'balance' : 'wechat'
+  productView.value = false
+  workView.value = 'checkout'
+  if (deliveryMode.value === 'courier' && !selectedDeliveryAddress.value) openAddresses('checkout', true)
+}
+
+function changeDetailImage(delta: number) {
+  if (detailImages.value.length < 2) return
+  detailImageIndex.value = (detailImageIndex.value + delta + detailImages.value.length) % detailImages.value.length
 }
 
 function closeProductView() {
@@ -919,13 +982,26 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
     <view v-else-if="store.error" class="state-page"><UiIcon name="radio" :size="28" /><text>{{ store.error }}</text><button class="primary-button" @click="retryLoad">重新加载</button></view>
     <template v-else>
       <view v-if="productView && selectedProduct" class="work-page page-pad product-view" data-visual-view="product">
-        <view class="sub-head"><button class="page-back" aria-label="返回" @click="closeProductView"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">商品详情</text><text class="page-sub">产地直发 · 中选科技供应链中台履约</text></view></view>
-        <view class="work-body product-detail">
-          <view class="detail-head"><BusinessImage class="detail-thumb" :src="selectedProduct.image" mode="aspectFill" /><view><text>{{ selectedProduct.name }}</text><small>{{ displayProductTags(selectedProduct, 'store').join(' · ') }}</small><strong class="detail-price">{{ money(selectedProduct.price) }}</strong></view></view>
-          <small v-if="selectedSku">库存 {{ selectedSku.stock }}</small>
-          <small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">库存不足或数量未达要求</small>
-        </view>
-        <view class="product-detail-actions"><button class="outline-button" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-button" :disabled="!canStartProductOrder(selectedProduct)" @click="addProduct(selectedProduct)">加入购物车</button></view>
+        <view class="sub-head"><button class="page-back" aria-label="返回" @click="closeProductView"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">商品详情</text><text class="page-sub">农家好物 · 选好规格再下单</text></view><button class="detail-share-top" aria-label="分享商品" @click="shareProduct(selectedProduct)"><UiIcon name="share-2" :size="18" /></button></view>
+        <scroll-view class="product-detail-scroll" scroll-y>
+          <view class="product-gallery">
+            <BusinessImage class="product-gallery-image" :src="detailImages[detailImageIndex] || selectedProduct.image" mode="aspectFill" />
+            <button v-if="detailImages.length > 1" class="gallery-arrow gallery-arrow-prev" aria-label="上一张商品图" @click="changeDetailImage(-1)"><UiIcon name="chevron-left" :size="18" /></button>
+            <button v-if="detailImages.length > 1" class="gallery-arrow gallery-arrow-next" aria-label="下一张商品图" @click="changeDetailImage(1)"><UiIcon name="chevron-right" :size="18" /></button>
+            <view v-if="detailImages.length > 1" class="gallery-count">{{ detailImageIndex + 1 }} / {{ detailImages.length }}</view>
+          </view>
+          <view class="product-summary-card">
+            <view class="product-summary-top"><view><text class="detail-product-name">{{ selectedProduct.name }}</text><small>{{ selectedProduct.supplierName || selectedProduct.supplier }}</small></view><span class="detail-delivery-tag" :class="detailDeliveryLabel === '快递直发' ? 'courier' : 'pickup'">{{ detailDeliveryLabel }}</span></view>
+            <view class="detail-price-row"><strong class="detail-price">{{ money(selectedSku?.price || selectedProduct.price) }}</strong><small>库存 {{ selectedSku?.stock || 0 }}</small></view>
+            <view class="tag-row detail-tags"><span v-for="tag in displayProductTags(selectedProduct, 'store')" :key="tag">{{ tag }}</span></view>
+          </view>
+          <view class="detail-section"><view class="detail-section-head"><text>选择规格</text><small>{{ selectedProduct.skus.length }} 种可选</small></view><view class="detail-sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!canStartOrder(sku)" @click="selectDetailSku(sku.id)"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">当前规格库存不足或数量未达起订要求</small></view>
+          <view class="detail-section detail-quantity"><view class="detail-section-head"><text>购买数量</text><small>起订 {{ detailMinimumQuantity || 1 }} 件</small></view><view class="detail-quantity-row"><small>已选 {{ detailQuantity }} 件</small><view class="stepper"><button aria-label="减少购买数量" :disabled="detailQuantity <= (detailMinimumQuantity || 1)" @click="changeDetailQuantity(-1)">−</button><text>{{ detailQuantity }}</text><button aria-label="增加购买数量" :disabled="!selectedSku || detailQuantity >= selectedSku.stock" @click="changeDetailQuantity(1)">+</button></view></view></view>
+          <view class="detail-section product-info-section"><view class="detail-section-head"><text>商品信息</text><small>仅展示当前商品数据</small></view><view class="product-info-list"><view><text>商品分类</text><strong>{{ selectedProduct.category }}</strong></view><view><text>供应商</text><strong>{{ selectedProduct.supplierName || selectedProduct.supplier }}</strong></view><view><text>规格数量</text><strong>{{ selectedProduct.skus.length }} 种</strong></view><view><text>总库存</text><strong>{{ detailTotalStock }} 件</strong></view><view><text>配送方式</text><strong>{{ detailDeliveryLabel }}</strong></view></view></view>
+          <view v-if="detailImages.length > 1" class="detail-section detail-gallery-section"><view class="detail-section-head"><text>图文详情</text><small>{{ detailImages.length - 1 }} 张商品图</small></view><BusinessImage v-for="(image, index) in detailImages.slice(1)" :key="`${mediaValueToImage(image)}-${index}`" class="detail-gallery-image" :src="image" mode="widthFix" /></view>
+          <view class="product-detail-bottom-space"></view>
+        </scroll-view>
+        <view class="product-detail-actions product-detail-actions--fixed"><button class="detail-share-button" aria-label="分享商品" @click="shareProduct(selectedProduct)"><UiIcon name="share-2" :size="17" /><text>分享</text></button><button class="outline-button" :disabled="!selectedSku || !canStartOrder(selectedSku)" @click="addDetailToCart">加入购物车</button><button class="primary-button" :disabled="!selectedSku || !canStartOrder(selectedSku) || !validateCatalogSkuOrderQuantity(selectedSku, detailQuantity).ok" @click="buyNow">立即购买</button></view>
       </view>
       <view v-else-if="workView === 'select'" class="work-page page-pad" :data-visual-view="workView">
         <view class="sub-head"><button class="page-back" aria-label="返回会员中心" @click="workView = null"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">选品上架</text><text class="page-sub">从统一商品目录选品 · 设置本店价格与上下架状态</text></view></view>
@@ -1211,8 +1287,8 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </view>
         </view>
 
-        <view v-if="activeTab === 'shop' && store.cartCount" class="cart-bar"><button class="cart-count" @click="sheet = 'cart'"><UiIcon name="shopping-cart" :size="21" /><span>{{ store.cartCount }}</span></button><view><small>合计</small><strong>{{ money(store.cartTotal) }}</strong></view><button @click="sheet = 'cart'">去结算</button></view>
-        <view class="tabbar"><button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="chooseTab(tab.key)"><UiIcon :name="tab.icon" :size="21" /><text>{{ tab.label }}</text></button></view>
+        <view v-if="!productView && activeTab === 'shop' && store.cartCount" class="cart-bar"><button class="cart-count" @click="sheet = 'cart'"><UiIcon name="shopping-cart" :size="21" /><span>{{ store.cartCount }}</span></button><view><small>合计</small><strong>{{ money(store.cartTotal) }}</strong></view><button @click="sheet = 'cart'">去结算</button></view>
+        <view v-if="!productView" class="tabbar"><button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="chooseTab(tab.key)"><UiIcon :name="tab.icon" :size="21" /><text>{{ tab.label }}</text></button></view>
       </template>
 
 
