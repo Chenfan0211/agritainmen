@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { assertCenteredButtonContent, assertFixedLayerWithinViewport, assertNoClippedText, assertNoPageOverflow, assertNoRepeatedElementOverlap, assertNoUnexpectedOverlap, assertReadableText } from './layout'
 
 const viewports = [
+  { width: 320, height: 720 },
   { width: 375, height: 812 },
   { width: 390, height: 844 },
   { width: 430, height: 932 }
@@ -84,6 +85,26 @@ async function screenshot(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: false })
 }
 
+async function scrollVisibleSheetToBottom(page: Page) {
+  await page.locator('.sheet-scroll').evaluate((host) => {
+    const candidates = [host, ...host.querySelectorAll<HTMLElement>('.uni-scroll-view')]
+    const scrollable = candidates.find((element) => {
+      const overflowY = getComputedStyle(element).overflowY
+      return (overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight
+    }) || host
+    scrollable.scrollTop = scrollable.scrollHeight
+  })
+}
+
+async function expectContentAboveSheetFoot(page: Page, selector: string, minimumGap = 8) {
+  const bounds = await page.locator(selector).evaluate((content) => {
+    const contentRect = content.getBoundingClientRect()
+    const footRect = document.querySelector('.sheet-foot')?.getBoundingClientRect()
+    return { contentBottom: contentRect.bottom, footTop: footRect?.top || 0 }
+  })
+  expect(bounds.footTop - bounds.contentBottom, `${selector} 被固定操作栏遮挡`).toBeGreaterThanOrEqual(minimumGap)
+}
+
 async function auditTabs(page: Page, selector: string, expectedCount: number, testInfo: TestInfo, prefix: string) {
   const tabs = page.locator(selector)
   await expect(tabs.first()).toBeVisible()
@@ -102,7 +123,7 @@ async function auditTabs(page: Page, selector: string, expectedCount: number, te
 async function loginFarmhouseManager(page: Page) {
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.login-prompt .primary-button').click()
-  await page.locator('.login-sheet .primary-button').click()
+  await page.locator('.sheet-foot .primary-button').click()
   await expect(page.locator('.member-hero')).toBeVisible()
   await page.locator('.roles uni-button', { hasText: '店长' }).click()
 }
@@ -117,6 +138,7 @@ test('farmhouse mobile views stay inside all supported widths', async ({ page },
 })
 
 test('farmhouse workspaces stay readable at all supported widths', async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
   await page.setViewportSize(viewports[1])
   await reset(page, 'http://127.0.0.1:8792')
   await loginFarmhouseManager(page)
@@ -149,6 +171,235 @@ test('farmhouse workspaces stay readable at all supported widths', async ({ page
       await expect(page.locator('.member-hero')).toBeVisible()
     }
   }
+})
+
+test('farmhouse address, sku and checkout surfaces stay readable at all supported widths', async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize(viewports[0])
+  await reset(page, 'http://127.0.0.1:8792')
+  await loginFarmhouseManager(page)
+  await page.locator('.mine-list uni-button').filter({ hasText: '收货地址' }).click()
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('.address-list .pc-empty')).toBeVisible()
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `farmhouse-address-empty-${viewport.width}`)
+  }
+
+  await page.locator('.address-page-action uni-button').filter({ hasText: '新增收货地址' }).click()
+  await expect(page.locator('.default-choice')).toHaveClass(/selected/)
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `farmhouse-address-form-${viewport.width}`)
+  }
+  const longReceiver = 'W'.repeat(30)
+  const firstInputs = page.locator('.address-form input')
+  await firstInputs.nth(0).fill(longReceiver)
+  await firstInputs.nth(1).fill('13800002001')
+  await page.locator('.address-form textarea').fill('石板溪村 1 号')
+  await page.locator('.address-page-action uni-button').filter({ hasText: '保存地址' }).click()
+
+  await page.locator('.address-page-action uni-button').filter({ hasText: '新增收货地址' }).click()
+  const secondInputs = page.locator('.address-form input')
+  await secondInputs.nth(0).fill('视觉验收地址二')
+  await secondInputs.nth(1).fill('13800002002')
+  await page.locator('.address-form textarea').fill('梅溪湖路 2 号')
+  await page.locator('.address-page-action uni-button').filter({ hasText: '保存地址' }).click()
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('.address-card')).toHaveCount(2)
+    await assertMobileFrame(page, viewport.width)
+    const addressLayout = await page.locator('.app-shell').evaluate((shell) => ({ clientWidth: shell.clientWidth, scrollWidth: shell.scrollWidth }))
+    expect(addressLayout.scrollWidth, `连续英文收货人导致地址页横向溢出 ${addressLayout.scrollWidth - addressLayout.clientWidth}px`).toBeLessThanOrEqual(addressLayout.clientWidth)
+    const addressCardBounds = await page.locator('.address-card').evaluateAll((cards) => cards.map((card) => card.getBoundingClientRect().toJSON()))
+    for (const bounds of addressCardBounds) {
+      expect(bounds.left, '地址卡左侧越出视口').toBeGreaterThanOrEqual(-1)
+      expect(bounds.right, '地址卡右侧越出视口').toBeLessThanOrEqual(viewport.width + 1)
+    }
+    const overflowingAddressContent = await page.locator('.address-card').evaluateAll((cards) => cards.flatMap((card) => {
+      const cardRect = card.getBoundingClientRect()
+      return [...card.querySelectorAll('*')].flatMap((element) => {
+        const rect = element.getBoundingClientRect()
+        if (!rect.width || !rect.height || rect.left >= cardRect.left - 1 && rect.right <= cardRect.right + 1) return []
+        return [(element.textContent || element.tagName).trim().slice(0, 50)]
+      })
+    }))
+    expect(overflowingAddressContent, `地址卡内容越界：${overflowingAddressContent.join('、')}`).toEqual([])
+    const actionHeights = await page.locator('.address-card-actions uni-button').evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height))
+    for (const height of actionHeights) expect(height).toBeGreaterThanOrEqual(44)
+    await screenshot(page, testInfo, `farmhouse-address-list-${viewport.width}`)
+  }
+
+  await page.getByLabel('返回会员中心').click()
+  await page.locator('.tabbar uni-button').filter({ hasText: '商城' }).click()
+  const product = page.locator('.product-card').filter({ hasText: '湘西烟熏柴火腊肉' })
+  await product.locator('.add-btn').click()
+  await page.locator('.sku-options').evaluate((options) => {
+    const source = options.querySelector('uni-button:last-child')
+    if (!source) throw new Error('规格弹层缺少可复制的 SKU 按钮')
+    for (let index = 0; index < 8; index += 1) {
+      const clone = source.cloneNode(true) as HTMLElement
+      clone.classList.remove('active')
+      const name = clone.querySelector('uni-text span')
+      if (name) name.textContent = `${index + 2}kg农家手工超长规格名称（家庭礼盒装）`
+      options.appendChild(clone)
+    }
+  })
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('.sku-product-summary')).toBeVisible()
+    await assertMobileFrame(page, viewport.width)
+    const skuHeights = await page.locator('.sku-options uni-button').evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height))
+    for (const height of skuHeights) expect(height).toBeGreaterThanOrEqual(44)
+    await scrollVisibleSheetToBottom(page)
+    await expectContentAboveSheetFoot(page, '.sku-options uni-button:last-child')
+    await expect(page.locator('.sku-product-summary')).toBeVisible()
+    await screenshot(page, testInfo, `farmhouse-sku-${viewport.width}`)
+  }
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '加入购物车' }).click()
+  await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
+  await page.locator('.delivery-picker uni-button').filter({ hasText: '快递配送' }).click()
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('.checkout-address-card')).toContainText(longReceiver)
+    await assertMobileFrame(page, viewport.width)
+    await scrollVisibleSheetToBottom(page)
+    await expectContentAboveSheetFoot(page, '.checkout-summary')
+    await screenshot(page, testInfo, `farmhouse-checkout-address-${viewport.width}`)
+  }
+
+  await page.locator('.checkout-address-card').click()
+  const addressGroup = page.getByRole('radiogroup', { name: '选择本单收货地址' })
+  const addressChoices = page.getByRole('radio')
+  await expect(addressGroup).toBeVisible()
+  await expect(addressChoices).toHaveCount(2)
+  await expect(page.locator('.address-card[role]')).toHaveCount(0)
+  await expect(addressChoices.first()).not.toContainText('编辑')
+  await page.getByLabel('返回购物车').focus()
+  await page.keyboard.press('Tab')
+  await expect(addressChoices.first()).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.locator('.address-card').first().locator('.address-card-actions uni-button').filter({ hasText: '编辑' })).toBeFocused()
+  await addressChoices.nth(1).focus()
+  await page.keyboard.press('Space')
+  await expect(page.locator('[data-visual-view="addresses"]')).toHaveCount(0)
+  await expect(page.locator('.checkout-address-card')).toContainText('视觉验收地址二')
+})
+
+test('farmhouse 320px member card and store rating keep compact text hierarchy', async ({ page }, testInfo) => {
+  await page.setViewportSize(viewports[0])
+  await reset(page, 'http://127.0.0.1:8792')
+
+  const rating = page.locator('.store-summary .rating')
+  const ratingIcon = rating.locator('.ui-icon')
+  const ratingMetrics = await rating.evaluate((element) => {
+    const icon = element.querySelector('.ui-icon')
+    const ratingRect = element.getBoundingClientRect()
+    const iconRect = icon?.getBoundingClientRect()
+    return {
+      display: icon ? getComputedStyle(icon).display : '',
+      ratingTop: ratingRect.top,
+      iconTop: iconRect?.top || 0,
+      iconBottom: iconRect?.bottom || 0
+    }
+  })
+  await expect(ratingIcon).toBeVisible()
+  expect(ratingMetrics.display).toBe('inline-block')
+  expect(ratingMetrics.iconTop).toBeGreaterThanOrEqual(ratingMetrics.ratingTop)
+  expect(ratingMetrics.iconTop - ratingMetrics.ratingTop).toBeLessThan(8)
+
+  await loginFarmhouseManager(page)
+  for (const selector of ['.member-hero .lv', '.member-hero .recharge', '.member-asset-row strong']) {
+    const metrics = await page.locator(selector).evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      whiteSpace: getComputedStyle(element).whiteSpace
+    }))
+    expect(metrics.whiteSpace, selector).toBe('nowrap')
+    expect(metrics.scrollWidth, `${selector} 内容溢出`).toBeLessThanOrEqual(metrics.clientWidth)
+  }
+  const uidMetrics = await page.locator('.member-hero .uid').evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    whiteSpace: getComputedStyle(element).whiteSpace,
+    textOverflow: getComputedStyle(element).textOverflow
+  }))
+  expect(uidMetrics.whiteSpace).toBe('nowrap')
+  expect(uidMetrics.textOverflow).toBe('ellipsis')
+  expect(uidMetrics.scrollWidth).toBeGreaterThanOrEqual(uidMetrics.clientWidth)
+  await assertMobileFrame(page, viewports[0].width)
+  await screenshot(page, testInfo, 'farmhouse-member-compact-320')
+
+  for (const viewport of [viewports[1], viewports[3]]) {
+    await page.setViewportSize(viewport)
+    await assertMobileFrame(page, viewport.width)
+  }
+})
+
+test('farmhouse checkout falls back to pickup after removing the last courier item', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.setViewportSize(viewports[0])
+  await reset(page, 'http://127.0.0.1:8792')
+  await page.evaluate(() => {
+    const catalog = JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}') as { products?: Array<{ id: string; expressDelivery?: boolean; skus: Array<{ id: string; retailPrice: number }> }> }
+    const products = catalog.products?.filter((item) => item.id === 'P001' || item.id === 'P002') || []
+    const courierProduct = products.find((item) => item.id === 'P001')
+    const pickupProduct = products.find((item) => item.id === 'P002')
+    if (!courierProduct || !pickupProduct) throw new Error('统一目录缺少混合配送验收商品')
+    courierProduct.expressDelivery = true
+    pickupProduct.expressDelivery = false
+    localStorage.setItem('agritainment-platform-catalog', JSON.stringify(catalog))
+    localStorage.setItem('agritainment-platform-store-catalog-selections', JSON.stringify({
+      schemaVersion: 1,
+      revision: 1,
+      selections: products.map((product) => ({
+        storeId: 'F001',
+        productId: product.id,
+        listed: true,
+        skuRetailPrices: Object.fromEntries(product.skus.map((sku) => [sku.id, sku.retailPrice])),
+        updatedAt: new Date().toISOString()
+      }))
+    }))
+  })
+  await page.reload()
+
+  await page.locator('.tabbar uni-button').filter({ hasText: '会员' }).click()
+  await page.locator('.login-prompt .primary-button').click()
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '微信一键登录' }).click()
+  await page.locator('.tabbar uni-button').filter({ hasText: '商城' }).click()
+
+  const addProduct = async (name: string) => {
+    await page.locator('.product-card').filter({ hasText: name }).locator('.add-btn').click()
+    await page.locator('.sheet-foot .primary-button').filter({ hasText: '加入购物车' }).click()
+  }
+  await addProduct('湘西烟熏柴火腊肉')
+  await addProduct('炎陵黄桃')
+  await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
+  await page.locator('.delivery-picker uni-button').filter({ hasText: '快递配送' }).click()
+  await expect(page.locator('.checkout-address-card')).toContainText('添加收货地址')
+
+  const courierLine = page.locator('.sheet-line').filter({ hasText: '湘西烟熏柴火腊肉' })
+  await courierLine.getByLabel('减少数量').click()
+  await expect(courierLine).toHaveCount(0)
+  await expect(page.locator('.delivery-picker')).toHaveCount(0)
+
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '提交订单' }).click()
+  await expect(page.locator('[data-visual-state="pay"]')).toBeVisible()
+  await expect(page.locator('[data-visual-view="addresses"]')).toHaveCount(0)
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '确认支付' }).click()
+  await expect(page.locator('[data-visual-view="orders"]')).toBeVisible()
+  const order = await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('agritainment-platform-farmhouse-commerce') || '{}') as { F001?: { orders?: Array<{ delivery?: { mode?: string }; items?: Array<{ name?: string; deliveryMode?: string }> }> } }
+    return state.F001?.orders?.[0] || null
+  })
+  expect(order).toMatchObject({
+    delivery: { mode: 'pickup' },
+    items: [{ deliveryMode: 'pickup' }]
+  })
+  expect(order?.items?.[0]?.name).toContain('炎陵黄桃')
 })
 
 test('store mobile views stay inside all supported widths', async ({ page }, testInfo) => {

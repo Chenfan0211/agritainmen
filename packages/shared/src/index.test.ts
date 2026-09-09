@@ -13,7 +13,7 @@ if (!globalThis.localStorage) {
     get length() { return storage.size }
   } as unknown as Storage
 }
-import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode, acceptSupplierOrder, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, mergePlatformSupplierAccounts, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, writePlatformDrivers, todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_LIVE, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
+import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode, acceptSupplierOrder, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, deriveTodayFarmhouseQuantities, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, mergePlatformSupplierAccounts, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, writePlatformDrivers, todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_LIVE, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
 import { defaultAdminAccounts, defaultAdminRoles, readPlatformAdminRoles, seedPlatformAdminSecurity, writePlatformAdminAccounts, writePlatformAdminRoles } from './index'
 
 describe('C端分销商城 helpers', () => {
@@ -717,6 +717,30 @@ describe('supplier fulfillment helpers', () => {
     expect(metrics.shortageOrderCount).toBe(2)
     expect(metrics.todayOrderCount).toBe(3)
     expect(metrics.todayAmount).toBe(60)
+  })
+
+  it('derives today farmhouse quantities by store resolver and item counts', () => {
+    const today = todayString()
+    const order = (id: string, extras: Partial<Order>): Order => ({
+      id, productName: 'x', quantity: extras.quantity ?? 1, amount: 1, customer: extras.customer ?? '游客',
+      channel: extras.channel ?? 'purchase', status: extras.status ?? 'pending', createdAt: extras.createdAt ?? `${today} 09:00`,
+      ...extras
+    })
+    const storeKeyOf = (item: Order) => item.storeId || (item.customer === '石板溪农家乐·门店' ? 'F001' : item.customer === '云上人家·门店' ? 'F002' : item.customer)
+    const quantities = deriveTodayFarmhouseQuantities([
+      order('A', { customer: '石板溪农家乐·门店', createdAt: `${today} 09:00`, items: [{ productId: 'P', skuId: 'S1', name: '腊肉', skuName: '500g', image: '', quantity: 5, price: 1 }, { productId: 'P', skuId: 'S2', name: '辣椒', skuName: '瓶', image: '', quantity: 10, price: 1 }] }),
+      order('B', { customer: '石板溪农家乐·门店', createdAt: `${today} 10:00`, items: [{ productId: 'P', skuId: 'S3', name: '蜂蜜', skuName: '瓶', image: '', quantity: 6, price: 1 }] }),
+      order('C', { customer: '云上人家·门店', createdAt: `${today} 11:00`, supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: '' }, items: [{ productId: 'P', skuId: 'S4', name: '蛋', skuName: '盒', image: '', quantity: 20, price: 1 }] }),
+      order('D', { customer: '云上人家·门店', createdAt: '2026-08-01 09:00', status: 'shipping', supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: '' }, items: [{ productId: 'P', skuId: 'S5', name: '米', skuName: '袋', image: '', quantity: 4, price: 1 }] }),
+      order('E', { customer: '石板溪农家乐·门店', createdAt: '2026-08-01 09:00', status: 'shipping', supplierFulfillment: { status: 'delivering', deliverDate: today, shortages: [{ skuId: 'S6', name: '腊肉', ordered: 10, actual: 8, shortage: 2 }], handovers: [], updatedAt: '' }, items: [{ productId: 'P', skuId: 'S6', name: '腊肉', skuName: '500g', image: '', quantity: 10, price: 1 }, { productId: 'P', skuId: 'S7', name: '辣椒', skuName: '瓶', image: '', quantity: 5, price: 1 }] }),
+      order('F', { customer: '游客', channel: 'shop', createdAt: `${today} 12:00`, supplierOrderLink: { source: 'c-mall' }, items: [{ productId: 'P', skuId: 'S8', name: '散单', skuName: '份', image: '', quantity: 99, price: 1 }] }),
+      order('G', { customer: '石板溪农家乐·门店', channel: 'shop', createdAt: `${today} 13:00`, supplierOrderLink: { source: 'farmhouse-courier' }, items: [{ productId: 'P', skuId: 'S9', name: '代发', skuName: '份', image: '', quantity: 3, price: 1 }] })
+    ], storeKeyOf)
+    expect(quantities.storeCount).toBe(2)
+    expect(quantities.itemCount).toBe(44)
+    expect(quantities.pendingShipItemCount).toBe(24)
+    expect(quantities.shortageItemCount).toBe(2)
+    expect(quantities.deliveringItemCount).toBe(15)
   })
 
   it('ensures fulfillment from order status for store-submitted orders', () => {

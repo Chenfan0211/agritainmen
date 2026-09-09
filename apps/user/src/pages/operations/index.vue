@@ -34,7 +34,7 @@ function withdraw() {
 
 <template>
   <view class="operation-page" :data-visual-view="`user-operations-${type}`">
-    <view class="operation-header"><button aria-label="返回" @click="back"><UiIcon name="arrow-left" :size="21" /></button><text>{{ title }}</text><view></view></view>
+    <view class="operation-header theme-head"><button class="page-back" aria-label="返回" @click="back"><UiIcon name="arrow-left" :size="21" /></button><text>{{ title }}</text><view></view></view>
 
     <view v-if="!store.currentDistributor" class="empty no-distributor pc-empty" data-visual-state="user-operations-no-distributor"><view class="pc-state-icon"><UiIcon name="shield-check" :size="28" /></view><text>当前身份暂无推广数据</text><small>绑定推客身份后可查看收入、粉丝和团队业绩</small><button class="primary-btn" @click="back">返回个人中心</button></view>
 
@@ -75,7 +75,7 @@ function withdraw() {
   width: 100%;
   min-height: 100vh;
   overflow-x: hidden;
-  padding: calc(10px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
+  padding: calc(10px + env(safe-area-inset-top)) 8px calc(28px + env(safe-area-inset-bottom));
   box-sizing: border-box;
   background: var(--mobile-bg);
   color: var(--mobile-text);
@@ -89,17 +89,15 @@ function withdraw() {
   min-height: 48px;
 }
 
-.operation-header button {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--mobile-text);
+.operation-header.theme-head {
+  margin: calc(-10px - env(safe-area-inset-top)) -8px 0;
+  padding: calc(10px + env(safe-area-inset-top)) 8px 12px;
+  background: var(--mobile-brand);
+  color: #fff;
+}
+
+.operation-header.theme-head text {
+  color: #fff;
 }
 
 .operation-header text {
@@ -114,7 +112,7 @@ function withdraw() {
 .income-hero,
 .performance-hero {
   margin-top: 16px;
-  padding: 20px;
+  padding: 16px;
   border-radius: 8px;
   background: var(--mobile-brand-deep);
   color: #fff;
@@ -166,7 +164,7 @@ function withdraw() {
 .metric-grid view,
 .summary-line view {
   min-width: 0;
-  padding: 17px 10px;
+  padding: 12px 8px;
   text-align: center;
 }
 
@@ -200,7 +198,7 @@ function withdraw() {
   color: var(--mobile-brand);
   font-size: 19px;
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  word-break: break-all;
   text-overflow: ellipsis;
 }
 
@@ -216,7 +214,7 @@ function withdraw() {
 .order-row {
   min-width: 0;
   margin-bottom: 10px;
-  padding: 14px;
+  padding: 10px 11px;
   border: 1px solid #e6ece8;
   border-radius: 8px;
   background: var(--mobile-surface);
@@ -245,7 +243,7 @@ function withdraw() {
 
 .list-row text,
 .fan-row text {
-  overflow-wrap: anywhere;
+  word-break: break-all;
   color: var(--mobile-text);
   font-size: 13px;
   font-weight: 800;
@@ -259,7 +257,7 @@ function withdraw() {
   color: var(--mobile-muted);
   font-size: 12px;
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .list-row > strong {
@@ -340,7 +338,7 @@ function withdraw() {
 }
 
 .order-row {
-  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .row-head,
@@ -355,7 +353,7 @@ function withdraw() {
 
 .row-head text:first-child {
   min-width: 0;
-  overflow-wrap: anywhere;
+  word-break: break-all;
   color: var(--mobile-text);
   font-size: 12px;
   font-weight: 800;
@@ -408,15 +406,17 @@ body,
 /* #ifdef MP-WEIXIN */
 .operation-page {
   padding-top: calc(10px + var(--status-bar-height));
+  padding-right: 96px;
+}
+
+.operation-header.theme-head {
+  margin-top: calc(-10px - var(--status-bar-height));
+  padding-top: calc(10px + var(--status-bar-height));
+  padding-right: 96px;
 }
 /* #endif */
 
 @media (max-width: 375px) {
-  .operation-page {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
-
   .income-hero,
   .performance-hero {
     padding: 18px;

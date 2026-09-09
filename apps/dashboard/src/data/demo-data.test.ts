@@ -14,6 +14,14 @@ function range(days: number): DashboardRange {
 }
 
 describe('dashboard demo supplement', () => {
+  it('keeps default province KPI after supplement', () => {
+    const source = createPlatformDashboardDataSource()
+    const supplemented = supplementDashboardDataSource(source, range(30), now)
+    expect(supplemented.farms.length).toBeGreaterThan(0)
+    expect(supplemented.cOrders.length).toBeGreaterThan(0)
+    expect(supplemented.fulfillmentOrders.length).toBeGreaterThan(0)
+  })
+
   it('does not mix demo consumer orders into a dataset that has valid shared data', () => {
     const source = createPlatformDashboardDataSource()
     const selectedRange = range(30)

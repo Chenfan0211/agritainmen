@@ -281,6 +281,44 @@ describe('supplier store interactions', () => {
     expect(store.orders.find((order) => order.id === 'COURIER-NO-ADDRESS')).toEqual(before)
   })
 
+  it('creates a farmhouse courier shipment from the immutable recipient snapshot', async () => {
+    expect(writePlatformOrder({
+      id: 'FARMHOUSE-COURIER-ADDRESS', productName: '农家腊味', quantity: 1, amount: 88, customer: '石板溪农家乐', channel: 'purchase', status: 'accepted', createdAt: '2026-08-30T10:00:00.000Z', supplierId: 'S002', storeId: 'F001', storeName: '石板溪农家乐',
+      supplierOrderLink: {
+        source: 'farmhouse-courier', sourceOrderId: 'FH-SO-ADDRESS', customerUserId: 'U-FARMHOUSE-RECIPIENT',
+        deliveryAddress: { id: 'FH-SO-ADDRESS-ADDR', userId: 'U-FARMHOUSE-RECIPIENT', receiver: '周女士', phone: '13900000009', region: '湖南省 湘西州 永顺县', detail: '石板溪村 18 号', isDefault: false }
+      },
+      supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: '2026-08-30T10:00:00.000Z' }
+    })).toBe(true)
+    const store = useSupplierStore()
+    await store.initialize(true)
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+    const createShipment = vi.fn().mockResolvedValue({ ok: true, value: { trackingNo: 'SF-FARMHOUSE-001' } })
+    shared.configurePlatformProviders({ logistics: { createShipment, queryShipment: vi.fn() } })
+
+    expect(await store.shipCourier('FARMHOUSE-COURIER-ADDRESS')).toBe(true)
+    expect(createShipment).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: 'FARMHOUSE-COURIER-ADDRESS',
+      address: '湖南省 湘西州 永顺县 石板溪村 18 号'
+    }))
+  })
+
+  it('does not fall back to the farmhouse store address when a courier snapshot is missing', async () => {
+    expect(writePlatformOrder({
+      id: 'FARMHOUSE-COURIER-NO-SNAPSHOT', productName: '缺少快照商品', quantity: 1, amount: 66, customer: '石板溪农家乐', channel: 'purchase', status: 'accepted', createdAt: '2026-08-30T10:00:00.000Z', supplierId: 'S002', storeId: 'F001', storeName: '石板溪农家乐',
+      supplierOrderLink: { source: 'farmhouse-courier', sourceOrderId: 'FH-SO-NO-SNAPSHOT', customerUserId: 'U-NO-SNAPSHOT' },
+      supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: '2026-08-30T10:00:00.000Z' }
+    })).toBe(true)
+    const store = useSupplierStore()
+    await store.initialize(true)
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+    const createShipment = vi.fn().mockResolvedValue({ ok: true, value: { trackingNo: 'SHOULD-NOT-CREATE' } })
+    shared.configurePlatformProviders({ logistics: { createShipment, queryShipment: vi.fn() } })
+
+    expect(await store.shipCourier('FARMHOUSE-COURIER-NO-SNAPSHOT')).toBe(false)
+    expect(createShipment).not.toHaveBeenCalled()
+  })
+
   it('rejects a fulfillment revision changed after lock acquisition without committing Pinia', async () => {
     const store = useSupplierStore()
     await store.initialize()
@@ -621,6 +659,10 @@ describe('supplier store interactions', () => {
     store.logout()
     expect(store.loginDriver('driver01', '123456')).toBe(true)
     expect(store.myTasks.some((order) => order.id === submitted.id)).toBe(true)
+    const destination = store.currentDriverRoute?.stops.find((stop) => stop.orderIds.includes(submitted.id))
+    if (destination?.latitude !== undefined && destination.longitude !== undefined) {
+      expect(await store.checkInStop(destination.storeId, { latitude: destination.latitude, longitude: destination.longitude })).toMatchObject({ ok: true })
+    }
     expect(await store.handoverIn(submitted.id)).toBe(true)
     const received = store.orders.find((order) => order.id === submitted.id)!
     expect(received.supplierFulfillment?.status).toBe('received')
@@ -905,10 +947,10 @@ describe('supplier store interactions', () => {
 
     const shipped = store.orders.find((order) => order.supplierFulfillment?.status === 'shipped' && order.supplierFulfillment?.driverId === 'D001')
     if (shipped) {
-      expect(await store.reassignDriver(shipped.id, 'D002')).toBe(true)
-      expect(store.orders.find((order) => order.id === shipped.id)?.supplierFulfillment?.driverName).toBe('李强')
+      expect(await store.reassignDriver(shipped.id, 'D003')).toBe(true)
+      expect(store.orders.find((order) => order.id === shipped.id)?.supplierFulfillment?.driverName).toBe('王芳')
       store.logout()
-      expect(store.loginDriver('driver02', '123456')).toBe(true)
+      expect(store.loginDriver('driver03', '123456')).toBe(true)
       expect(store.myTasks.some((order) => order.id === shipped.id)).toBe(true)
       store.logout()
       expect(store.loginDriver('driver01', '123456')).toBe(true)
@@ -945,6 +987,9 @@ describe('supplier store interactions', () => {
     const store = useSupplierStore()
     await store.initialize()
     expect(store.metrics.shortageOrderCount).toBe(2)
+    expect(store.todayFarmhouseQuantities).toMatchObject({
+      storeCount: 2, itemCount: 45, pendingShipItemCount: 24, shortageItemCount: 4, deliveringItemCount: 52
+    })
     store.loginSupplier('13787366688', '13787366688')
 
     // accept + assign an order -> deliverDate today
@@ -1071,6 +1116,30 @@ describe('supplier store interactions', () => {
     expect(store.loginDriver('driver01', '123456')).toBe(true)
     expect(store.myTasks.length).toBeGreaterThanOrEqual(3)
     expect(store.myHistory.some((o) => o.id === 'SO-S017')).toBe(true)
+  })
+
+  it('requires a nearby check-in before driver handover', async () => {
+    const store = useSupplierStore()
+    await store.initialize()
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+    expect(store.namedRoutes.map((route) => route.name)).toEqual(expect.arrayContaining(['东线', '西线']))
+    const submitted = store.orders.find((order) => order.supplierFulfillment?.status === 'submitted')!
+    expect(await store.acceptOrder(submitted.id)).toBe(true)
+    expect(await store.assignDriver(submitted.id, 'D001')).toBe(true)
+    const actuals: Record<string, number> = {}
+    store.orders.find((order) => order.id === submitted.id)!.items?.forEach((item) => { actuals[item.skuId] = item.quantity })
+    expect((await store.handoverOut(submitted.id, actuals)).ok).toBe(true)
+    expect((await store.ensureTodayRoutes()).ok).toBe(true)
+    store.logout()
+    expect(store.loginDriver('driver01', '123456')).toBe(true)
+    const stop = store.currentDriverRoute?.stops.find((item) => item.orderIds.includes(submitted.id))
+    expect(stop).toBeTruthy()
+    expect(await store.handoverIn(submitted.id)).toBe(false)
+    expect(store.error).toContain('打卡')
+    if (!stop?.latitude || !stop.longitude) return
+    expect(await store.checkInStop(stop.storeId, { latitude: stop.latitude + 0.005, longitude: stop.longitude })).toMatchObject({ ok: false, code: 'too_far' })
+    expect(await store.checkInStop(stop.storeId, { latitude: stop.latitude, longitude: stop.longitude })).toMatchObject({ ok: true })
+    expect(await store.handoverIn(submitted.id)).toBe(true)
   })
 
 })

@@ -1,4 +1,4 @@
-import { applyPlatformEntities, applyPlatformMedia, cProducts, cloneSeed, ensureCatalogState, farmhouseFoods, farms, members, mockDelay, products, readCatalogState } from '@agritainment/shared'
+import { applyPlatformEntities, applyPlatformMedia, cProducts, cloneSeed, ensureCatalogState, farmhouseExperiences, farmhouseFoods, farms, members, mockDelay, products, readCatalogState } from '@agritainment/shared'
 import type { MockScenario, TenantConfig } from '@agritainment/shared'
 import { resolveRuntimeTenant } from '../config/tenant'
 
@@ -10,7 +10,7 @@ export const farmhouseRepository = {
     const storeProducts = seedAll.filter((item) => item.farmIds.includes(tenant.farmId) && (item.source === 'farmhouse' || item.status === 'active'))
     applyPlatformMedia([farm], storeProducts)
     return mockDelay(
-      { tenant, farm, member: members[0], products: storeProducts, foods: farmhouseFoods, experiences: [] },
+      { tenant, farm, member: members[0], products: storeProducts, foods: farmhouseFoods, experiences: farmhouseExperiences.filter((item) => item.farmId === tenant.farmId) },
       180,
       scenario,
       { tenant, farm: cloneSeed(farms.find((item) => item.id === tenant.farmId)!), member: members[0], products: [], foods: [], experiences: [] }

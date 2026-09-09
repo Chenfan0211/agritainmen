@@ -2,10 +2,12 @@
   <!-- 登录 -->
   <view v-if="!store.auth.isLoggedIn" class="login-page">
     <view class="login-card">
-      <image class="login-banner" src="/static/images/farmhouse.webp" mode="aspectFill" />
+      <view class="pc-login-hero">
+        <view class="pc-login-mark"><UiIcon name="package" :size="26" /></view>
+        <text class="pc-login-brand">中选科技供应商配送工作台</text>
+        <text class="pc-login-sub">中选科技供应链 · 供应商与司机双角色配送履约</text>
+      </view>
       <view class="login-body">
-      <text class="login-title">中选科技供应商配送工作台</text>
-      <text class="login-sub">中选科技供应链 · 供应商与司机双角色配送履约</text>
       <view class="role-tabs">
         <button :class="{ active: loginRole === 'supplier' }" @click="switchLoginRole('supplier')">供应商</button>
         <button :class="{ active: loginRole === 'driver' }" @click="switchLoginRole('driver')">司机</button>
@@ -30,27 +32,27 @@
 
     <template v-else>
       <!-- 供应商头部 -->
-      <view v-if="store.auth.role === 'supplier'" class="hero">
+      <view v-if="store.auth.role === 'supplier' && !secondaryWorkspace" class="hero">
         <view class="hero-top">
           <image class="hero-avatar" src="/static/images/bacon.webp" mode="aspectFill" />
           <view><text class="hero-title">{{ store.currentSupplier?.name || store.auth.name || supplierInfo.name }}</text><view class="hero-sub">{{ store.currentSupplier?.region || supplierInfo.region }} · {{ store.currentSupplier?.category || supplierInfo.category }}</view></view>
-          <button class="hero-logout" @click="logout">退出</button>
+          <button class="hero-logout logout-danger" @click="logout">退出</button>
         </view>
         <view class="hero-stats">
-          <view class="hero-stat"><text class="hero-stat-label">待接单</text><text class="hero-stat-value">{{ store.metrics.toAcceptCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">待发货</text><text class="hero-stat-value">{{ store.metrics.toDispatchCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">配送中</text><text class="hero-stat-value">{{ store.metrics.deliveringCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">今日缺货</text><text class="hero-stat-value">{{ store.metrics.shortageOrderCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">司机</text><text class="hero-stat-value">{{ store.activeDrivers.length }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">今日门店</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.storeCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">今日件数</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.itemCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">待发货件</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.pendingShipItemCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">缺货件数</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.shortageItemCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">配送中件</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.deliveringItemCount }}</text></view>
         </view>
       </view>
 
       <!-- 司机头部 -->
-      <view v-else class="hero">
+      <view v-else-if="store.auth.role === 'driver'" class="hero">
         <view class="hero-top">
           <view class="hero-avatar"><UiIcon name="user-round" :size="22" /></view>
           <view><text class="hero-title">{{ store.auth.name }}</text><view class="hero-sub">司机 · {{ store.auth.account }}</view></view>
-          <button class="hero-logout" @click="logout">退出</button>
+          <button class="hero-logout logout-danger" @click="logout">退出</button>
         </view>
         <view class="hero-stats driver-hero-stats">
           <view class="hero-stat"><text class="hero-stat-label">今日任务</text><text class="hero-stat-value">{{ store.myTasks.length }}</text></view>
@@ -59,7 +61,7 @@
       </view>
       <!-- 供应商模块 -->
       <template v-if="store.auth.role === 'supplier'">
-        <view v-if="active === 'dashboard'" class="page-pad" data-visual-view="supplier-dashboard">
+        <view v-if="active === 'dashboard' && !secondaryWorkspace" class="page-pad" data-visual-view="supplier-dashboard">
           <view class="section-title">配送订单<text class="section-sub">今日配送 {{ store.todayDeliveryOrders.length }} 单</text></view>
           <view v-if="store.todayDeliveryOrders.length">
             <view v-for="order in store.todayDeliveryOrders" :key="order.id" class="list-card" @click="openOrder(order)">
@@ -96,27 +98,29 @@
           </view>
         </view>
 
-        <view v-else-if="active === 'orders'" class="page-pad" data-visual-view="supplier-orders">
-          <view class="chips">
-            <button v-for="item in orderFilters" :key="item.key" class="chip" :class="{ active: orderFilter === item.key }" @click="orderFilter = item.key">{{ item.label }}<text class="chip-count" data-typography-compact>{{ item.count }}</text></button>
-          </view>
+        <view v-else-if="active === 'orders' && !secondaryWorkspace" class="page-pad" data-visual-view="supplier-orders">
+          <scroll-view class="order-filter-scroll" scroll-x>
+            <view class="chips scroll-x">
+              <button v-for="item in orderFilters" :key="item.key" class="chip" :class="{ active: orderFilter === item.key }" @click="orderFilter = item.key">{{ item.label }}<text class="chip-count" data-typography-compact>{{ item.count }}</text></button>
+            </view>
+          </scroll-view>
           <view class="search-bar"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索单号 / 门店" confirm-type="search" /></view>
           <button v-if="selectedOrderIds.length" class="primary-button section-action" @click="batchAccept">批量接单（{{ selectedOrderIds.length }}）</button>
           <view v-if="filteredOrders.length" class="content-stack">
             <view v-for="order in filteredOrders" :key="order.id" class="list-card">
               <view class="row" @click="openOrder(order)">
-                <view v-if="orderFulfillment(order).status === 'submitted'" class="order-check" @click.stop="toggleSelect(order.id)">
+                <view v-if="orderFilter === 'submitted'" class="order-check" @click.stop="toggleSelect(order.id)">
                   <view :class="{ checked: selectedOrderIds.includes(order.id) }"><UiIcon v-if="selectedOrderIds.includes(order.id)" name="check" :size="13" /></view>
                 </view>
                 <view class="row-main">
                   <view class="row-top">
                     <text class="order-no">{{ order.id }}</text>
                     <span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status, order) }}</span>
+                    <span v-if="orderShortage(order).length" class="tag danger">缺货 {{ orderShortage(order).length }}</span>
                   </view>
                     <text class="muted">{{ isCourierOrder(order) ? `${courierSourceLabel(order)} · ${recipientLabel(order)}` : order.customer }} · {{ order.items?.length || 1 }} 项 · 共 {{ order.quantity }} 件</text>
                   <view class="row">
                     <text class="muted">{{ order.createdAt }} · {{ orderFulfillment(order).driverName ? `司机 ${orderFulfillment(order).driverName}` : orderFulfillment(order).trackingNo ? `运单 ${orderFulfillment(order).trackingNo}` : '' }}</text>
-                    <span v-if="orderShortage(order).length" class="tag danger">缺货 {{ orderShortage(order).length }}</span>
                     <text class="order-amount">{{ money(order.amount) }}</text>
                   </view>
                 </view>
@@ -146,12 +150,12 @@
         </view>
 
         <view v-else-if="secondaryWorkspace === 'drivers'" class="page-pad secondary-workspace" data-visual-view="workspace-drivers">
-          <view class="secondary-head"><button class="icon-button" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="chevron-left" :size="20" /></button><text>司机管理</text></view>
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="arrow-left" :size="20" /></button><text>司机管理</text></view>
+          <view class="secondary-body">
           <view class="chips">
             <button v-for="item in driverStatusFilters" :key="item" class="chip" :class="{ active: driverStatusFilter === item }" @click="driverStatusFilter = item">{{ item }}</button>
           </view>
           <view class="search-bar"><UiIcon name="search" :size="16" /><input v-model="driverSearch" placeholder="搜索姓名 / 账号 / 手机" confirm-type="search" /></view>
-          <button class="primary-button section-action" @click="openDriverForm">新增司机</button>
           <view v-if="filteredDrivers.length" class="content-stack">
             <view v-for="driver in filteredDrivers" :key="driver.id" class="list-card">
               <view class="row driver-row">
@@ -167,14 +171,17 @@
                 <button class="outline-button mini-button" @click="openDriverEdit(driver)">编辑</button>
                 <button class="outline-button mini-button" @click="openReset(driver)">重置密码</button>
               </view>
-              <view class="scope-editor"><text class="muted">配送范围</text><view class="chips"><button v-for="destination in storeOptions" :key="destination.storeId" class="chip" :class="{ active: driverScopeIds(driver.id).includes(destination.storeId) }" @click="toggleDriverStore(driver, destination.storeId)">{{ destination.storeName }}</button></view></view>
+              <text class="muted">{{ namedRouteLabelForDriver(driver.id) }}</text>
             </view>
           </view>
           <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="users" :size="26" /></view><text>暂无司机账号，点击「新增司机」开通</text></view>
+          </view>
+          <view class="secondary-foot"><button class="primary-button section-action" @click="openDriverForm">新增司机</button></view>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'settlements'" class="page-pad secondary-workspace" data-visual-view="workspace-settlements">
-          <view class="secondary-head"><button class="icon-button" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="chevron-left" :size="20" /></button><text>结算账单</text></view>
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="arrow-left" :size="20" /></button><text>结算账单</text></view>
+          <view class="secondary-body">
           <view v-if="store.mySettlements.length" class="content-stack">
             <view v-for="item in store.mySettlements" :key="item.id" class="list-card">
               <view class="row">
@@ -187,10 +194,12 @@
             </view>
           </view>
           <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="package-check" :size="26" /></view><text>暂无结算账单</text></view>
+          </view>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'handovers'" class="page-pad secondary-workspace" data-visual-view="workspace-handovers">
-          <view class="secondary-head"><button class="icon-button" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="chevron-left" :size="20" /></button><text>交接日志</text></view>
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="arrow-left" :size="20" /></button><text>交接日志</text></view>
+          <view class="secondary-body">
           <view class="chips">
             <button v-for="item in handoverTypeFilters" :key="item" class="chip" :class="{ active: handoverFilter === item }" @click="handoverFilter = item">{{ item }}</button>
           </view>
@@ -204,65 +213,83 @@
                   <view class="row-top"><text class="order-no">{{ log.orderId }}</text><span class="tag" :class="log.type">{{ log.type === 'out' ? '出库交接' : '到店交接' }}</span></view>
                   <text class="muted">{{ log.customer }} · {{ log.time }}</text>
                   <text class="muted">操作人：{{ log.operatorName }}（{{ log.operatorRole === 'driver' ? '司机' : '供应商' }}）{{ log.shortageCount ? ` · 缺货 ${log.shortageCount} 项` : '' }}{{ log.note ? ` · ${log.note}` : '' }}</text>
+                  <text v-if="handoverCheckInText(log.orderId)" class="muted">{{ handoverCheckInText(log.orderId) }}</text>
                 </view>
               </view>
             </view>
           </view>
           <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="list-tree" :size="26" /></view><text>暂无交接日志</text></view>
+          </view>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'routes'" class="page-pad secondary-workspace" data-visual-view="workspace-routes">
-          <view class="secondary-head"><button class="icon-button" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="chevron-left" :size="20" /></button><text>线路规划</text></view>
-          <view class="route-controls">
-            <picker mode="selector" :range="store.activeDrivers.map((driver) => driver.name)" @change="routeDriverId = store.activeDrivers[Number($event.detail.value)]?.id || ''"><view class="picker-field">{{ routeDriver?.name || '选择司机' }}</view></picker>
-            <picker mode="date" :value="routeDate" @change="routeDate = String($event.detail.value)"><view class="picker-field">{{ routeDate }}</view></picker>
-            <button class="primary-button" :disabled="routeBusy || !routeDriverId" @click="optimizeRoute">智能排序</button>
-          </view>
-          <view v-if="store.routeDraft" class="route-summary">
-            <view class="stat-grid"><view class="stat-card"><text class="stat-card-label">总距离</text><text class="stat-card-value">{{ store.routeDraft.totalDistanceKm.toFixed(1) }} km</text></view><view class="stat-card"><text class="stat-card-label">预计用时</text><text class="stat-card-value">{{ store.routeDraft.estimatedDurationMinutes }} 分钟</text></view></view>
-            <text v-for="warning in store.routeDraft.warnings" :key="warning" class="form-error">{{ warning.startsWith('missing_coordinates:') ? '有门店缺少坐标，已排在末尾，请维护坐标' : warning }}</text>
-            <view v-for="(stop, index) in store.routeDraft.stops" :key="stop.storeId" class="list-card route-stop">
-              <view class="route-number">{{ index + 1 }}</view><view class="row-main"><text>{{ stop.storeName }}</text><text class="muted">{{ stop.orderIds.length }} 单 · {{ stopItemCount(stop) }} 件 · {{ stopSegment(store.routeDraft, stop) ?? '距离待维护' }}{{ stopSegment(store.routeDraft, stop) !== undefined ? ' km' : '' }} · 预计 {{ stopEstimatedMinutes(store.routeDraft, index) }} 分钟</text><text class="muted">{{ stop.address }}</text></view>
-              <view class="route-actions"><button class="icon-button route-order-button" aria-label="上移" :disabled="index === 0" @click="moveStop(index, -1)">上移</button><button class="icon-button route-order-button" aria-label="下移" :disabled="index === store.routeDraft.stops.length - 1" @click="moveStop(index, 1)">下移</button><button class="icon-button" aria-label="导航" @click="navigateToStop(stop)"><UiIcon name="navigation" :size="17" /></button></view>
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeNamedRouteEditor"><UiIcon name="arrow-left" :size="20" /></button><text>{{ namedRouteDraft ? (namedRouteDraft.id ? '编辑线路' : '新建线路') : '线路规划' }}</text></view>
+          <view class="secondary-body">
+          <template v-if="!namedRouteDraft">
+            <view class="route-controls">
+              <button class="outline-button" :disabled="routeBusy" @click="generateTodayRoutes">按今天补生成</button>
             </view>
-            <button class="primary-button route-publish" :disabled="routeBusy" @click="publishRoute">采用并发布</button>
+            <view v-if="supplierNamedRoutes.length" class="content-stack">
+              <view v-for="route in supplierNamedRoutes" :key="route.id" class="list-card">
+                <view class="row-top"><text class="order-no">{{ route.name }}</text><button class="outline-button mini-button" @click="openNamedRouteEditor(route)">编辑</button></view>
+                <text class="muted">{{ route.storeIds.map((id) => storeDirectory[id]?.storeName || id).join(' → ') || '尚未挂农家乐' }}</text>
+                <text class="muted">司机 {{ namedRouteDriverName(route.driverId) }}</text>
+              </view>
+            </view>
+            <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="navigation" :size="26" /></view><text>还没有命名线路，先新建东线 / 西线</text></view>
+          </template>
+          <view v-else class="named-route-form">
+            <label class="form-field"><text>线路名称</text><input v-model="namedRouteDraft.name" placeholder="如：东线" /></label>
+            <view class="form-field"><text>指派司机</text><picker mode="selector" :range="namedRouteDriverLabels" @change="namedRouteDraft.driverId = namedRouteDriverOptions[Number($event.detail.value)] || ''"><view class="picker-field">{{ namedRouteDriverName(namedRouteDraft.driverId) }}</view></picker></view>
+            <view class="form-field"><text>添加农家乐</text><view class="chips"><button v-for="destination in storeOptions" :key="destination.storeId" class="chip" :class="{ active: namedRouteDraft.storeIds.includes(destination.storeId) }" @click="toggleNamedRouteStore(destination.storeId)">{{ destination.storeName }}</button></view></view>
+            <view v-for="(storeId, index) in namedRouteDraft.storeIds" :key="storeId" class="list-card route-stop">
+              <view class="route-number">{{ index + 1 }}</view>
+              <view class="row-main"><text>{{ storeDirectory[storeId]?.storeName || storeId }}</text><text class="muted">{{ storeDirectory[storeId]?.address }}</text></view>
+              <view class="route-actions"><button class="icon-button route-order-button" aria-label="上移" :disabled="index === 0" @click="moveNamedRouteStore(index, -1)">上移</button><button class="icon-button route-order-button" aria-label="下移" :disabled="index === namedRouteDraft.storeIds.length - 1" @click="moveNamedRouteStore(index, 1)">下移</button></view>
+            </view>
           </view>
-          <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="navigation" :size="26" /></view><text>选择司机和日期后生成线路</text></view>
+          </view>
+          <view class="secondary-foot"><button v-if="namedRouteDraft" class="primary-button route-publish" @click="saveNamedRouteDraft">保存线路</button><button v-else class="primary-button section-action" @click="openNamedRouteEditor()">新建线路</button></view>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'warehouse'" class="page-pad secondary-workspace" data-visual-view="workspace-warehouse">
-          <view class="secondary-head"><button class="icon-button" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="chevron-left" :size="20" /></button><text>仓点设置</text></view>
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="arrow-left" :size="20" /></button><text>仓点设置</text></view>
+          <view class="secondary-body">
           <view class="form-fields"><label class="form-field"><text>仓点地址</text><input v-model="warehouseForm.address" placeholder="请输入完整地址" /></label><label class="form-field"><text>经度（GCJ-02）</text><input v-model.number="warehouseForm.longitude" type="number" /></label><label class="form-field"><text>纬度（GCJ-02）</text><input v-model.number="warehouseForm.latitude" type="number" /></label></view>
-          <button class="primary-button route-publish" @click="saveWarehouse">保存仓点</button>
+          </view>
+          <view class="secondary-foot"><button class="primary-button route-publish" @click="saveWarehouse">保存仓点</button></view>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'account'" class="page-pad secondary-workspace" data-visual-view="workspace-account">
-          <view class="secondary-head"><button class="icon-button" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="chevron-left" :size="20" /></button><text>账号信息</text></view>
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="arrow-left" :size="20" /></button><text>账号信息</text></view>
+          <view class="secondary-body">
           <view class="list-card account-summary"><text class="order-no">{{ store.currentSupplier?.name }}</text><text class="muted">供应商编号 {{ store.auth.supplierId }}</text><text class="muted">登录账号 {{ store.auth.account }}</text><text class="muted">{{ store.currentSupplier?.region }} · {{ store.currentSupplier?.category }}</text></view>
+          </view>
         </view>
       </template>
       <!-- 司机模块 -->
       <template v-else>
         <view v-if="driverTab === 'today'" class="page-pad" data-visual-view="driver-today">
           <view v-if="store.currentDriverRoute" class="driver-route">
-            <view class="route-driver-summary"><view><text class="section-title">今日线路</text><text class="muted">{{ store.currentDriverRoute.status === 'completed' ? '今日配送已完成' : store.currentDriverRoute.status === 'stale' ? '任务或配置有变化，按已发布线路执行并联系供应商更新' : '已发布' }}</text><text class="muted">完成 {{ routeCompletedOrderCount }}/{{ routeOrderCount }} · {{ nextRouteStop ? `下一站 ${nextRouteStop.storeName}` : '全部完成' }}</text></view><view><text class="order-no">{{ store.currentDriverRoute.totalDistanceKm.toFixed(1) }} km</text><text class="muted">约 {{ store.currentDriverRoute.estimatedDurationMinutes }} 分钟</text></view></view>
+            <view class="route-driver-summary"><view><text class="section-title">今日线路</text><text class="muted">{{ store.currentDriverRoute.status === 'completed' ? '今日配送已完成' : store.currentDriverRoute.status === 'stale' ? '任务或配置有变化，按已发布线路执行并联系供应商更新' : '已发布' }}</text><text class="muted">完成 {{ routeCompletedOrderCount }}/{{ routeOrderCount }} · {{ nextRouteStop ? `下一站 ${nextRouteStop.storeName}` : '全部完成' }} · {{ store.currentDriverRoute.stopCount || store.currentDriverRoute.stops.length }} 家农家乐</text></view><view><text class="order-no">{{ store.currentDriverRoute.totalDistanceKm.toFixed(1) }} km</text><text class="muted">约 {{ store.currentDriverRoute.estimatedDurationMinutes }} 分钟</text></view></view>
+            <DeliveryRouteMap :origin="store.currentDriverRoute.origin" :stops="store.currentDriverRoute.stops" :polyline="store.currentDriverRoute.polyline" :stop-count="store.currentDriverRoute.stopCount || store.currentDriverRoute.stops.length" :total-distance-km="store.currentDriverRoute.totalDistanceKm" :estimated-duration-minutes="store.currentDriverRoute.estimatedDurationMinutes" />
             <view v-for="(stop, index) in store.currentDriverRoute.stops" :key="stop.storeId" class="list-card route-stop">
-              <view class="route-number">{{ index + 1 }}</view><view class="row-main"><text>{{ stop.storeName }}</text><text class="muted">完成 {{ stop.completedOrderIds?.length || 0 }}/{{ stop.orderIds.length }} 单 · {{ stopItemCount(stop) }} 件 · 预计 {{ stopEstimatedMinutes(store.currentDriverRoute, index) }} 分钟</text><text class="muted">{{ stop.address }}</text><text class="muted">{{ storeInfoOf(stop).contact }} {{ storeInfoOf(stop).phone }}</text><text class="distance-text">分段 {{ stopSegment(store.currentDriverRoute, stop) ?? '待维护' }}{{ stopSegment(store.currentDriverRoute, stop) !== undefined ? ' km' : '' }}</text><view class="task-orders"><template v-for="order in stopOrders(stop)" :key="order.id"><button v-if="orderFulfillment(order).status !== 'received'" class="outline-button mini-button" :disabled="orderFulfillment(order).status === 'shipped'" @click="openDriverHandover(order)">{{ order.id }} · {{ orderFulfillment(order).status === 'shipped' ? '待出库' : '到店交接' }}</button></template></view></view><button v-if="!stop.completedAt" class="outline-button mini-button task-nav" @click="navigateToStop(stop)"><UiIcon name="navigation" :size="14" />{{ nextRouteStop?.storeId === stop.storeId ? '下一站' : '导航' }}</button>
+              <view class="route-number">{{ index + 1 }}</view><view class="row-main"><text>{{ stop.storeName }}</text><text class="muted">完成 {{ stop.completedOrderIds?.length || 0 }}/{{ stop.orderIds.length }} 单 · {{ stopItemCount(stop) }} 件 · 预计 {{ stopEstimatedMinutes(store.currentDriverRoute, index) }} 分钟</text><text class="muted">{{ stop.address }}</text><text class="muted">{{ storeInfoOf(stop).contact }} {{ storeInfoOf(stop).phone }}</text><text class="distance-text">分段 {{ stopSegment(store.currentDriverRoute, stop) ?? '待维护' }}{{ stopSegment(store.currentDriverRoute, stop) !== undefined ? ' km' : '' }}</text><text v-if="stop.checkIn" class="muted">已打卡 · {{ stop.checkIn.distanceM }} 米 · {{ stop.checkIn.at.replace('T', ' ').slice(0, 16) }}</text><view class="task-orders"><template v-for="order in stopOrders(stop)" :key="order.id"><button v-if="orderFulfillment(order).status !== 'received'" class="outline-button mini-button" :disabled="orderFulfillment(order).status === 'shipped' || !stop.checkIn" @click="openDriverHandover(order)">{{ order.id }} · {{ orderFulfillment(order).status === 'shipped' ? '待出库' : '到店交接' }}</button></template></view></view><view class="route-actions"><button v-if="!stop.checkIn" class="primary-button mini-button" @click="checkInAtStop(stop)">到店打卡</button><button v-if="!stop.completedAt" class="outline-button mini-button task-nav" @click="navigateToStop(stop)"><UiIcon name="navigation" :size="14" />{{ nextRouteStop?.storeId === stop.storeId ? '下一站' : '导航' }}</button></view>
             </view>
           </view>
-          <view v-else class="empty-state compact-empty"><UiIcon name="navigation" :size="28" /><text>供应商尚未发布今日线路</text></view>
+          <view v-else class="empty-state compact-empty pc-empty"><view class="pc-state-icon"><UiIcon name="navigation" :size="28" /></view><text>供应商尚未发布今日线路</text></view>
           <view class="section-title">待排线路<text class="section-sub">{{ store.pendingRouteTasks.length }} 单</text></view>
           <view v-if="store.pendingRouteTasks.length">
             <view v-for="order in store.pendingRouteTasks" :key="order.id" class="list-card"><view class="row-top"><text class="order-no">{{ order.id }}</text><span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status) }}</span></view><view class="task-store"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ order.customer }}</text><text class="muted">{{ storeInfoOf(order).address }} · {{ storeInfoOf(order).contact }} {{ storeInfoOf(order).phone }}</text><text class="distance-text">{{ taskDistanceText(order) }}</text></view><button class="outline-button mini-button task-nav" @click="navigateToStore(order)"><UiIcon name="navigation" :size="14" />导航</button></view><button v-if="orderFulfillment(order).status !== 'shipped'" class="primary-button route-publish" @click="openDriverHandover(order)">到店交接</button></view>
           </view>
-          <view v-else class="empty-state compact-empty"><UiIcon name="package-check" :size="28" /><text>没有新增待排任务</text></view>
+          <view v-else class="empty-state compact-empty pc-empty"><view class="pc-state-icon"><UiIcon name="package-check" :size="28" /></view><text>没有新增待排任务</text></view>
         </view>
 
         <view v-else-if="driverTab === 'history'" class="page-pad" data-visual-view="driver-history">
           <view v-if="store.myHistory.length">
             <view v-for="order in store.myHistory" :key="order.id" class="list-card">
               <view class="row-top"><text class="order-no">{{ order.id }}</text><span class="badge received">已收货</span></view>
-              <view class="task-store"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ order.customer }}</text><text class="muted">{{ order.createdAt }}</text></view></view>
+              <view class="task-store"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ order.customer }}</text><text class="muted">{{ order.createdAt }}</text><text v-if="handoverCheckInText(order.id)" class="muted">{{ handoverCheckInText(order.id) }}</text></view></view>
               <view class="task-items">
                 <view v-for="item in order.items" :key="`${item.productId}-${item.skuId}`" class="task-item"><BusinessImage :src="item.image" mode="aspectFill" /><text>{{ item.name }}</text><text class="muted">×{{ item.quantity }}</text></view>
               </view>
@@ -286,8 +313,9 @@
         </view>
       </template>
 
-      <view v-if="store.auth.role === 'supplier' && active === 'products' && productWorkspace" class="page-pad product-work-page" data-visual-view="supplier-products">
-        <view class="product-work-head"><button v-if="productEditor" class="icon-button" aria-label="返回商品管理" @click="cancelProductEditor"><UiIcon name="arrow-left" :size="18" /></button><view><text class="product-work-title">{{ productEditor ? (productEditorFormalId ? '编辑商品' : '发布商品') : '商品管理' }}</text><text class="muted">{{ productEditor ? '资料修改后需重新审核' : `${allSupplierProductRows.length} 条商品记录` }}</text></view><button v-if="!productEditor" class="primary-button mini-button add-product-button" @click="openNewProduct">新增商品</button></view>
+      <view v-if="store.auth.role === 'supplier' && active === 'products' && productWorkspace && !secondaryWorkspace" class="page-pad product-work-page" data-visual-view="supplier-products">
+        <view class="product-work-head"><button v-if="productEditor" class="page-back" aria-label="返回商品管理" @click="cancelProductEditor"><UiIcon name="arrow-left" :size="18" /></button><view><text class="product-work-title">{{ productEditor ? (productEditorFormalId ? '编辑商品' : '发布商品') : '商品管理' }}</text><text class="muted">{{ productEditor ? '资料修改后需重新审核' : `${allSupplierProductRows.length} 条商品记录` }}</text></view><button v-if="!productEditor" class="primary-button mini-button add-product-button" @click="openNewProduct">新增商品</button></view>
+        <view class="product-work-body">
         <template v-if="!productEditor">
           <view class="product-summary"><view><strong>{{ productStatusCount('active') }}</strong><small>已上架</small></view><view><strong>{{ productStatusCount('pending') }}</strong><small>待审核</small></view><view><strong>{{ productStatusCount('offline') }}</strong><small>已下架</small></view></view>
           <view class="search-bar product-search"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称 / 品类" confirm-type="search" /></view>
@@ -307,8 +335,9 @@
           <view class="form-section"><text class="form-section-title">基础信息</text><label class="form-field"><text>商品名称</text><input v-model="productEditor.name" placeholder="请输入商品名称" /></label><view class="form-field"><text>商品品类</text><button class="category-picker-trigger" type="button" @click="categoryPickerOpen = true"><view><BusinessImage class="category-picker-trigger-image" :src="productCategoryImage(productEditor.category, productCategoryState)" :fallback="defaultProductCategoryImage(productEditor.category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="productEditor.category">{{ productEditor.category || '请选择商品品类' }}</text></view><UiIcon name="chevron-right" :size="16" /></button></view><label class="form-field"><text>商品标签</text><input v-model="productTagText" placeholder="多个标签用逗号分隔" /></label><label class="form-field"><text>销售渠道</text><picker mode="selector" :range="productChannelLabels" @change="setProductChannel"><view class="picker-field">{{ productChannelLabel(productEditor.channel) }}</view></picker></label><label class="checkbox-field"><checkbox :checked="productEditor.expressDelivery" @click="productEditor.expressDelivery = !productEditor.expressDelivery" /><text>支持快递直发</text></label></view>
           <view class="form-section supplier-sku-form"><view class="sku-section-head"><view><text class="form-section-title">SKU 规格</text><small>价格、库存、起订量和分销金额</small></view><button class="outline-button mini-button" @click="addSupplierSku">添加规格</button></view><view v-for="(sku, index) in productEditor.skus" :key="sku.id" class="supplier-sku-fields" :class="{ retired: sku.status === 'retired' }"><view class="sku-card-head"><text>规格 {{ index + 1 }}</text><button v-if="sku.status === 'retired'" @click="restoreSupplierSku(index)">恢复</button><button v-else @click="removeSupplierSku(index)">删除</button></view><view class="sku-image-field"><text>规格图片</text><ImageUploader v-model="sku.image" :purpose="`supplier-catalog-sku-${sku.id}`" profile="normal" :disabled="sku.status === 'retired'" /></view><view class="sku-input-grid"><label><text>规格名称</text><input v-model="sku.name" :disabled="sku.status === 'retired'" placeholder="如：500g/盒" /></label><label><text>零售价</text><input v-model.number="sku.retailPrice" :disabled="sku.status === 'retired'" type="number" min="0" /></label><label><text>供货价</text><input v-model.number="sku.cost" :disabled="sku.status === 'retired'" type="number" min="0" /></label><label><text>库存</text><input v-model.number="sku.stock" :disabled="sku.status === 'retired'" type="number" min="0" /></label><label><text>起订量</text><input v-model.number="sku.minimumOrderQuantity" :disabled="sku.status === 'retired'" type="number" min="0" step="1" placeholder="0 表示无起订限制" /></label><label><text>一级分销金额</text><input v-model.number="sku.level1Amount" :disabled="sku.status === 'retired'" type="number" min="0" /></label><label><text>二级分销金额</text><input v-model.number="sku.level2Amount" :disabled="sku.status === 'retired'" type="number" min="0" /></label></view></view></view>
           <text v-if="productFormError" class="form-error">{{ productFormError }}</text>
-          <view class="product-form-actions"><button class="outline-button" @click="cancelProductEditor">取消</button><button v-if="productEditorFormalId" class="outline-button" @click="saveSupplierProductStock">仅保存库存</button><button class="primary-button" @click="submitSupplierProduct">{{ productEditorFormalId ? '提交资料审核' : '提交审核' }}</button></view>
         </view>
+        </view>
+        <view v-if="productEditor" class="product-form-actions"><button class="outline-button" @click="cancelProductEditor">取消</button><button v-if="productEditorFormalId" class="outline-button" @click="saveSupplierProductStock">仅保存库存</button><button class="primary-button" @click="submitSupplierProduct">{{ productEditorFormalId ? '提交资料审核' : '提交审核' }}</button></view>
       </view>
 
       <!-- 底部 tabbar -->
@@ -322,8 +351,10 @@
       <!-- 弹层 -->
       <view v-if="sheet" class="sheet-mask" @click.self="closeSheet">
         <view class="sheet-panel">
+          <view class="sheet-handle"></view>
           <view v-if="sheet === 'order' && selectedOrder" class="order-detail" data-visual-sheet="order">
             <view class="sheet-head"><text class="sheet-title">{{ selectedOrder.id }}</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <view class="row detail-status-row"><span class="badge" :class="orderFulfillment(selectedOrder).status">{{ statusText(orderFulfillment(selectedOrder).status, selectedOrder) }}</span><text class="muted">{{ selectedOrder.createdAt }}</text></view>
             <view class="steps">
               <view v-for="(step, index) in fulfillmentSteps" :key="step" class="step" :class="{ done: stepIndex(selectedOrder) >= index }"><view class="step-dot">{{ index + 1 }}</view><text class="step-label">{{ stepLabel(step) }}</text></view>
@@ -346,18 +377,20 @@
             <view v-if="handoversOf(selectedOrder).length" class="log-list">
               <view v-for="log in handoversOf(selectedOrder)" :key="log.id" class="log-event"><view class="log-dot"></view><view class="row-main"><text>{{ log.type === 'out' ? '出库交接' : '到店交接' }} · {{ log.operatorName }}</text><text class="muted">{{ log.time }} · {{ log.operatorRole === 'driver' ? '司机' : '供应商' }}{{ log.shortageCount ? ` · 缺货 ${log.shortageCount} 项` : '' }}{{ log.note ? ` · ${log.note}` : '' }}</text></view></view>
             </view>
-            <text v-else class="muted">暂无交接记录</text>
+            <view v-else class="empty-state compact-empty pc-empty"><view class="pc-state-icon"><UiIcon name="list-tree" :size="26" /></view><text>暂无交接记录</text></view>
             <view class="section-title">流转记录</view>
             <view class="log-list">
               <view v-for="(event, index) in (selectedOrder.flow || [])" :key="index" class="log-event"><view class="log-dot"></view><view class="row-main"><text>{{ event.action }}</text><text class="muted">{{ event.time }} · {{ event.operator }}</text></view></view>
             </view>
-            <view v-if="orderActions(selectedOrder).length" class="sheet-actions">
+            </scroll-view>
+            <view v-if="orderActions(selectedOrder).length" class="sheet-actions sheet-foot">
               <button v-for="action in orderActions(selectedOrder)" :key="action.key" class="outline-button" :class="{ 'primary-button': action.primary }" @click="runAction(action.key, selectedOrder)">{{ action.label }}</button>
             </view>
           </view>
 
           <view v-else-if="(sheet === 'assign' || sheet === 'reassign') && assignTarget" class="driver-picker" data-visual-sheet="assign-reassign">
             <view class="sheet-head"><text class="sheet-title">{{ sheet === 'assign' ? '指派司机' : '改派司机' }}</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <text class="muted">订单 {{ assignTarget.id }} · {{ assignTarget.customer }}</text>
             <view v-if="assignableDrivers.length" class="driver-options">
               <button v-for="driver in assignableDrivers" :key="driver.id" class="driver-option" :class="{ active: assignDriverId === driver.id }" @click="assignDriverId = driver.id">
@@ -368,7 +401,8 @@
               </button>
             </view>
             <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="users" :size="26" /></view><text>暂无可用的司机，请先到司机管理开通</text></view>
-            <view class="sheet-actions">
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
               <button class="primary-button" :disabled="!assignDriverId" @click="confirmAssign">{{ sheet === 'assign' ? '确认指派' : '确认改派' }}</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
@@ -376,8 +410,10 @@
 
           <view v-else-if="sheet === 'courier' && selectedOrder" class="courier-sheet" data-visual-sheet="courier">
             <view class="sheet-head"><text class="sheet-title">快递直发</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <text class="muted">订单 {{ selectedOrder.id }} · {{ recipientLabel(selectedOrder) }}</text>
-            <view class="sheet-actions">
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
               <button class="primary-button" @click="confirmCourier">确认发货</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
@@ -385,6 +421,7 @@
 
           <view v-else-if="sheet === 'handover-out' && selectedOrder" class="handover-sheet" data-visual-sheet="handover-out">
             <view class="sheet-head"><text class="sheet-title">出库交接</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <text class="muted">订单 {{ selectedOrder.id }} · {{ selectedOrder.customer }}，按明细录入实发数量（缺货自动计算）</text>
             <view v-if="handoverResult" class="handover-result">
               <text>交接完成</text>
@@ -398,13 +435,15 @@
               </view>
               <label class="form-field note-field"><text>备注（可选）</text><input v-model="handoverNote" placeholder="交接备注" /></label>
             </view>
-            <view class="sheet-actions">
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
               <button v-if="!handoverResult" class="primary-button" @click="confirmHandoverOut">确认交接</button>
               <button class="outline-button" @click="closeSheet">{{ handoverResult ? '完 成' : '取 消' }}</button>
             </view>
           </view>
           <view v-else-if="sheet === 'handover-in' && selectedOrder" class="handover-sheet" data-visual-sheet="handover-in">
             <view class="sheet-head"><text class="sheet-title">到店交接</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <view class="store-line"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ selectedOrder.customer }}</text><text class="muted">{{ storeInfoOf(selectedOrder.customer).address }} · {{ storeInfoOf(selectedOrder.customer).contact }} {{ storeInfoOf(selectedOrder.customer).phone }}</text></view></view>
             <view class="section-title">商品明细</view>
             <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line"><BusinessImage :src="item.image" mode="aspectFill" /><view class="row-main"><text>{{ item.name }}</text><text class="muted">{{ item.skuName }} ×{{ item.quantity }}</text></view><text class="order-item-price">{{ money(item.price * item.quantity) }}</text></view>
@@ -413,7 +452,8 @@
               <view v-for="item in orderShortage(selectedOrder)" :key="item.skuId" class="shortage-line"><text>{{ item.name }}</text><span class="tag danger">缺 {{ item.shortage }}</span></view>
             </view>
             <label class="form-field note-field"><text>备注（可选）</text><input v-model="handoverNote" placeholder="交接备注" /></label>
-            <view class="sheet-actions">
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
               <button class="primary-button" @click="confirmHandoverIn">确认已送达门店</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
@@ -421,6 +461,7 @@
 
           <view v-else-if="sheet === 'driver-form' || sheet === 'driver-edit'" class="driver-form-sheet" data-visual-sheet="driver-form-edit">
             <view class="sheet-head"><text class="sheet-title">{{ sheet === 'driver-form' ? '新增司机' : '编辑司机' }}</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <view class="form-fields">
               <label class="form-field"><text>姓名</text><input v-model="driverForm.name" placeholder="司机姓名" /></label>
               <label class="form-field"><text>手机号</text><input v-model="driverForm.phone" type="number" maxlength="11" placeholder="11 位手机号" /></label>
@@ -428,7 +469,8 @@
               <label v-if="sheet === 'driver-form'" class="form-field"><text>初始密码</text><input v-model="driverForm.password" placeholder="6-20 位" /></label>
             </view>
             <text v-if="driverFormError" class="form-error">{{ driverFormError }}</text>
-            <view class="sheet-actions">
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
               <button class="primary-button" @click="saveDriver">{{ sheet === 'driver-form' ? '创建账号' : '保存' }}</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
@@ -436,9 +478,11 @@
 
           <view v-else-if="sheet === 'driver-reset' && editingDriver" class="driver-form-sheet" data-visual-sheet="driver-reset">
             <view class="sheet-head"><text class="sheet-title">重置密码 · {{ editingDriver.name }}</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <label class="form-field"><text>新密码</text><input v-model="resetPassword" type="password" placeholder="6-20 位" confirm-type="done" @confirm="confirmReset" /></label>
             <text v-if="driverFormError" class="form-error">{{ driverFormError }}</text>
-            <view class="sheet-actions">
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
               <button class="primary-button" @click="confirmReset">确认重置</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
@@ -446,8 +490,10 @@
 
           <view v-else-if="sheet === 'reset-confirm'" class="driver-form-sheet" data-visual-sheet="reset-confirm">
             <view class="sheet-head"><text class="sheet-title">重置演示数据</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <text class="muted">将清空本地订单、司机与交接数据并恢复为初始演示数据（同源下其它端共享数据也会重置为演示集）。</text>
-            <view class="sheet-actions">
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
               <button class="primary-button" @click="confirmResetDemo">确认重置</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
@@ -455,9 +501,11 @@
 
           <view v-else-if="sheet === 'driver-toggle-confirm' && driverStatusTarget" class="driver-form-sheet" data-visual-sheet="driver-toggle-confirm">
             <view class="sheet-head"><text class="sheet-title">{{ driverStatusTarget.status === 'active' ? '停用司机' : '启用司机' }}</text><button class="icon-button" aria-label="关闭" @click="closeSheet"><UiIcon name="x" :size="18" /></button></view>
+            <scroll-view class="sheet-scroll" scroll-y>
             <text class="muted">{{ driverToggleMessage(driverStatusTarget) }}</text>
-            <view class="sheet-actions">
-              <button class="primary-button" @click="confirmToggle">{{ driverStatusTarget.status === 'active' ? '确认停用' : '确认启用' }}</button>
+            </scroll-view>
+            <view class="sheet-actions sheet-foot">
+              <button :class="driverStatusTarget.status === 'active' ? 'danger-button' : 'primary-button'" @click="confirmToggle">{{ driverStatusTarget.status === 'active' ? '确认停用' : '确认启用' }}</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
           </view>
@@ -483,10 +531,12 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DriverAccount, Order, PlatformDictionaryState, RouteStop, ShortageItem } from '@agritainment/shared'
 import { PLATFORM_DICTIONARIES_STORAGE_KEY, defaultProductCategoryImage, productCategoryImage, readPlatformDictionaries } from '@agritainment/shared'
-import { PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, configurePlatformProviders, createId, installKeyboardButtonSupport, money, subscribePlatformChanges, todayString } from '@agritainment/shared'
+import { PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, configurePlatformProviders, createDrivingRouteOptimizationProvider, createId, installKeyboardButtonSupport, money, subscribePlatformChanges, todayString } from '@agritainment/shared'
 import { BusinessImage, ImageUploader } from '@agritainment/ui'
+import { routeOptimizationWarningText } from '../../delivery-map'
+import DeliveryRouteMap from '../../components/DeliveryRouteMap.vue'
 import UiIcon from '../../components/UiIcon.vue'
-import { buildNavigationUrl, deliveryDistanceKm, resolveOrderStore, storeDirectory, storeInfoOf, supplierInfo, supplierWarehouseOf } from '../../services/repository'
+import { buildNavigationUrl, deliveryDistanceKm, resolveOrderStore, seedSupplierDemoRouteOnce, storeDirectory, storeInfoOf, supplierInfo, supplierWarehouseOf } from '../../services/repository'
 import { useSupplierStore } from '../../stores/supplier'
 import { createSharedRefreshRunner } from './shared-refresh'
 import { buildProductCategoryOptions } from './product-categories'
@@ -496,7 +546,7 @@ let disposeKeyboardButtons: () => void = () => undefined
 let disposeStorageSync: (() => void) | null = null
 let disposePlatformChanges: (() => void) | null = null
 let disposeVisibilitySync: (() => void) | null = null
-const platformChangeKeys = [PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY]
+const platformChangeKeys = [PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY]
 const refreshSharedState = createSharedRefreshRunner(
   async () => { await store.refreshSharedState(); refreshProductCategoryLabels() },
   (error) => { store.error = error instanceof Error ? error.message : '数据加载失败' }
@@ -538,6 +588,7 @@ function submitLogin() {
     active.value = 'dashboard'
     secondaryWorkspace.value = null
     driverTab.value = 'today'
+    void store.ensureTodayRoutes()
   }
 }
 
@@ -771,50 +822,86 @@ async function toggleSupplierProduct(product: CatalogProduct) {
   toast(result.ok ? (product.status === 'active' ? '商品已下架' : '商品已上架') : result.message)
 }
 
-// ---------- 配送范围、每日线路与仓点 ----------
+// ---------- 命名线路、每日线路与仓点 ----------
 const pendingProductCount = computed(() => store.myProductSubmissions.filter((item) => item.status === 'pending').length)
-const routeDriverId = ref('')
-const routeDate = ref(todayString())
 const routeBusy = ref(false)
 const warehouseForm = reactive<{ address: string; longitude?: number; latitude?: number }>({ address: '' })
 const supplierWorkItems: Array<{ key: SecondaryWorkspace; label: string; icon: string; detail: string }> = [
-  { key: 'drivers', label: '司机管理', icon: 'users', detail: '账号、状态与配送范围' },
-  { key: 'routes', label: '线路规划', icon: 'navigation', detail: '智能排序、手调与发布' },
+  { key: 'drivers', label: '司机管理', icon: 'users', detail: '账号与启用状态' },
+  { key: 'routes', label: '线路规划', icon: 'navigation', detail: '命名线路、农家乐顺序与派司机' },
   { key: 'settlements', label: '结算账单', icon: 'package-check', detail: '查看账期和关联订单' },
   { key: 'handovers', label: '交接日志', icon: 'list-tree', detail: '出库和到店交接记录' },
   { key: 'warehouse', label: '仓点设置', icon: 'map-pin', detail: '地址与 GCJ-02 坐标' },
   { key: 'account', label: '账号信息', icon: 'user-round', detail: '供应商与登录账号' }
 ]
-const routeDriver = computed(() => store.visibleDrivers.find((driver) => driver.id === routeDriverId.value))
 const routeOrderCount = computed(() => store.currentDriverRoute?.sourceOrderIds.length || 0)
 const routeCompletedOrderCount = computed(() => store.currentDriverRoute?.stops.reduce((count, stop) => count + (stop.completedOrderIds?.length || 0), 0) || 0)
 const nextRouteStop = computed(() => store.currentDriverRoute?.stops.find((stop) => (stop.completedOrderIds?.length || 0) < stop.orderIds.length) || null)
 const storeOptions = Object.values(storeDirectory)
 
-function driverScopeIds(driverId: string) {
-  return store.driverScopes.find((scope) => scope.supplierId === store.auth.supplierId && scope.driverId === driverId)?.storeIds || []
+const namedRouteDraft = ref<{ id?: string; name: string; storeIds: string[]; driverId?: string } | null>(null)
+const supplierNamedRoutes = computed(() => store.namedRoutes.filter((route) => route.supplierId === store.auth.supplierId))
+const namedRouteDriverOptions = computed(() => ['', ...store.activeDrivers.map((driver) => driver.id)])
+const namedRouteDriverLabels = computed(() => namedRouteDriverOptions.value.map((id) => namedRouteDriverName(id)))
+function namedRouteDriverName(driverId?: string) {
+  if (!driverId) return '未指派'
+  return store.visibleDrivers.find((driver) => driver.id === driverId)?.name || driverId
 }
-async function toggleDriverStore(driver: DriverAccount, storeId: string) {
-  const current = driverScopeIds(driver.id)
-  const next = current.includes(storeId) ? current.filter((id) => id !== storeId) : [...current, storeId]
-  const result = await store.updateDriverScope(driver.id, next)
-  toast(result.ok ? '配送范围已保存' : result.message)
+function namedRouteLabelForDriver(driverId: string) {
+  const route = store.namedRoutes.find((item) => item.supplierId === store.auth.supplierId && item.driverId === driverId)
+  return route ? `线路 ${route.name} · ${route.storeIds.length} 家` : '尚未指派线路'
 }
-async function optimizeRoute() {
-  if (!routeDriverId.value) { toast('请选择司机'); return }
+function openNamedRouteEditor(route?: { id: string; name: string; storeIds: string[]; driverId?: string }) {
+  namedRouteDraft.value = route
+    ? { id: route.id, name: route.name, storeIds: [...route.storeIds], driverId: route.driverId }
+    : { name: '', storeIds: [], driverId: '' }
+}
+function closeNamedRouteEditor() {
+  if (namedRouteDraft.value) { namedRouteDraft.value = null; return }
+  closeSecondaryWorkspace()
+}
+function toggleNamedRouteStore(storeId: string) {
+  if (!namedRouteDraft.value) return
+  namedRouteDraft.value.storeIds = namedRouteDraft.value.storeIds.includes(storeId)
+    ? namedRouteDraft.value.storeIds.filter((id) => id !== storeId)
+    : [...namedRouteDraft.value.storeIds, storeId]
+}
+function moveNamedRouteStore(index: number, direction: -1 | 1) {
+  if (!namedRouteDraft.value) return
+  const target = index + direction
+  const storeIds = [...namedRouteDraft.value.storeIds]
+  if (target < 0 || target >= storeIds.length) return
+  ;[storeIds[index], storeIds[target]] = [storeIds[target], storeIds[index]]
+  namedRouteDraft.value.storeIds = storeIds
+}
+async function saveNamedRouteDraft() {
+  if (!namedRouteDraft.value) return
+  const result = await store.saveNamedRoute(namedRouteDraft.value)
+  if (!result.ok) { toast(result.message); return }
+  namedRouteDraft.value = null
+  toast('线路已保存')
+}
+function handoverCheckInText(orderId: string) {
+  const checkIn = store.dailyRoutes.flatMap((route) => route.stops).find((stop) => stop.orderIds.includes(orderId))?.checkIn
+  return checkIn ? `打卡 ${checkIn.distanceM} 米 · ${checkIn.at.replace('T', ' ').slice(0, 16)}` : ''
+}
+async function checkInAtStop(stop: RouteStop) {
+  const locate = () => new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+    uni.getLocation({ type: 'gcj02', success: (res) => resolve({ latitude: res.latitude, longitude: res.longitude }), fail: reject })
+  })
+  try {
+    const location = await locate()
+    const result = await store.checkInStop(stop.storeId, location)
+    toast(result.ok ? `打卡成功，距门店 ${result.value?.distanceM} 米` : result.message)
+  } catch {
+    toast('无法获取定位，请开启定位权限')
+  }
+}
+async function generateTodayRoutes() {
   routeBusy.value = true
-  const result = await store.optimizeDriverRoute(routeDriverId.value, routeDate.value)
+  const result = await store.ensureTodayRoutes()
   routeBusy.value = false
-  toast(result.ok ? '线路草稿已生成' : result.message)
-}
-function moveStop(index: number, direction: -1 | 1) {
-  if (store.moveRouteStop(index, direction)) toast('站点顺序已调整')
-}
-async function publishRoute() {
-  routeBusy.value = true
-  const result = await store.publishRoute()
-  routeBusy.value = false
-  toast(result.ok ? '今日线路已发布' : result.message)
+  toast(result.ok ? (result.value?.generated ? `已补生成 ${result.value.generated} 条今日线路` : '今日线路已是最新') : result.message)
 }
 async function saveWarehouse() {
   const result = await store.updateWarehouse({ ...warehouseForm })
@@ -872,7 +959,7 @@ function recipientLabel(order: Order) {
 }
 function addressLabel(order: Order) {
   const address = order.supplierOrderLink?.deliveryAddress
-  return address ? `${address.region}${address.detail} · ${address.receiver} ${address.phone}` : `${storeInfoOf(order).address} · ${storeInfoOf(order).contact} ${storeInfoOf(order).phone}`
+  return address ? `${address.region} ${address.detail} · ${address.receiver} ${address.phone}` : `${storeInfoOf(order).address} · ${storeInfoOf(order).contact} ${storeInfoOf(order).phone}`
 }
 function statusText(status: string, order?: Order) {
   if (order && isCourierOrder(order) && status === 'cancelled' && order.status === 'after-sale') return '售后处理中'
@@ -993,7 +1080,7 @@ async function confirmAssign() {
   if (ok) {
     toast(isAssign ? '已指派司机' : '已改派司机')
     closeSheet()
-  } else toast(store.error || '指派失败，请检查司机配送范围和门店资料')
+  } else toast(store.error || '指派失败，请检查司机线路覆盖和门店资料')
 }
 
 const courierTracking = ref('')
@@ -1151,7 +1238,11 @@ onMounted(() => {
       }
     }
   }
-  store.initialize()
+  if (import.meta.env.VITE_E2E !== '1') configurePlatformProviders({ routeOptimization: createDrivingRouteOptimizationProvider() })
+  void store.initialize().then(async () => {
+    seedSupplierDemoRouteOnce()
+    if (store.auth.isLoggedIn) await store.ensureTodayRoutes()
+  })
   disposeKeyboardButtons = installKeyboardButtonSupport()
   disposePlatformChanges = subscribePlatformChanges(refreshSharedState, platformChangeKeys)
   if (typeof window !== 'undefined') {
@@ -1190,19 +1281,17 @@ $muted: #66736b;
 $line: #dde5df;
 
 // ===== 登录页 =====
-.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 0 20px 24px; background: $bg; }
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 8px; background: $bg; }
 /* #ifdef MP-WEIXIN */
-.login-page { padding-top: calc(18px + var(--status-bar-height)); }
+.login-page { padding-top: calc(24px + var(--status-bar-height)); padding-right: 96px; }
 /* #endif */
 /* #ifndef MP-WEIXIN */
-.login-page { padding-top: calc(18px + env(safe-area-inset-top)); }
+.login-page { padding-top: calc(24px + env(safe-area-inset-top)); }
 /* #endif */
-.login-card { width: 100%; max-width: 380px; background: $panel; border: 1px solid $line; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(19, 43, 29, .08); }
-.login-banner { width: 100%; height: 124px; display: block; }
-.login-body { padding: 20px 20px 22px; }
-.login-title { display: block; text-align: center; font-size: 20px; font-weight: 700; color: $ink; }
-.login-sub { display: block; text-align: center; margin-top: 6px; font-size: 12px; color: $muted; }
-.role-tabs { display: flex; gap: 8px; margin: 20px 0 16px; }
+.login-card { width: 100%; max-width: 340px; background: $panel; border: 1px solid $line; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(19, 43, 29, .08); }
+.login-card .pc-login-hero { border-radius: 0; }
+.login-body { padding: 16px 12px 18px; }
+.role-tabs { display: flex; gap: 8px; margin: 0 0 16px; }
 .role-tabs button { flex: 1; min-height: 44px; padding: 8px 0; border: 1px solid $line; border-radius: 6px; background: $panel; color: $muted; font-size: 14px; }
 .role-tabs button.active { background: $green; color: #fff; font-weight: 600; }
 .login-fields { display: flex; flex-direction: column; gap: 12px; }
@@ -1219,7 +1308,7 @@ $line: #dde5df;
 .order-check { display: flex; align-items: center; flex: none; }
 .order-check > view { width: 20px; height: 20px; border: 1.5px solid $line; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: #fff; }
 .order-check > view.checked { background: $green; border-color: $green; }
-.order-actions { display: flex; gap: 8px; margin-top: 9px; padding-top: 9px; border-top: 1px solid $line; flex-wrap: wrap; }
+.order-actions { display: flex; gap: 8px; margin-top: 9px; padding-top: 9px; border-top: 1px solid $line; flex-wrap: wrap; justify-content: flex-end; }
 .outline-button.danger { color: $red; border-color: rgba(185, 28, 28, .4); }
 .dashboard-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid $line; }
 .dashboard-foot > .muted { grid-column: 1 / -1; text-align: right; }
@@ -1277,18 +1366,20 @@ $line: #dde5df;
 .order-amount { margin-left: auto; font-size: 15px; font-weight: 700; flex: none; }
 /* Cross-device fulfillment layout guards. */
 .c-mall-tag { background: #eaf3ff; color: #35658f; }
-.order-no, .muted, .row-main, .store-line, .task-store, .courier-sheet { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.order-no, .muted, .row-main, .store-line, .task-store, .courier-sheet { min-width: 0; word-break: break-all; }
 .row-top { min-width: 0; }
 .row-top > text, .row-top > .order-no { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.order-actions, .sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.order-actions button, .sheet-actions button { flex: 1 1 112px; min-height: 44px; }
-.sheet-actions { position: sticky; bottom: calc(-14px - env(safe-area-inset-bottom)); z-index: 2; margin: 16px -14px calc(-14px - env(safe-area-inset-bottom)); padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid $line; background: rgba(255,255,255,.98); }
+.order-actions, .sheet-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.order-actions button, .sheet-actions button { flex: 0 0 auto; min-width: 88px; min-height: 44px; }
+.order-actions .primary-button, .sheet-actions .primary-button { min-width: 104px; }
+.sheet-actions { z-index: 2; }
 .store-line .row-main, .task-store .row-main { flex: 1; }
 .task-item .business-image { width:30px;height:30px;border-radius:8px;flex:none; }.order-item-line .business-image { width:36px;height:36px;border-radius:8px;flex:none; }
 .task-item > text:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-item > .muted { flex: none; white-space: nowrap; }
-.product-work-page { padding-bottom: calc(84px + env(safe-area-inset-bottom)); background: $bg; color: $ink; }
-.product-work-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 2px 0 12px; border-bottom: 1px solid $line; }
+.product-work-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; padding-bottom: calc(var(--mobile-tab-height) + 12px + env(safe-area-inset-bottom)); box-sizing: border-box; background: $bg; color: $ink; }
+.product-work-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; flex: none; padding: 2px 0 12px; border-bottom: 1px solid $line; }
+.product-work-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 .product-work-head button { margin: 0; }
 .product-work-title { display: block; font-size: 20px; font-weight: 750; }
 .add-product-button { display:flex;align-items:center;gap:4px;white-space:nowrap; }
@@ -1300,13 +1391,15 @@ $line: #dde5df;
 .product-search { margin-top:0; }
 .product-filter-scroll { width:100%;margin:10px 0 12px;white-space:nowrap; }
 .product-filter-scroll,.product-filter-scroll *{scrollbar-width:none}.product-filter-scroll::-webkit-scrollbar,.product-filter-scroll *::-webkit-scrollbar{display:none;width:0;height:0}
-.product-filter-chips { display:inline-flex;gap:8px;padding-right:10px; }
-.product-filter-chips button { display:inline-flex;align-items:center;gap:5px;min-height:44px;margin:0;padding:0 12px;border:1px solid $line;border-radius:6px;background:#fff;color:$muted;font-size:13px; }
-.product-filter-chips button.active { border-color:$green;background:$green;color:#fff; }.product-filter-chips button text{font-size:13px;opacity:.8}
+.product-filter-chips { display:inline-flex;gap:4px;padding-right:10px; }
+.product-filter-chips button { position:relative;display:inline-flex;align-items:center;gap:5px;min-height:44px;margin:0;padding:0 10px 8px;border:0;border-radius:0;background:transparent;color:$muted;font-size:13px; }
+.product-filter-chips button.active { border:0;background:transparent;color:$green;font-weight:800; }
+.product-filter-chips button.active::after { content:'';position:absolute;left:50%;bottom:2px;width:20px;height:3px;border:none;border-radius:var(--mobile-radius-pill);background:currentColor;transform:translateX(-50%); }
+.product-filter-chips button text{font-size:13px;opacity:.8}
 .supplier-product-list { display: grid; gap: 10px; }
 .supplier-product-card { min-width:0;padding:11px;border:1px solid $line;border-radius:8px;background:#fff;box-shadow:0 1px 2px rgba(19,43,29,.04); }
 .supplier-product-main{display:flex;align-items:flex-start;gap:11px;min-width:0}.supplier-product-image { width: 78px; height: 78px; flex: none; border-radius: 6px; background: #f1f3ef; }
-.supplier-product-name{display:-webkit-box;min-width:0;overflow:hidden;font-size:14px;font-weight:700;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}.supplier-product-price{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:9px}.supplier-product-price strong{color:#b84735;font-size:17px;font-variant-numeric:tabular-nums}.supplier-product-price small{min-width:0;color:$muted;font-size:12px;text-align:right;overflow-wrap:anywhere}
+.supplier-product-name{display:-webkit-box;min-width:0;overflow:hidden;font-size:14px;font-weight:700;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}.supplier-product-price{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:9px}.supplier-product-price strong{color:#b84735;font-size:17px;font-variant-numeric:tabular-nums}.supplier-product-price small{min-width:0;color:$muted;font-size:12px;text-align:right;word-break:break-all}
 .supplier-product-skus { display: grid; gap: 5px; margin-top: 10px;padding-top:9px;border-top:1px solid $line; color: $ink; font-size: 12px; }
 .supplier-product-skus text{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;min-width:0}.supplier-product-skus small{color:$muted;font-size:12px;text-align:right;white-space:nowrap}
 .product-reject-note { display: block; margin-top: 10px; padding: 9px 10px; border-left: 3px solid $red; background: #fff2f2; color: $red; font-size: 12px; }
@@ -1318,19 +1411,23 @@ $line: #dde5df;
 .sku-section-head,.sku-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.sku-section-head>view>small{display:block;margin-top:3px;color:$muted;font-size:12px}.sku-section-head button{display:flex;align-items:center;gap:4px;margin:0}.supplier-sku-fields { display:grid;gap:10px;padding:12px;border:1px solid $line;border-radius:7px;background:#fafbf9; }
 .supplier-sku-fields.retired{opacity:.6}.sku-card-head{font-size:13px;font-weight:700}.sku-card-head button{min-height:40px;margin:0;padding:0 8px;border:0;border-radius:6px;background:transparent;color:$red;font-size:13px}.supplier-sku-fields.retired .sku-card-head button{color:$green}.sku-image-field{display:grid;gap:6px}.sku-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.sku-input-grid label { display: grid; gap: 5px; color: $muted; font-size: 13px; }.sku-input-grid label:first-child{grid-column:1/-1}
 .sku-input-grid input { width: 100%; height: 44px; box-sizing: border-box; padding: 0 9px; border: 1px solid $line; border-radius: 6px; color: $ink;background:#fff }
-.product-form-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid $line; }
+.product-form-actions { display: flex; justify-content: flex-end; gap: 8px; flex: none; flex-wrap: wrap; padding: 12px 0 calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid $line; background: $bg; }
 .product-form-actions button { margin: 0; }
 .app-shell { overflow-x: hidden; }
 .bottom-tab { min-height: 44px; min-width: 0; }
 .bottom-tab text { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mine-page { display: grid; gap: 8px; }
+.mine-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .work-link { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 9px 11px; border: 1px solid $line; border-radius: 8px; background: #fff; color: $ink; text-align: left; }
+.mine-tile-grid .work-link { flex-direction: column; align-items: center; text-align: center; min-height: 64px; padding: 10px 8px; width: auto; }
 .work-link .row-main { min-width: 0; }
 .work-link .row-main > text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-summary { display: grid; gap: 4px; }
-.account-summary > text { display: block; min-width: 0; overflow-wrap: anywhere; }
-.secondary-workspace { position: fixed; inset: 0; z-index: 45; overflow-x: hidden; overflow-y: auto; background: $bg; padding-top: 14px; }
-.secondary-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; min-height: 56px; margin: -14px -16px 12px; padding: 6px 14px; border-bottom: 1px solid $line; background: rgba(255,255,255,.98); font-size: 17px; font-weight: 700; }
+.account-summary > text { display: block; min-width: 0; word-break: break-all; }
+.secondary-workspace { position: relative; display: flex; flex-direction: column; overflow: hidden; min-height: calc(100vh - var(--mobile-tab-height)); background: $bg; padding-top: 14px; padding-bottom: 0; }
+.secondary-head { position: relative; top: auto; z-index: 2; flex: none; display: flex; align-items: center; gap: 10px; min-height: 56px; margin: 0; padding: 6px 8px; border-bottom: 1px solid $line; background: rgba(255,255,255,.98); font-size: 17px; font-weight: 700; }
+.secondary-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-top: 12px; }
+.secondary-foot { flex: none; padding: 10px 0 calc(12px + env(safe-area-inset-bottom)); background: $bg; }
 .secondary-head > text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scope-editor { display: grid; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed $line; }
 .route-controls { display: grid; gap: 10px; }
@@ -1345,25 +1442,32 @@ $line: #dde5df;
 .route-driver-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .route-driver-summary > view { display: grid; gap: 3px; min-width: 0; }
 .route-driver-summary .section-title { margin: 0; }
-.route-summary .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.route-summary .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.delivery-route-map { margin-bottom: 10px; }
 .route-stop .row-main > text:first-child { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .driver-hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .driver-hero-stats .hero-stat:nth-child(2) .hero-stat-value { color: $green; }
 .task-orders { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.compact-empty { min-height: 120px; padding: 24px 0; }
+.compact-empty { min-height: 96px; padding: 16px 0; }
 @media (max-width: 375px) {
-  .page-pad { padding-left: 12px; padding-right: 12px; }
+  .page-pad { padding-left: 8px; padding-right: 8px; }
   .task-store { flex-wrap: wrap; }
   .task-store .task-nav { margin-left: 24px; }
   .route-stop { align-items: flex-start; flex-wrap: wrap; }
   .route-stop .row-main { flex: 1 1 calc(100% - 38px); }
   .route-actions { flex-direction: row; width: 100%; padding-left: 38px; }
   .bottom-tab { padding-left: 2px; padding-right: 2px; }
+  .route-summary .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 /* #ifdef MP-WEIXIN */
 .app-shell { padding-bottom: var(--safe-area-inset-bottom, 0px); }
- .product-work-page { padding-top: 16px; }
-.secondary-workspace { padding-top: calc(14px + var(--status-bar-height)); }
+.product-work-page { padding-top: 16px; }
+.product-work-head,
+.secondary-head {
+  padding-top: calc(6px + var(--status-bar-height));
+  padding-right: 96px;
+}
+.secondary-workspace { padding-top: 14px; min-height: calc(100vh - var(--mobile-tab-height)); overflow: hidden; }
 /* #endif */
 /* #ifndef MP-WEIXIN */
  .product-work-page { padding-top: 16px; }
@@ -1378,9 +1482,9 @@ $line: #dde5df;
 .category-picker-trigger>view text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .category-picker-trigger-image { width: 28px; height: 28px; flex:none;border-radius:5px;background:#f1f3ef; }
 .category-picker-mask { position:fixed;z-index:80;inset:0;display:flex;align-items:flex-end;background:rgba(18,31,22,.48); }
-.category-picker-sheet { width:100%;max-height:min(72vh,560px);padding-bottom:max(16px,env(safe-area-inset-bottom));border-radius:8px 8px 0 0;background:$panel;overflow:hidden; }
-.category-picker-sheet > .sheet-head { padding: 14px 14px 0; }
-.category-picker-list { max-height:min(58vh,440px); }
+.category-picker-sheet { width:100%;max-height:80vh;display:flex;flex-direction:column;padding-bottom:0;border-radius:8px 8px 0 0;background:$panel;overflow:hidden; }
+.category-picker-sheet > .sheet-head { padding: 6px 12px; flex: none; }
+.category-picker-list { flex: 1 1 auto; min-height: 0; height: auto; max-height: calc(80vh - 56px); padding-bottom: calc(24px + env(safe-area-inset-bottom)); box-sizing: border-box; }
 .category-picker-option { width:100%;min-height:54px;margin:0;padding:8px 18px;border:0;border-bottom:1px solid $line;border-radius:0;background:$panel;color:$ink;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left; }
 .category-picker-option.selected { color:$green;background:$green-soft; }
 .category-picker-option-main { min-width:0;display:flex;align-items:center;gap:11px; }
@@ -1390,4 +1494,19 @@ $line: #dde5df;
 .category-picker-option-main>view text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700; }
 .category-picker-option-main>view small { margin-top:3px;color:$muted;font-size:12px; }
 .category-picker-trigger::after,.category-picker-option::after { display:none; }
+</style>
+<style lang="scss">
+/* #ifdef MP-WEIXIN */
+.app-shell,
+.sheet-panel,
+.category-picker-sheet {
+  max-width: 100% !important;
+}
+.tabbar {
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  transform: none !important;
+}
+/* #endif */
 </style>

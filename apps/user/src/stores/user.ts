@@ -5,6 +5,7 @@ import {
   CATALOG_SCHEMA_VERSION, abortCatalogTransaction, allocateCCommissions, applyCatalogStockOperation, beginPaymentAttempt, buildSupplierAccountSeeds, cPriceForSku, catalogProductToCProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, cProducts as cProductSeeds, createId, demoCDistributorProfiles, deriveCOrderStatus, ensureCatalogState, ensureConfirmedPaymentRecoveryTask, markCatalogTransactionStockApplied, mergePlatformEntities, mergePlatformSupplierAccounts, migrateLegacyCatalog, normalizeCAddresses, normalizeCCommissionRecords, normalizeCOrders, normalizeCProducts, normalizeMinimumOrderQuantity, prepareCatalogTransaction, products as storeProductSeeds, promoters, readCAddresses, readCCommissionRecords, readCatalogState, readCOrders, readCUserSession, readCDistributorProfiles, writeCDistributorProfiles, readPendingCatalogTransactions, readPlatformJson, round2, seedCCommerceData,
   confirmCSubOrderReceiptAtSupplier, createUserAtomicRecoveryHandlerRegistrations, getPlatformProviders, initializePlatformRecoveryHandlers, isValidUserAtomicRecoveryJournal, markCSubOrderAfterSaleAtSupplier, readPaymentAttempts, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformEntities, readPlatformOrders, readPlatformSupplierAccounts, readPlatformWithdrawals, readUserBindings, readPlatformJournal, readUserCommercePurchaseIntents, reconcilePendingPlatformTransactions, resolveCReferralChain, resolveUserIdentity, retryPlatformRecoveryTask, runLockedPlatformCollectionTask, runLockedPlatformTransaction, simulateWechatLogin, splitCOrderItems, supplierCanReceiveNewOrders, suppliers as supplierSeeds, syncCSubOrderFromSupplier, transitionPaymentAttempt, upsertUserBinding, validateCatalogSkuOrderQuantity, writeUserBindings, writeCAddresses, writeCCommissionRecords, writeCOrder, writeCOrders, writeCUserSession, publishCSubOrderToSupplier, migrateLegacyCommissionsToLedger, readPlatformVoucherOrders, writePlatformAfterSales, writePlatformCommissionLedger, writePlatformCommissionLedgerEntry, writePlatformOrder, writePlatformOrders, writePlatformVoucherOrder, writePlatformVoucherOrders, writePlatformWithdrawal, writeUserCommercePurchaseIntents, preparePlatformJournal, markPlatformJournalStep, resolvePlatformJournal, enqueuePlatformRecovery, writeCatalogState, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_MIGRATED_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_C_PRODUCTS_STORAGE_KEY, PLATFORM_C_SCHEMA_VERSION_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY
 } from '@agritainment/shared'
+import { seedDemoUserCart, seedDemoUserDistributor } from '../data/demo-distributor'
 import { seedDemoUserOrders } from '../data/demo-orders'
 import { readLivePackageProjection, readLiveRoomProjection, userRepository } from '../services/repository'
 
@@ -887,9 +888,14 @@ export const useUserStore = defineStore('user', {
       return changed
     },
     seedDemoData() {
-      if (!this.userId || this.mockScenario !== 'normal' || !seedDemoUserOrders(this.userId)) return false
-      this.orders = Object.values(readCOrders() || {}).filter((item) => item.userId === this.userId)
-      return true
+      if (!this.userId || this.mockScenario !== 'normal') return false
+      const seededOrders = seedDemoUserOrders(this.userId)
+      if (seededOrders) this.orders = Object.values(readCOrders() || {}).filter((item) => item.userId === this.userId)
+      const seededDistributor = seedDemoUserDistributor(this.userId)
+      if (seededDistributor) this.distributorTick += 1
+      const seededCart = seedDemoUserCart(this.userId, this.mockScenario)
+      if (seededCart) this.restoreSession()
+      return seededOrders || seededDistributor || seededCart
     },
     applyCatalogState(catalog: CatalogState) {
       const products = normalizeCProducts(catalogProductsForAudience(catalog, 'user').map(catalogProductToCProduct))

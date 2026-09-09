@@ -247,6 +247,7 @@ export const PLATFORM_SHARE_CONFIG_STORAGE_KEY = 'agritainment-platform-share-co
 export const PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY = 'agritainment-platform-catalog-transaction-journal'
 export const PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY = 'agritainment-platform-catalog-product-submissions'
 export const PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY = 'agritainment-platform-driver-store-scopes'
+export const PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY = 'agritainment-platform-named-delivery-routes'
 export const PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY = 'agritainment-platform-daily-delivery-routes'
 export const PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY = 'agritainment-platform-transaction-journal'
 export const PLATFORM_RECOVERY_QUEUE_STORAGE_KEY = 'agritainment-platform-recovery-queue'
@@ -257,7 +258,9 @@ export const CATALOG_SCHEMA_VERSION = 2
 export const STORE_CATALOG_SELECTION_SCHEMA_VERSION = 1
 export const CATALOG_PRODUCT_SUBMISSION_SCHEMA_VERSION = 1
 export const DRIVER_STORE_SCOPE_SCHEMA_VERSION = 1
+export const NAMED_DELIVERY_ROUTE_SCHEMA_VERSION = 1
 export const DAILY_DELIVERY_ROUTE_SCHEMA_VERSION = 1
+export const DRIVER_CHECK_IN_MAX_METERS = 500
 
 export type PlatformJournalStatus = 'prepared' | 'committed' | 'aborted' | 'recovery-pending'
 export interface PlatformJournalEntry {
@@ -314,6 +317,13 @@ export interface DriverStoreScopeState {
   updatedAt: string
 }
 
+export interface RouteStopCheckIn {
+  at: string
+  latitude: number
+  longitude: number
+  distanceM: number
+}
+
 export interface RouteStop {
   storeId: string
   storeName: string
@@ -323,6 +333,23 @@ export interface RouteStop {
   orderIds: string[]
   completedOrderIds?: string[]
   completedAt?: string
+  checkIn?: RouteStopCheckIn
+}
+
+export interface NamedDeliveryRoute {
+  id: string
+  supplierId: string
+  name: string
+  storeIds: string[]
+  driverId?: string
+  updatedAt: string
+}
+
+export interface NamedDeliveryRouteState {
+  schemaVersion: number
+  revision: number
+  routes: NamedDeliveryRoute[]
+  updatedAt: string
 }
 
 export interface DeliveryRouteOrder {
@@ -359,6 +386,7 @@ export interface RouteOptimizationOutput {
   estimatedDurationMinutes: number
   provider: string
   warnings: string[]
+  polyline?: RouteOrigin[]
 }
 
 export interface DailyDeliveryRoute {
@@ -377,6 +405,8 @@ export interface DailyDeliveryRoute {
   origin?: RouteOrigin
   scopeStoreIds?: string[]
   baselineRevisions?: { routes: number; orders: number; scopes: number; entities: number }
+  stopCount?: number
+  polyline?: RouteOrigin[]
   generatedAt: string
   publishedAt?: string
   completedAt?: string
@@ -1667,6 +1697,7 @@ export interface StorefrontOrder {
   balanceRefunded?: boolean
   pointsAwarded?: number
   afterSaleType?: 'refund' | 'return'
+  payMethod?: 'balance' | 'wechat'
 }
 
 export interface SupplierSettlementRecord {
@@ -2374,7 +2405,8 @@ export const liveRooms: LiveRoom[] = [
   { id: 'L011', emoji: '🍠', title: '永州香芋大集 · 粉糯爆款', host: '永州香芋哥', hostRole: '推客主播', viewers: 0, productName: '江永香芋', productPrice: 32.8, status: 'preview', reminded: false, image: '/static/images/field.webp', farmId: 'F021', city: '永州市' },
   { id: 'L012', emoji: '🌶', title: '双峰辣酱下饭专场', host: '娄底辣酱哥', hostRole: '推客主播', viewers: 11200, productName: '双峰辣酱', productPrice: 29.9, status: 'live', reminded: false, image: '/static/images/chili.webp', farmId: 'F022', city: '娄底市' },
   { id: 'L013', emoji: '🐟', title: '洞庭湖鲜开渔季 · 刁子鱼秒杀', host: '山里阿强', hostRole: '推客主播', viewers: 12400, productName: '风干刁子鱼', productPrice: 42.8, status: 'live', reminded: false, image: '/static/images/field.webp', farmId: 'F020', city: '郴州市', promoterId: 'T001', linkedFarms: [{ farmId: 'F003', packageIds: ['P054'] }, { farmId: 'F006', packageIds: ['P065'] }] },
-  { id: 'L014', emoji: '🍵', title: '高山云雾茶 · 春日采茶慢直播', host: '张同学', hostRole: '推客主播', viewers: 0, productName: '高山云雾茶', productPrice: 128, status: 'preview', reminded: false, image: '/static/images/tea.webp', farmId: 'F002', city: '张家界市', promoterId: 'T001', linkedFarms: [{ farmId: 'F002', packageIds: ['P055'] }] }
+  { id: 'L014', emoji: '🍵', title: '高山云雾茶 · 春日采茶慢直播', host: '张同学', hostRole: '推客主播', viewers: 0, productName: '高山云雾茶', productPrice: 128, status: 'preview', reminded: false, image: '/static/images/tea.webp', farmId: 'F002', city: '张家界市', promoterId: 'T001', linkedFarms: [{ farmId: 'F002', packageIds: ['P055'] }] },
+  { id: 'L015', emoji: '🥓', title: '山里阿强腊味夜市', host: '山里阿强', hostRole: '推客主播', viewers: 8600, productName: '柴火腊肉', productPrice: 59.9, status: 'live', reminded: false, image: '/static/images/bacon.webp', farmId: 'F001', city: '湘西州', promoterId: 'T002', linkedFarms: [{ farmId: 'F001', packageIds: ['P007'] }] }
 ]
 
 export const members: Member[] = [
@@ -2404,6 +2436,12 @@ export const commissionRules: CommissionRule[] = [
 ]
 
 export const cityOptions = ['张家界永定区', '长沙岳麓区', '湘西州', '常德桃源县']
+
+export const farmhouseExperiences: FarmExperience[] = [
+  { id: 'EXP001', farmId: 'F001', name: '农事采摘体验', categoryCode: 'pick', description: '应季果蔬采摘 · 亲子互动', price: 68, status: 'active', image: '/static/images/field.webp', sort: 1, updatedAt: '2026-08-01T09:00:00.000Z' },
+  { id: 'EXP002', farmId: 'F001', name: '柴火土灶现做', categoryCode: 'cook', description: '农家柴火灶 · 现场烹饪', price: 128, status: 'active', image: '/static/images/farmhouse.webp', sort: 2, updatedAt: '2026-08-01T09:00:00.000Z' },
+  { id: 'EXP003', farmId: 'F001', name: '露营帐篷烧烤', categoryCode: 'camp', description: '临溪草坪 · 夜宿露营', price: 198, status: 'active', image: '/static/images/mountain.webp', sort: 3, updatedAt: '2026-08-01T09:00:00.000Z' }
+]
 
 export const farmhouseFoods = [
   { id: 'FD01', emoji: '🐔', name: '山泉土鸡汤', description: '散养土鸡 · 文火慢炖三小时', price: 88, originalPrice: 108, image: '/static/images/farmhouse.webp' },
@@ -3294,7 +3332,10 @@ export const demoShareRecords: ShareRecord[] = [
   { id: 'SR-D002', userId: 'U9002', orderId: 'NJ202608141026', orderAmount: 128, role: 'promoter', promoterId: 'T001', rate: 8, amount: 10.24, createdAt: '2026-08-14 10:26' },
   { id: 'SR-D003', userId: 'U9003', orderId: 'NJ202608121843', orderAmount: 68.9, role: 'promoter', promoterId: 'T001', rate: 10, amount: 6.89, createdAt: '2026-08-12 18:43' },
   { id: 'SR-D004', userId: 'U9004', orderId: 'NJ202608110947', orderAmount: 59.9, role: 'promoter', promoterId: 'T001', rate: 8, amount: 4.79, createdAt: '2026-08-11 09:47' },
-  { id: 'SR-D005', userId: 'U9005', orderId: 'NJ202608091618', orderAmount: 45, role: 'promoter', promoterId: 'T001', rate: 5, amount: 2.25, createdAt: '2026-08-09 16:18' }
+  { id: 'SR-D005', userId: 'U9005', orderId: 'NJ202608091618', orderAmount: 45, role: 'promoter', promoterId: 'T001', rate: 5, amount: 2.25, createdAt: '2026-08-09 16:18' },
+  { id: 'SR-D006', userId: 'U9011', orderId: 'NJ202608161032', orderAmount: 198, role: 'promoter', promoterId: 'T002', rate: 8, amount: 15.84, createdAt: '2026-08-16 10:32' },
+  { id: 'SR-D007', userId: 'U9012', orderId: 'NJ202608151548', orderAmount: 88, role: 'promoter', promoterId: 'T002', rate: 8, amount: 7.04, createdAt: '2026-08-15 15:48' },
+  { id: 'SR-D008', userId: 'U9013', orderId: 'NJ202608141210', orderAmount: 128, role: 'promoter', promoterId: 'T002', rate: 5, amount: 6.4, createdAt: '2026-08-14 12:10' }
 ]
 
 export const demoUserBindings: Record<string, UserBinding> = {
@@ -3302,12 +3343,32 @@ export const demoUserBindings: Record<string, UserBinding> = {
   U9002: { userId: 'U9002', promoterId: 'T001', status: 'bound', boundAt: '2026-08-14 10:30' },
   U9003: { userId: 'U9003', promoterId: 'T001', status: 'pending' },
   U9004: { userId: 'U9004', promoterId: 'T001', status: 'bound', boundAt: '2026-08-11 09:50' },
-  U9005: { userId: 'U9005', promoterId: 'T001', status: 'pending' }
+  U9005: { userId: 'U9005', promoterId: 'T001', status: 'pending' },
+  U9011: { userId: 'U9011', promoterId: 'T002', status: 'bound', boundAt: '2026-08-16 10:35' },
+  U9012: { userId: 'U9012', promoterId: 'T002', status: 'bound', boundAt: '2026-08-15 15:50' }
+}
+
+function mergeDemoRecordsById<T extends { id: string }>(existing: T[] | null, seeds: T[]): T[] {
+  const current = existing ? [...existing] : []
+  const ids = new Set(current.map((item) => item.id))
+  seeds.forEach((seed) => { if (!ids.has(seed.id)) { current.push(cloneSeed(seed)); ids.add(seed.id) } })
+  return current
 }
 
 export function seedPlatformDemoData(): void {
-  if (!readShareRecords()) writePlatformJson(PLATFORM_SHARES_STORAGE_KEY, demoShareRecords)
-  if (!readUserBindings()) writePlatformJson(PLATFORM_BINDINGS_STORAGE_KEY, demoUserBindings)
+  const shares = mergeDemoRecordsById(readShareRecords(), demoShareRecords)
+  if (!readShareRecords() || shares.length !== (readShareRecords() || []).length) writeShareRecords(shares)
+  const bindings = { ...(readUserBindings() || {}) }
+  let bindingAdded = !readUserBindings()
+  Object.entries(demoUserBindings).forEach(([id, binding]) => {
+    if (!bindings[id]) { bindings[id] = cloneSeed(binding); bindingAdded = true }
+  })
+  if (bindingAdded) writeUserBindings(bindings)
+  farmhouseExperiences.forEach((experience) => {
+    if (!readPlatformExperiences()?.[experience.id]) writePlatformExperience(cloneSeed(experience))
+  })
+  const t002Live = liveRooms.find((room) => room.id === 'L015')
+  if (t002Live && !(readPlatformLives() || {})['L015']) writePlatformLive(cloneSeed(t002Live))
 }
 
 // ===== 中台主数据发布：admin 维护的商品/门店/供应商/价格策略/品类全字段发布，其他应用读取覆盖 =====
@@ -3623,6 +3684,11 @@ export const demoDrivers: DriverAccount[] = [
   { id: 'D003', supplierId: SUPPLIER_DEMO_ID, name: '王芳', account: 'driver03', password: '123456', phone: '13711110003', status: 'active', createdAt: '2026-08-18 09:10' }
 ]
 
+export const demoNamedDeliveryRoutes: NamedDeliveryRoute[] = [
+  { id: 'NR-S002-EAST', supplierId: SUPPLIER_DEMO_ID, name: '东线', storeIds: ['F001', 'F002'], driverId: 'D001', updatedAt: '2026-08-18T09:20:00.000Z' },
+  { id: 'NR-S002-WEST', supplierId: SUPPLIER_DEMO_ID, name: '西线', storeIds: ['F002', 'F003'], driverId: 'D002', updatedAt: '2026-08-18T09:21:00.000Z' }
+]
+
 const supplierStatusToOrderStatus: Record<PurchaseStatus, OrderStatus> = {
   submitted: 'pending', accepted: 'pending', shipped: 'shipping', delivering: 'shipping', received: 'delivered', completed: 'delivered', cancelled: 'unpaid-cancelled'
 }
@@ -3674,6 +3740,55 @@ export function deriveSupplierMetrics(orders: Order[]): SupplierMetrics {
     shortageOrderCount: orders.filter((order) => isTodayInTransit(order) && (order.supplierFulfillment?.shortages.length || 0) > 0).length,
     todayOrderCount: todayOrders.length,
     todayAmount: round2(todayOrders.reduce((sum, order) => sum + order.amount, 0))
+  }
+}
+
+export interface TodayFarmhouseQuantities {
+  storeCount: number
+  itemCount: number
+  pendingShipItemCount: number
+  shortageItemCount: number
+  deliveringItemCount: number
+}
+
+function isFarmhouseSupplyOrder(order: Order): boolean {
+  if (order.supplierOrderLink?.source === 'c-mall') return false
+  return order.channel === 'purchase' || order.supplierOrderLink?.source === 'farmhouse-courier'
+}
+
+function farmhouseOrderItemCount(order: Order): number {
+  return (order.items || []).reduce((sum, item) => sum + item.quantity, 0)
+}
+
+export function deriveTodayFarmhouseQuantities(
+  orders: Order[],
+  storeKeyOf: (order: Order) => string | undefined = (order) => order.storeId || order.storeName || order.customer
+): TodayFarmhouseQuantities {
+  const today = todayString()
+  const isToday = (value: string) => value.startsWith(today)
+  const isTodayInTransit = (order: Order) => {
+    const fulfillment = order.supplierFulfillment
+    return fulfillment?.deliverDate === today && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
+  }
+  const scoped = orders.filter(isFarmhouseSupplyOrder)
+  const todayOrders = scoped.filter((order) => isToday(order.createdAt))
+  const stores = new Set<string>()
+  for (const order of todayOrders) {
+    const key = storeKeyOf(order)
+    if (key) stores.add(key)
+  }
+  return {
+    storeCount: stores.size,
+    itemCount: todayOrders.reduce((sum, order) => sum + farmhouseOrderItemCount(order), 0),
+    pendingShipItemCount: scoped
+      .filter((order) => ensureSupplierFulfillment(order).status === 'accepted')
+      .reduce((sum, order) => sum + farmhouseOrderItemCount(order), 0),
+    shortageItemCount: scoped
+      .filter(isTodayInTransit)
+      .reduce((sum, order) => sum + (order.supplierFulfillment?.shortages || []).reduce((qty, item) => qty + item.shortage, 0), 0),
+    deliveringItemCount: scoped
+      .filter((order) => ensureSupplierFulfillment(order).status === 'delivering')
+      .reduce((sum, order) => sum + farmhouseOrderItemCount(order), 0)
   }
 }
 
@@ -4653,6 +4768,100 @@ export function writeDriverStoreScopeState(next: DriverStoreScopeState, expected
   return writePlatformJson(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, cloneSeed(normalized))
 }
 
+function uniqueStoreIdsInOrder(storeIds: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const next: string[] = []
+  for (const storeId of storeIds) {
+    const id = typeof storeId === 'string' ? storeId.trim() : ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    next.push(id)
+  }
+  return next
+}
+
+function normalizeNamedDeliveryRouteState(value: unknown): NamedDeliveryRouteState | null {
+  const state = value as Partial<NamedDeliveryRouteState> | null
+  if (!state || state.schemaVersion !== NAMED_DELIVERY_ROUTE_SCHEMA_VERSION || !Number.isInteger(state.revision) || Number(state.revision) < 0 || !Array.isArray(state.routes) || !validIsoTimestamp(state.updatedAt)) return null
+  const ids = new Set<string>()
+  const routes: NamedDeliveryRoute[] = []
+  for (const route of state.routes) {
+    if (!route?.id?.trim() || ids.has(route.id) || !route.supplierId?.trim() || !route.name?.trim() || !Array.isArray(route.storeIds) || route.storeIds.some((storeId) => typeof storeId !== 'string' || !storeId.trim()) || !validIsoTimestamp(route.updatedAt) || (route.driverId !== undefined && !route.driverId.trim())) return null
+    ids.add(route.id)
+    routes.push({
+      id: route.id, supplierId: route.supplierId, name: route.name.trim(),
+      storeIds: uniqueStoreIdsInOrder(route.storeIds),
+      ...(route.driverId ? { driverId: route.driverId } : {}),
+      updatedAt: route.updatedAt
+    })
+  }
+  routes.sort((left, right) => left.supplierId.localeCompare(right.supplierId) || left.id.localeCompare(right.id))
+  return { schemaVersion: NAMED_DELIVERY_ROUTE_SCHEMA_VERSION, revision: Number(state.revision), routes, updatedAt: state.updatedAt }
+}
+
+export function readNamedDeliveryRouteState(): NamedDeliveryRouteState | null {
+  const state = normalizeNamedDeliveryRouteState(readPlatformJson<unknown>(PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY))
+  return state ? cloneSeed(state) : null
+}
+
+export function readNamedDeliveryRoutes(supplierId?: string): NamedDeliveryRoute[] {
+  return (readNamedDeliveryRouteState()?.routes ?? []).filter((route) => !supplierId || route.supplierId === supplierId)
+}
+
+export function namedRouteForDriver(supplierId: string, driverId: string): NamedDeliveryRoute | undefined {
+  return readNamedDeliveryRoutes(supplierId).find((route) => route.driverId === driverId)
+}
+
+export function writeNamedDeliveryRouteState(next: NamedDeliveryRouteState, expectedRevision: number): boolean {
+  const raw = readPlatformJson<unknown>(PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY)
+  const current = normalizeNamedDeliveryRouteState(raw)
+  if ((raw !== null && !current) || !Number.isInteger(expectedRevision) || (current?.revision ?? 0) !== expectedRevision || next.revision !== expectedRevision + 1) return false
+  const normalized = normalizeNamedDeliveryRouteState(next)
+  if (!normalized || (current && Date.parse(normalized.updatedAt) <= Date.parse(current.updatedAt))) return false
+  return writePlatformJson(PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY, cloneSeed(normalized))
+}
+
+export function saveNamedDeliveryRoute(route: NamedDeliveryRoute, expectedRevision: number): WriteResult<NamedDeliveryRoute> {
+  const raw = readPlatformJson<unknown>(PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY)
+  const current = normalizeNamedDeliveryRouteState(raw)
+  if (raw !== null && !current) return writeFailure('invalid_payload', '命名线路集合损坏')
+  if ((current?.revision ?? 0) !== expectedRevision) return writeFailure('revision_conflict', '数据已更新，请刷新后重试')
+  const normalizedRoute = normalizeNamedDeliveryRouteState({ schemaVersion: NAMED_DELIVERY_ROUTE_SCHEMA_VERSION, revision: 1, routes: [route], updatedAt: route.updatedAt })?.routes[0]
+  if (!normalizedRoute) return writeFailure('invalid_payload', '命名线路无效')
+  const routes = cloneSeed(current?.routes ?? [])
+  const index = routes.findIndex((item) => item.id === normalizedRoute.id)
+  if (index >= 0) routes[index] = normalizedRoute
+  else routes.push(normalizedRoute)
+  if (normalizedRoute.driverId) {
+    for (const item of routes) {
+      if (item.id !== normalizedRoute.id && item.supplierId === normalizedRoute.supplierId && item.driverId === normalizedRoute.driverId) delete item.driverId
+    }
+  }
+  routes.sort((left, right) => left.supplierId.localeCompare(right.supplierId) || left.id.localeCompare(right.id))
+  const next: NamedDeliveryRouteState = { schemaVersion: NAMED_DELIVERY_ROUTE_SCHEMA_VERSION, revision: expectedRevision + 1, routes, updatedAt: route.updatedAt }
+  return writeNamedDeliveryRouteState(next, expectedRevision) ? { ok: true, value: cloneSeed(normalizedRoute) } : writeFailure('write_failed', '命名线路保存失败')
+}
+
+export function orderStopsByNamedRoute(storeIds: readonly string[], stops: readonly RouteStop[]): { stops: RouteStop[]; warnings: string[] } {
+  const byId = new Map((Array.isArray(stops) ? stops : []).map((stop) => [stop.storeId, stop]))
+  const ordered: RouteStop[] = []
+  const seen = new Set<string>()
+  for (const storeId of storeIds || []) {
+    const stop = byId.get(storeId)
+    if (!stop || seen.has(storeId)) continue
+    ordered.push(cloneSeed(stop))
+    seen.add(storeId)
+  }
+  const warnings: string[] = []
+  for (const stop of stops || []) {
+    if (seen.has(stop.storeId)) continue
+    ordered.push(cloneSeed(stop))
+    seen.add(stop.storeId)
+    warnings.push(`off_route:${stop.storeId}`)
+  }
+  return { stops: ordered, warnings }
+}
+
 export function saveDriverStoreScope(scope: DriverStoreScope, expectedRevision: number): WriteResult<DriverStoreScope> {
   const raw = readPlatformJson<unknown>(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY)
   const current = normalizeDriverStoreScopeState(raw)
@@ -4680,7 +4889,135 @@ function routeStopIsValid(stop: RouteStop): boolean {
   if (!Array.isArray(completedOrderIds) || new Set(completedOrderIds).size !== completedOrderIds.length || completedOrderIds.some((id) => typeof id !== 'string' || !orderIds.has(id)) || (stop.completedAt !== undefined && !validIsoTimestamp(stop.completedAt)) || (completedOrderIds.length === orderIds.size) !== !!stop.completedAt) return false
   const hasLongitude = stop.longitude !== undefined
   const hasLatitude = stop.latitude !== undefined
-  return hasLongitude === hasLatitude && (!hasLongitude || coordinateIsValid(stop.longitude, stop.latitude))
+  if (hasLongitude !== hasLatitude || (hasLongitude && !coordinateIsValid(stop.longitude, stop.latitude))) return false
+  if (stop.checkIn === undefined) return true
+  const checkIn = stop.checkIn
+  return !!checkIn && validIsoTimestamp(checkIn.at) && coordinateIsValid(checkIn.longitude, checkIn.latitude) && Number.isFinite(checkIn.distanceM) && checkIn.distanceM >= 0
+}
+
+export function filterStopsWithOrders(stops: readonly RouteStop[]): RouteStop[] {
+  return (Array.isArray(stops) ? stops : []).filter((stop) => Array.isArray(stop?.orderIds) && stop.orderIds.length > 0)
+}
+
+function routePolylineIsValid(value: unknown): value is RouteOrigin[] {
+  return Array.isArray(value) && value.every((point) => coordinateIsValid(point?.longitude, point?.latitude))
+}
+
+export function snapshotDailyDeliveryRoute(route: DailyDeliveryRoute): DailyDeliveryRoute {
+  const stops = filterStopsWithOrders(route.stops)
+  const sourceOrderIds = [...new Set(stops.flatMap((stop) => stop.orderIds))].sort((left, right) => left.localeCompare(right))
+  return {
+    ...cloneSeed(route),
+    stops,
+    sourceOrderIds,
+    stopCount: stops.length,
+    ...(routePolylineIsValid(route.polyline) ? { polyline: route.polyline.map((point) => ({ longitude: point.longitude, latitude: point.latitude })) } : { polyline: undefined })
+  }
+}
+
+export interface EnsurePublishedRoutesInput {
+  supplierId: string
+  date: string
+  drivers: readonly DriverAccount[]
+  orders: readonly Order[]
+  warehouse?: RouteOrigin
+  scopes?: readonly DriverStoreScope[]
+  namedRoutes?: readonly NamedDeliveryRoute[]
+  resolveStore: (order: Order) => { storeId: string; storeName: string; address: string; longitude?: number; latitude?: number } | undefined
+  now?: string
+}
+
+export async function ensurePublishedRoutesForDate(input: EnsurePublishedRoutesInput): Promise<{ generated: DailyDeliveryRoute[]; skipped: string[]; routes: DailyDeliveryRoute[] }> {
+  const generated: DailyDeliveryRoute[] = []
+  const skipped: string[] = []
+  if (!input?.supplierId?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(input.date || '')) {
+    return { generated, skipped, routes: readDailyDeliveryRoutes(input?.supplierId) }
+  }
+  const existing = readDailyDeliveryRoutes(input.supplierId)
+  let revision = readDailyDeliveryRouteState()?.revision ?? 0
+  const warehouse = input.warehouse
+  const hasWarehouse = warehouse ? coordinateIsValid(warehouse.longitude, warehouse.latitude) : false
+  for (const driver of input.drivers.filter((item) => item.supplierId === input.supplierId && item.status === 'active')) {
+    if (existing.some((route) => route.driverId === driver.id && route.deliveryDate === input.date && route.status !== 'draft')) {
+      skipped.push(driver.id)
+      continue
+    }
+    if (!hasWarehouse) {
+      skipped.push(driver.id)
+      continue
+    }
+    const driverOrders = input.orders.filter((order) => {
+      const fulfillment = order.supplierFulfillment
+      return order.supplierId === input.supplierId && fulfillment?.driverId === driver.id && fulfillment.shipType === 'driver'
+        && fulfillment.deliverDate === input.date && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
+    })
+    if (!driverOrders.length) {
+      skipped.push(driver.id)
+      continue
+    }
+    const resolved = driverOrders.map((order) => ({ order, store: input.resolveStore(order) }))
+    if (resolved.some((item) => !item.store)) {
+      skipped.push(driver.id)
+      continue
+    }
+    const stops = filterStopsWithOrders(mergeDeliveryOrdersByStore(resolved.map(({ order, store }) => ({
+      orderId: order.id, storeId: store!.storeId, storeName: store!.storeName, address: store!.address,
+      longitude: store!.longitude, latitude: store!.latitude
+    }))))
+    if (!stops.length) {
+      skipped.push(driver.id)
+      continue
+    }
+    const named = (input.namedRoutes || []).find((route) => route.supplierId === input.supplierId && route.driverId === driver.id)
+    const namedOrder = named ? orderStopsByNamedRoute(named.storeIds, stops) : { stops, warnings: [] as string[] }
+    let optimized
+    try {
+      const providers = await import('./providers')
+      optimized = await providers.getPlatformProviders().routeOptimization.optimize({ origin: warehouse!, stops: namedOrder.stops })
+    } catch {
+      const local = optimizeDeliveryRoute({ origin: warehouse!, stops: namedOrder.stops })
+      optimized = local ? { ok: true as const, value: local } : { ok: false as const, code: 'route_optimization_failed', message: '线路规划失败' }
+    }
+    if (!optimized.ok || !optimized.value) {
+      skipped.push(driver.id)
+      continue
+    }
+    const ordered = named ? orderStopsByNamedRoute(named.storeIds, optimized.value.orderedStops) : { stops: optimized.value.orderedStops, warnings: [] as string[] }
+    optimized = { ...optimized, value: { ...optimized.value, orderedStops: ordered.stops, warnings: [...new Set([...(optimized.value.warnings || []), ...namedOrder.warnings, ...ordered.warnings])] } }
+    const previousUpdatedAt = readDailyDeliveryRouteState()?.updatedAt
+    const now = new Date(Math.max(
+      Date.parse(input.now || '') || Date.now(),
+      (previousUpdatedAt ? Date.parse(previousUpdatedAt) : 0) + 1
+    )).toISOString()
+    const draft = snapshotDailyDeliveryRoute({
+      id: `ROUTE-${input.supplierId}-${driver.id}-${input.date}`,
+      supplierId: input.supplierId,
+      driverId: driver.id,
+      deliveryDate: input.date,
+      status: 'published',
+      stops: optimized.value.orderedStops,
+      totalDistanceKm: optimized.value.totalDistanceKm,
+      estimatedDurationMinutes: optimized.value.estimatedDurationMinutes,
+      sourceOrderIds: driverOrders.map((order) => order.id),
+      provider: optimized.value.provider,
+      segments: optimized.value.segments,
+      warnings: optimized.value.warnings,
+      origin: warehouse,
+      polyline: optimized.value.polyline,
+      scopeStoreIds: cloneSeed(named?.storeIds || (input.scopes || []).find((scope) => scope.supplierId === input.supplierId && scope.driverId === driver.id)?.storeIds || []),
+      generatedAt: now,
+      publishedAt: now
+    })
+    const saved = saveDailyDeliveryRoute(draft, revision)
+    if (!saved.ok || !saved.value) {
+      skipped.push(driver.id)
+      continue
+    }
+    revision += 1
+    generated.push(saved.value)
+    existing.push(saved.value)
+  }
+  return { generated, skipped, routes: readDailyDeliveryRoutes(input.supplierId) }
 }
 
 export function mergeDeliveryOrdersByStore(orders: readonly DeliveryRouteOrder[]): RouteStop[] {
@@ -4714,6 +5051,24 @@ function preciseHaversineKm(left: RouteOrigin, right: RouteOrigin): number {
   const longitudeDelta = toRadians(right.longitude - left.longitude)
   const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(toRadians(left.latitude)) * Math.cos(toRadians(right.latitude)) * Math.sin(longitudeDelta / 2) ** 2
   return 2 * radiusKm * Math.asin(Math.sqrt(a))
+}
+
+export function distanceMeters(left: RouteOrigin, right: RouteOrigin): number {
+  return Math.round(preciseHaversineKm(left, right) * 1000)
+}
+
+export function validateStopCheckIn(stop: Pick<RouteStop, 'latitude' | 'longitude'>, location: RouteOrigin): { ok: true; distanceM: number } | { ok: false; code: string; message: string; distanceM?: number } {
+  if (stop.latitude === undefined || stop.longitude === undefined || !coordinateIsValid(stop.longitude, stop.latitude)) {
+    return { ok: false, code: 'store_coordinates_missing', message: '门店缺少坐标，无法打卡' }
+  }
+  if (!coordinateIsValid(location.longitude, location.latitude)) {
+    return { ok: false, code: 'location_unavailable', message: '无法获取定位，请开启定位权限' }
+  }
+  const distanceM = distanceMeters({ latitude: stop.latitude, longitude: stop.longitude }, location)
+  if (distanceM > DRIVER_CHECK_IN_MAX_METERS) {
+    return { ok: false, code: 'too_far', message: `距离门店 ${distanceM} 米，超过 ${DRIVER_CHECK_IN_MAX_METERS} 米不能打卡`, distanceM }
+  }
+  return { ok: true, distanceM }
 }
 
 function routePathDistance(origin: RouteOrigin, stops: readonly RouteStop[]): number {
@@ -4795,7 +5150,12 @@ function normalizeDailyDeliveryRouteState(value: unknown): DailyDeliveryRouteSta
   for (const route of state.routes) {
     if (!route?.id?.trim() || ids.has(route.id) || !route.supplierId?.trim() || !route.driverId?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(route.deliveryDate || '') || !['draft', 'published', 'stale', 'completed'].includes(route.status) || !Array.isArray(route.stops) || route.stops.some((stop) => !routeStopIsValid(stop)) || !Number.isFinite(route.totalDistanceKm) || route.totalDistanceKm < 0 || !Number.isFinite(route.estimatedDurationMinutes) || route.estimatedDurationMinutes < 0 || !Array.isArray(route.sourceOrderIds) || route.sourceOrderIds.some((orderId) => typeof orderId !== 'string' || !orderId.trim()) || !route.provider?.trim() || !validIsoTimestamp(route.generatedAt) || (route.publishedAt !== undefined && !validIsoTimestamp(route.publishedAt)) || (route.completedAt !== undefined && !validIsoTimestamp(route.completedAt)) || (route.status !== 'draft' && !route.publishedAt) || (route.status === 'completed') !== !!route.completedAt || (route.status === 'completed' && route.stops.some((stop) => !stop.completedAt))) return null
     ids.add(route.id)
-    routes.push({ ...cloneSeed(route), sourceOrderIds: [...new Set(route.sourceOrderIds)].sort((left, right) => left.localeCompare(right)) })
+    routes.push({
+      ...cloneSeed(route),
+      sourceOrderIds: [...new Set(route.sourceOrderIds)].sort((left, right) => left.localeCompare(right)),
+      stopCount: route.stops.length,
+      ...(routePolylineIsValid(route.polyline) ? { polyline: route.polyline } : {})
+    })
   }
   return { schemaVersion: DAILY_DELIVERY_ROUTE_SCHEMA_VERSION, revision: Number(state.revision), routes, updatedAt: state.updatedAt }
 }
@@ -6185,7 +6545,7 @@ export function buildSupplierPlatformOrders(input: {
       storeName: input.storeName,
       supplierId: group.supplierId,
       items: group.items,
-      supplierOrderLink: { source: input.source, sourceOrderId: input.sourceOrderId, sourceSubOrderId: baseId, customerUserId: input.customerUserId }
+      supplierOrderLink: { source: input.source, sourceOrderId: input.sourceOrderId, sourceSubOrderId: baseId, customerUserId: input.customerUserId, deliveryAddress: input.deliveryAddress ? cloneSeed(input.deliveryAddress) : undefined }
     }
   })
 }

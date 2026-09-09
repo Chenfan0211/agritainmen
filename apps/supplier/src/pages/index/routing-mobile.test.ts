@@ -10,6 +10,10 @@ describe('supplier and driver mobile routing navigation', () => {
     expect([...supplierTabs.matchAll(/label: '([^']+)'/g)].map((match) => match[1])).toEqual(['首页', '订单', '商品', '我的'])
     expect([...driverTabs.matchAll(/label: '([^']+)'/g)].map((match) => match[1])).toEqual(['今日线路', '历史任务', '我的'])
     expect(source).toMatch(/secondaryWorkspace[\s\S]*返回/)
+    expect(source).toMatch(/class="page-back" aria-label="返回"/)
+    expect(source).not.toMatch(/<text>返回<\/text>/)
+    expect(source).not.toContain('.secondary-workspace { position: fixed')
+    expect(source).toMatch(/v-if="store\.auth\.role === 'supplier' && !secondaryWorkspace"/)
     expect(source).toContain("'drivers'")
     expect(source).toContain("'routes'")
     expect(source).toContain("'settlements'")
@@ -20,6 +24,7 @@ describe('supplier and driver mobile routing navigation', () => {
   it('subscribes to routing collections and includes mobile touch and overflow guards', () => {
     const subscribed = source.match(/const platformChangeKeys = \[([^\]]+)\]/)?.[1] || ''
     expect(subscribed).toContain('PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY')
+    expect(subscribed).toContain('PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY')
     expect(subscribed).toContain('PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY')
     expect(source).toMatch(/\.bottom-tab\s*\{[^}]*min-height:\s*44px/s)
     expect(source).toMatch(/@media\s*\(max-width:\s*375px\)/)
@@ -28,7 +33,7 @@ describe('supplier and driver mobile routing navigation', () => {
   })
 
   it('shows contact details on published route stops and only confirms a successful driver status change', () => {
-    const publishedRoute = source.match(/<view v-if="store\.currentDriverRoute"[\s\S]*?<view v-else class="empty-state compact-empty"/)?.[0] || ''
+    const publishedRoute = source.match(/<view v-if="store\.currentDriverRoute"[\s\S]*?供应商尚未发布今日线路/)?.[0] || ''
     expect(publishedRoute).toContain('storeInfoOf(stop).contact')
     expect(publishedRoute).toContain('storeInfoOf(stop).phone')
     const confirmToggle = source.match(/function confirmToggle\(\)[\s\S]*?\n}/)?.[0] || ''
@@ -36,10 +41,19 @@ describe('supplier and driver mobile routing navigation', () => {
   })
 
   it('shows route completion progress and the next stop without offering handover for completed orders', () => {
-    const todayRoute = source.match(/<view v-if="store\.currentDriverRoute"[\s\S]*?<view v-else class="empty-state compact-empty"/)?.[0] || ''
+    const todayRoute = source.match(/<view v-if="store\.currentDriverRoute"[\s\S]*?供应商尚未发布今日线路/)?.[0] || ''
     expect(todayRoute).toContain('routeCompletedOrderCount')
     expect(todayRoute).toContain('routeOrderCount')
     expect(todayRoute).toContain('nextRouteStop')
     expect(todayRoute).toContain("orderFulfillment(order).status !== 'received'")
+    expect(todayRoute).toContain('DeliveryRouteMap')
+    expect(todayRoute).toContain('家农家乐')
+    expect(source).toContain('按今天补生成')
+    expect(source).toContain('到店打卡')
+    expect(source).toContain('新建线路')
+    expect(source).not.toContain('配送范围')
+    expect(source).toContain('createDrivingRouteOptimizationProvider')
+    expect(source).toContain('ensureTodayRoutes')
+    expect(source).toContain('routeOptimizationWarningText')
   })
 })

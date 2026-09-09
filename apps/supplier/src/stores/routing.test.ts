@@ -23,10 +23,13 @@ type RoutingStore = ReturnType<typeof useSupplierStore> & {
   currentDriverRoute?: DailyDeliveryRoute | null
   pendingRouteTasks?: Order[]
   updateDriverScope?: (driverId: string, storeIds: string[]) => Promise<WriteResult<DriverStoreScope>>
+  checkInStop?: (storeId: string, location: { latitude: number; longitude: number }) => Promise<WriteResult<{ distanceM: number }>>
   assignableDriversForOrder?: (order: Order) => Array<{ id: string }>
   optimizeDriverRoute?: (driverId: string, deliveryDate: string) => Promise<WriteResult<DailyDeliveryRoute>>
   moveRouteStop?: (index: number, direction: -1 | 1) => boolean
   publishRoute?: () => Promise<WriteResult<DailyDeliveryRoute>>
+  ensureTodayRoutes?: () => Promise<WriteResult<{ generated: number }>>
+  dailyRouteRevision: number
   updateWarehouse?: (input: { address: string; longitude?: number; latitude?: number }) => Promise<WriteResult>
 }
 
@@ -67,6 +70,11 @@ function routeOrder(input: Partial<Order> & Pick<Order, 'id' | 'customer'>): Ord
 
 function deliveryDateOffset(days: number): string {
   return new Date(Date.parse(`${shared.todayString()}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10)
+}
+
+async function checkInAtFarm(store: RoutingStore, storeId = 'F001') {
+  const destination = repository.storeDirectory[storeId]
+  expect(await store.checkInStop?.(storeId, { latitude: destination.latitude!, longitude: destination.longitude! })).toMatchObject({ ok: true })
 }
 
 describe('supplier routing workflow', () => {
@@ -356,7 +364,8 @@ describe('supplier routing workflow', () => {
 
     expect(store.optimizeDriverRoute).toBeTypeOf('function')
     const first = await store.optimizeDriverRoute!('D001', shared.todayString())
-    expect(first).toMatchObject({ ok: true, value: { warnings: ['missing_coordinates:F003'] } })
+    expect(first).toMatchObject({ ok: true })
+    expect(first.value?.warnings).toEqual(expect.arrayContaining(['missing_coordinates:F003']))
     expect(store.routeDraft?.stops.find((stop: RouteStop) => stop.storeId === 'F001')?.orderIds).toEqual(expect.arrayContaining(['ROUTE-A1', 'ROUTE-A2']))
     expect(store.routeDraft?.stops.at(-1)?.storeId).toBe('F003')
     const beforeFailure = shared.cloneSeed(store.routeDraft)
@@ -651,6 +660,7 @@ describe('supplier routing workflow', () => {
     await store.initialize()
     expect(store.loginDriver('driver01', '123456')).toBe(true)
 
+    await checkInAtFarm(store)
     expect(await store.handoverIn(first.id)).toBe(true)
     const afterFirst = shared.readDailyDeliveryRoutes('S002', 'D001')[0]
     expect(afterFirst).toMatchObject({ status: 'published', stops: [expect.objectContaining({ completedOrderIds: [first.id] })] })
@@ -680,6 +690,7 @@ describe('supplier routing workflow', () => {
     const store = useSupplierStore()
     await store.initialize()
     expect(store.loginDriver('driver01', '123456')).toBe(true)
+    await checkInAtFarm(store as RoutingStore)
     const existingOperationIds = new Set(Object.keys(shared.readPlatformJournal()))
     expect(await store.handoverIn(first.id)).toBe(true)
 
@@ -741,6 +752,7 @@ describe('supplier routing workflow', () => {
     const store = useSupplierStore()
     await store.initialize()
     expect(store.loginDriver('driver01', '123456')).toBe(true)
+    await checkInAtFarm(store as RoutingStore)
     const existingOperationIds = new Set(Object.keys(shared.readPlatformJournal()))
     expect(await store.handoverIn(order.id)).toBe(true)
 
@@ -786,5 +798,19 @@ describe('supplier routing workflow', () => {
     expect(await shared.retryPlatformRecoveryTask(task.id, 'ADMIN-RECOVERY')).toMatchObject({ ok: false, code: 'handler-failed' })
     expect(shared.readDriverStoreScopeState()).toEqual(beforeRetry.driverScopes)
     expect(shared.readPlatformAuditLogs()).toEqual(beforeRetry.auditLogs)
+  })
+
+  it('keeps a published today route when ensuring daily snapshots and records stopCount on new drafts', async () => {
+    const store = useSupplierStore() as RoutingStore
+    await store.initialize()
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+    const publishedAt = new Date(Date.now() - 2000).toISOString()
+    const published = { ...publishedRoute('D001', 'ENSURE-KEEP'), generatedAt: publishedAt, publishedAt }
+    expect(shared.saveDailyDeliveryRoute(published, store.dailyRouteRevision)).toMatchObject({ ok: true })
+    expect(await store.ensureTodayRoutes!()).toMatchObject({ ok: true, value: { generated: 2 } })
+    expect(shared.readDailyDeliveryRoutes('S002', 'D001')[0]).toMatchObject({ id: published.id, provider: 'test' })
+    expect(shared.readDailyDeliveryRoutes('S002', 'D002')[0]).toMatchObject({ driverId: 'D002', status: 'published', stopCount: 1 })
+    expect(shared.readDailyDeliveryRoutes('S002', 'D003')[0]).toMatchObject({ driverId: 'D003', status: 'published', stopCount: 1 })
+    expect(await store.ensureTodayRoutes!()).toMatchObject({ ok: true, value: { generated: 0 } })
   })
 })

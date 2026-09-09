@@ -27,6 +27,9 @@ TENCENT_MAP_TIMEOUT_MS=5000
 
 - `POST /api/tencent-map/geocode`：请求 `{ "address": "...", "city": "..." }`，返回 `FarmLocation`。
 - `POST /api/tencent-map/translate`：请求 `{ "source": "WGS84", "locations": [...] }`，固定返回 `coordinateSystem: "GCJ-02"`。
+- `POST /api/tencent-map/direction`：请求 `{ "origin": { "longitude", "latitude" }, "stops": [{ "storeId", "longitude", "latitude" }] }`，返回驾车距离、预计时长、折线和分段。站点顺序由业务侧先排好，网关只负责路算。
+
+`pnpm --filter @agritainment/supplier dev:h5` 也会在 Vite 开发服务中挂载同一网关。司机 H5 底图使用 `VITE_TENCENT_MAP_JS_KEY`，不读取 Secret。
 
 坐标来源支持 `GCJ-02`、`WGS84`、`SOGOU`、`BAIDU`、`MAPBAR` 和 `SOGOU_MERCATOR`。GCJ-02 只校验后原样返回，不调用腾讯配额。
 

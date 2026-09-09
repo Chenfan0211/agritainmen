@@ -1,5 +1,5 @@
 import { optimizeDeliveryRoute } from './index'
-import type { RouteOptimizationInput, RouteOptimizationOutput } from './index'
+import type { RouteOptimizationInput, RouteOptimizationOutput, RouteOrigin, RouteSegment } from './index'
 
 export type ProviderResult<T = void> = { ok: true; value?: T } | { ok: false; code: string; message: string }
 
@@ -34,6 +34,62 @@ export function buildTencentNavigationUrl(input: { longitude: number; latitude: 
 
 export function buildTencentMapSearchUrl(keyword: string, referer = 'agritainment-platform'): string {
   return `https://apis.map.qq.com/uri/v1/search?${new URLSearchParams({ keyword, referer })}`
+}
+
+export function createDrivingRouteOptimizationProvider(options: {
+  requestDirection?: (input: { origin: RouteOrigin; stops: Array<{ storeId: string; longitude: number; latitude: number }> }) => Promise<ProviderResult<{
+    distanceKm: number
+    durationMinutes: number
+    polyline: RouteOrigin[]
+    segments: RouteSegment[]
+  }>>
+  fetch?: typeof fetch
+  gateway?: string
+} = {}): RouteOptimizationProvider {
+  const requestDirection = options.requestDirection || (async (input) => {
+    const request = options.fetch || fetch
+    const response = await request(options.gateway || '/api/tencent-map/direction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input)
+    })
+    if (!response.ok) return { ok: false, code: 'UPSTREAM_ERROR', message: '地图服务暂不可用' }
+    return { ok: true, value: await response.json() as { distanceKm: number; durationMinutes: number; polyline: RouteOrigin[]; segments: RouteSegment[] } }
+  })
+  return {
+    async optimize(input) {
+      try {
+        const local = optimizeDeliveryRoute(input)
+        if (!local) return { ok: false, code: 'invalid_route_input', message: 'Invalid route optimization input' }
+        const located = local.orderedStops.filter((stop) => stop.longitude !== undefined && stop.latitude !== undefined)
+        if (!located.length) return { ok: true, value: { ...local, provider: 'haversine', warnings: [...local.warnings, 'direction_fallback'] } }
+        try {
+          const directed = await requestDirection({
+            origin: input.origin,
+            stops: located.map((stop) => ({ storeId: stop.storeId, longitude: stop.longitude!, latitude: stop.latitude! }))
+          })
+          if (!directed.ok || !directed.value) {
+            return { ok: true, value: { ...local, provider: 'haversine', warnings: [...local.warnings, 'direction_fallback'] } }
+          }
+          return {
+            ok: true,
+            value: {
+              ...local,
+              segments: directed.value.segments,
+              totalDistanceKm: directed.value.distanceKm,
+              estimatedDurationMinutes: directed.value.durationMinutes,
+              polyline: directed.value.polyline,
+              provider: 'tencent-direction'
+            }
+          }
+        } catch {
+          return { ok: true, value: { ...local, provider: 'haversine', warnings: [...local.warnings, 'direction_fallback'] } }
+        }
+      } catch {
+        return { ok: false, code: 'route_optimization_failed', message: 'Route optimization failed' }
+      }
+    }
+  }
 }
 
 export function createMockPlatformProviders(): PlatformProviders {

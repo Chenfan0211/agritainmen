@@ -126,6 +126,117 @@ async function fulfillSupplierOrder(page: Page, platformOrderId: string) {
   return trackingNo
 }
 
+test('farmhouse address book selects a non-default courier address and supplier reads its snapshot', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', '地址簿完整流程仅需移动端执行一次')
+  await page.setViewportSize({ width: 320, height: 720 })
+  await page.goto('/farmhouse/')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.evaluate(() => {
+    const catalog = JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}') as { products?: Array<{ id: string; skus: Array<{ id: string; retailPrice: number }> }> }
+    const products = catalog.products?.filter((item) => item.id === 'P001' || item.id === 'P002') || []
+    const courierProduct = products.find((item) => item.id === 'P001')
+    const pickupProduct = products.find((item) => item.id === 'P002')
+    if (!courierProduct || !pickupProduct) throw new Error('统一目录缺少混合配送验收商品')
+    Object.assign(pickupProduct, { expressDelivery: false })
+    localStorage.setItem('agritainment-platform-catalog', JSON.stringify(catalog))
+    localStorage.setItem('agritainment-platform-store-catalog-selections', JSON.stringify({
+      schemaVersion: 1,
+      revision: 1,
+      selections: products.map((product) => ({
+        storeId: 'F001',
+        productId: product.id,
+        listed: true,
+        skuRetailPrices: Object.fromEntries(product.skus.map((sku) => [sku.id, sku.retailPrice])),
+        updatedAt: new Date().toISOString()
+      }))
+    }))
+  })
+  await page.reload()
+
+  await page.locator('.tabbar uni-button').filter({ hasText: '会员' }).click()
+  await page.locator('.login-prompt .primary-button').click()
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '微信一键登录' }).click()
+  await expect(page.locator('.mine-list')).toHaveCSS('grid-template-columns', /.+ .+ .+/)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
+  await page.locator('.mine-list uni-button').filter({ hasText: '收货地址' }).click()
+  await expect(page.locator('[data-visual-view="addresses"]')).toBeVisible()
+
+  const addAddress = async (receiver: string, phone: string, detail: string) => {
+    await page.locator('.address-page-action uni-button').filter({ hasText: '新增收货地址' }).click()
+    const inputs = page.locator('.address-form input')
+    await inputs.nth(0).fill(receiver)
+    await inputs.nth(1).fill(phone)
+    await page.locator('.address-form textarea').fill(detail)
+    await page.locator('.address-page-action uni-button').filter({ hasText: '保存地址' }).click()
+  }
+
+  await page.locator('.address-page-action uni-button').filter({ hasText: '新增收货地址' }).click()
+  await expect(page.locator('.default-choice')).toHaveClass(/selected/)
+  await expect(page.locator('.default-choice')).toHaveAttribute('disabled', 'true')
+  await expect(page.locator('.default-address-hint')).toContainText('首个地址将自动设为默认')
+  const firstInputs = page.locator('.address-form input')
+  await firstInputs.nth(0).fill('默认前地址')
+  await firstInputs.nth(1).fill('13800001001')
+  await page.locator('.address-form textarea').fill('麓谷街道 1 号')
+  await page.locator('.address-page-action uni-button').filter({ hasText: '保存地址' }).click()
+  await addAddress('会员新增地址', '13800001002', '梅溪湖街道 2 号')
+  await expect(page.locator('.address-card').filter({ hasText: '默认前地址' }).locator('.address-default-tag')).toHaveCount(1)
+  await expect(page.locator('.address-card').filter({ hasText: '会员新增地址' }).locator('.address-default-tag')).toHaveCount(0)
+
+  await page.setViewportSize({ width: 375, height: 812 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+  await page.getByLabel('返回会员中心').click()
+  await page.locator('.tabbar uni-button').filter({ hasText: '商城' }).click()
+  const product = page.locator('.product-card').filter({ hasText: '湘西烟熏柴火腊肉' })
+  await product.locator('.add-btn').click()
+  await expect(page.locator('.sku-product-summary')).toContainText('湘西烟熏柴火腊肉')
+  await expect(page.locator('.sku-product-summary')).toContainText('已选')
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '加入购物车' }).click()
+  const pickupProduct = page.locator('.product-card').filter({ hasText: '炎陵黄桃' })
+  await pickupProduct.locator('.add-btn').click()
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '加入购物车' }).click()
+  await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
+  await expect(page.locator('.cart-fulfillment-tag.pickup')).toHaveCount(2)
+  await page.locator('.delivery-picker uni-button').filter({ hasText: '快递配送' }).click()
+  await expect(page.locator('.cart-fulfillment-tag.courier')).toHaveCount(1)
+  await expect(page.locator('.cart-fulfillment-tag.pickup')).toHaveCount(1)
+  await expect(page.locator('.delivery-mixed-note')).toContainText('可快递商品寄往该地址，其余商品需到店自提')
+  await expect(page.locator('.checkout-address-card')).toContainText('默认前地址')
+  await page.locator('.checkout-address-card').click()
+  await page.locator('.address-card').filter({ hasText: '会员新增地址' }).locator('uni-button').filter({ hasText: '设为默认' }).click()
+  await expect(page.locator('.address-card').filter({ hasText: '会员新增地址' }).locator('.address-default-tag')).toHaveCount(1)
+  await page.locator('.address-card').filter({ hasText: '默认前地址' }).focus()
+  await page.keyboard.press('Space')
+  await expect(page.locator('.checkout-address-card')).toContainText('默认前地址')
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '提交订单' }).click()
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '确认支付' }).click()
+  await expect(page.locator('[data-visual-view="orders"]')).toBeVisible()
+
+  const platformOrderId = await page.evaluate(() => {
+    const orders = JSON.parse(localStorage.getItem('agritainment-platform-orders') || '{}') as Record<string, { id: string; supplierOrderLink?: { source?: string; deliveryAddress?: { receiver?: string } } }>
+    return Object.values(orders).find((order) => order.supplierOrderLink?.source === 'farmhouse-courier' && order.supplierOrderLink.deliveryAddress?.receiver === '默认前地址')?.id || ''
+  })
+  expect(platformOrderId).not.toBe('')
+
+  await page.getByLabel('返回会员中心').click()
+  await page.locator('.tabbar uni-button').filter({ hasText: '商城' }).click()
+  await product.locator('.add-btn').click()
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '加入购物车' }).click()
+  await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
+  await expect(page.locator('.delivery-picker uni-button').filter({ hasText: '到店自提' })).toHaveClass(/sel/)
+  await page.locator('.delivery-picker uni-button').filter({ hasText: '快递配送' }).click()
+  await expect(page.locator('.checkout-address-card')).toContainText('会员新增地址')
+
+  await page.goto('/supplier/')
+  await loginSupplier(page, '13787366688')
+  const supplierOrder = page.locator('.list-card').filter({ hasText: platformOrderId }).first()
+  await expect(supplierOrder).toContainText('默认前地址')
+  await supplierOrder.click()
+  await expect(page.locator('.order-detail')).toContainText('湖南省 长沙市 岳麓区 麓谷街道 1 号')
+  await expect(page.locator('.order-detail')).toContainText('默认前地址 13800001001')
+})
+
 async function openPromoterLiveEntry(page: Page) {
   await page.goto('/promoter/')
   if (await page.locator('.login-page').count()) {
@@ -945,6 +1056,7 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
   await farmhouseProduct.locator('.product-body uni-button').last().click()
   await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
   await page.locator('.sheet-list .primary-button').filter({ hasText: '提交订单' }).click()
+  await page.locator('.sheet-foot .primary-button').filter({ hasText: '确认支付' }).click()
   await expect.poll(stockOf).toBe(5)
 
   await page.goto('/store/')

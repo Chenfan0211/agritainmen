@@ -15,6 +15,12 @@ export function tencentCoordinateType(source: TencentCoordinateSource): number
 export function createTencentMapClient(options?: Record<string, unknown>): {
   geocode(input: { address: string; city?: string }): Promise<Record<string, unknown>>
   translate(input: { source: TencentCoordinateSource; locations: TencentCoordinate[] }): Promise<{ coordinateSystem: 'GCJ-02'; locations: TencentCoordinate[] }>
+  direction(input: { origin: TencentCoordinate; stops: Array<TencentCoordinate & { storeId: string }> }): Promise<{
+    distanceKm: number
+    durationMinutes: number
+    polyline: TencentCoordinate[]
+    segments: Array<{ fromId: string; toStoreId: string; distanceKm: number }>
+  }>
 }
 export function createTencentMapGatewayHandler(options?: Record<string, unknown>): (request: IncomingMessage, response: ServerResponse) => Promise<void>
 export function createTencentMapVitePlugin(options?: Record<string, unknown>): Plugin

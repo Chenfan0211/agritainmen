@@ -123,16 +123,17 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await page.locator('.combo').first().locator('uni-button', { hasText: '预订' }).click()
   await page.locator('.booking-sheet uni-button', { hasText: '确认预订' }).click()
   await expect(page.locator('.records')).toContainText('四人欢聚套餐')
-  await page.locator('.sub-head .icon-button').click()
+  await page.locator('.sub-head .page-back').click()
 
   await page.locator('.tabbar uni-button').nth(2).click()
   await page.locator('.product-body uni-button').first().click()
   await expect(page.locator('.product-detail')).toBeVisible()
   await page.locator('.sku-options uni-button').first().click()
   await page.locator('.product-detail-actions uni-button', { hasText: '加入购物车' }).click()
-  await page.locator('.checkout-summary uni-button', { hasText: '提交订单' }).click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '提交订单' }).click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '确认支付' }).click()
   await expect(page.locator('.records')).toContainText('待发货')
-  await page.locator('.sub-head .icon-button').click()
+  await page.locator('.sub-head .page-back').click()
 
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.member-hero .recharge').click()
@@ -265,7 +266,7 @@ test('manager verifies a booking and designs a signature dish', async ({ page })
   })
   await page.locator('.verify-btn').first().click()
   await expect(page.locator('.verify-status.ok').first()).toContainText('已核销')
-  await page.locator('.sub-head .icon-button').click()
+  await page.locator('.sub-head .page-back').click()
 
   // 设计招牌土菜：新增一道菜
   await page.locator('.workbench uni-button', { hasText: '设计招牌土菜' }).click()
@@ -376,8 +377,6 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
   await page.locator('.tabbar uni-button').nth(2).click()
   await expect(page.locator('.store-metrics')).toContainText('本月进货额')
   await expect(page.locator('.store-metrics')).toContainText('累计节省')
-  const goShopEntry = page.locator('.quick-grid uni-button', { hasText: '去订货' });
-  await expect(goShopEntry).toContainText('去订货')
   const myOrderEntry = page.locator('.quick-grid uni-button', { hasText: '我的订单' });
   await expect(myOrderEntry).toContainText('我的订单')
 

@@ -4,12 +4,13 @@ import { describe, expect, it } from 'vitest'
 
 const page = readFileSync(resolve(import.meta.dirname, 'index.vue'), 'utf8')
 const styles = readFileSync(resolve(import.meta.dirname, '../../styles/index-page.scss'), 'utf8')
+const theme = readFileSync(resolve(import.meta.dirname, '../../../../../packages/ui/src/mobile-theme.scss'), 'utf8')
 
 describe('农家乐商品分类图片', () => {
   it('使用共享品类图片替换分类系统图标', () => {
     expect(page).toContain('productCategoryImage')
     expect(page).not.toContain('categoryIconName')
-    expect(page).toMatch(/<BusinessImage\s+class="category-image"\s+:src="productCategoryImage\(item, dictionaryState\)"\s+:fallback="defaultProductCategoryImage\(item\)"\s+:error-fallback="defaultProductCategoryImage\(\)"\s+:show-error="false"/)
+    expect(page).toMatch(/<BusinessImage\s+class="category-grid-img"\s+:src="productCategoryImage\(item, dictionaryState\)"\s+:fallback="defaultProductCategoryImage\(item\)"\s+:error-fallback="defaultProductCategoryImage\(\)"\s+:show-error="false"/)
   })
 
   it('订阅字典更新并在卸载时释放订阅', () => {
@@ -19,9 +20,10 @@ describe('农家乐商品分类图片', () => {
     expect(page).toContain('dictCache.dispose()')
   })
 
-  it('固定方图尺寸并防止长分类名称溢出', () => {
-    expect(styles).toMatch(/\.category-image\s*\{[^}]*width:\s*26px[^}]*height:\s*26px[^}]*flex:\s*0 0 26px[^}]*\}/s)
-    expect(styles).toMatch(/\.chips button[^}]*min-height:\s*var\(--farm-touch-primary\)/s)
-    expect(styles).toMatch(/\.category-label\s*\{[^}]*max-width:[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*\}/s)
+  it('圆形宫格两行对齐，商品卡标签与名称竖排', () => {
+    expect(theme).toMatch(/\.category-grid-label\s*\{[^}]*height:\s*calc\(12px \* 1\.25 \* 2\)/s)
+    expect(page).toContain('class="tag-row"')
+    expect(page).not.toContain('class="product-name-row"')
+    expect(styles).not.toMatch(/\.product-tag-row\s*\{[^}]*min-height:\s*23px/s)
   })
 })

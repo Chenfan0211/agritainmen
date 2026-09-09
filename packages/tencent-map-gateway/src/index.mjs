@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 const TENCENT_MAP_ORIGIN = 'https://apis.map.qq.com'
 const GEOCODER_PATH = '/ws/geocoder/v1/'
 const TRANSLATE_PATH = '/ws/coord/v1/translate'
+const DIRECTION_PATH = '/ws/direction/v1/driving/'
 const COORDINATE_TYPES = {
   WGS84: 1,
   SOGOU: 2,
@@ -70,6 +71,31 @@ function normalizeCoordinate(location) {
   return normalized
 }
 
+function decodeTencentPolyline(polyline) {
+  const values = typeof polyline === 'string'
+    ? polyline.split(',').map(Number)
+    : Array.isArray(polyline) ? polyline.map(Number) : []
+  if (values.length < 2 || values.length % 2 !== 0 || values.some((value) => !Number.isFinite(value))) {
+    throw new TencentMapGatewayError('UPSTREAM_ERROR', '腾讯地图服务暂不可用')
+  }
+  const coors = [...values]
+  const compressed = coors.slice(2).some((value) => Math.abs(value) > 180)
+  if (compressed) {
+    const kr = 1_000_000
+    for (let index = 2; index < coors.length; index += 1) {
+      coors[index] = Number(coors[index - 2]) + Number(coors[index]) / kr
+    }
+  }
+  const points = []
+  for (let index = 0; index < coors.length; index += 2) {
+    points.push(normalizeCoordinate({
+      longitude: Math.round(coors[index + 1] * 1e6) / 1e6,
+      latitude: Math.round(coors[index] * 1e6) / 1e6
+    }))
+  }
+  return points
+}
+
 function normalizeMercatorCoordinate(location) {
   const normalized = { longitude: Number(location?.longitude), latitude: Number(location?.latitude) }
   if (!Number.isFinite(normalized.longitude) || !Number.isFinite(normalized.latitude) ||
@@ -112,6 +138,7 @@ export function createTencentMapClient(options = {}) {
   const request = options.fetch || fetch
   const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 5000
   const maxLocationsPerRequest = Number.isInteger(options.maxLocationsPerRequest) && options.maxLocationsPerRequest > 0 ? options.maxLocationsPerRequest : 10
+  const maxWaypointsPerRequest = Number.isInteger(options.maxWaypointsPerRequest) && options.maxWaypointsPerRequest > 0 ? options.maxWaypointsPerRequest : 10
   const maxBatchSize = Number.isInteger(options.maxBatchSize) && options.maxBatchSize > 0 ? options.maxBatchSize : 100
   const now = options.now || (() => new Date())
 
@@ -168,6 +195,61 @@ export function createTencentMapClient(options = {}) {
         converted.push(...payload.locations.map(upstreamCoordinate))
       }
       return { coordinateSystem: 'GCJ-02', locations: converted }
+    },
+
+    async direction(input) {
+      const origin = normalizeCoordinate(input?.origin)
+      const stops = Array.isArray(input?.stops) ? input.stops.map((stop) => ({
+        storeId: String(stop?.storeId || '').trim(),
+        ...normalizeCoordinate(stop)
+      })) : []
+      if (!stops.length || stops.some((stop) => !stop.storeId)) {
+        throw new TencentMapGatewayError('INVALID_INPUT', '路线站点不合法')
+      }
+      const capacity = maxWaypointsPerRequest + 1
+      let from = origin
+      let fromId = 'origin'
+      let distanceMeters = 0
+      let durationSeconds = 0
+      const polyline = []
+      const segments = []
+      for (let offset = 0; offset < stops.length; offset += capacity) {
+        const chunk = stops.slice(offset, offset + capacity)
+        const destination = chunk[chunk.length - 1]
+        const waypoints = chunk.slice(0, -1)
+        const params = {
+          from: `${from.latitude},${from.longitude}`,
+          to: `${destination.latitude},${destination.longitude}`,
+          output: 'json'
+        }
+        if (waypoints.length) params.waypoints = waypoints.map((stop) => `${stop.latitude},${stop.longitude}`).join(';')
+        const payload = await call(DIRECTION_PATH, params)
+        const route = payload.result?.routes?.[0]
+        const meters = Number(route?.distance)
+        const seconds = Number(route?.duration)
+        if (!route || !Number.isFinite(meters) || meters < 0 || !Number.isFinite(seconds) || seconds < 0) {
+          throw new TencentMapGatewayError('UPSTREAM_ERROR', '腾讯地图服务暂不可用')
+        }
+        distanceMeters += meters
+        durationSeconds += seconds
+        polyline.push(...decodeTencentPolyline(route.polyline))
+        const totalKm = Math.round(meters / 10) / 100
+        const share = Math.round((totalKm / chunk.length) * 1000) / 1000
+        let allocated = 0
+        chunk.forEach((stop, index) => {
+          const distanceKm = index === chunk.length - 1 ? Math.round((totalKm - allocated) * 1000) / 1000 : share
+          segments.push({ fromId, toStoreId: stop.storeId, distanceKm })
+          allocated += index === chunk.length - 1 ? 0 : share
+          fromId = stop.storeId
+        })
+        from = destination
+      }
+      return {
+        distanceKm: Math.round(distanceMeters / 10) / 100,
+        durationMinutes: Math.ceil(durationSeconds / 60),
+        polyline,
+        segments
+      }
     }
   }
 }
@@ -246,7 +328,7 @@ export function createTencentMapGatewayHandler(options = {}) {
 
   return async function tencentMapGatewayHandler(request, response) {
     const path = new URL(request.url || '/', 'http://localhost').pathname
-    const action = path === '/api/tencent-map/geocode' ? 'geocode' : path === '/api/tencent-map/translate' ? 'translate' : ''
+    const action = path === '/api/tencent-map/geocode' ? 'geocode' : path === '/api/tencent-map/translate' ? 'translate' : path === '/api/tencent-map/direction' ? 'direction' : ''
     if (!action) {
       writeJson(response, 404, { error: { code: 'NOT_FOUND', message: '接口不存在' } })
       return

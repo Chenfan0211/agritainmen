@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import type { AfterSale, BalanceEntry, Booking, BusinessMediaValue, CommissionLedgerEntry, FarmExperience, CAddress, CatalogProduct, CatalogState, FarmStore, Member, MockScenario, Order, PlatformJournalEntry, Product, PromotionRecord, Role, ShareRecord, SharedBooking, StoreAccount, StoreCatalogSelection, StorefrontOrder, TenantConfig, UserBinding, VoucherOrder } from '@agritainment/shared'
 import { ensureStoreCatalogSelectionDefaults } from '@agritainment/shared'
 import { initialCatalogOrderQuantity } from '@agritainment/shared'
-import { abortCatalogTransaction, allocateStoreCatalogCommission, applyCatalogStockOperation, applyPlatformMedia, buildPortalUrl, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductToStoreProduct, catalogProductsForAudience, clearPlatformJson, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, initializePlatformRecoveryHandlers, isExpressDeliverable, mediaValueToImage, markCatalogTransactionStockApplied, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformExperiences, mergePlatformStoreAccounts, normalizeMinimumOrderQuantity, prepareCatalogTransaction, promoters, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformBookings, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformJournal, readPlatformJson, readPlatformOrders, readPlatformStoreAccounts, readPlatformVoucherOrders, readShareConfig, readShareRecords, readStoreCatalogSelectionState, readUserBindings, reconcilePendingPlatformTransactions, resolveCatalogTransactionForRecovery, resolvePlatformJournal, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, runLockedPlatformTransaction, saveStoreCatalogSelection, simulateWechatLogin, storeAccounts, suppliers, updateCatalogStock, upsertUserBinding, validateCatalogSkuOrderQuantity, writeCatalogState, writeUserBindings, writePlatformJson, writePlatformVoucherOrders, readPlatformExperiences, writePlatformExperience, removePlatformExperience, writePlatformAfterSales, writePlatformBooking, writePlatformCommissionLedger, writePlatformOrder, writePlatformOrders, writePlatformStoreAccounts, writeShareRecord, writeShareRecords, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY } from '@agritainment/shared'
+import { abortCatalogTransaction, allocateStoreCatalogCommission, applyCatalogStockOperation, applyPlatformMedia, buildPortalUrl, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductToStoreProduct, catalogProductsForAudience, clearPlatformJson, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, farmhouseExperiences, initializePlatformRecoveryHandlers, isExpressDeliverable, mediaValueToImage, markCatalogTransactionStockApplied, members, mergeEntitySeeds, mergePersistedDefaults, mergePlatformExperiences, mergePlatformStoreAccounts, normalizeCAddresses, normalizeMinimumOrderQuantity, prepareCatalogTransaction, promoters, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformBookings, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformJournal, readPlatformJson, readPlatformOrders, readPlatformStoreAccounts, readPlatformVoucherOrders, readShareConfig, readShareRecords, readStoreCatalogSelectionState, readUserBindings, reconcilePendingPlatformTransactions, resolveCatalogTransactionForRecovery, resolvePlatformJournal, resolveShare, resolveUserIdByOpenid, resolveUserIdentity, round2, runLockedPlatformTransaction, saveStoreCatalogSelection, simulateWechatLogin, storeAccounts, suppliers, updateCatalogStock, upsertUserBinding, validateCatalogSkuOrderQuantity, writeCatalogState, writeUserBindings, writePlatformJson, writePlatformVoucherOrders, readPlatformExperiences, writePlatformExperience, removePlatformExperience, writePlatformAfterSales, writePlatformBooking, writePlatformCommissionLedger, writePlatformOrder, writePlatformOrders, writePlatformStoreAccounts, writeShareRecord, writeShareRecords, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_BINDINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY } from '@agritainment/shared'
 import { resolveRuntimeTenant } from '../config/tenant'
 import { farmhouseRepository } from '../services/repository'
 
@@ -61,9 +61,29 @@ function applyFarmhouseTransactionSideEffects(payload: FarmhouseTransactionPaylo
 const FARMHOUSE_COMMERCE_RECOVERY_HANDLER_KEY = 'farmhouse-commerce-recovery-v1'
 const FARMHOUSE_COMMERCE_RECOVERY_SCHEMA = 'farmhouse-commerce-snapshot-v1'
 const FARMHOUSE_COMMERCE_STORAGE_KEY = 'agritainment-platform-farmhouse-commerce'
+export const FARMHOUSE_ADDRESSES_STORAGE_KEY = 'agritainment-farmhouse-addresses'
 type FarmhouseCommerceVariant = 'checkout' | 'cancel' | 'voucher' | 'after-sale-request-refund' | 'after-sale-request-return' | 'after-sale-refund' | 'after-sale-return'
 interface FarmhouseLocalSnapshot { orders: StorefrontOrder[]; memberBalance: number; memberPoints: number; balanceEntries: BalanceEntry[] }
 type FarmhouseLocalState = Record<string, FarmhouseLocalSnapshot>
+
+function farmhouseAddressesForUser(userId: string): CAddress[] {
+  if (!userId) return []
+  return Object.values(normalizeCAddresses(readPlatformJson<Record<string, CAddress>>(FARMHOUSE_ADDRESSES_STORAGE_KEY) || {}))
+    .filter((address) => address.userId === userId)
+    .sort((left, right) => Number(right.isDefault) - Number(left.isDefault) || (right.updatedAt || '').localeCompare(left.updatedAt || ''))
+}
+
+function persistFarmhouseAddresses(userId: string, addresses: CAddress[]): CAddress[] | null {
+  const all = normalizeCAddresses(readPlatformJson<Record<string, CAddress>>(FARMHOUSE_ADDRESSES_STORAGE_KEY) || {})
+  Object.values(all).forEach((address) => { if (address.userId === userId) delete all[address.id] })
+  addresses.forEach((address) => { all[address.id] = cloneSeed(address) })
+  if (!writePlatformJson(FARMHOUSE_ADDRESSES_STORAGE_KEY, normalizeCAddresses(all))) return null
+  return farmhouseAddressesForUser(userId)
+}
+
+function formatFarmhouseDeliveryAddress(address: CAddress): string {
+  return `${address.receiver} ${address.phone} · ${address.region} ${address.detail}`
+}
 interface FarmhouseCommerceSnapshot {
   variant: FarmhouseCommerceVariant
   farmId: string
@@ -248,9 +268,12 @@ function isFarmhouseCommerceJournal(journal: PlatformJournalEntry): boolean {
     const itemAmount = round2(order.items.reduce((sum, item) => sum + item.price * item.quantity, 0))
     if (!order.items.length || order.items.some((item) => !Number.isInteger(item.quantity) || item.quantity <= 0) || itemAmount !== round2(order.amount) || order.itemCount !== order.items.reduce((sum, item) => sum + item.quantity, 0)) return false
     const addedEntries = afterLocal.balanceEntries.filter((entry) => !(beforeLocal?.balanceEntries || []).some((candidate) => candidate.id === entry.id))
-    if (addedEntries.length !== 1 || addedEntries[0].id !== `${order.id}:consume` || addedEntries[0].type !== 'consume' || round2(addedEntries[0].amount) !== round2(-order.amount) || round2(addedEntries[0].balance) !== round2(afterLocal.memberBalance)) return false
+    const paidByWechat = order.payMethod === 'wechat'
+    if (paidByWechat) {
+      if (addedEntries.length !== 0) return false
+    } else if (addedEntries.length !== 1 || addedEntries[0].id !== `${order.id}:consume` || addedEntries[0].type !== 'consume' || round2(addedEntries[0].amount) !== round2(-order.amount) || round2(addedEntries[0].balance) !== round2(afterLocal.memberBalance)) return false
     if ((beforeLocal?.balanceEntries || []).some((entry) => JSON.stringify(afterLocal.balanceEntries.find((candidate) => candidate.id === entry.id)) !== JSON.stringify(entry))) return false
-    if (beforeLocal && (round2(afterLocal.memberBalance) !== round2(beforeLocal.memberBalance - order.amount) || afterLocal.memberPoints !== beforeLocal.memberPoints + (order.pointsAwarded || 0))) return false
+    if (beforeLocal && (round2(afterLocal.memberBalance) !== round2(paidByWechat ? beforeLocal.memberBalance : beforeLocal.memberBalance - order.amount) || afterLocal.memberPoints !== beforeLocal.memberPoints + (order.pointsAwarded || 0))) return false
     const expectedStock = new Map<string, number>()
     order.items.forEach((item) => expectedStock.set(`${item.productId}:${item.skuId}`, (expectedStock.get(`${item.productId}:${item.skuId}`) || 0) - item.quantity))
     if (!farmhouseCatalogDeltaMatches(original.catalog!, target.catalog!, expectedStock, journal.operationId, 'reserve')) return false
@@ -302,7 +325,12 @@ function isFarmhouseCommerceJournal(journal: PlatformJournalEntry): boolean {
     const { status: _afterStatus, inventoryReleased: _afterReleased, balanceRefunded: _afterRefunded, ...afterStable } = afterOrder
     if (JSON.stringify(beforeStable) !== JSON.stringify(afterStable)) return false
     const refund = afterLocal.balanceEntries.find((entry) => entry.id === `${beforeOrder.id}:refund`)
-    if (!refund || refund.type !== 'refund' || round2(refund.amount) !== round2(beforeOrder.amount) || round2(refund.balance) !== round2(afterLocal.memberBalance)
+    const paidByWechat = beforeOrder.payMethod === 'wechat'
+    if (paidByWechat) {
+      if (refund) return false
+      if (round2(afterLocal.memberBalance) !== round2(beforeLocal.memberBalance)
+        || afterLocal.memberPoints !== Math.max(0, beforeLocal.memberPoints - (beforeOrder.pointsAwarded || 0))) return false
+    } else if (!refund || refund.type !== 'refund' || round2(refund.amount) !== round2(beforeOrder.amount) || round2(refund.balance) !== round2(afterLocal.memberBalance)
       || round2(afterLocal.memberBalance) !== round2(beforeLocal.memberBalance + beforeOrder.amount)
       || afterLocal.memberPoints !== Math.max(0, beforeLocal.memberPoints - (beforeOrder.pointsAwarded || 0))) return false
     const expectedStock = new Map<string, number>()
@@ -548,11 +576,7 @@ const seedRooms = (): Room[] => [
 ]
 
 
-const seedExperiences = (): FarmExperience[] => [
-  { id: 'EXP001', farmId: 'F001', name: '农事采摘体验', categoryCode: 'pick', description: '应季果蔬采摘 · 亲子互动', price: 68, status: 'active', image: '/static/images/field.webp', sort: 1, updatedAt: '2026-08-01T09:00:00.000Z' },
-  { id: 'EXP002', farmId: 'F001', name: '柴火土灶现做', categoryCode: 'cook', description: '农家柴火灶 · 现场烹饪', price: 128, status: 'active', image: '/static/images/farmhouse.webp', sort: 2, updatedAt: '2026-08-01T09:00:00.000Z' },
-  { id: 'EXP003', farmId: 'F001', name: '露营帐篷烧烤', categoryCode: 'camp', description: '临溪草坪 · 夜宿露营', price: 198, status: 'active', image: '/static/images/mountain.webp', sort: 3, updatedAt: '2026-08-01T09:00:00.000Z' }
-]
+const seedExperiences = (): FarmExperience[] => cloneSeed(farmhouseExperiences)
 interface FarmhouseState {
   initialized: boolean
   loading: boolean
@@ -582,7 +606,7 @@ interface FarmhouseState {
   loggedAccountId: string
   currentUserId: string
   pendingUserId: string
-  deliveryAddress: string
+  addresses: CAddress[]
   referrer: { type?: 'promoter' | 'staff'; name?: string; promoterId?: string; staffAccountId?: string; liveId?: string }
 }
 
@@ -632,7 +656,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     loggedAccountId: '',
     currentUserId: '',
     pendingUserId: '',
-    deliveryAddress: '',
+    addresses: [],
     referrer: {}
   }),
   getters: {
@@ -642,6 +666,7 @@ export const useFarmhouseStore = defineStore('storefront', {
     cartHasUnavailable: (state) => state.cart.some((item) => item.unavailable),
     balance: (state) => state.member.balance,
     points: (state) => state.member.points,
+    defaultAddress: (state) => state.addresses.find((address) => address.isDefault) || state.addresses[0] || null,
     vouchers: (state): VoucherOrder[] => Object.values(readPlatformVoucherOrders() || {}).filter((item) => item.farmId === (state.tenant?.farmId || state.farm?.id || 'F001')).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     canOperate: (state) => state.role === 'staff' || state.role === 'manager',
     canSelect: (state) => state.role === 'manager'
@@ -683,7 +708,6 @@ export const useFarmhouseStore = defineStore('storefront', {
         }
         this.syncSharedBookings()
         this.recoverCatalogTransactions()
-        if (!this.deliveryAddress) this.deliveryAddress = this.tenant?.address || ''
         if (this.auth.isLoggedIn && this.auth.openid) this.setAuthorizedIdentity(this.auth.openid)
         this.cart.forEach((line) => {
           const product = this.products.find((item) => item.id === line.productId)
@@ -836,7 +860,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.checkoutError = ''
       return true
     },
-    async checkout(payload: { deliveryMode?: 'pickup' | 'courier'; address?: string } = {}) {
+    async checkout(payload: { deliveryMode?: 'pickup' | 'courier'; addressId?: string; payMethod?: 'balance' | 'wechat' } = {}) {
       this.checkoutError = ''
       if (!this.cart.length) {
         this.checkoutError = '购物车为空'
@@ -863,8 +887,9 @@ export const useFarmhouseStore = defineStore('storefront', {
         return !!product && isExpressDeliverable(product)
       })
       const wantsCourier = payload.deliveryMode === 'courier' && expressCart.length > 0
-      if (wantsCourier && !payload.address?.trim()) {
-        this.checkoutError = '请填写收货地址'
+      const selectedAddress = wantsCourier ? this.addresses.find((address) => address.id === payload.addressId && address.userId === this.currentUserId) : undefined
+      if (wantsCourier && !selectedAddress) {
+        this.checkoutError = '请选择有效的收货地址'
         return false
       }
       if (readStoreCatalogSelectionState().revision !== this.selectionRevision) {
@@ -873,7 +898,8 @@ export const useFarmhouseStore = defineStore('storefront', {
         return false
       }
       const total = this.cartTotal
-      if (this.member.balance < total) {
+      const useBalance = payload.payMethod !== 'wechat'
+      if (useBalance && this.member.balance < total) {
         this.checkoutError = '会员余额不足'
         return false
       }
@@ -893,7 +919,7 @@ export const useFarmhouseStore = defineStore('storefront', {
         ? cloneSeed(originalLocal)
         : { orders: cloneSeed(this.orders), memberBalance: this.member.balance, memberPoints: this.member.points, balanceEntries: cloneSeed(this.balanceEntries) }
       if (!originalLocal) original.localBaseline = cloneSeed(localBase)
-      if (localBase.memberBalance < total) {
+      if (useBalance && localBase.memberBalance < total) {
         this.checkoutError = '会员余额不足'
         return false
       }
@@ -909,22 +935,22 @@ export const useFarmhouseStore = defineStore('storefront', {
       })
       const order: StorefrontOrder = {
         id: orderId, customerUserId, amount: total, itemCount, status: '待发货', createdAt: operationTime.toLocaleString('zh-CN'),
-        items: cartItems, pointsAwarded,
-        delivery: wantsCourier ? { mode: 'courier', address: payload.address?.trim() } : { mode: 'pickup' },
+        items: cartItems, pointsAwarded, payMethod: useBalance ? 'balance' : 'wechat',
+        delivery: wantsCourier && selectedAddress ? { mode: 'courier', address: formatFarmhouseDeliveryAddress(selectedAddress) } : { mode: 'pickup' },
         platformOrderId: wantsCourier ? `FH-${orderId}` : undefined
       }
-      const nextBalance = round2(localBase.memberBalance - total)
-      const balanceEntry: BalanceEntry = { id: `${orderId}:consume`, type: 'consume', amount: -total, balance: nextBalance, description: `商城订单消费 · ${itemCount} 件商品`, createdAt: operationTime.toLocaleString('zh-CN') }
+      const nextBalance = useBalance ? round2(localBase.memberBalance - total) : localBase.memberBalance
+      const balanceEntry: BalanceEntry | undefined = useBalance ? { id: `${orderId}:consume`, type: 'consume', amount: -total, balance: nextBalance, description: `商城订单消费 · ${itemCount} 件商品`, createdAt: operationTime.toLocaleString('zh-CN') } : undefined
       const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
       const operationId = `${orderId}:checkout`
       const courierItems = cartItems.filter((item) => item.deliveryMode === 'courier')
-      const address: CAddress | undefined = courierItems.length
-        ? { id: `${orderId}-ADDR`, userId: this.auth.openid || '', receiver: this.member.name, phone: this.member.phone || '', region: payload.address?.trim() || '', detail: '', isDefault: false, updatedAt: operationTime.toISOString() }
+      const addressSnapshot: CAddress | undefined = courierItems.length && selectedAddress
+        ? { ...cloneSeed(selectedAddress), id: `${orderId}-ADDR`, userId: customerUserId, isDefault: false, updatedAt: operationTime.toISOString() }
         : undefined
       const platformOrders: Order[] = courierItems.length
         ? buildSupplierPlatformOrders({
-            items: courierItems, products: this.products, customer: '游客 · ' + this.member.name, channel: 'shop', source: 'farmhouse-courier',
-            sourceOrderId: 'FH-' + orderId, status: 'pending', createdAt: operationTime.toLocaleString('zh-CN'), customerUserId: this.auth.openid || '', deliveryAddress: address,
+            items: courierItems, products: this.products, customer: `${selectedAddress?.receiver || this.member.name} · 农家乐`, channel: 'purchase', source: 'farmhouse-courier',
+            sourceOrderId: 'FH-' + orderId, status: 'pending', createdAt: operationTime.toLocaleString('zh-CN'), customerUserId, deliveryAddress: addressSnapshot,
             storeId: farmId, storeName: this.farm?.name || this.tenant?.name || '农家乐'
           })
         : []
@@ -933,8 +959,8 @@ export const useFarmhouseStore = defineStore('storefront', {
         order.platformOrderIds = platformOrders.map((platformOrder) => platformOrder.id)
       }
       const shareSideEffects = this.buildOrderShareSideEffects(orderId, cartItems, original, customerUserId)
-      const transactionPayload: FarmhouseTransactionPayload & { order: StorefrontOrder; memberBalance: number; memberPoints: number; balanceEntry: BalanceEntry; cartItems: typeof cartItems } = {
-        order, memberBalance: balanceEntry.balance, memberPoints: localBase.memberPoints + pointsAwarded, balanceEntry, cartItems,
+      const transactionPayload: FarmhouseTransactionPayload & { order: StorefrontOrder; memberBalance: number; memberPoints: number; balanceEntry?: BalanceEntry; cartItems: typeof cartItems } = {
+        order, memberBalance: nextBalance, memberPoints: localBase.memberPoints + pointsAwarded, ...(balanceEntry ? { balanceEntry } : {}), cartItems,
         platformOrder: platformOrders[0], platformOrders, shareRecords: shareSideEffects.shareRecord ? [shareSideEffects.shareRecord] : undefined, userBinding: shareSideEffects.userBinding
       }
       const targetCatalog = cloneSeed(original.catalog!)
@@ -964,7 +990,7 @@ export const useFarmhouseStore = defineStore('storefront', {
             orders: [cloneSeed(order), ...localBase.orders.filter((item) => item.id !== order.id)],
             memberBalance: nextBalance,
             memberPoints: localBase.memberPoints + pointsAwarded,
-            balanceEntries: [cloneSeed(balanceEntry), ...localBase.balanceEntries.filter((item) => item.id !== balanceEntry.id)]
+            balanceEntries: balanceEntry ? [cloneSeed(balanceEntry), ...localBase.balanceEntries.filter((item) => item.id !== balanceEntry.id)] : cloneSeed(localBase.balanceEntries)
           }
         },
         catalog: targetCatalog,
@@ -1033,10 +1059,11 @@ export const useFarmhouseStore = defineStore('storefront', {
       targetCatalog.appliedOperations ||= {}
       targetCatalog.appliedOperations[operationId] = { id: operationId, action: 'release', requestFingerprint: JSON.stringify({ action: 'release', changes: inventoryChanges }), changes: [], appliedAt: new Date().toISOString() }
       const nextOrder = { ...cloneSeed(order), status: '已取消' as const, inventoryReleased: true, balanceRefunded: true }
-      const nextBalance = round2(originalLocal.memberBalance + order.amount)
+      const paidByWechat = order.payMethod === 'wechat'
+      const nextBalance = paidByWechat ? originalLocal.memberBalance : round2(originalLocal.memberBalance + order.amount)
       const nextPoints = Math.max(0, originalLocal.memberPoints - (order.pointsAwarded || 0))
-      const balanceEntry: BalanceEntry = { id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: `商城订单取消退款 · ${order.itemCount} 件商品`, createdAt: new Date().toLocaleString('zh-CN') }
-      const targetLocal: FarmhouseLocalState = { ...cloneSeed(original.localState!), [farmId]: { orders: originalLocal.orders.map((item) => item.id === id ? nextOrder : cloneSeed(item)), memberBalance: nextBalance, memberPoints: nextPoints, balanceEntries: [balanceEntry, ...originalLocal.balanceEntries.filter((item) => item.id !== balanceEntry.id).map(cloneSeed)] } }
+      const balanceEntry: BalanceEntry | undefined = paidByWechat ? undefined : { id: `${order.id}:refund`, type: 'refund', amount: order.amount, balance: nextBalance, description: `商城订单取消退款 · ${order.itemCount} 件商品`, createdAt: new Date().toLocaleString('zh-CN') }
+      const targetLocal: FarmhouseLocalState = { ...cloneSeed(original.localState!), [farmId]: { orders: originalLocal.orders.map((item) => item.id === id ? nextOrder : cloneSeed(item)), memberBalance: nextBalance, memberPoints: nextPoints, balanceEntries: balanceEntry ? [balanceEntry, ...originalLocal.balanceEntries.filter((item) => item.id !== balanceEntry.id).map(cloneSeed)] : originalLocal.balanceEntries.map(cloneSeed) } }
       const targetPlatformOrders = cloneSeed(original.platformOrders!)
       const platformOrderIds = order.platformOrderIds?.length ? order.platformOrderIds : order.platformOrderId ? [order.platformOrderId] : []
       platformOrderIds.forEach((platformOrderId) => {
@@ -1128,6 +1155,23 @@ export const useFarmhouseStore = defineStore('storefront', {
     },
     async completeStorefrontAfterSale(_id: string) {
       return false
+    },
+    payExperience(payload: Omit<Booking, 'id' | 'status'>, payMethod: 'balance' | 'wechat' = 'balance') {
+      this.checkoutError = ''
+      const amount = round2(Number(payload.amount) || 0)
+      if (payMethod === 'balance' && amount > 0 && this.member.balance < amount) {
+        this.checkoutError = '会员余额不足'
+        return false
+      }
+      if (!this.submitBooking(payload)) {
+        this.checkoutError = '该日期已预约，请更换时间'
+        return false
+      }
+      if (payMethod === 'balance' && amount > 0) {
+        this.member.balance = round2(this.member.balance - amount)
+        this.balanceEntries.unshift({ id: createId('BL'), type: 'consume', amount: -amount, balance: this.member.balance, description: `体验预约 · ${payload.name}`, createdAt: new Date().toLocaleString('zh-CN') })
+      }
+      return true
     },
     submitBooking(payload: Omit<Booking, 'id' | 'status'>) {
       const duplicated = this.bookings.some((item) => isActiveBookingStatus(item.status) && item.type === payload.type && item.name === payload.name && item.date === payload.date && item.session === payload.session)
@@ -1372,6 +1416,7 @@ export const useFarmhouseStore = defineStore('storefront', {
       if (!openid.trim()) return null
       const linked = resolveUserIdByOpenid(openid)
       this.currentUserId = linked || resolveUserIdentity(openid)
+      this.addresses = farmhouseAddressesForUser(this.currentUserId)
       this.pendingUserId = ''
       if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-id', this.currentUserId)
       this.applyReferrerBinding()
@@ -1380,9 +1425,11 @@ export const useFarmhouseStore = defineStore('storefront', {
     loginWithAccount(account: string, password: string) {
       const match = this.storeAccounts.find((item) => item.farmId === this.tenant?.farmId && item.account === account && item.password === password && item.enabled)
       if (!match) return false
-      this.auth = { isLoggedIn: true, openid: `mock_account_${account}` }
+      const openid = `mock_account_${account}`
+      this.auth = { isLoggedIn: true, openid }
       this.role = match.role === 'owner' ? 'manager' : 'staff'
       this.loggedAccountId = match.id
+      this.setAuthorizedIdentity(openid)
       return true
     },
     buildOrderShareSideEffects(orderId: string, itemsOrAmount: number | Array<{ productId: string; quantity: number; price: number }>, checkoutSnapshot?: FarmhouseCommerceSnapshot, customerUserId = ''): { userBinding?: UserBinding; shareRecord?: ShareRecord } {
@@ -1477,14 +1524,57 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.storeAccounts = nextAccounts
       return true
     },
-    setDeliveryAddress(address: string) {
-      this.deliveryAddress = address.trim()
+    upsertAddress(input: Omit<CAddress, 'id' | 'userId' | 'updatedAt'> & { id?: string }) {
+      if (!this.currentUserId || !input.receiver.trim() || !/^1[3-9]\d{9}$/.test(input.phone.trim()) || !input.region.trim() || !input.detail.trim()) return null
+      const existing = input.id ? this.addresses.find((address) => address.id === input.id) : undefined
+      if (input.id && !existing) return null
+      const id = existing?.id || createId('FH-ADDR')
+      const isDefault = !this.addresses.length || !!input.isDefault || !!existing?.isDefault
+      const address: CAddress = {
+        id,
+        userId: this.currentUserId,
+        receiver: input.receiver.trim(),
+        phone: input.phone.trim(),
+        region: input.region.trim(),
+        detail: input.detail.trim(),
+        isDefault,
+        updatedAt: new Date().toISOString()
+      }
+      const next = this.addresses.map((item) => ({ ...item, isDefault: isDefault ? false : item.isDefault }))
+      const index = next.findIndex((item) => item.id === id)
+      if (index >= 0) next[index] = address
+      else next.unshift(address)
+      if (!next.some((item) => item.isDefault) && next.length) next[0].isDefault = true
+      const saved = persistFarmhouseAddresses(this.currentUserId, next)
+      if (!saved) return null
+      this.addresses = saved
+      return this.addresses.find((item) => item.id === id) || null
+    },
+    setDefaultAddress(id: string) {
+      if (!this.currentUserId || !this.addresses.some((address) => address.id === id)) return false
+      const changedAt = new Date().toISOString()
+      const saved = persistFarmhouseAddresses(this.currentUserId, this.addresses.map((address) => ({ ...address, isDefault: address.id === id, updatedAt: address.id === id ? changedAt : address.updatedAt })))
+      if (!saved) return false
+      this.addresses = saved
+      return true
+    },
+    removeAddress(id: string) {
+      if (!this.currentUserId) return false
+      const removed = this.addresses.find((address) => address.id === id)
+      if (!removed) return false
+      const next = this.addresses.filter((address) => address.id !== id)
+      if (removed.isDefault && next.length) next[0] = { ...next[0], isDefault: true, updatedAt: new Date().toISOString() }
+      const saved = persistFarmhouseAddresses(this.currentUserId, next)
+      if (!saved) return false
+      this.addresses = saved
       return true
     },
     logout() {
       this.auth = { isLoggedIn: false, openid: '' }
+      this.loggedAccountId = ''
       this.currentUserId = ''
       this.pendingUserId = ''
+      this.addresses = []
       this.role = 'customer'
     }
   }

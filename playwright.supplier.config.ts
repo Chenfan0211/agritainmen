@@ -17,6 +17,7 @@ export default defineConfig({
     command: 'pnpm --filter @agritainment/supplier dev:h5',
     url: 'http://127.0.0.1:5178/',
     reuseExistingServer: true,
-    timeout: 30_000
+    timeout: 30_000,
+    env: { ...process.env, VITE_E2E: '1' }
   }
 })

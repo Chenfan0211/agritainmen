@@ -35,6 +35,45 @@ describe('Tencent map gateway client', () => {
     )
   })
 
+  it('decodes compressed driving polylines and splits waypoints across signed requests', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        status: 0,
+        result: { routes: [{ distance: 12000, duration: 900, polyline: [28.62, 109.85, 10000, -20000] }] }
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        status: 0,
+        result: { routes: [{ distance: 34000, duration: 1500, polyline: [28.64, 109.87, -5000, 30000] }] }
+      }))
+    const client = createTencentMapClient({ ...options, fetch: request, maxWaypointsPerRequest: 1 })
+    await expect(client.direction({
+      origin: { longitude: 109.85, latitude: 28.62 },
+      stops: [
+        { storeId: 'A', longitude: 109.86, latitude: 28.63 },
+        { storeId: 'B', longitude: 109.87, latitude: 28.64 },
+        { storeId: 'C', longitude: 109.9, latitude: 28.7 }
+      ]
+    })).resolves.toEqual({
+      distanceKm: 46,
+      durationMinutes: 40,
+      polyline: [
+        { longitude: 109.85, latitude: 28.62 },
+        { longitude: 109.83, latitude: 28.63 },
+        { longitude: 109.87, latitude: 28.64 },
+        { longitude: 109.9, latitude: 28.635 }
+      ],
+      segments: [
+        { fromId: 'origin', toStoreId: 'A', distanceKm: 6 },
+        { fromId: 'A', toStoreId: 'B', distanceKm: 6 },
+        { fromId: 'B', toStoreId: 'C', distanceKm: 34 }
+      ]
+    })
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(request.mock.calls[0][0]).toContain('/ws/direction/v1/driving/')
+    expect(request.mock.calls[0][0]).toContain('from=28.62%2C109.85')
+    expect(request.mock.calls[0][0]).not.toContain('test-secret')
+  })
+
   it('normalizes Tencent geocoder output as a GCJ-02 FarmLocation', async () => {
     const request = vi.fn().mockResolvedValue(jsonResponse({
       status: 0,
@@ -185,7 +224,8 @@ describe('Tencent map same-origin HTTP gateway', () => {
   it('routes geocode and translate requests without exposing upstream credentials', async () => {
     const client = {
       geocode: vi.fn().mockResolvedValue({ provider: 'tencent', coordinateSystem: 'GCJ-02', longitude: 112.9, latitude: 28.2 }),
-      translate: vi.fn().mockResolvedValue({ coordinateSystem: 'GCJ-02', locations: [{ longitude: 112.9, latitude: 28.2 }] })
+      translate: vi.fn().mockResolvedValue({ coordinateSystem: 'GCJ-02', locations: [{ longitude: 112.9, latitude: 28.2 }] }),
+      direction: vi.fn().mockResolvedValue({ distanceKm: 12, durationMinutes: 20, polyline: [], segments: [] })
     }
     await withGateway(createTencentMapGatewayHandler({ client }), async (origin) => {
       const geocode = await fetch(`${origin}/api/tencent-map/geocode`, {
@@ -203,8 +243,17 @@ describe('Tencent map same-origin HTTP gateway', () => {
       })
       expect(translate.status).toBe(200)
       expect(await translate.json()).toEqual({ coordinateSystem: 'GCJ-02', locations: [{ longitude: 112.9, latitude: 28.2 }] })
+
+      const direction = await fetch(`${origin}/api/tencent-map/direction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origin: { longitude: 109.85, latitude: 28.62 }, stops: [{ storeId: 'A', longitude: 109.86, latitude: 28.63 }] })
+      })
+      expect(direction.status).toBe(200)
+      expect(await direction.json()).toMatchObject({ distanceKm: 12, durationMinutes: 20 })
     })
     expect(client.geocode).toHaveBeenCalledWith({ address: '湖南省长沙市' })
+    expect(client.direction).toHaveBeenCalled()
   })
 
   it('rejects cross-origin, non-POST, unknown, and oversized requests', async () => {

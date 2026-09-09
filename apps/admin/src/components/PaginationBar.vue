@@ -33,7 +33,7 @@ function go(n: number) {
 </script>
 
 <template>
-  <view class="pagination-bar">
+  <view v-if="total > 0" class="pagination-bar">
     <text class="pg-total">共 {{ total }} 条</text>
     <view class="pg-btns">
       <button class="pg-btn pg-nav" :disabled="page <= 1" @click="go(page - 1)">‹ 上一页</button>
@@ -77,7 +77,7 @@ function go(n: number) {
 }
 .pg-btn::after { border: none; }
 .pg-btn:hover:not([disabled]):not(.cur) { background: var(--admin-green-soft); border-color: #c8d8cb; }
-.pg-btn.cur { background: var(--admin-green-2); border-color: var(--admin-green-2); color: #fff; font-weight: 600; cursor: default; }
+.pg-btn.cur { background: var(--admin-green-soft); border-color: #c9e0cf; color: var(--admin-green-2); font-weight: 600; cursor: default; }
 .pg-btn[disabled] { opacity: .45; cursor: not-allowed; }
 .pg-btn:focus-visible { outline: 2px solid rgba(29, 107, 68, .34); outline-offset: 2px; }
 .pg-ellipsis { min-width: 20px; text-align: center; color: var(--admin-muted); user-select: none; }

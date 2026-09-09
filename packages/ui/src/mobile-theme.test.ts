@@ -26,6 +26,7 @@ describe('shared mobile visual theme', () => {
       '--mobile-danger',
       '--mobile-radius-control',
       '--mobile-radius-card',
+      '--mobile-radius-pill',
       '--mobile-shadow-float',
       '--mobile-control-compact',
       '--mobile-control-primary',
@@ -45,10 +46,23 @@ describe('shared mobile visual theme', () => {
     expect(source).toContain('--mobile-section-gap: 12px')
     expect(source).toContain('--mobile-card-gap: 8px')
     expect(source).toContain('--mobile-sheet-header-height: 56px')
-    expect(source).toContain('--mobile-sheet-max-height: 88dvh')
+    expect(source).toContain('--mobile-sheet-max-height: 80vh')
+    expect(source).toContain('--mobile-page-inline: 8px')
     expect(source).toContain('letter-spacing: 0')
     expect(source).toContain('env(safe-area-inset-bottom)')
     expect(source).toMatch(/button,\s*uni-button\s*\{[\s\S]*display:\s*inline-flex[\s\S]*align-items:\s*center[\s\S]*justify-content:\s*center[\s\S]*text-align:\s*center/)
+    expect(source).toMatch(/button::after,\s*uni-button::after\s*\{[\s\S]*border:\s*none[\s\S]*background:\s*none/)
+    expect(source).toMatch(/\.sheet-scroll\s*\{[\s\S]*height:\s*auto/)
+    expect(source).toMatch(/\.sheet-scroll\s*\{[\s\S]*max-height:\s*calc\(80vh/)
+    expect(source).not.toMatch(/\.sheet-scroll\s*\{[^}]*[^x-]height:\s*calc\(80vh/)
+    expect(source).toMatch(/\.sheet-foot\s*\{[\s\S]*padding:\s*10px 12px/)
+    expect(source).toContain('--mobile-radius-pill: 999px')
+    expect(source).toMatch(/\.mobile-action-primary\s*\{[\s\S]*border:\s*1px solid var\(--mobile-brand\)/)
+    expect(source).toMatch(/\.mobile-action-secondary\s*\{[\s\S]*border:\s*1px solid var\(--mobile-border\)/)
+    expect(source).toMatch(/\.mobile-search\s*\{[\s\S]*border-radius:\s*var\(--mobile-radius-pill\)/)
+    expect(source).toMatch(/\.mobile-filter-tabs button\.active::after[\s\S]*background:\s*currentColor/)
+    expect(source).toMatch(/\.page-back\s*\{[\s\S]*width:\s*44px[\s\S]*height:\s*44px[\s\S]*border-radius:\s*6px[\s\S]*background:\s*var\(--mobile-surface\)/)
+    expect(source).toMatch(/\.logout-danger\s*\{[\s\S]*background:\s*var\(--mobile-danger\)[\s\S]*color:\s*#fff/)
   })
 
   it('provides the shared personal-center pc-* layout contract', () => {
@@ -80,9 +94,18 @@ describe('shared mobile visual theme', () => {
     const withIconTile = mobileApps.some((app) => readFileSync(resolve(root, `apps/${app}/src/pages/index/index.vue`), 'utf8').includes('pc-state-icon'))
     expect(withIconTile).toBe(true)
   })
+  it('keeps circular category labels on a two-line rhythm', () => {
+    const source = readFileSync(themePath, 'utf8')
+    expect(source).toMatch(/\.category-grid-label\s*\{[^}]*height:\s*calc\(12px \* 1\.25 \* 2\)[^}]*line-height:\s*1\.25/s)
+    expect(source).toMatch(/\.category-grid\s*\{[^}]*margin-bottom:\s*10px/s)
+    expect(source).toMatch(/\.category-grid-img\s*\{[^}]*width:\s*42px[^}]*height:\s*42px/s)
+    expect(source).not.toMatch(/\.pc-tile-icon \.ui-icon\s*\{[^}]*filter:/s)
+  })
+
   it('provides a wide-screen desktop preview frame without changing mobile width', () => {
     const source = readFileSync(themePath, 'utf8')
 
+    expect(source).toMatch(/\/\* #ifdef H5 \*\/\s*@media\s*\(min-width:\s*431px\)/)
     expect(source).toMatch(/@media\s*\(min-width:\s*431px\)[\s\S]*\.app-shell\s*\{[^}]*box-shadow:\s*0\s+32px\s+90px/)
     expect(source).toMatch(/@media\s*\(min-width:\s*431px\)[\s\S]*radial-gradient/)
 
@@ -90,8 +113,9 @@ describe('shared mobile visual theme', () => {
   it('provides the circular vector icon tile grid and wires it into every portal', () => {
     const source = readFileSync(themePath, 'utf8')
 
+    expect(source).toMatch(/\.pc-tile-grid\s*\{[\s\S]*gap:\s*8px/)
     expect(source).toMatch(/\.pc-tile-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)/)
-    expect(source).toMatch(/\.pc-tile-icon\s*\{[^}]*border-radius:\s*14px/)
+    expect(source).toMatch(/\.pc-tile-icon\s*\{[^}]*border-radius:\s*8px/)
     expect(source).toMatch(/\.pc-tile-icon\s*\{[^}]*place-items:\s*center/)
     expect(source).toMatch(/\.pc-tile-label\s*\{[^}]*text-overflow:\s*ellipsis/)
     expect(source).toMatch(/\.pc-tile--green\s*\.pc-tile-icon\s*\{[^}]*background:/)
@@ -105,6 +129,38 @@ describe('shared mobile visual theme', () => {
       expect(src, app).toContain('pc-tile')
     }
   })
+  it('unifies sheet-head 56px chrome and compact sheet empty padding', () => {
+    const source = readFileSync(themePath, 'utf8')
+    expect(source).toMatch(/\.sheet-head\s*\{[\s\S]*min-height:\s*var\(--mobile-sheet-header-height\)/)
+    expect(source).toMatch(/\.sheet-head\s*\{[\s\S]*flex:\s*none/)
+    expect(source).toMatch(/\.sheet-head > text\s*\{[\s\S]*text-overflow:\s*ellipsis/)
+    expect(source).toMatch(/\.sheet-empty,\s*\.sheet-scroll \.empty,\s*\.sheet-scroll \.empty-state\s*\{[\s\S]*padding:\s*28px 0/)
+    expect(source).toMatch(/\.sheet-foot\s*\{[\s\S]*flex:\s*none/)
+
+    const store = readFileSync(resolve(root, 'apps/store/src/pages/index/index.vue'), 'utf8')
+    expect(store).toMatch(/\.sheet-head\s*\{[^}]*min-height:\s*var\(--mobile-sheet-header-height\)/)
+    expect(store).not.toMatch(/\.sheet-head\s*\{[^}]*min-height:\s*52px/)
+    expect(store).toMatch(/\.empty\s*\{[^}]*padding:\s*(?:28|30|32)px 0/)
+    expect(store).not.toMatch(/\.empty\s*\{[^}]*padding:\s*50px 0/)
+  })
+
+  it('lets short mobile sheets shrink instead of locking 80vh height', () => {
+    const sources = [
+      readFileSync(themePath, 'utf8'),
+      readFileSync(resolve(root, 'apps/farmhouse/src/styles/index-page.scss'), 'utf8'),
+      readFileSync(resolve(root, 'apps/store/src/pages/index/index.vue'), 'utf8'),
+      readFileSync(resolve(root, 'apps/user/src/pages/index/index.vue'), 'utf8'),
+      readFileSync(resolve(root, 'apps/promoter/src/pages/index/index.vue'), 'utf8'),
+      readFileSync(resolve(root, 'apps/supplier/src/styles/global.scss'), 'utf8'),
+      readFileSync(resolve(root, 'apps/supplier/src/pages/index/index.vue'), 'utf8')
+    ]
+    for (const css of sources) {
+      expect(css).toMatch(/height:\s*auto/)
+      expect(css).toMatch(/max-height:\s*calc\(80vh/)
+      expect(css).not.toMatch(/(?<!max-)height:\s*calc\(80vh/)
+    }
+  })
+
   it('is loaded by every retained mobile portal', () => {
     for (const app of mobileApps) {
       const globalStyle = readFileSync(resolve(root, `apps/${app}/src/styles/global.scss`), 'utf8')
@@ -113,9 +169,10 @@ describe('shared mobile visual theme', () => {
   })
 
   it('uses the shared page background in the user, store and promoter portals', () => {
+    const backgrounds: Record<string, string> = { user: '#f4f7f5', store: '#f7f3ee', promoter: '#f4f7f5' }
     for (const app of ownedMobileApps) {
       const pages = JSON.parse(readFileSync(resolve(root, `apps/${app}/src/pages.json`), 'utf8'))
-      expect(pages.globalStyle.backgroundColor, app).toBe('#f4f7f5')
+      expect(pages.globalStyle.backgroundColor, app).toBe(backgrounds[app])
     }
   })
 })

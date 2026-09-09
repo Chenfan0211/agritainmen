@@ -67,6 +67,13 @@ async function initializeWithLegacyProducts(store: ReturnType<typeof useFarmhous
   await store.initialize(false, 'F001')
 }
 
+function createCheckoutAddress(store: ReturnType<typeof useFarmhouseStore>, detail = '测试地址 1 号') {
+  if (!store.currentUserId) store.currentUserId = 'U-FARMHOUSE-TEST'
+  const address = store.upsertAddress({ receiver: '测试用户', phone: '13800000000', region: '湖南省 长沙市 岳麓区', detail, isDefault: true })
+  expect(address).not.toBeNull()
+  return address!
+}
+
 describe('farmhouse store interactions', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -163,6 +170,28 @@ describe('farmhouse store interactions', () => {
     expect(await store.checkout()).toBe(true)
     expect(store.balanceEntries.map((item) => item.type)).toEqual(['consume', 'recharge'])
     expect(store.orders[0].status).toBe('待发货')
+  })
+
+  it('lets wechat mock checkout skip balance deduction', async () => {
+    const store = useFarmhouseStore()
+    await initializeWithLegacyProducts(store, cloneSeed(products.slice(2, 3)))
+    store.$patch({ tenant: cloneSeed(tenant), member: { ...cloneSeed(members[0]), balance: 1 }, cart: [], orders: [], balanceEntries: [] })
+    store.addToCart(store.products[0])
+    expect(await store.checkout({ payMethod: 'wechat' })).toBe(true)
+    expect(store.member.balance).toBe(1)
+    expect(store.orders[0]).toMatchObject({ status: '待发货', payMethod: 'wechat' })
+    expect(store.balanceEntries).toEqual([])
+    expect(store.cart).toHaveLength(0)
+  })
+
+  it('still rejects balance checkout when the member cannot cover the cart', async () => {
+    const store = useFarmhouseStore()
+    await initializeWithLegacyProducts(store, cloneSeed(products.slice(2, 3)))
+    store.$patch({ tenant: cloneSeed(tenant), member: { ...cloneSeed(members[0]), balance: 1 }, cart: [], orders: [], balanceEntries: [] })
+    store.addToCart(store.products[0])
+    expect(await store.checkout({ payMethod: 'balance' })).toBe(false)
+    expect(store.checkoutError).toContain('会员余额不足')
+    expect(store.orders).toHaveLength(0)
   })
 
   it('updates one promotion record on repeated sharing', () => {
@@ -398,6 +427,35 @@ describe('farmhouse store interactions', () => {
     expect(store.canSelect).toBe(true)
   })
 
+  it('pays an experience with balance or wechat mock without creating a duplicate', () => {
+    const store = useFarmhouseStore()
+    store.bookings = []
+    store.balanceEntries = []
+    store.member = { ...cloneSeed(members[0]), balance: 200 }
+    const payload = { type: 'service' as const, name: '农事采摘体验', date: '明天 9月8日', session: '到店体验', people: 2, amount: 136 }
+    expect(store.payExperience(payload, 'balance')).toBe(true)
+    expect(store.member.balance).toBe(64)
+    expect(store.balanceEntries[0]).toMatchObject({ type: 'consume', amount: -136 })
+    expect(store.bookings[0]).toMatchObject({ name: '农事采摘体验', status: 'reserved', amount: 136 })
+    expect(store.payExperience(payload, 'wechat')).toBe(false)
+    expect(store.checkoutError).toContain('已预约')
+  })
+
+  it('rejects experience balance pay when the wallet is short and wechat pay leaves the balance untouched', () => {
+    const store = useFarmhouseStore()
+    store.bookings = []
+    store.balanceEntries = []
+    store.member = { ...cloneSeed(members[0]), balance: 20 }
+    const payload = { type: 'service' as const, name: '农事采摘体验', date: '周三 9月9日', session: '到店体验', people: 2, amount: 136 }
+    expect(store.payExperience(payload, 'balance')).toBe(false)
+    expect(store.checkoutError).toContain('会员余额不足')
+    expect(store.bookings).toHaveLength(0)
+    expect(store.payExperience(payload, 'wechat')).toBe(true)
+    expect(store.member.balance).toBe(20)
+    expect(store.balanceEntries).toHaveLength(0)
+    expect(store.bookings[0].name).toBe('农事采摘体验')
+  })
+
   it('rejects a duplicate booking and supports cancellation', () => {
     const store = useFarmhouseStore()
     store.bookings = []
@@ -444,7 +502,10 @@ describe('farmhouse store interactions', () => {
 })
 
 describe('farmhouse auth', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+  })
 
   it('logs in via simulated wechat openid and logs out', async () => {
     const store = useFarmhouseStore()
@@ -454,6 +515,34 @@ describe('farmhouse auth', () => {
     expect(store.auth.openid).toMatch(/^mock_openid_/)
     store.logout()
     expect(store.auth).toEqual({ isLoggedIn: false, openid: '' })
+  })
+
+  it('loads an account address book with a stable isolated user id and clears it on logout', async () => {
+    const firstStore = useFarmhouseStore()
+    await firstStore.initialize(false, 'F001')
+
+    expect(firstStore.loginWithAccount('13800000001', '123456')).toBe(true)
+    const managerUserId = firstStore.currentUserId
+    expect(managerUserId).toBeTruthy()
+    const saved = firstStore.upsertAddress({ receiver: '王店长', phone: '13800000001', region: '湖南省 长沙市 岳麓区', detail: '店长收货点 1 号', isDefault: true })
+    expect(saved).toMatchObject({ userId: managerUserId, receiver: '王店长' })
+
+    firstStore.logout()
+    expect(firstStore.loggedAccountId).toBe('')
+    expect(firstStore.currentUserId).toBe('')
+    expect(firstStore.addresses).toEqual([])
+
+    setActivePinia(createPinia())
+    const restoredStore = useFarmhouseStore()
+    await restoredStore.initialize(false, 'F001')
+    expect(restoredStore.loginWithAccount('13800000001', '123456')).toBe(true)
+    expect(restoredStore.currentUserId).toBe(managerUserId)
+    expect(restoredStore.addresses).toEqual([expect.objectContaining({ id: saved!.id, receiver: '王店长' })])
+
+    restoredStore.logout()
+    expect(restoredStore.loginWithAccount('13800000002', '123456')).toBe(true)
+    expect(restoredStore.currentUserId).not.toBe(managerUserId)
+    expect(restoredStore.addresses).toEqual([])
   })
 })
 
@@ -639,18 +728,107 @@ describe('farmhouse courier fulfillment', () => {
     setActivePinia(createPinia())
   })
 
+  it('persists a farmhouse-only address book with exactly one default address', () => {
+    const store = useFarmhouseStore()
+    store.currentUserId = 'U-FARMHOUSE-ADDRESS'
+
+    const first = store.upsertAddress({ receiver: '张女士', phone: '13800000001', region: '湖南省 长沙市 岳麓区', detail: '梅溪湖路 1 号', isDefault: false })
+    const second = store.upsertAddress({ receiver: '李先生', phone: '13900000002', region: '湖南省 湘西州 永顺县', detail: '石板溪村 2 号', isDefault: false })
+
+    expect(first).toMatchObject({ receiver: '张女士', isDefault: true, userId: 'U-FARMHOUSE-ADDRESS' })
+    expect(second).toMatchObject({ receiver: '李先生', isDefault: false, userId: 'U-FARMHOUSE-ADDRESS' })
+    expect(store.setDefaultAddress(second!.id)).toBe(true)
+    expect(store.addresses.filter((address) => address.isDefault)).toEqual([
+      expect.objectContaining({ id: second!.id, receiver: '李先生' })
+    ])
+    expect(store.removeAddress(second!.id)).toBe(true)
+    expect(store.addresses).toEqual([
+      expect.objectContaining({ id: first!.id, receiver: '张女士', isDefault: true })
+    ])
+    expect(store.upsertAddress({ receiver: '手机号错误', phone: '123', region: '湖南省 长沙市 岳麓区', detail: '错误地址', isDefault: false })).toBeNull()
+
+    const persisted = JSON.parse(localStorage.getItem('agritainment-farmhouse-addresses') || '{}')
+    expect(persisted[first!.id]).toMatchObject({ receiver: '张女士', isDefault: true })
+    expect(localStorage.getItem('agritainment-platform-c-addresses')).toBeNull()
+  })
+
+  it('reuses farmhouse addresses across tenants while isolating different users', async () => {
+    const firstStore = useFarmhouseStore()
+    await firstStore.initialize(false, 'F001')
+    const userId = firstStore.setAuthorizedIdentity('openid-farmhouse-address')!
+    const saved = firstStore.upsertAddress({ receiver: '跨店用户', phone: '13700000003', region: '湖南省 张家界市 永定区', detail: '天门山路 3 号', isDefault: true })!
+
+    setActivePinia(createPinia())
+    const secondStore = useFarmhouseStore()
+    await secondStore.initialize(false, 'F002')
+    expect(secondStore.setAuthorizedIdentity('openid-farmhouse-address')).toBe(userId)
+    expect(secondStore.addresses).toEqual([expect.objectContaining({ id: saved.id, receiver: '跨店用户' })])
+
+    setActivePinia(createPinia())
+    const otherUserStore = useFarmhouseStore()
+    await otherUserStore.initialize(false, 'F001')
+    otherUserStore.setAuthorizedIdentity('openid-other-address-user')
+    expect(otherUserStore.addresses).toEqual([])
+  })
+
+  it('checks out with an owned address id and keeps an immutable supplier address snapshot', async () => {
+    const store = useFarmhouseStore()
+    await initializeWithLegacyProducts(store, cloneSeed(products.slice(0, 1)))
+    store.$patch({ currentUserId: 'U-FARMHOUSE-CHECKOUT', member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
+    const address = store.upsertAddress({ receiver: '收货人', phone: '13600000004', region: '湖南省 长沙市 岳麓区', detail: '枫林路 4 号', isDefault: true })!
+    store.addToCart(store.products[0], store.products[0].skus[0].id)
+
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: address.id })).toBe(true)
+    const order = store.orders[0]
+    expect(order.delivery).toEqual({ mode: 'courier', address: '收货人 13600000004 · 湖南省 长沙市 岳麓区 枫林路 4 号' })
+    const platformOrder = readPlatformOrders()?.[`FH-${order.id}`]
+    expect(platformOrder?.supplierOrderLink?.deliveryAddress).toMatchObject({
+      userId: 'U-FARMHOUSE-CHECKOUT', receiver: '收货人', phone: '13600000004', region: '湖南省 长沙市 岳麓区', detail: '枫林路 4 号'
+    })
+
+    expect(store.upsertAddress({ ...address, detail: '修改后的地址', isDefault: true })).not.toBeNull()
+    expect(readPlatformOrders()?.[`FH-${order.id}`]?.supplierOrderLink?.deliveryAddress?.detail).toBe('枫林路 4 号')
+    expect(store.orders[0].delivery?.address).toBe('收货人 13600000004 · 湖南省 长沙市 岳麓区 枫林路 4 号')
+  })
+
   it('writes a farmhouse-courier platform order when courier is selected', async () => {
     const store = useFarmhouseStore()
     await initializeWithLegacyProducts(store, cloneSeed(products.slice(0, 1)))
     store.$patch({ member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
     store.addToCart(store.products[0], store.products[0].skus[0].id)
-    expect(await store.checkout({ deliveryMode: 'courier', address: '湖南省张家界市永定区示例路 1 号' })).toBe(true)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: createCheckoutAddress(store, '张家界市永定区示例路 1 号').id })).toBe(true)
     const order = store.orders[0]
     expect(order.delivery?.mode).toBe('courier')
     expect(order.platformOrderId).toBe(`FH-${order.id}`)
     const platformOrder = readPlatformOrders()?.[`FH-${order.id}`]
     expect(platformOrder?.supplierOrderLink?.source).toBe('farmhouse-courier')
+    expect(platformOrder?.channel).toBe('purchase')
     expect(platformOrder?.items?.[0]?.deliveryMode).toBe('courier')
+  })
+
+  it('keeps pickup-only items local while publishing courier items from one mixed checkout', async () => {
+    const courierProduct = catalogProduct({ id: 'MIXED-COURIER', name: '快递商品', expressDelivery: true })
+    const pickupProduct = catalogProduct({ id: 'MIXED-PICKUP', name: '自提商品', expressDelivery: false })
+    seedCatalog([courierProduct, pickupProduct])
+    for (const product of [courierProduct, pickupProduct]) {
+      expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: product.id, listed: true, retailPrice: product.skus[0].retailPrice })).toBe(true)
+    }
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    store.$patch({ currentUserId: 'U-MIXED-DELIVERY', member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
+    const address = createCheckoutAddress(store, '混合配送地址 8 号')
+    expect(store.addToCart(store.products.find((item) => item.id === courierProduct.id)!)).toBe('added')
+    expect(store.addToCart(store.products.find((item) => item.id === pickupProduct.id)!)).toBe('added')
+
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: address.id })).toBe(true)
+
+    expect(store.orders[0].items.map((item) => ({ productId: item.productId, deliveryMode: item.deliveryMode }))).toEqual([
+      { productId: courierProduct.id, deliveryMode: 'courier' },
+      { productId: pickupProduct.id, deliveryMode: 'pickup' }
+    ])
+    const supplierOrders = Object.values(readPlatformOrders() || {})
+    expect(supplierOrders).toHaveLength(1)
+    expect(supplierOrders[0].items?.map((item) => item.productId)).toEqual([courierProduct.id])
   })
 
   it('keeps pickup orders local without a platform link', async () => {
@@ -669,7 +847,9 @@ describe('farmhouse courier fulfillment', () => {
     await initializeWithLegacyProducts(store, cloneSeed(products.slice(0, 1)))
     store.$patch({ member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
     store.addToCart(store.products[0], store.products[0].skus[0].id)
-    expect(await store.checkout({ deliveryMode: 'courier', address: '' })).toBe(false)
+    expect(await store.checkout({ deliveryMode: 'courier' })).toBe(false)
+    expect(store.checkoutError).toContain('收货地址')
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: 'ADDR-NOT-OWNED' })).toBe(false)
     expect(store.checkoutError).toContain('收货地址')
   })
 })
@@ -997,7 +1177,7 @@ describe('farmhouse after-sale transactions', () => {
     store.member.points = 100
     const product = store.products.find((item) => item.id === `AFTER-${type}`)!
     store.addToCart(product, `${product.id}-SKU`)
-    expect(await store.checkout({ deliveryMode: 'courier', address: '湖南省测试地址 1 号' })).toBe(true)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: createCheckoutAddress(store).id })).toBe(true)
     const order = store.orders[0]
     order.status = '已完成'
     persistStorefrontOrderStatus(order.id, '已完成')
@@ -1188,7 +1368,7 @@ describe('farmhouse after-sale transactions', () => {
     store.member.balance = 500
     const product = store.products.find((item) => item.id === 'REQUEST-SHADOW')!
     store.addToCart(product, 'REQUEST-SHADOW-SKU')
-    expect(await store.checkout({ deliveryMode: 'courier', address: '湖南省测试地址 1 号' })).toBe(true)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: createCheckoutAddress(store).id })).toBe(true)
     const order = store.orders[0]
     order.status = '已完成'
     const externalEntry = { id: 'BL-REQUEST-EXTERNAL', type: 'recharge' as const, amount: 500, balance: 900, description: '另一终端充值', createdAt: '2026-08-30 13:00' }
@@ -1213,7 +1393,7 @@ describe('farmhouse after-sale transactions', () => {
     store.member.balance = 500
     const product = store.products.find((item) => item.id === 'REQUEST-PERSISTED-STATUS')!
     store.addToCart(product, 'REQUEST-PERSISTED-STATUS-SKU')
-    expect(await store.checkout({ deliveryMode: 'courier', address: '湖南省测试地址 1 号' })).toBe(true)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: createCheckoutAddress(store).id })).toBe(true)
     const order = store.orders[0]
     order.status = '已完成'
     const localBefore = cloneSeed(JSON.parse(localStorage.getItem(localStateKey) || '{}'))
@@ -1347,7 +1527,7 @@ describe('farmhouse after-sale transactions', () => {
     store.member.balance = 500
     const product = store.products.find((item) => item.id === 'REQUEST-RETRY')!
     store.addToCart(product, 'REQUEST-RETRY-SKU')
-    expect(await store.checkout({ deliveryMode: 'courier', address: '湖南省测试地址 1 号' })).toBe(true)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: createCheckoutAddress(store).id })).toBe(true)
     const order = store.orders[0]
     order.status = '已完成'
     persistStorefrontOrderStatus(order.id, '已完成')
@@ -1374,7 +1554,7 @@ describe('farmhouse after-sale transactions', () => {
     store.member.balance = 500
     const product = store.products.find((item) => item.id === 'REQUEST-RECOVERY')!
     store.addToCart(product, 'REQUEST-RECOVERY-SKU')
-    expect(await store.checkout({ deliveryMode: 'courier', address: '湖南省测试地址 1 号' })).toBe(true)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: createCheckoutAddress(store).id })).toBe(true)
     const order = store.orders[0]
     order.status = '已完成'
     persistStorefrontOrderStatus(order.id, '已完成')
@@ -1409,7 +1589,7 @@ describe('farmhouse after-sale transactions', () => {
     store.member.balance = 500
     const product = store.products.find((item) => item.id === 'REQUEST-FATAL')!
     store.addToCart(product, 'REQUEST-FATAL-SKU')
-    expect(await store.checkout({ deliveryMode: 'courier', address: '湖南省测试地址 1 号' })).toBe(true)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: createCheckoutAddress(store).id })).toBe(true)
     const order = store.orders[0]
     order.status = '已完成'
     persistStorefrontOrderStatus(order.id, '已完成')

@@ -1,4 +1,4 @@
-import { buildTencentMapSearchUrl, buildTencentNavigationUrl, cloneSeed, demoDrivers, haversineKm, readPlatformDrivers, readPlatformEntities, readPlatformOrders, writePlatformDrivers, writePlatformOrder } from '@agritainment/shared'
+import { buildTencentMapSearchUrl, buildTencentNavigationUrl, cloneSeed, demoDrivers, haversineKm, readDailyDeliveryRouteState, readDailyDeliveryRoutes, readPlatformDrivers, readPlatformEntities, readPlatformOrders, readPlatformSupplierSettlements, saveDailyDeliveryRoute, todayString, writePlatformDrivers, writePlatformOrder, writePlatformSupplierSettlement } from '@agritainment/shared'
 import type { Order, OrderFlowEvent, Supplier, SupplierFulfillment } from '@agritainment/shared'
 import { SUPPLIER_DEMO_ID } from '@agritainment/shared'
 
@@ -350,6 +350,11 @@ function seedOrders(): Order[] {
   return specs.map(toOrder)
 }
 
+const demoSupplierSettlements = [
+  { id: 'SST-DEMO-S002-001', period: '2026-08', supplierIds: ['S002'], orderIds: ['SO-S006'], amount: 176, status: 'settled', createdAt: '2026-08-20 10:00', items: [{ supplierId: 'S002', supplierName: '湘西腊味合作社', orderIds: ['SO-S006'], amount: 176 }] },
+  { id: 'SST-DEMO-S002-002', period: '2026-09', supplierIds: ['S002'], orderIds: ['SO-S001', 'SO-S003'], amount: 448.5, status: 'pending', createdAt: '2026-09-01 10:00', items: [{ supplierId: 'S002', supplierName: '湘西腊味合作社', orderIds: ['SO-S001', 'SO-S003'], amount: 448.5 }] }
+]
+
 /** 幂等种子：按 id 增量合并缺失的演示订单；司机存储为空或缺少演示司机时补全 */
 export function seedSupplierDataOnce(): void {
   const published = readPlatformOrders() || {}
@@ -362,4 +367,38 @@ export function seedSupplierDataOnce(): void {
     const missingDrivers = demoDrivers.filter((driver) => !byId.has(driver.id))
     if (missingDrivers.length) writePlatformDrivers([...currentDrivers, ...cloneSeed(missingDrivers)])
   }
+  const settlements = readPlatformSupplierSettlements() || {}
+  demoSupplierSettlements.forEach((record) => { if (!settlements[record.id]) writePlatformSupplierSettlement(record) })
+}
+
+export function seedSupplierDemoRouteOnce(): boolean {
+  const today = todayString()
+  if (readDailyDeliveryRoutes('S002', 'D001').some((route) => route.deliveryDate === today && route.status === 'published')) return false
+  const now = new Date().toISOString()
+  const f001 = storeDirectory.F001
+  const f002 = storeDirectory.F002
+  return saveDailyDeliveryRoute({
+    id: `DEMO-ROUTE-S002-D001-${today}`,
+    supplierId: 'S002',
+    driverId: 'D001',
+    deliveryDate: today,
+    status: 'published',
+    stops: [
+      { storeId: f001.storeId, storeName: f001.storeName, address: f001.address, longitude: f001.longitude, latitude: f001.latitude, orderIds: ['SO-S010'] },
+      { storeId: f002.storeId, storeName: f002.storeName, address: f002.address, longitude: f002.longitude, latitude: f002.latitude, orderIds: ['SO-S009'] }
+    ],
+    origin: { longitude: supplierInfo.longitude, latitude: supplierInfo.latitude },
+    stopCount: 2,
+    polyline: [
+      { longitude: supplierInfo.longitude, latitude: supplierInfo.latitude },
+      { longitude: f001.longitude!, latitude: f001.latitude! },
+      { longitude: f002.longitude!, latitude: f002.latitude! }
+    ],
+    totalDistanceKm: 86.4,
+    estimatedDurationMinutes: 140,
+    sourceOrderIds: ['SO-S009', 'SO-S010'],
+    provider: 'demo-seed',
+    generatedAt: now,
+    publishedAt: now
+  }, readDailyDeliveryRouteState()?.revision ?? 0).ok
 }

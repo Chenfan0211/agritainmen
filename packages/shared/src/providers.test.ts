@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import * as providersModule from './providers'
-import { configurePlatformProviders, createMockPlatformProviders } from './providers'
+import { configurePlatformProviders, createDrivingRouteOptimizationProvider, createMockPlatformProviders } from './providers'
 
 type RouteProvider = {
   optimize(input: {
@@ -107,5 +107,46 @@ describe('platform provider contracts', () => {
     const before = structuredClone(input)
     expect(await providers.routeOptimization.optimize(input)).toEqual({ ok: false, code: 'invalid_route_input', message: 'Invalid route optimization input' })
     expect(input).toEqual(before)
+  })
+
+  it('enriches a locally ordered route with Tencent driving metrics and falls back when the gateway fails', async () => {
+    const stops = [
+      { storeId: 'A', storeName: 'A', address: 'A', longitude: 109.86, latitude: 28.63, orderIds: ['O-A'] },
+      { storeId: 'B', storeName: 'B', address: 'B', longitude: 110.48, latitude: 29.12, orderIds: ['O-B'] },
+      { storeId: 'Z', storeName: 'Z', address: 'Z', orderIds: ['O-Z'] }
+    ]
+    const success = createDrivingRouteOptimizationProvider({
+      requestDirection: async () => ({
+        ok: true,
+        value: {
+          distanceKm: 88.4,
+          durationMinutes: 120,
+          polyline: [{ longitude: 109.85, latitude: 28.62 }, { longitude: 110.48, latitude: 29.12 }],
+          segments: [
+            { fromId: 'origin', toStoreId: 'A', distanceKm: 12.2 },
+            { fromId: 'A', toStoreId: 'B', distanceKm: 76.2 }
+          ]
+        }
+      })
+    })
+    const enriched = await success.optimize({ origin: { longitude: 109.85, latitude: 28.62 }, stops })
+    expect(enriched).toMatchObject({
+      ok: true,
+      value: {
+        provider: 'tencent-direction',
+        totalDistanceKm: 88.4,
+        estimatedDurationMinutes: 120,
+        polyline: [{ longitude: 109.85, latitude: 28.62 }, { longitude: 110.48, latitude: 29.12 }],
+        warnings: ['missing_coordinates:Z']
+      }
+    })
+    if (enriched.ok && enriched.value) expect(enriched.value.orderedStops.map((stop) => stop.storeId)).toEqual(['A', 'B', 'Z'])
+
+    const fallback = createDrivingRouteOptimizationProvider({
+      requestDirection: async () => ({ ok: false, code: 'UPSTREAM_ERROR', message: '地图服务暂不可用' })
+    })
+    const local = await fallback.optimize({ origin: { longitude: 109.85, latitude: 28.62 }, stops })
+    expect(local).toMatchObject({ ok: true, value: { provider: 'haversine', warnings: ['missing_coordinates:Z', 'direction_fallback'] } })
+    expect(local.ok && local.value && local.value.totalDistanceKm).toBeGreaterThan(0)
   })
 })

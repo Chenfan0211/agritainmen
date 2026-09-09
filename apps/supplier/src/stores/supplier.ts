@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
-import type { COrder, CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DailyDeliveryRouteState, DriverAccount, DriverStoreScope, DriverStoreScopeState, MockScenario, Order, PlatformAuditLogEntry, PlatformEntities, PlatformJournalEntry, PlatformRecoveryHandlerKey, RouteOptimizationOutput, RouteSegment, RouteStop, ShortageItem, Supplier, SupplierAccount, SupplierSettlementRecord, WriteResult } from '@agritainment/shared'
+import type { COrder, CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DailyDeliveryRouteState, DriverAccount, DriverStoreScope, DriverStoreScopeState, MockScenario, NamedDeliveryRoute, Order, PlatformAuditLogEntry, PlatformEntities, PlatformJournalEntry, PlatformRecoveryHandlerKey, RouteOptimizationOutput, RouteOrigin, RouteSegment, RouteStop, ShortageItem, Supplier, SupplierAccount, SupplierSettlementRecord, WriteResult } from '@agritainment/shared'
 import {
   CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, SUPPLIER_DEMO_ID, acceptSupplierOrder, appendPlatformAuditLog, applyCatalogStockOperation, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, clearPlatformJson, cloneSeed, confirmCourierDelivered, createCatalogProductReviewRecoveryHandlerRegistration, createCatalogProductSubmission, createId,
-  deriveSupplierMetrics, demoDrivers, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount,
-  handoverSupplierIn, handoverSupplierOut, haversineKm, initializePlatformRecoveryHandlers, markShortageHandled, mergeDeliveryOrdersByStore, mergePlatformDrivers, mergePlatformEntities, mergePlatformSupplierAccounts, readCOrders, readCatalogProductSubmissionState, readCatalogState, readDailyDeliveryRouteState, readDailyDeliveryRoutes, readDriverStoreScopeState, readDriverStoreScopes, readPlatformAuditLogs, readPlatformCollectionRevision, readPlatformDrivers, readPlatformEntities, readPlatformJson, readPlatformOrders, readPlatformSupplierAccounts, readPlatformSupplierSettlements,
+  deriveSupplierMetrics, deriveTodayFarmhouseQuantities, demoDrivers, demoNamedDeliveryRoutes, driverActiveTaskCounts, ensurePublishedRoutesForDate, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount,
+  handoverSupplierIn, handoverSupplierOut, haversineKm, initializePlatformRecoveryHandlers, markShortageHandled, mergeDeliveryOrdersByStore, mergePlatformDrivers, mergePlatformEntities, mergePlatformSupplierAccounts, namedRouteForDriver, orderStopsByNamedRoute, readCOrders, readCatalogProductSubmissionState, readCatalogState, readDailyDeliveryRouteState, readDailyDeliveryRoutes, readDriverStoreScopeState, readDriverStoreScopes, readNamedDeliveryRouteState, readNamedDeliveryRoutes, readPlatformAuditLogs, readPlatformCollectionRevision, readPlatformDrivers, readPlatformEntities, readPlatformJson, readPlatformOrders, readPlatformSupplierAccounts, readPlatformSupplierSettlements, saveDailyDeliveryRoute, saveNamedDeliveryRoute, snapshotDailyDeliveryRoute, validateStopCheckIn,
   createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, getPlatformProviders, reconcilePendingPlatformTransactions, reassignSupplierDriver, resolvePlatformJournal, rollbackPlatformCollectionSnapshot, runLockedPlatformCollectionTask, runLockedPlatformTransaction, runPlatformTransaction, saveCatalogProduct as persistCatalogProduct, shipSupplierCourier, supplierCanLogin, supplierCanReceiveNewOrders, suppliers as supplierSeeds, syncCSubOrderFromSupplier, todayString, upsertPlatformEntity, writeCOrders, writeCatalogState, writePlatformDrivers, writePlatformJson, writePlatformOrder, writePlatformOrders
 } from '@agritainment/shared'
 import { deliveryDistanceKm, resolveOrderStore, seedSupplierDataOnce, storeDirectory, storeInfoOf, supplierInfo, supplierWarehouseOf } from '../services/repository'
@@ -647,6 +647,19 @@ async function migrateLegacyDriverScopes(drivers: readonly DriverAccount[], orde
   if (!result.ok) throw new Error(result.message)
 }
 
+function seedDemoNamedRoutes() {
+  if (readNamedDeliveryRoutes().length) return
+  let revision = readNamedDeliveryRouteState()?.revision ?? 0
+  let updatedAt = readNamedDeliveryRouteState()?.updatedAt
+  for (const route of demoNamedDeliveryRoutes) {
+    const next = { ...route, updatedAt: timestampAfter(updatedAt) }
+    const saved = saveNamedDeliveryRoute(next, revision)
+    if (!saved.ok) return
+    revision += 1
+    updatedAt = next.updatedAt
+  }
+}
+
 function routeMetrics(origin: { longitude?: number; latitude?: number }, stops: readonly RouteStop[]): { segments: RouteSegment[]; totalDistanceKm: number; estimatedDurationMinutes: number } {
   const segments: RouteSegment[] = []
   let previous = origin
@@ -693,13 +706,17 @@ function validatedRouteOptimizationOutput(inputStops: readonly RouteStop[], valu
     expectedFromId = stop.storeId
   }
   if (Math.abs(segmentTotal - value.totalDistanceKm) > 0.01) return null
+  const polyline = Array.isArray(value.polyline) && value.polyline.every((point) => Number.isFinite(point?.longitude) && Number.isFinite(point?.latitude))
+    ? cloneSeed(value.polyline)
+    : undefined
   return {
     orderedStops,
     segments: cloneSeed(value.segments),
     totalDistanceKm: value.totalDistanceKm,
     estimatedDurationMinutes: value.estimatedDurationMinutes,
     provider: value.provider.trim(),
-    warnings: [...value.warnings]
+    warnings: [...value.warnings],
+    ...(polyline ? { polyline } : {})
   }
 }
 
@@ -778,6 +795,8 @@ interface SupplierState {
   productSubmissionRevision: number
   driverScopes: DriverStoreScope[]
   driverScopeRevision: number
+  namedRoutes: NamedDeliveryRoute[]
+  namedRouteRevision: number
   dailyRoutes: DailyDeliveryRoute[]
   dailyRouteRevision: number
   routeDraft: DailyDeliveryRoute | null
@@ -804,6 +823,8 @@ export const useSupplierStore = defineStore('supplier', {
     productSubmissionRevision: 0,
     driverScopes: [],
     driverScopeRevision: 0,
+    namedRoutes: [],
+    namedRouteRevision: 0,
     dailyRoutes: [],
     dailyRouteRevision: 0,
     routeDraft: null
@@ -811,6 +832,10 @@ export const useSupplierStore = defineStore('supplier', {
   getters: {
     currentSupplier: (state) => state.suppliers.find((supplier) => supplier.id === state.auth.supplierId),
     metrics: (state) => deriveSupplierMetrics(state.orders.filter((order) => order.supplierId === state.auth.supplierId)),
+    todayFarmhouseQuantities: (state) => deriveTodayFarmhouseQuantities(
+      state.orders.filter((order) => order.supplierId === state.auth.supplierId),
+      (order) => resolveOrderStore(order)?.storeId
+    ),
     todayDeliveryOrders: (state) => state.orders.filter((order) => order.supplierId === state.auth.supplierId && order.channel === 'purchase' && (() => {
       const fulfillment = order.supplierFulfillment
       if (!fulfillment) return false
@@ -1011,6 +1036,7 @@ export const useSupplierStore = defineStore('supplier', {
         })
         orders.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         await migrateLegacyDriverScopes(drivers, orders)
+        seedDemoNamedRoutes()
         const settlements = Object.values(readPlatformSupplierSettlements() || {})
         const catalog = readCatalogState()
         const productSubmissionState = readCatalogProductSubmissionState()
@@ -1026,6 +1052,8 @@ export const useSupplierStore = defineStore('supplier', {
           productSubmissionRevision: productSubmissionState?.revision ?? 0,
           driverScopes: driverScopeState?.scopes ?? [],
           driverScopeRevision: readPlatformCollectionRevision(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY),
+          namedRoutes: readNamedDeliveryRoutes(),
+          namedRouteRevision: readNamedDeliveryRouteState()?.revision ?? 0,
           dailyRoutes: dailyRouteState?.routes ?? [],
           dailyRouteRevision: readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY),
           initialized: true
@@ -1067,7 +1095,12 @@ export const useSupplierStore = defineStore('supplier', {
         return []
       }
       return this.drivers.filter((driver) => driver.supplierId === this.auth.supplierId && driver.status === 'active'
-        && this.driverScopes.some((scope) => scope.supplierId === this.auth.supplierId && scope.driverId === driver.id && scope.storeIds.includes(destination.storeId)))
+        && this.driverAssignableStoreIds(driver.id).includes(destination.storeId))
+    },
+    driverAssignableStoreIds(driverId: string): string[] {
+      const named = this.namedRoutes.find((route) => route.supplierId === this.auth.supplierId && route.driverId === driverId)
+      if (named) return named.storeIds
+      return this.driverScopes.find((scope) => scope.supplierId === this.auth.supplierId && scope.driverId === driverId)?.storeIds || []
     },
     async updateDriverScope(driverId: string, storeIds: string[]): Promise<WriteResult<DriverStoreScope>> {
       const denied = (code: string, message: string): WriteResult<DriverStoreScope> => ({ ok: false, code, message })
@@ -1111,10 +1144,51 @@ export const useSupplierStore = defineStore('supplier', {
       const state = readDriverStoreScopeState()
       this.driverScopes = state?.scopes ?? []
       this.driverScopeRevision = readPlatformCollectionRevision(PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY)
+      const named = namedRouteForDriver(this.auth.supplierId, driverId)
+      if (named) {
+        const namedState = readNamedDeliveryRouteState()
+        saveNamedDeliveryRoute({ ...named, storeIds: normalizedIds, updatedAt: timestampAfter(namedState?.updatedAt) }, namedState?.revision ?? 0)
+      }
+      this.namedRoutes = readNamedDeliveryRoutes()
+      this.namedRouteRevision = readNamedDeliveryRouteState()?.revision ?? 0
       const routes = readDailyDeliveryRouteState()
       this.dailyRoutes = routes?.routes ?? []
       this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
       return { ok: true, value: cloneSeed(scope), operationId: result.operationId }
+    },
+    async saveNamedRoute(input: { id?: string; name: string; storeIds: string[]; driverId?: string }): Promise<WriteResult<NamedDeliveryRoute>> {
+      const denied = (code: string, message: string): WriteResult<NamedDeliveryRoute> => ({ ok: false, code, message })
+      if (this.auth.role !== 'supplier') return denied('permission_denied', '无权维护线路')
+      const name = input.name.trim()
+      const storeIds = [...new Set(input.storeIds.map((id) => id.trim()).filter(Boolean))]
+      if (!name || storeIds.some((id) => !storeDirectory[id])) return denied('invalid_route', '线路名称或农家乐无效')
+      if (input.driverId) {
+        const driver = this.drivers.find((item) => item.id === input.driverId && item.supplierId === this.auth.supplierId && item.status === 'active')
+        if (!driver) return denied('invalid_driver', '只能指派启用中的司机')
+      }
+      const previous = input.id ? this.namedRoutes.find((route) => route.id === input.id) : undefined
+      const route: NamedDeliveryRoute = {
+        id: previous?.id || createId('NR'),
+        supplierId: this.auth.supplierId,
+        name,
+        storeIds,
+        ...(input.driverId ? { driverId: input.driverId } : {}),
+        updatedAt: timestampAfter(readNamedDeliveryRouteState()?.updatedAt)
+      }
+      const saved = saveNamedDeliveryRoute(route, this.namedRouteRevision)
+      if (!saved.ok || !saved.value) return denied(saved.code || 'write_failed', saved.message || '线路保存失败')
+      const affectedDrivers = [...new Set([previous?.driverId, route.driverId].filter(Boolean))] as string[]
+      if (affectedDrivers.length) {
+        const routeState = readDailyDeliveryRouteState()
+        const stale = staleRouteState(routeState, this.auth.supplierId, affectedDrivers, todayString(), 'from')
+        if (stale.stale.length) writePlatformJson(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, stale.state)
+      }
+      this.namedRoutes = readNamedDeliveryRoutes()
+      this.namedRouteRevision = readNamedDeliveryRouteState()?.revision ?? 0
+      const routes = readDailyDeliveryRouteState()
+      this.dailyRoutes = routes?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return { ok: true, value: cloneSeed(saved.value) }
     },
     async optimizeDriverRoute(driverId: string, deliveryDate: string): Promise<WriteResult<DailyDeliveryRoute>> {
       const failed = (code: string, message: string): WriteResult<DailyDeliveryRoute> => ({ ok: false, code, message })
@@ -1139,15 +1213,18 @@ export const useSupplierStore = defineStore('supplier', {
         return order.supplierId === this.auth.supplierId && fulfillment?.driverId === driverId && fulfillment.shipType === 'driver'
           && fulfillment.deliverDate === deliveryDate && (fulfillment.status === 'shipped' || fulfillment.status === 'delivering')
       })
-      const scopeStoreIds = cloneSeed(readDriverStoreScopes(this.auth.supplierId, driverId)[0]?.storeIds || [])
+      const named = namedRouteForDriver(this.auth.supplierId, driverId)
+      const scopeStoreIds = cloneSeed(named?.storeIds || readDriverStoreScopes(this.auth.supplierId, driverId)[0]?.storeIds || [])
       if (!inputsStillCurrent()) return failed('revision_conflict', '线路输入已更新，请重新生成')
       if (!orders.length) return failed('no_tasks', '该司机当天没有待配送任务')
       const resolved = orders.map((order) => ({ order, store: resolveOrderStore(order) }))
       if (resolved.some((item) => !item.store)) return failed('store_identity_missing', '门店缺少稳定编号，请先维护门店资料')
-      const stops = mergeDeliveryOrdersByStore(resolved.map(({ order, store }) => ({
+      const mergedStops = mergeDeliveryOrdersByStore(resolved.map(({ order, store }) => ({
         orderId: order.id, storeId: store!.storeId, storeName: store!.storeName, address: store!.address,
         longitude: store!.longitude, latitude: store!.latitude
       })))
+      const namedOrder = named ? orderStopsByNamedRoute(named.storeIds, mergedStops) : { stops: mergedStops, warnings: [] as string[] }
+      const stops = namedOrder.stops
       let optimized
       try {
         optimized = await getPlatformProviders().routeOptimization.optimize({ origin: { longitude: warehouse.longitude, latitude: warehouse.latitude }, stops })
@@ -1159,14 +1236,16 @@ export const useSupplierStore = defineStore('supplier', {
       if (!inputsStillCurrent()) return failed('revision_conflict', '线路输入已更新，请重新生成')
       const validated = validatedRouteOptimizationOutput(stops, optimized.value)
       if (!validated) return failed('route_provider_invalid', '线路服务返回了无效任务顺序，请重试')
+      const ordered = named ? orderStopsByNamedRoute(named.storeIds, validated.orderedStops) : { stops: validated.orderedStops, warnings: [] as string[] }
+      const metrics = routeMetrics({ longitude: warehouse.longitude, latitude: warehouse.latitude }, ordered.stops)
       const generatedAt = timestampAfter(this.routeDraft?.generatedAt)
-      const draft: DailyDeliveryRoute = {
+      const draft = snapshotDailyDeliveryRoute({
         id: `ROUTE-${this.auth.supplierId}-${driverId}-${deliveryDate}`, supplierId: this.auth.supplierId, driverId, deliveryDate, status: 'draft',
-        stops: validated.orderedStops, totalDistanceKm: validated.totalDistanceKm, estimatedDurationMinutes: validated.estimatedDurationMinutes,
-        sourceOrderIds: orders.map((order) => order.id).sort(), provider: validated.provider, segments: validated.segments,
-        warnings: validated.warnings, origin: { longitude: warehouse.longitude, latitude: warehouse.latitude },
-        scopeStoreIds, baselineRevisions, generatedAt
-      }
+        stops: ordered.stops, totalDistanceKm: metrics.totalDistanceKm, estimatedDurationMinutes: metrics.estimatedDurationMinutes,
+        sourceOrderIds: orders.map((order) => order.id).sort(), provider: validated.provider, segments: metrics.segments,
+        warnings: [...new Set([...(validated.warnings || []), ...namedOrder.warnings, ...ordered.warnings])], origin: { longitude: warehouse.longitude, latitude: warehouse.latitude },
+        polyline: validated.polyline, scopeStoreIds, baselineRevisions, generatedAt
+      })
       this.routeDraft = draft
       appendPlatformAuditLog({ module: 'routing', action: 'route.optimize', actorId: this.auth.supplierId, actorName: this.auth.name, actorRole: 'supplier', targetType: 'daily-delivery-route', targetId: draft.id, result: 'success', metadata: { driverId, deliveryDate, sourceOrderIds: draft.sourceOrderIds } })
       return { ok: true, value: cloneSeed(draft) }
@@ -1179,7 +1258,7 @@ export const useSupplierStore = defineStore('supplier', {
       ;[stops[index], stops[target]] = [stops[target], stops[index]]
       const warehouse = supplierWarehouseOf(this.auth.supplierId, this.suppliers) || {}
       const metrics = routeMetrics(warehouse, stops)
-      const next = { ...this.routeDraft, stops, ...metrics, provider: 'manual', generatedAt: timestampAfter(this.routeDraft.generatedAt) }
+      const next = snapshotDailyDeliveryRoute({ ...this.routeDraft, stops, ...metrics, provider: 'manual', polyline: undefined, generatedAt: timestampAfter(this.routeDraft.generatedAt) })
       if (!appendPlatformAuditLog({ module: 'routing', action: 'route.reorder', actorId: this.auth.supplierId, actorName: this.auth.name, actorRole: 'supplier', targetType: 'daily-delivery-route', targetId: next.id, result: 'success', metadata: { storeIds: stops.map((stop) => stop.storeId) } })) return false
       this.routeDraft = next
       return true
@@ -1226,6 +1305,27 @@ export const useSupplierStore = defineStore('supplier', {
       this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
       this.routeDraft = cloneSeed(result.value)
       return { ok: true, value: cloneSeed(result.value) }
+    },
+    async ensureTodayRoutes(): Promise<WriteResult<{ generated: number }>> {
+      const failed = (code: string, message: string): WriteResult<{ generated: number }> => ({ ok: false, code, message })
+      if (!this.auth.isLoggedIn || !this.auth.supplierId) return failed('not_logged_in', '请先登录')
+      const warehouse = supplierWarehouseOf(this.auth.supplierId, this.suppliers)
+      const result = await ensurePublishedRoutesForDate({
+        supplierId: this.auth.supplierId,
+        date: todayString(),
+        drivers: this.drivers,
+        orders: this.orders,
+        warehouse: warehouse?.longitude !== undefined && warehouse.latitude !== undefined
+          ? { longitude: warehouse.longitude, latitude: warehouse.latitude }
+          : undefined,
+        scopes: this.driverScopes,
+        namedRoutes: this.namedRoutes,
+        resolveStore: (order) => resolveOrderStore(order)
+      })
+      const state = readDailyDeliveryRouteState()
+      this.dailyRoutes = state?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return { ok: true, value: { generated: result.generated.length } }
     },
     async updateWarehouse(input: { address: string; longitude?: number; latitude?: number }): Promise<WriteResult> {
       const failed = (code: string, message: string): WriteResult => ({ ok: false, code, message })
@@ -1434,8 +1534,10 @@ export const useSupplierStore = defineStore('supplier', {
             const destination = resolveOrderStore(persisted || next)
             const proposedDestination = resolveOrderStore(next)
             const assigned = (readPlatformDrivers() || []).find((driver) => driver.id === nextDriverId && driver.supplierId === this.auth.supplierId && driver.status === 'active')
+            const named = namedRouteForDriver(this.auth.supplierId, nextDriverId)
             const scope = readDriverStoreScopes(this.auth.supplierId, nextDriverId)[0]
-            return !!destination && destination.storeId === proposedDestination?.storeId && !!assigned && assigned.name === next.supplierFulfillment?.driverName && !!scope?.storeIds.includes(destination.storeId)
+            const storeIds = named?.storeIds || scope?.storeIds || []
+            return !!destination && destination.storeId === proposedDestination?.storeId && !!assigned && assigned.name === next.supplierFulfillment?.driverName && storeIds.includes(destination.storeId)
           },
           steps: [
             { key: 'platform-orders', apply: () => writePlatformOrders(routingTarget.platformOrders), rollback: () => rollbackPlatformCollectionSnapshot(PLATFORM_ORDERS_STORAGE_KEY, routingOriginal.platformOrders, routingTarget.platformOrders) },
@@ -1518,8 +1620,13 @@ export const useSupplierStore = defineStore('supplier', {
       const order = this.orders.find((item) => item.id === orderId)
       if (!order) return false
       const link = order.supplierOrderLink
-      const cAddress = link?.source === 'c-mall' && link.sourceOrderId ? readCOrders()?.[link.sourceOrderId]?.address : undefined
-      const address = cAddress ? `${cAddress.region}${cAddress.detail}`.trim() : resolveOrderStore(order)?.address?.trim()
+      const linkedAddress = link?.deliveryAddress
+      const cAddress = !linkedAddress && link?.source === 'c-mall' && link.sourceOrderId ? readCOrders()?.[link.sourceOrderId]?.address : undefined
+      const recipientAddress = linkedAddress || cAddress
+      const isRecipientCourier = link?.source === 'c-mall' || link?.source === 'farmhouse-courier'
+      const address = recipientAddress
+        ? `${recipientAddress.region} ${recipientAddress.detail}`.replace(/\s+/g, ' ').trim()
+        : isRecipientCourier ? '' : resolveOrderStore(order)?.address?.trim()
       if (!address) return false
       const operationId = `supplier-fulfillment:${order.id}:ship-courier`
       let shipment
@@ -1544,9 +1651,40 @@ export const useSupplierStore = defineStore('supplier', {
       if (!await this.commitOrder(next)) return { ok: false, shortages: [] }
       return { ok: true, shortages: next.supplierFulfillment?.shortages || [] }
     },
+    async checkInStop(storeId: string, location: RouteOrigin): Promise<WriteResult<{ distanceM: number }>> {
+      const failed = (code: string, message: string): WriteResult<{ distanceM: number }> => {
+        this.error = message
+        return { ok: false, code, message }
+      }
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return failed('permission_denied', '仅司机可到店打卡')
+      const route = this.currentDriverRoute
+      if (!route) return failed('no_route', '今日线路尚未发布')
+      const stop = route.stops.find((item) => item.storeId === storeId)
+      if (!stop) return failed('unknown_stop', '当前线路没有该站点')
+      const validated = validateStopCheckIn(stop, location)
+      if (!validated.ok) return failed(validated.code, validated.message)
+      const next: DailyDeliveryRoute = snapshotDailyDeliveryRoute({
+        ...cloneSeed(route),
+        stops: route.stops.map((item) => item.storeId === storeId
+          ? { ...item, checkIn: { at: new Date().toISOString(), latitude: location.latitude, longitude: location.longitude, distanceM: validated.distanceM } }
+          : item),
+        generatedAt: timestampAfter(readDailyDeliveryRouteState()?.updatedAt)
+      })
+      const saved = saveDailyDeliveryRoute(next, this.dailyRouteRevision)
+      if (!saved.ok || !saved.value) return failed(saved.code || 'write_failed', saved.message || '打卡保存失败')
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      this.error = ''
+      return { ok: true, value: { distanceM: validated.distanceM } }
+    },
     async handoverIn(orderId: string, note?: string) {
       const order = this.orders.find((item) => item.id === orderId)
       if (!order || this.auth.role !== 'driver' || !this.auth.driverId) return false
+      const stop = this.currentDriverRoute?.stops.find((item) => item.orderIds.includes(orderId))
+      if (stop && !stop.checkIn) {
+        this.error = '请先到店打卡后再交接'
+        return false
+      }
       return this.commitOrder(handoverSupplierIn(order, { id: this.auth.driverId, name: this.auth.name, role: 'driver' }, note))
     },
     async markCourierDelivered(orderId: string) {

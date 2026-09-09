@@ -46,7 +46,7 @@ export function seedDemoUserOrders(userId: string): boolean {
   const order = (id: string, status: COrder['status'], createdAt: string, subOrders: CSubOrder[], paidAt?: string): COrder => ({
     id, userId, level: 'normal', address,
     amount: Math.round(subOrders.reduce((sum, child) => sum + child.amount, 0) * 100) / 100,
-    items: subOrders.flatMap((child) => child.items), subOrders, commissionAllocations: [], status, createdAt, paidAt,
+    items: subOrders.flatMap((child) => child.items), subOrders, commissionAllocations: [], distributorChain: ['T001'], status, createdAt, paidAt,
     remark: '演示订单，不参与库存和供应商履约'
   })
 

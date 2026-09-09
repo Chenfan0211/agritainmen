@@ -25,6 +25,7 @@ const activeCategory = ref('全部')
 const sheet = ref<'detail' | 'cart' | 'checkout' | 'address' | 'logistics' | 'after-sale' | null>(null)
 const liveRoomOpen = ref(false)
 const selectedProduct = ref<CProduct | null>(null)
+const productView = ref(false)
 const selectedSkuId = ref('')
 const selectedSubOrder = ref<CSubOrder | null>(null)
 const afterSaleTarget = ref<{ order: COrder; sub: CSubOrder } | null>(null)
@@ -68,6 +69,10 @@ function minimumOrderQuantity(sku: Pick<CProductSku, 'minimumOrderQuantity'> | n
 
 function canStartOrder(sku: Pick<CProductSku, 'stock' | 'minimumOrderQuantity'> | null | undefined) {
   return !!sku && validateCatalogSkuOrderQuantity(sku, minimumOrderQuantity(sku)).ok
+}
+
+function canStartProductOrder(product: CProduct) {
+  return product.skus.some((sku) => canStartOrder(sku))
 }
 
 function toast(title: string) { uni.showToast({ title, icon: 'none' }) }
@@ -120,7 +125,26 @@ async function authorize() {
 function openProduct(product: CProduct) {
   selectedProduct.value = product
   selectedSkuId.value = product.skus[0]?.id || ''
+  productView.value = true
+  sheet.value = null
+}
+
+function openSkuSheet(product: CProduct) {
+  selectedProduct.value = product
+  selectedSkuId.value = product.skus[0]?.id || ''
   sheet.value = 'detail'
+}
+
+function closeProductView() {
+  productView.value = false
+}
+
+function addProduct(product: CProduct) {
+  if (product.skus.length > 1) return openSkuSheet(product)
+  const sku = product.skus[0]
+  if (!sku || !canStartOrder(sku)) return toast('库存不足或数量未达要求')
+  if (store.addToCart(product.id, sku.id)) toast('已加入购物车')
+  else toast(store.checkoutError || '暂时无法加入购物车')
 }
 
 function addSelectedToCart() {
@@ -265,23 +289,43 @@ onBeforeUnmount(() => {
     <view v-if="loading" class="loading-state pc-loading">正在准备商城...</view>
 
     <view v-else-if="store.entryRestricted" class="auth-page">
-      <view class="auth-mark">集</view>
-      <text class="auth-title">该入口暂不可访问</text>
-      <text class="auth-sub">请通过有效推客分享链接进入商城</text>
-      <button v-if="!store.auth.isLoggedIn" class="auth-btn" :disabled="authorizing" @click="authorize">{{ authorizing ? '身份识别中...' : '已绑定用户登录' }}</button>
+      <view class="auth-card">
+        <view class="pc-login-hero">
+          <view class="pc-login-mark"><UiIcon name="shield-check" :size="26" /></view>
+          <text class="pc-login-brand">该入口暂不可访问</text>
+          <text class="pc-login-sub">请通过有效推客分享链接进入商城</text>
+        </view>
+        <view class="auth-body">
+          <button v-if="!store.auth.isLoggedIn" class="auth-btn" :disabled="authorizing" @click="authorize">{{ authorizing ? '身份识别中...' : '已绑定用户登录' }}</button>
+        </view>
+      </view>
     </view>
 
     <view v-else-if="!store.auth.isLoggedIn" class="auth-page">
-      <view class="auth-mark">集</view>
-      <text class="auth-title">中选科技商城</text>
-      <text class="auth-sub">产地好物，快递直发到家</text>
-      <button class="auth-btn" :disabled="authorizing" @click="authorize">{{ authorizing ? '授权中...' : '微信一键授权' }}</button>
-      <text class="auth-tip">演示环境 · 授权后可查看商品与订单</text>
+      <view class="auth-card">
+        <view class="pc-login-hero">
+          <view class="pc-login-mark"><UiIcon name="shopping-bag" :size="26" /></view>
+          <text class="pc-login-brand">中选科技商城</text>
+          <text class="pc-login-sub">产地好物，快递直发到家</text>
+        </view>
+        <view class="auth-body">
+          <button class="auth-btn" :disabled="authorizing" @click="authorize">{{ authorizing ? '授权中...' : '微信一键授权' }}</button>
+          <text class="auth-tip">演示环境，授权后可查看商品与订单</text>
+        </view>
+      </view>
     </view>
 
     <template v-else>
+      <view v-if="productView && selectedProduct" class="product-view" data-visual-view="product">
+        <view class="page-heading heading-with-back theme-head"><button class="page-back" aria-label="返回" @click="closeProductView"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">商品详情</text><text class="page-sub">产地直发 · 快递到家</text></view></view>
+        <view class="page-content product-detail" data-visual-state="user-detail">
+          <view class="detail-content"><view class="detail-head"><BusinessImage class="detail-thumb" :src="selectedProduct.image" mode="aspectFill" /><view><text class="detail-title">{{ selectedProduct.name }}</text><small class="meta-text">{{ selectedProduct.supplierName }}</small><strong class="strong-text detail-price">¥{{ selectedPrice.toFixed(2) }}</strong></view></view><view class="detail-tags"><text v-for="tag in displayProductTags(selectedProduct, 'live')" :key="tag" class="tag">{{ tag }}</text></view><text class="shipping-note"><UiIcon name="truck" :size="14" />快递配送 · 运费 ¥0 · 产地直发</text></view>
+          <view class="product-detail-actions"><button class="outline-btn" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-btn" :disabled="!canStartProductOrder(selectedProduct)" @click="addProduct(selectedProduct)">加入购物车</button></view>
+        </view>
+      </view>
+      <template v-else>
       <view v-if="activeTab === 'home'" class="c-mall" data-visual-view="user-home">
-        <view class="mall-header">
+        <view class="mall-header theme-head">
           <view>
             <text class="eyebrow">ZHONGXUAN TECH</text>
             <text class="mall-title">中选科技优选</text>
@@ -304,7 +348,7 @@ onBeforeUnmount(() => {
           <view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column">
           <view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)">
             <BusinessImage class="product-image" :src="product.image" mode="aspectFill" />
-            <view class="product-body"><view class="tag-row"><text v-for="tag in displayProductTags(product, 'live').slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text></view><text class="product-name">{{ product.name }}</text><text class="supplier-name">{{ product.supplierName }} · 产地直发</text><view class="product-foot"><view><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><text v-if="store.currentDistributor" class="share-income">分享赚 ¥{{ shareIncome(product).toFixed(2) }}</text></view><button class="product-action" :class="{ share: !!store.currentDistributor }" @click.stop="store.currentDistributor ? shareProduct(product) : openProduct(product)">{{ store.currentDistributor ? '分享' : '选购' }}</button></view></view>
+            <view class="product-body"><view class="tag-row"><text v-for="tag in displayProductTags(product, 'live').slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text></view><text class="product-name">{{ product.name }}</text><text class="product-meta">{{ product.supplierName }} · 产地直发<template v-if="store.currentDistributor"> · 分享赚 ¥{{ shareIncome(product).toFixed(2) }}</template></text><view class="product-foot"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><button class="product-action" :class="{ share: !!store.currentDistributor }" :aria-label="store.currentDistributor ? `分享${product.name}` : `加入${product.name}到购物车`" @click.stop="store.currentDistributor ? shareProduct(product) : addProduct(product)"><template v-if="store.currentDistributor">分享</template><UiIcon v-else name="plus" :size="16" /></button></view></view>
           </view>
           </view>
         </view>
@@ -312,21 +356,22 @@ onBeforeUnmount(() => {
       </view>
 
       <view v-else-if="activeTab === 'category'" class="page-content category-page" data-visual-view="user-category">
-        <view class="page-heading"><text class="page-title">商品分类</text><text class="page-sub">按品类挑选产地好物</text></view>
+        <view class="page-heading theme-head"><text class="page-title">商品分类</text><text class="page-sub">产地好物 · 按品类挑选</text></view>
         <view class="search-box"><UiIcon name="search" :size="17" /><input v-model="searchText" class="search-input" placeholder="搜索商品、供应商或标签" /></view>
         <view class="category-grid"><button v-for="category in categories" :key="category" class="category-grid-item" :class="{ active: activeCategory === category }" :aria-label="category" :title="category" @click="activeCategory = category"><BusinessImage class="category-grid-img" :src="productCategoryImage(category, dictionaryState)" :fallback="defaultProductCategoryImage(category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ category }}</text></button></view>
-        <view class="waterfall-grid compact-feed"><view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column"><view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)"><BusinessImage class="product-image" :src="product.image" mode="aspectFill" /><view class="product-body"><view class="product-name-row"><text v-for="tag in product.tags.slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text><text class="product-name">{{ product.name }}</text></view><text class="supplier-name">{{ product.supplierName }}</text><view class="product-foot"><view class="product-price-box"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><del v-if="(product.skus[0]?.basePrice ?? 0) > store.priceForSku(product.skus[0])" class="product-original">¥{{ (product.skus[0]?.basePrice ?? 0).toFixed(2) }}</del></view><button class="product-action" @click.stop="openProduct(product)">选购</button></view></view></view></view></view>
+        <view class="waterfall-grid compact-feed"><view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column"><view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)"><BusinessImage class="product-image" :src="product.image" mode="aspectFill" /><view class="product-body"><view class="tag-row"><text v-for="tag in product.tags.slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text></view><text class="product-name">{{ product.name }}</text><text class="product-meta">{{ product.supplierName }}</text><view class="product-foot"><view class="product-price-box"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><del v-if="(product.skus[0]?.basePrice ?? 0) > store.priceForSku(product.skus[0])" class="product-original">¥{{ (product.skus[0]?.basePrice ?? 0).toFixed(2) }}</del></view><button class="product-action" :aria-label="`加入${product.name}到购物车`" @click.stop="addProduct(product)"><UiIcon name="plus" :size="16" /></button></view></view></view></view></view>
         <view v-if="!visibleProducts.length" class="empty-block pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-bag" :size="24" /></view><text>该分类暂无商品</text></view>
       </view>
 
       <view v-else-if="activeTab === 'cart'" class="page-content cart-page" data-visual-view="user-cart">
-        <view class="page-heading"><text class="page-title">购物车</text><text class="page-sub">已选 {{ store.cartCount }} 件商品</text></view>
-        <view class="cart-content cart-page-content"><view v-if="!store.cart.length" class="empty-block large pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>购物车还是空的</text><button class="outline-btn" @click="activeTab = 'home'">去逛逛</button></view><view v-for="line in store.cart" :key="line.productId + line.skuId" class="cart-line" :class="{ unavailable: line.unavailable }"><BusinessImage :src="line.image" mode="aspectFill" /><view class="cart-line-main"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} · ¥{{ line.unitPrice.toFixed(2) }}</small><small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view><strong class="strong-text">¥{{ (line.unitPrice * line.quantity).toFixed(2) }}</strong><button class="outline-small cart-remove" @click="store.removeFromCart(line.productId, line.skuId)">删除</button></view><view v-if="store.cart.length" class="cart-checkout"><view><text>合计</text><strong>¥{{ store.cartTotal.toFixed(2) }}</strong></view><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="openCheckout">去结算</button></view></view>
+        <view class="page-heading theme-head"><text class="page-title">购物车</text><text class="page-sub">已选 {{ store.cartCount }} 件商品</text></view>
+        <view class="cart-content cart-page-content"><view v-if="!store.cart.length" class="empty-block large pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>购物车还是空的</text><button class="outline-btn" @click="activeTab = 'home'">去逛逛</button></view><view v-for="line in store.cart" :key="line.productId + line.skuId" class="cart-line" :class="{ unavailable: line.unavailable }"><BusinessImage :src="line.image" mode="aspectFill" /><view class="cart-line-main"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} · 库存充足</small><small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small><view class="cart-line-foot"><strong class="strong-text">¥{{ line.unitPrice.toFixed(2) }}</strong><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view></view><button class="cart-remove" @click="store.removeFromCart(line.productId, line.skuId)">删除</button></view></view>
+        <view v-if="store.cart.length" class="cart-checkout"><view><text>合计</text><strong>¥{{ store.cartTotal.toFixed(2) }}</strong></view><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="openCheckout">去结算</button></view>
       </view>
 
       <view v-else-if="activeTab === 'me' && meSection === 'orders'" class="page-content orders-page" data-visual-view="user-orders">
-        <view class="page-heading heading-with-back"><button aria-label="返回我的" @click="meSection = 'main'"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">我的订单</text><text class="page-sub">每个供应商独立发货</text></view></view>
-        <view v-if="!store.orders.length" class="empty-block large"><UiIcon name="package" :size="30" /><text>还没有订单</text><button class="outline-btn" @click="activeTab = 'home'">去逛逛</button></view>
+        <view class="page-heading heading-with-back theme-head"><button class="page-back" aria-label="返回我的" @click="meSection = 'main'"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">我的订单</text><text class="page-sub">每个供应商独立发货</text></view></view>
+        <view v-if="!store.orders.length" class="empty-block large pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="26" /></view><text>还没有订单</text><button class="outline-btn" @click="activeTab = 'home'">去逛逛</button></view>
         <view v-for="order in store.orders" :key="order.id" class="order-card">
           <view class="order-head"><view><view class="order-id-line"><text class="order-id">{{ order.id }}</text><text v-if="isDemoOrderId(order.id)" class="demo-badge">演示订单</text></view><text class="order-time">{{ formatDate(order.createdAt) }}</text></view><text class="order-status">{{ orderStatusLabel(order.status) }}</text></view>
           <view v-for="sub in order.subOrders" :key="sub.id" class="sub-order"><view class="sub-head"><text>{{ sub.supplierName }}</text><text>{{ subStatusLabel(sub.status) }}</text></view><view v-for="item in sub.items" :key="item.skuId" class="order-item"><BusinessImage :src="item.image" mode="aspectFill" /><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skuName }} × {{ item.quantity }}</small></view><strong class="strong-text">¥{{ (item.unitPrice * item.quantity).toFixed(2) }}</strong></view><view v-if="sub.trackingNo" class="tracking-row"><UiIcon name="truck" :size="14" />{{ sub.courier }} {{ sub.trackingNo }}</view><view class="sub-actions"><text v-if="sub.status === 'paid'" class="waiting-copy">{{ isDemoOrderId(order.id) ? '演示订单不参与真实履约' : '等待供应商发货' }}</text><button v-if="!isDemoOrderId(order.id) && sub.status === 'shipped'" class="primary-small" @click="receive(order, sub)">确认收货</button><button v-if="sub.status === 'after_sale'" class="outline-small" disabled>售后处理中</button><button v-if="!isDemoOrderId(order.id) && (sub.status === 'paid' || sub.status === 'shipped' || sub.status === 'received')" class="outline-small" @click="afterSale(order, sub)">申请售后</button><button v-if="sub.status !== 'cancelled'" class="outline-small" @click="openLogistics(sub)">查看物流</button></view></view>
@@ -338,7 +383,7 @@ onBeforeUnmount(() => {
       </view>
 
       <view v-else class="page-content me-page" data-visual-view="user-me">
-        <view class="page-heading"><text class="page-title">我的</text><text class="page-sub">分销与订单都在这里管理</text></view>
+        <view class="page-heading theme-head"><text class="page-title">我的</text><text class="page-sub">分销与订单都在这里管理</text></view>
         <view class="profile-panel"><view class="avatar">{{ roleLabel.slice(0, 1) }}</view><view class="profile-main"><text class="profile-role">{{ roleLabel }}</text><text class="profile-id">用户 {{ store.userId || '演示用户' }}</text></view><text class="profile-state">已登录</text></view>
         <view class="role-switch">
           <button :class="{ active: store.level === 'normal' }" @click="store.setDemoDistributorLevel('normal')">普通用户</button>
@@ -352,36 +397,45 @@ onBeforeUnmount(() => {
         <template v-if="store.currentDistributor">
           <view class="referral-panel"><view><text>{{ store.level === 'normal' ? '推荐关系' : '我的上级' }}</text><small class="meta-text">{{ store.level === 'normal' ? (store.referralPromoterId ? `已绑定推荐人 ${store.referralPromoterId}` : '暂无有效推荐关系') : (store.currentDistributor?.parentPromoterId ? `一级分销商 ${store.currentDistributor.parentPromoterId}` : '平台直营分销商') }}</small></view><UiIcon name="chevron-right" :size="16" /></view>
           <view class="section-line"><text>佣金明细</text><small class="meta-text">{{ store.myCommissionRecords.length }} 笔</small></view>
-          <view v-if="!store.myCommissionRecords.length" class="empty-block compact"><UiIcon name="badge-dollar-sign" :size="24" /><text>确认收货后，分销佣金会在这里显示</text></view>
+          <view v-if="!store.myCommissionRecords.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="badge-dollar-sign" :size="24" /></view><text>确认收货后，分销佣金会在这里显示</text></view>
           <view v-for="record in store.myCommissionRecords" :key="record.id" class="commission-row"><view><text>{{ record.beneficiaryLevel === 'level1' ? '一级分佣' : '二级分佣' }}</text><small class="meta-text">{{ formatDate(record.createdAt) }} · {{ record.status === 'available' ? '可用' : record.status === 'pending' ? '待结算' : record.status === 'withdrawn' ? '已提现' : '已冲正' }}</small></view><strong class="strong-text" :class="{ reversed: record.status === 'reversed' }">{{ record.amount < 0 ? '' : '+' }}¥{{ record.amount.toFixed(2) }}</strong></view>
           <view v-if="withdrawalRequests.length" class="withdrawal-history"><view class="section-line"><text>提现申请</text><small class="meta-text">{{ withdrawalRequests.length }} 笔</small></view><view v-for="request in withdrawalRequests" :key="request.id" class="commission-row"><view><text>{{ request.method }} · {{ withdrawalStatusLabel(request.status) }}</text><small class="meta-text">{{ formatDate(request.createdAt) }}<text v-if="request.reviewedNote"> · {{ request.reviewedNote }}</text></small></view><strong class="strong-text">¥{{ request.amount.toFixed(2) }}</strong></view></view>
         </template>
-        <view class="settings-list"><view @click="openAddressManager(false)"><UiIcon name="map-pin" :size="17" /><text>收货地址</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region : '未设置' }}</small><UiIcon name="chevron-right" :size="15" /></view><view class="live-entry" @click="openLive"><UiIcon name="play" :size="17" /><text>直播/推客活动</text><small class="meta-text">进入活动专区</small><UiIcon name="chevron-right" :size="15" /></view><view @click="logout"><UiIcon name="door-open" :size="17" /><text>退出登录</text><small class="meta-text"></small><UiIcon name="chevron-right" :size="15" /></view></view>
+        <view class="settings-list"><view @click="openAddressManager(false)"><UiIcon name="map-pin" :size="17" /><text>收货地址</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region : '未设置' }}</small><UiIcon name="chevron-right" :size="15" /></view><view class="live-entry" @click="openLive"><UiIcon name="play" :size="17" /><text>直播/推客活动</text><small class="meta-text">进入活动专区</small><UiIcon name="chevron-right" :size="15" /></view></view>
+        <button class="logout-button logout-danger" @click="logout">退出登录</button>
       </view>
 
       <view v-if="store.cart.length && activeTab !== 'cart'" class="cart-bar" @click="activeTab = 'cart'"><view class="cart-bar-icon"><UiIcon name="shopping-cart" :size="19" /><small>{{ store.cartCount }}</small></view><view class="cart-bar-total"><text>购物车合计</text><strong>¥{{ store.cartTotal.toFixed(2) }}</strong></view><button @click.stop="activeTab = 'cart'">去购物车</button></view>
+      </template>
       <view class="bottom-tabs"><view class="tab-item" :class="{ active: activeTab === 'home' }" @click="activeTab = 'home'"><UiIcon name="house" :size="19" /><text>首页</text></view><view class="tab-item" :class="{ active: activeTab === 'category' }" @click="activeTab = 'category'"><UiIcon name="layout-dashboard" :size="19" /><text>分类</text></view><view class="tab-item" :class="{ active: activeTab === 'cart' }" @click="activeTab = 'cart'"><view class="tab-icon-wrap"><UiIcon name="shopping-cart" :size="19" /><small v-if="store.cartCount">{{ store.cartCount }}</small></view><text>购物车</text></view><view class="tab-item" :class="{ active: activeTab === 'me' }" @click="activeTab = 'me'; meSection = 'main'"><UiIcon name="user-round" :size="19" /><text>我的</text></view></view>
     </template>
 
     <view v-if="liveRoomOpen && featuredLive" class="live-room" data-visual-state="user-live-room">
       <view class="live-room-video-wrap"><video class="live-room-video" :src="LIVE_VIDEO_URL" :poster="LIVE_VIDEO_POSTER" autoplay controls object-fit="cover" /><view class="live-room-top"><text class="live-card-status"><text></text>直播中</text><button aria-label="关闭直播间" @click="closeLiveRoom"><UiIcon name="x" :size="20" /></button></view><view class="live-room-meta"><text class="live-room-title">{{ featuredLive.title }}</text><small>{{ featuredLive.host }} · {{ featuredLive.viewers.toLocaleString('zh-CN') }} 人关注</small></view></view>
-      <view class="live-room-body"><view v-if="!store.liveFarms.length" class="empty-block compact"><UiIcon name="package" :size="24" /><text>当前直播暂无有效套餐</text></view><view v-for="group in store.liveFarms" :key="group.farm!.id" class="live-package-group"><text class="sku-label">{{ group.farm!.name }}</text><view v-for="item in group.packages" :key="item.id" class="live-package-row"><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skus.filter((sku) => canStartOrder(sku)).length }} 个可售规格</small><small v-if="!item.skus.some((sku) => canStartOrder(sku))" class="stock-warning">库存不足或购买数量未达要求</small></view><view class="live-package-actions"><strong class="strong-text">¥{{ item.price.toFixed(2) }}</strong><button class="outline-btn live-buy-btn" :disabled="!item.skus.some((sku) => canStartOrder(sku))" @click="buyPackage(item)">立即购买</button></view></view></view></view>
+      <view class="live-room-body"><view v-if="!store.liveFarms.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="24" /></view><text>当前直播暂无有效套餐</text></view><view v-for="group in store.liveFarms" :key="group.farm!.id" class="live-package-group"><text class="sku-label">{{ group.farm!.name }}</text><view v-for="item in group.packages" :key="item.id" class="live-package-row"><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skus.filter((sku) => canStartOrder(sku)).length }} 个可售规格</small><small v-if="!item.skus.some((sku) => canStartOrder(sku))" class="stock-warning">库存不足或购买数量未达要求</small></view><view class="live-package-actions"><strong class="strong-text">¥{{ item.price.toFixed(2) }}</strong><button class="outline-btn live-buy-btn" :disabled="!item.skus.some((sku) => canStartOrder(sku))" @click="buyPackage(item)">立即购买</button></view></view></view></view>
     </view>
 
     <view v-if="sheet" class="sheet-mask" @click.self="sheet = null"><view class="sheet">
-      <view class="sheet-head"><text>{{ sheet === 'detail' ? '商品详情' : sheet === 'cart' ? '购物车' : sheet === 'checkout' ? '确认订单' : sheet === 'address' ? '收货地址' : sheet === 'logistics' ? '物流详情' : sheet === 'after-sale' ? '申请售后' : '直播活动' }}</text><button aria-label="关闭" @click="sheet = null"><UiIcon name="x" :size="18" /></button></view>
-      <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="detail-content" data-visual-state="user-detail"><BusinessImage class="detail-image" :src="selectedProduct.image" mode="aspectFill" /><view class="detail-title-row"><view><text class="detail-title">{{ selectedProduct.name }}</text><small class="meta-text">{{ selectedProduct.supplierName }}</small></view><strong class="strong-text detail-price">¥{{ selectedPrice.toFixed(2) }}</strong></view><view class="detail-tags"><text v-for="tag in displayProductTags(selectedProduct, 'live')" :key="tag" class="tag">{{ tag }}</text></view><text class="shipping-note"><UiIcon name="truck" :size="14" />快递配送 · 运费 ¥0 · 产地直发</text><text class="sku-label">选择规格</text><view class="sku-list"><view v-for="sku in selectedProduct.skus" :key="sku.id" class="sku-option" :class="{ active: selectedSkuId === sku.id }" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small class="meta-text">库存 {{ sku.stock }} · ¥{{ store.priceForSku(sku).toFixed(2) }}</small><small v-if="!canStartOrder(sku)" class="stock-warning">库存不足或数量未达要求</small></view></view><button class="primary-btn" :disabled="!canStartOrder(selectedSku)" @click="addSelectedToCart">加入购物车</button></view>
-      <view v-else-if="sheet === 'cart'" class="cart-content" data-visual-state="user-cart"><view v-if="!store.cart.length" class="empty-block compact"><UiIcon name="shopping-cart" :size="24" /><text>购物车为空</text></view><view v-for="line in store.cart" :key="line.productId + line.skuId" class="cart-line" :class="{ unavailable: line.unavailable }"><BusinessImage :src="line.image" mode="aspectFill" /><view class="cart-line-main"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} · ¥{{ line.unitPrice.toFixed(2) }}</small><small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view><strong class="strong-text">¥{{ (line.unitPrice * line.quantity).toFixed(2) }}</strong><button class="outline-small cart-remove" @click="store.removeFromCart(line.productId, line.skuId)">删除</button></view><view v-if="store.cart.length" class="sheet-total"><text>身份价格已锁定</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view><button v-if="store.cart.length" class="primary-btn" :disabled="store.cartHasUnavailable" @click="openCheckout">去结算</button></view>
-      <view v-else-if="sheet === 'checkout'" class="checkout-content" data-visual-state="user-checkout"><view class="address-select" @click="openAddressManager(true)"><view><text>{{ store.defaultAddress ? store.defaultAddress.receiver + ' ' + store.defaultAddress.phone : '请选择收货地址' }}</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region + ' ' + store.defaultAddress.detail : '至少设置一条地址才能提交订单' }}</small></view><UiIcon name="chevron-right" :size="17" /></view><view class="checkout-items"><view v-for="line in store.cart" :key="line.productId + line.skuId"><text>{{ line.name }} · {{ line.skuName }} × {{ line.quantity }}</text><strong class="strong-text">¥{{ (line.unitPrice * line.quantity).toFixed(2) }}</strong></view></view><view class="fee-row"><text>商品金额</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view><view class="fee-row"><text>快递配送</text><strong class="strong-text">¥0.00</strong></view><view class="checkout-total"><text>应付金额</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="submitOrder">提交订单</button></view>
-      <view v-else-if="sheet === 'address'" class="address-content" data-visual-state="user-address"><view v-if="!addressEditing" class="address-list"><view v-if="!store.addresses.length" class="empty-block compact"><UiIcon name="map-pin" :size="24" /><text>还没有收货地址</text></view><view v-for="address in store.addresses" :key="address.id" class="address-row" @click="chooseAddress(address.id)"><view><text>{{ address.receiver }} {{ address.phone }}</text><small class="meta-text">{{ address.region }} {{ address.detail }}</small></view><view class="address-actions"><text v-if="address.isDefault" class="default-label" data-typography-compact>默认</text><button class="outline-small" @click.stop="editAddressFromContext(address)">编辑</button><button class="outline-small" @click.stop="removeAddress(address.id)">删除</button></view></view><button class="primary-btn" @click="editAddressFromContext()">新增地址</button></view><view v-else class="address-form"><input v-model="addressDraft.receiver" placeholder="收货人姓名" /><input v-model="addressDraft.phone" type="number" placeholder="手机号码" /><input v-model="addressDraft.region" placeholder="所在地区" /><input v-model="addressDraft.detail" placeholder="详细地址" /><view class="default-line" @click="toggleDefault"><text>设为默认地址</text><view class="toggle" :class="{ on: addressDraft.isDefault }"><view></view></view></view><button class="primary-btn" @click="saveAddress">保存地址</button></view></view>
-      <view v-else-if="sheet === 'logistics' && selectedSubOrder" class="logistics-content" data-visual-state="user-logistics"><view class="logistics-summary"><text>{{ selectedSubOrder.supplierName }}</text><small class="meta-text">{{ selectedSubOrder.courier || '快递配送' }} · {{ selectedSubOrder.trackingNo || '暂无运单号' }}</small></view><view v-if="!selectedSubOrder.logistics.length" class="empty-block compact"><UiIcon name="truck" :size="24" /><text>暂无物流信息</text></view><view v-for="event in selectedSubOrder.logistics" :key="event.time + event.title" class="logistics-event"><view class="event-dot"></view><view><text>{{ event.title }}</text><small class="meta-text">{{ formatDate(event.time) }} · {{ event.detail }}</small></view></view></view>
+      <view class="sheet-handle"></view>
+      <view class="sheet-head"><text>{{ sheet === 'detail' ? '选择规格' : sheet === 'cart' ? '购物车' : sheet === 'checkout' ? '确认订单' : sheet === 'address' ? '收货地址' : sheet === 'logistics' ? '物流详情' : sheet === 'after-sale' ? '申请售后' : '直播活动' }}</text><button aria-label="关闭" @click="sheet = null"><UiIcon name="x" :size="18" /></button></view>
+      <scroll-view class="sheet-scroll" scroll-y>
+      <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="detail-content product-detail" data-visual-state="user-detail"><text class="sku-label">选择规格</text><view class="sku-list"><view v-for="sku in selectedProduct.skus" :key="sku.id" class="sku-option" :class="{ active: selectedSkuId === sku.id }" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text></view></view></view>
+      <view v-else-if="sheet === 'cart'" class="cart-content" data-visual-state="user-cart"><view v-if="!store.cart.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="24" /></view><text>购物车为空</text></view><view v-for="line in store.cart" :key="line.productId + line.skuId" class="cart-line" :class="{ unavailable: line.unavailable }"><BusinessImage :src="line.image" mode="aspectFill" /><view class="cart-line-main"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} · 库存充足</small><small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small><view class="cart-line-foot"><strong class="strong-text">¥{{ line.unitPrice.toFixed(2) }}</strong><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view></view><button class="cart-remove" @click="store.removeFromCart(line.productId, line.skuId)">删除</button></view></view>
+      <view v-else-if="sheet === 'checkout'" class="checkout-content" data-visual-state="user-checkout"><view class="address-select" @click="openAddressManager(true)"><view><text>{{ store.defaultAddress ? store.defaultAddress.receiver + ' ' + store.defaultAddress.phone : '请选择收货地址' }}</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region + ' ' + store.defaultAddress.detail : '至少设置一条地址才能提交订单' }}</small></view><UiIcon name="chevron-right" :size="17" /></view><view class="checkout-items"><view v-for="line in store.cart" :key="line.productId + line.skuId" class="checkout-line"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} × {{ line.quantity }}</small><strong class="strong-text">¥{{ (line.unitPrice * line.quantity).toFixed(2) }}</strong></view></view><view class="fee-row"><text>商品金额</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view><view class="fee-row"><text>快递配送</text><strong class="strong-text">¥0.00</strong></view><view class="checkout-total"><text>应付金额</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view></view>
+      <view v-else-if="sheet === 'address'" class="address-content" data-visual-state="user-address"><view v-if="!addressEditing" class="address-list"><view v-if="!store.addresses.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="map-pin" :size="24" /></view><text>还没有收货地址</text></view><view v-for="address in store.addresses" :key="address.id" class="address-row" @click="chooseAddress(address.id)"><view><text>{{ address.receiver }} {{ address.phone }}</text><small class="meta-text">{{ address.region }} {{ address.detail }}</small></view><view class="address-actions"><text v-if="address.isDefault" class="default-label" data-typography-compact>默认</text><button class="outline-small" @click.stop="editAddressFromContext(address)">编辑</button><button class="outline-small" @click.stop="removeAddress(address.id)">删除</button></view></view></view><view v-else class="address-form"><input v-model="addressDraft.receiver" placeholder="收货人姓名" /><input v-model="addressDraft.phone" type="number" placeholder="手机号码" /><input v-model="addressDraft.region" placeholder="所在地区" /><input v-model="addressDraft.detail" placeholder="详细地址" /><view class="default-line" @click="toggleDefault"><text>设为默认地址</text><view class="toggle" :class="{ on: addressDraft.isDefault }"><view></view></view></view></view></view>
+      <view v-else-if="sheet === 'logistics' && selectedSubOrder" class="logistics-content" data-visual-state="user-logistics"><view class="logistics-summary"><text>{{ selectedSubOrder.supplierName }}</text><small class="meta-text">{{ selectedSubOrder.courier || '快递配送' }} · {{ selectedSubOrder.trackingNo || '暂无运单号' }}</small></view><view v-if="!selectedSubOrder.logistics.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="truck" :size="24" /></view><text>暂无物流信息</text></view><view v-for="event in selectedSubOrder.logistics" :key="event.time + event.title" class="logistics-event"><view class="event-dot"></view><view><text>{{ event.title }}</text><small class="meta-text">{{ formatDate(event.time) }} · {{ event.detail }}</small></view></view></view>
       <view v-else-if="sheet === 'after-sale' && afterSaleTarget" class="after-sale-content" data-visual-state="user-after-sale">
         <view class="after-sale-order"><text>{{ afterSaleTarget.sub.supplierName }}</text><small class="meta-text">申请售后：{{ afterSaleTarget.sub.items[0]?.name || afterSaleTarget.sub.supplierName }}</small></view>
         <view class="after-sale-reason"><text>售后原因</text><view class="after-sale-chips"><button v-for="reason in ['运输破损', '质量问题', '少发漏发', '七天无理由', '其他']" :key="reason" :class="{ active: afterSaleReason === reason }" @click="afterSaleReason = reason">{{ reason }}</button></view></view>
         <view class="after-sale-evidence"><text>上传凭证（1-6 张，可选）</text><ImageUploader v-model="afterSaleEvidence" multiple :max-count="6" purpose="after-sale" profile="license" /></view>
         <text class="after-sale-tip">提交后客服将结合凭证审核</text>
-        <button class="primary-btn" @click="confirmAfterSale">提交售后申请</button>
       </view>
+      </scroll-view>
+      <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="product-detail-actions sheet-foot"><button class="primary-btn" :disabled="!canStartOrder(selectedSku)" @click="addSelectedToCart">加入购物车</button></view>
+      <view v-else-if="sheet === 'cart' && store.cart.length" class="sheet-foot"><view class="sheet-total"><text>身份价格已锁定</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="openCheckout">去结算</button></view>
+      <view v-else-if="sheet === 'checkout'" class="sheet-foot"><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="submitOrder">提交订单</button></view>
+      <view v-else-if="sheet === 'address'" class="sheet-foot"><button v-if="!addressEditing" class="primary-btn" @click="editAddressFromContext()">新增地址</button><button v-else class="primary-btn" @click="saveAddress">保存地址</button></view>
+      <view v-else-if="sheet === 'after-sale' && afterSaleTarget" class="sheet-foot"><button class="primary-btn" @click="confirmAfterSale">提交售后申请</button></view>
     </view></view>
   </view>
 </template>
@@ -400,12 +454,12 @@ onBeforeUnmount(() => {
 .c-mall,
 .page-content {
   min-width: 0;
-  padding-bottom: calc(var(--mobile-tab-height) + 16px + var(--mobile-bottom-safe));
+  padding-bottom: calc(var(--mobile-tab-height) + 28px + var(--mobile-bottom-safe));
 }
 
 .app-shell.has-cart-bar .c-mall,
 .app-shell.has-cart-bar .page-content {
-  padding-bottom: calc(var(--mobile-tab-height) + var(--mobile-action-bar-height) + 16px + var(--mobile-bottom-safe));
+  padding-bottom: calc(var(--mobile-tab-height) + var(--mobile-action-bar-height) + 28px + var(--mobile-bottom-safe));
 }
 
 .loading-state,
@@ -425,33 +479,33 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 32px 24px;
+  padding: 32px 8px;
+  padding-top: calc(24px + env(safe-area-inset-top));
   background: var(--mobile-bg);
   text-align: center;
 }
 
-.auth-mark {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  border: 1px solid #cfe0d5;
+.auth-card {
+  width: 100%;
+  max-width: 340px;
+  overflow: hidden;
+  border: 1px solid var(--mobile-border);
   border-radius: 8px;
-  background: var(--mobile-brand);
-  color: #fff;
-  font-size: 27px;
-  font-weight: 900;
+  background: var(--mobile-surface);
   box-shadow: var(--mobile-shadow-card);
 }
+.auth-card .pc-login-hero { border-radius: 0; }
 
-.auth-title { margin-top: 10px; font-size: 20px; font-weight: 900; }
-.auth-sub,
-.auth-tip { max-width: 280px; color: var(--mobile-muted); font-size: 12px; line-height: 1.6; }
+.auth-body {
+  padding: 16px 12px 18px;
+}
+
+.auth-tip { display: block; margin-top: 10px; color: var(--mobile-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
 
 .auth-btn {
-  width: min(240px, 100%);
+  width: 100%;
   min-height: 44px;
-  margin-top: 18px;
+  margin-top: 0;
   border: 0;
   border-radius: 8px;
   background: var(--mobile-brand);
@@ -466,10 +520,21 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: calc(22px + env(safe-area-inset-top)) 16px 14px;
+  padding: calc(12px + env(safe-area-inset-top)) 8px 14px;
 }
 
 .page-heading { display: block; padding-bottom: 18px; }
+.theme-head {
+  background: var(--mobile-brand);
+  color: #fff;
+}
+.theme-head .page-sub,
+.theme-head .eyebrow { color: rgba(255,255,255,.82); }
+.theme-head .role-chip {
+  border-color: rgba(255,255,255,.35);
+  background: rgba(255,255,255,.12);
+  color: #fff;
+}
 .eyebrow { display: block; color: var(--mobile-warning); font-size: 12px; font-weight: 800; letter-spacing: 0; }
 .mall-title,
 .page-title { display: block; margin-top: 4px; font-size: 20px; font-weight: 900; line-height: 1.25; }
@@ -495,13 +560,13 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 9px;
   height: 44px;
-  margin: 0 16px 14px;
+  margin: 0 8px 14px;
   padding: 0 13px;
-  border: 1px solid var(--mobile-border);
-  border-radius: 8px;
-  background: var(--mobile-surface);
+  border: 0;
+  border-radius: var(--mobile-radius-pill);
+  background: var(--mobile-surface-subtle);
   color: var(--mobile-muted);
-  box-shadow: var(--mobile-shadow-card);
+  box-shadow: none;
 }
 
 .search-input { min-width: 0; flex: 1; height: 100%; color: var(--mobile-text); font-size: 14px; }
@@ -509,7 +574,7 @@ onBeforeUnmount(() => {
 .live-card {
   position: relative;
   height: 188px;
-  margin: 0 16px 20px;
+  margin: 0 8px 20px;
   overflow: hidden;
   border-radius: 8px;
   background: var(--mobile-brand-deep);
@@ -546,7 +611,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   min-height: 118px;
-  margin: 0 16px 20px;
+  margin: 0 8px 20px;
   padding: 18px;
   border-radius: 8px;
   background: var(--mobile-brand-deep);
@@ -567,13 +632,13 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
-  padding: 0 16px 11px;
+  padding: 0 8px 11px;
   font-size: 16px;
   font-weight: 900;
 }
 
 .section-line .meta-text { flex: none; color: var(--mobile-muted); font-size: 12px; font-weight: 400; }
-.waterfall-grid { display: flex; align-items: flex-start; gap: 8px; padding: 0 16px; }
+.waterfall-grid { display: flex; align-items: flex-start; gap: 8px; padding: 0 8px; }
 .waterfall-column { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 8px; }
 
 .product-card {
@@ -585,36 +650,36 @@ onBeforeUnmount(() => {
   box-shadow: var(--mobile-shadow-card);
 }
 
-.product-image { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; background: var(--mobile-surface-subtle); object-fit: cover; }
+.product-image { display: block; width: 100%; height: auto; min-height: 160px; aspect-ratio: 1 / 1; background: var(--mobile-surface-subtle); object-fit: cover; }
 
 .product-body {
   display: flex;
   min-width: 0;
   flex-direction: column;
+  gap: 6px;
   padding: 9px;
 }
 
 .tag-row,
-.detail-tags { display: flex; gap: 5px; overflow: hidden; flex-wrap: wrap; max-height: 23px; }
-.tag { max-width: 96px; overflow: hidden; padding: 3px 6px; border-radius: 4px; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.detail-tags { display: flex; gap: 5px; overflow: hidden; flex-wrap: nowrap; }
+.tag { max-width: 96px; overflow: hidden; padding: 3px 6px; border-radius: 4px; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; flex: none; }
 
-.product-name-row { display: flex; align-items: flex-start; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.product-name-row .tag { font-size: 12px; line-height: 1.4; border-radius: 4px; }
 .product-name {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   display: -webkit-box;
   overflow: hidden;
   color: var(--mobile-text);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
-.supplier-name { display: block; min-width: 0; overflow: hidden; margin-top: 3px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.product-foot { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; gap: 6px; margin-top: 8px; }
+.supplier-name,
+.product-meta { display: block; min-width: 0; overflow: hidden; margin-top: 3px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.product-foot { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; gap: 6px; margin-top: 8px; min-height: 0; }
 .product-foot > view { min-width: 0; }
 
 .product-price,
@@ -630,30 +695,43 @@ onBeforeUnmount(() => {
 .share-income { display: block; overflow: hidden; margin-top: 2px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 .product-action {
-  min-width: 44px;
-  width: 44px;
-  min-height: 44px;
+  min-width: 32px;
+  width: 32px;
+  min-height: 32px;
+  height: 32px;
   flex: none;
   align-self: flex-end;
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   background: var(--mobile-brand);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
-  line-height: 44px;
+  line-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.product-action.share { background: var(--mobile-price); }
-.compact-feed { padding-bottom: 14px; }
+.product-action .ui-icon { filter: brightness(0) invert(1); }
+.product-action.share {
+  min-width: 52px;
+  width: auto;
+  padding: 0 10px;
+  border: 1px solid var(--mobile-price);
+  border-radius: var(--mobile-radius-pill);
+  background: var(--mobile-surface);
+  color: var(--mobile-price);
+}
+.compact-feed { padding-bottom: 28px; }
 
 .category-row {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 0 16px 16px;
+  padding: 0 8px 16px;
   white-space: nowrap;
   overscroll-behavior-x: contain;
 }
@@ -663,23 +741,36 @@ onBeforeUnmount(() => {
 .category-tabs { padding-bottom: 18px; }
 
 .category-item {
+  position: relative;
   display: inline-flex;
   min-height: var(--mobile-control-compact);
   flex: none;
   align-items: center;
   gap: 7px;
   margin: 0;
-  padding: 6px 10px 6px 7px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--mobile-surface-subtle);
+  padding: 6px 10px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--mobile-muted);
   font-size: 12px;
   line-height: normal;
 }
 
-.category-item::after { border: 0; }
-.category-item.active { border-color: #aac8b5; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-weight: 800; }
+.category-item::after { border: 0; background: none; }
+.category-item.active { border: 0; background: transparent; color: var(--mobile-brand); font-weight: 800; }
+.category-item.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 20px;
+  height: 3px;
+  border: none;
+  border-radius: var(--mobile-radius-pill);
+  background: currentColor;
+  transform: translateX(-50%);
+}
 
 .category-image {
   width: 26px;
@@ -704,14 +795,12 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.empty-block.large { min-height: 250px; flex-direction: column; }
+.empty-block.large { min-height: 160px; flex-direction: column; }
 .empty-block.compact { min-height: 96px; flex-direction: column; }
-.orders-page,
-.me-page { padding-bottom: 14px; }
 
 .order-card {
-  margin: 0 16px 12px;
-  padding: 14px;
+  margin: 0 8px 8px;
+  padding: 10px 11px;
   border: 1px solid #e6ece8;
   border-radius: 8px;
   background: var(--mobile-surface);
@@ -729,14 +818,14 @@ onBeforeUnmount(() => {
 .order-head > view,
 .sub-head > text:first-child { min-width: 0; }
 .order-id-line { display: flex; min-width: 0; align-items: center; gap: 6px; }
-.order-id { display: block; min-width: 0; overflow-wrap: anywhere; color: var(--mobile-text); font-size: 12px; font-weight: 800; }
+.order-id { display: block; min-width: 0; word-break: break-all; color: var(--mobile-text); font-size: 12px; font-weight: 800; }
 .order-time { display: block; margin-top: 4px; color: var(--mobile-muted); font-size: 12px; }
 .order-status { flex: none; color: var(--mobile-price); font-size: 12px; font-weight: 800; }
 
 .demo-badge,
 .default-label { flex: none; padding: 2px 6px !important; border-radius: 4px; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep) !important; font-size: 11px !important; font-weight: 700; }
 
-.sub-order { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--mobile-border); }
+.sub-order { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--mobile-border); }
 .sub-head { font-size: 12px; font-weight: 800; }
 .sub-head > text:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub-head text:last-child { flex: none; color: var(--mobile-muted); font-weight: 400; }
@@ -746,7 +835,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   align-items: center;
   gap: 10px;
-  margin-top: 11px;
+  margin-top: 6px;
 }
 
 .order-item .business-image,
@@ -759,34 +848,34 @@ onBeforeUnmount(() => {
 .cart-line-main .meta-text { display: block; }
 
 .order-item text,
-.cart-line-main > text { overflow-wrap: anywhere; color: var(--mobile-text); font-size: 13px; font-weight: 700; line-height: 1.4; }
+.cart-line-main > text { overflow-wrap: break-word; word-break: normal; color: var(--mobile-text); font-size: 13px; font-weight: 700; line-height: 1.4; }
 
 .order-item .meta-text,
 .cart-line-main .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.4; }
 .order-item > .strong-text { flex: none; color: var(--mobile-text); font-size: 12px; }
 
-.tracking-row { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 11px; padding: 9px 10px; border-radius: 6px; background: #edf4f9; color: var(--mobile-info); font-size: 12px; overflow-wrap: anywhere; }
+.tracking-row { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 11px; padding: 9px 10px; border-radius: 6px; background: #edf4f9; color: var(--mobile-info); font-size: 12px; overflow-wrap: break-word; word-break: normal; }
 .order-bottom { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--mobile-border); color: var(--mobile-muted); font-size: 12px; }
 .order-bottom .strong-text { color: var(--mobile-text); font-size: 14px; }
 
 .sub-actions,
 .order-actions { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 11px; }
 .sub-actions { padding-top: 10px; border-top: 1px solid var(--mobile-border); }
-.waiting-copy { min-width: 120px; flex: 1; margin-right: auto; color: var(--mobile-muted); font-size: 12px; overflow-wrap: anywhere; }
+.waiting-copy { min-width: 120px; flex: 1; margin-right: auto; color: var(--mobile-muted); font-size: 12px; word-break: break-all; }
 .payment-confirmation { margin-top: 10px; color: var(--mobile-warning); font-size: 12px; font-weight: 700; }
 
 .primary-small,
 .outline-small,
-.outline-btn { min-height: var(--mobile-control-compact); margin: 0; padding: 0 12px; border-radius: 6px; font-size: 13px; line-height: var(--mobile-control-compact); }
-.primary-small,
+.outline-btn { min-height: var(--mobile-control-compact); margin: 0; padding: 0 12px; border-radius: var(--mobile-radius-pill); font-size: 13px; line-height: var(--mobile-control-compact); }
+.primary-small { border: 1px solid var(--mobile-brand); background: var(--mobile-surface); color: var(--mobile-brand); }
 .primary-btn { border: 0; background: var(--mobile-brand); color: #fff; }
 .outline-small,
-.outline-btn { border: 1px solid #b9ccbf; background: var(--mobile-surface); color: var(--mobile-brand-deep); }
+.outline-btn { border: 1px solid var(--mobile-border); background: var(--mobile-surface); color: var(--mobile-text); }
 
 .role-switch {
   display: flex;
   gap: 8px;
-  margin: 0 16px 12px;
+  margin: 0 8px 12px;
   padding: 3px;
   border-radius: 8px;
   background: var(--mobile-surface-subtle);
@@ -812,8 +901,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 11px;
-  margin: 0 16px 12px;
-  padding: 16px;
+  margin: 0 8px 12px;
+  padding: 11px 12px;
   border-radius: 8px;
   background: var(--mobile-brand-deep);
   color: #fff;
@@ -834,7 +923,7 @@ onBeforeUnmount(() => {
 .order-entry,
 .normal-summary,
 .referral-panel,
-.settings-list { margin: 0 16px 12px; border: 1px solid #e6ece8; border-radius: 8px; background: var(--mobile-surface); box-shadow: var(--mobile-shadow-card); }
+.settings-list { margin: 0 8px 12px; border: 1px solid #e6ece8; border-radius: 8px; background: var(--mobile-surface); box-shadow: var(--mobile-shadow-card); }
 
 .operations-hero { padding: 15px; }
 .operations-hero > text { display: block; font-size: 15px; font-weight: 900; }
@@ -877,11 +966,11 @@ onBeforeUnmount(() => {
 .normal-summary small,
 .referral-panel .meta-text { overflow: hidden; margin-top: 4px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
-.commission-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; margin: 0 16px; padding: 13px 0; border-bottom: 1px solid var(--mobile-border); }
+.commission-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px; padding: 13px 0; border-bottom: 1px solid var(--mobile-border); }
 .commission-row > view { min-width: 0; flex: 1; }
 .commission-row text,
 .commission-row .meta-text { display: block; }
-.commission-row text { overflow-wrap: anywhere; font-size: 13px; font-weight: 700; }
+.commission-row text { word-break: break-all; font-size: 13px; font-weight: 700; }
 .commission-row .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.45; }
 .commission-row .strong-text { flex: none; font-size: 14px; }
 .commission-row .strong-text.reversed { color: var(--mobile-muted); }
@@ -892,43 +981,64 @@ onBeforeUnmount(() => {
 .settings-list text { flex: none; font-size: 13px; }
 .settings-list .meta-text { min-width: 0; flex: 1; overflow: hidden; color: var(--mobile-muted); font-size: 12px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 
-.cart-page-content { padding: 0; }
+.cart-page { display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; }
+.cart-page-content { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 0; }
 .cart-line {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  grid-template-rows: auto;
+  align-items: stretch;
   gap: 6px 10px;
   min-width: 0;
-  margin: 0 16px;
-  padding: 14px 0;
+  margin: 0 8px;
+  padding: 10px 0;
   border-bottom: 1px solid var(--mobile-border);
 }
 
 .cart-line.unavailable { opacity: .64; }
-.cart-line .business-image { grid-column: 1; grid-row: 1 / 3; }
+.cart-line .business-image { width: 72px; height: 72px; grid-column: 1; grid-row: 1; border-radius: 8px; }
 .cart-line-main {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   grid-column: 2;
-  grid-row: 1 / 3;
+  grid-row: 1;
+}
+.cart-line-main > text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 .cart-line > .strong-text { grid-column: 3; grid-row: 1; color: var(--mobile-text); font-size: 12px; text-align: right; }
-.cart-remove { grid-column: 3; grid-row: 2; align-self: end; }
+.cart-line-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
+.cart-line-foot .strong-text { color: var(--mobile-price); font-size: 15px; font-weight: 800; }
+.cart-line-foot .stepper { margin-top: 0; gap: 0; overflow: hidden; border: 1px solid #b9ccbf; border-radius: 8px; }
+.cart-line-foot .stepper button { width: var(--mobile-control-compact); height: var(--mobile-control-compact); border: 0; border-radius: 0; line-height: var(--mobile-control-compact); }
+.cart-line-foot .stepper text { min-width: var(--mobile-control-compact); line-height: var(--mobile-control-compact); border-left: 1px solid #b9ccbf; border-right: 1px solid #b9ccbf; }
+.cart-remove { grid-column: 3; grid-row: 1; align-self: center; display: inline-flex; margin-top: 0; padding: 0; border: 0; background: transparent; color: var(--mobile-muted); font-size: 12px; }
 .stepper { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
 .stepper button { display: grid; place-items: center; width: var(--mobile-control-compact); height: var(--mobile-control-compact); margin: 0; padding: 0; border: 1px solid #b9ccbf; border-radius: 6px; background: var(--mobile-surface); color: var(--mobile-brand-deep); line-height: var(--mobile-control-compact); }
 .stepper text { min-width: 18px; text-align: center; }
 
 .cart-checkout {
-  position: sticky;
-  bottom: calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));
+  position: relative;
+  bottom: auto;
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
-  padding: 12px 16px;
+  margin-top: 0;
+  padding: 10px 12px;
+  border: 0;
   border-top: 1px solid var(--mobile-border);
+  border-radius: 0;
   background: var(--mobile-surface);
-  box-shadow: 0 -8px 24px rgba(19,43,29,.08);
 }
 
 .cart-bar {
@@ -975,12 +1085,18 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
+.product-view { min-height: calc(100vh - var(--mobile-tab-height)); background: var(--mobile-bg); }
+.product-view .product-detail { padding: 12px var(--mobile-page-inline) 20px; }
+.product-detail-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 9px; margin-top: 16px; }
+.product-detail-actions.sheet-foot { margin-top: 0; display: flex; }
+.product-detail-actions .outline-btn,
+.product-detail-actions .primary-btn { margin: 0; min-height: 44px; }
+
 .heading-with-back { display: flex; align-items: center; gap: 10px; }
-.heading-with-back > button,
 .sheet-head button,
 .live-room-top button { display: grid; place-items: center; width: 44px; height: 44px; flex: none; margin: 0; padding: 0; border: 0; }
-.heading-with-back > button { background: transparent; color: var(--mobile-text); }
 .heading-with-back > view { min-width: 0; }
+.logout-button { width: 100%; min-height: var(--mobile-touch-target); margin: 14px 0 4px; border-radius: var(--mobile-radius-control); font-size: 13px; font-weight: 700; }
 
 .bottom-tabs {
   position: fixed;
@@ -1006,17 +1122,38 @@ onBeforeUnmount(() => {
 
 .sheet {
   width: 100%;
-  max-width: 430px;
+  max-width: 100%;
   max-height: var(--mobile-sheet-max-height);
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
   border-radius: 8px 8px 0 0;
-  background: var(--mobile-bg);
+  background: var(--mobile-surface);
   box-shadow: var(--mobile-shadow-float);
 }
 
-.sheet-head { position: sticky; z-index: 2; top: 0; display: flex; min-height: var(--mobile-sheet-header-height); align-items: center; justify-content: space-between; padding: 6px 12px 6px 16px; border-bottom: 1px solid var(--mobile-border); background: var(--mobile-surface); font-size: 16px; font-weight: 900; }
+.sheet-handle {
+  width: 38px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 2px;
+  background: var(--mobile-border);
+}
+
+.sheet-scroll {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  max-height: calc(80vh - var(--mobile-sheet-header-height));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+.sheet-foot .primary-btn { width: 100%; margin-top: 0; }
+.sheet-foot .sheet-total { margin-top: 0; margin-bottom: 10px; }
+
+.sheet-head { position: relative; z-index: 2; top: auto; display: flex; min-height: var(--mobile-sheet-header-height); align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--mobile-border); background: var(--mobile-surface); font-size: 16px; font-weight: 900; }
 .sheet-head button { border-radius: 8px; background: transparent; color: var(--mobile-text); }
 
 .detail-content,
@@ -1026,23 +1163,29 @@ onBeforeUnmount(() => {
 .address-form,
 .logistics-content,
 .after-sale-content,
-.live-content { padding: 16px; }
+.live-content { padding: 12px; }
 
 .detail-image,
-.live-image { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; border-radius: 8px; background: var(--mobile-surface-subtle); object-fit: cover; }
+.live-image { display: block; width: 100%; min-height: 180px; height: auto; aspect-ratio: 4 / 3; border-radius: 8px; background: var(--mobile-surface-subtle); object-fit: cover; }
+.detail-head { display: flex; gap: 12px; align-items: flex-start; }
+.detail-thumb { width: 72px; height: 72px; flex: none; display: block; border-radius: 8px; background: var(--mobile-surface-subtle); }
+.checkout-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--mobile-border); }
+.checkout-line text { min-width: 0; font-size: 13px; font-weight: 700; }
+.checkout-line .meta-text { grid-column: 1; margin-top: 0; }
+.checkout-line .strong-text { grid-column: 2; grid-row: 1 / span 2; font-size: 13px; }
 
-.detail-title-row { display: flex; min-width: 0; justify-content: space-between; gap: 14px; margin-top: 14px; }
-.detail-title-row > view { min-width: 0; flex: 1; }
-.detail-title { display: block; overflow-wrap: anywhere; font-size: 17px; font-weight: 900; line-height: 1.4; }
+.detail-title-row { display: flex; flex-direction: column; min-width: 0; justify-content: flex-start; gap: 8px; margin-top: 14px; }
+.detail-title-row > view { min-width: 0; width: 100%; }
+.detail-title { display: -webkit-box; width: 100%; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: break-word; word-break: normal; font-size: 17px; font-weight: 900; line-height: 1.4; }
 .detail-title-row .meta-text,
 .live-content > .meta-text { display: block; margin-top: 5px; color: var(--mobile-muted); font-size: 12px; }
 .detail-price { flex: none; font-size: 21px; font-weight: 900; }
 .detail-tags { max-height: none; margin-top: 11px; }
 .shipping-note { display: flex; align-items: center; gap: 7px; margin-top: 14px; padding: 10px 11px; border: 1px solid #d4e3d9; border-radius: 6px; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-size: 12px; }
 .sku-label { display: block; margin-top: 17px; font-size: 13px; font-weight: 900; }
-.sku-list { display: grid; gap: 8px; margin-top: 9px; }
+.sku-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 
-.sku-option { display: flex; min-width: 0; min-height: 58px; flex-direction: column; align-items: flex-start; justify-content: center; padding: 10px 12px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); font-size: 13px; }
+.sku-option { display: flex; min-width: 0; min-height: 36px; flex-direction: column; align-items: flex-start; justify-content: center; padding: 6px 12px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); font-size: 13px; }
 .sku-option .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.4; }
 .sku-option.active { border-color: var(--mobile-brand); background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); }
 
@@ -1060,9 +1203,9 @@ onBeforeUnmount(() => {
 
 .address-select,
 .logistics-summary,
-.after-sale-order { padding: 13px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
+.after-sale-order { padding: 10px 11px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
 
-.address-select { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 12px; }
+.address-select { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 10px; }
 .address-select > view { min-width: 0; flex: 1; }
 
 .address-select text,
@@ -1074,7 +1217,7 @@ onBeforeUnmount(() => {
 
 .address-select text,
 .logistics-summary text,
-.after-sale-order text { overflow-wrap: anywhere; font-size: 13px; font-weight: 800; }
+.after-sale-order text { word-break: break-all; font-size: 13px; font-weight: 800; }
 
 .address-select .meta-text,
 .logistics-summary .meta-text,
@@ -1082,26 +1225,28 @@ onBeforeUnmount(() => {
 
 .checkout-items { margin-top: 12px; padding: 10px 0; border-top: 1px solid var(--mobile-border); border-bottom: 1px solid var(--mobile-border); }
 .checkout-items view { display: flex; min-width: 0; justify-content: space-between; gap: 12px; margin: 7px 0; color: #46574d; font-size: 12px; }
-.checkout-items text { min-width: 0; overflow-wrap: anywhere; }
+.checkout-items text { min-width: 0; word-break: break-all; }
 .checkout-items .strong-text,
 .fee-row .strong-text { flex: none; color: var(--mobile-text); }
 .fee-row { margin-top: 12px; color: var(--mobile-muted); font-size: 12px; }
+.fee-row text { min-width: 0; }
+.fee-row .strong-text { flex: none; white-space: nowrap; }
 .checkout-total { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--mobile-border); font-size: 13px; font-weight: 800; }
 .checkout-total .strong-text { font-size: 20px; }
 
 .address-list { display: grid; gap: 9px; }
-.address-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
+.address-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 9px 10px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
 .address-row > view:first-child { min-width: 0; }
 .address-row text,
 .address-row .meta-text { display: block; }
-.address-row text { overflow-wrap: anywhere; font-size: 13px; font-weight: 800; }
+.address-row text { word-break: break-all; font-size: 13px; font-weight: 800; }
 .address-row .meta-text { margin-top: 5px; color: var(--mobile-muted); font-size: 12px; line-height: 1.45; }
 .address-actions { display: flex; max-width: 112px; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; }
 
 .address-form input { display: block; width: 100%; height: 44px; margin-bottom: 10px; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 8px; box-sizing: border-box; background: var(--mobile-surface); font-size: 14px; }
 .default-line { display: flex; min-height: 44px; align-items: center; justify-content: space-between; color: #46574d; font-size: 13px; }
 
-.toggle { position: relative; width: 42px; height: 24px; flex: none; border-radius: 12px; background: #cdd7d0; transition: background-color .16s ease; }
+.toggle { position: relative; width: 42px; height: 24px; flex: none; border-radius: 8px; background: #cdd7d0; transition: background-color .16s ease; }
 .toggle > view { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .16s ease; }
 .toggle.on { background: var(--mobile-brand); }
 .toggle.on > view { transform: translateX(18px); }
@@ -1110,10 +1255,11 @@ onBeforeUnmount(() => {
 .logistics-event {
   display: flex;
   min-width: 0;
-  gap: 11px;
-  padding: 14px 4px;
+  gap: 9px;
+  padding: 9px 4px;
   border-bottom: 1px solid var(--mobile-border);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .logistics-event > view:last-child { min-width: 0; flex: 1; }
@@ -1124,11 +1270,12 @@ onBeforeUnmount(() => {
 .event-dot { width: 9px; height: 9px; flex: none; margin-top: 4px; border: 2px solid #c7d9e7; border-radius: 50%; background: var(--mobile-info); }
 
 .after-sale-reason,
-.after-sale-evidence { margin-top: 16px; }
+.after-sale-evidence { margin-top: 10px; }
 .after-sale-reason > text,
 .after-sale-evidence > text { display: block; font-size: 13px; font-weight: 900; }
 .after-sale-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.after-sale-chips button { min-height: var(--mobile-control-compact); margin: 0; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); color: var(--mobile-muted); font-size: 13px; }
+.after-sale-chips { gap: 6px; margin-top: 8px; }
+.after-sale-chips button { min-height: 32px; margin: 0; padding: 0 10px; border: 1px solid var(--mobile-border); border-radius: 6px; background: var(--mobile-surface); color: var(--mobile-muted); font-size: 13px; }
 .after-sale-chips button.active { border-color: var(--mobile-brand); background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-weight: 800; }
 .after-sale-tip { display: block; margin-top: 12px; color: var(--mobile-muted); font-size: 12px; }
 .stock-warning { display: block; margin-top: 4px; color: var(--mobile-danger); font-size: 12px; line-height: 1.4; }
@@ -1136,23 +1283,23 @@ onBeforeUnmount(() => {
 .live-room { position: fixed; z-index: 40; top: 0; height: 100vh; overflow: auto; background: #0b0d0c; }
 .live-room-video-wrap { position: relative; width: 100%; height: 44vh; min-height: 300px; background: #000; }
 .live-room-video { display: block; width: 100%; height: 100%; object-fit: cover; }
-.live-room-top { position: absolute; z-index: 20; top: 0; right: 0; left: 0; display: flex; align-items: center; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; color: #fff; }
+.live-room-top { position: absolute; z-index: 20; top: 0; right: 0; left: 0; display: flex; align-items: center; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; padding-right: 96px; color: #fff; }
 .live-room-top button { border-radius: 8px; background: rgba(0,0,0,.48); color: #fff; }
 .live-room-meta { position: absolute; right: 14px; bottom: 14px; left: 14px; color: #fff; }
 .live-room-title { display: -webkit-box; overflow: hidden; font-size: 17px; font-weight: 900; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .live-room-meta small { display: block; margin-top: 5px; color: #dbe5df; font-size: 12px; }
-.live-room-body { min-height: 56vh; padding: 16px; background: var(--mobile-bg); }
+.live-room-body { min-height: 56vh; padding: 8px; background: var(--mobile-bg); }
 .live-package-group { margin-bottom: 18px; }
 
-.live-package-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; margin-top: 9px; padding: 13px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
-.live-package-row > view:first-child { min-width: 0; flex: 1; }
+.live-package-row { display: flex; min-width: 0; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 9px; padding: 10px; border: 1px solid var(--mobile-border); border-radius: 8px; background: var(--mobile-surface); }
+.live-package-row > view:first-child { min-width: 0; flex: 1 1 100%; }
 .live-package-row text,
 .live-package-row .meta-text { display: block; }
-.live-package-row text { overflow-wrap: anywhere; font-size: 13px; font-weight: 800; }
+.live-package-row text { word-break: break-all; font-size: 13px; font-weight: 800; }
 .live-package-row .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.4; }
-.live-package-actions { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: 8px; }
+.live-package-actions { display: flex; width: 100%; flex: none; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
 .live-package-actions .strong-text { color: var(--mobile-price); font-size: 15px; }
-.live-buy-btn { min-height: var(--mobile-control-compact); margin: 0; padding: 0 11px; }
+.live-buy-btn { min-height: var(--mobile-control-compact); margin-left: auto; padding: 0 11px; }
 
 .voucher-thumb { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 8px; background: var(--mobile-brand); color: #fff; }
 
@@ -1162,36 +1309,47 @@ onBeforeUnmount(() => {
 }
 
 /* #ifdef H5 */
-body,
-#app { background: #dfe5e1; }
+@media (min-width: 431px) {
+  body,
+  #app { background: #dfe5e1; }
 
-.app-shell,
-.bottom-tabs,
-.sheet-mask,
-.live-room {
-  width: min(430px, 100%);
-  max-width: 430px;
+  .app-shell,
+  .bottom-tabs,
+  .sheet-mask,
+  .live-room {
+    width: 100%;
+    max-width: 430px;
+  }
+
+  .app-shell { margin: 0 auto; box-shadow: 0 0 24px rgba(19,43,29,.12); }
+  .bottom-tabs,
+  .sheet-mask,
+  .live-room { right: auto; left: 50%; transform: translateX(-50%); }
+  .cart-bar { left:50%; right:auto; width:406px; transform:translateX(-50%); }
+  .sheet { width: 100%; max-width: 430px; }
 }
-
-.app-shell { margin: 0 auto; box-shadow: 0 0 24px rgba(19,43,29,.12); }
-.bottom-tabs,
-.sheet-mask,
-.live-room { right: auto; left: 50%; transform: translateX(-50%); }
-.sheet { width: min(430px, 100%); }
 /* #endif */
 
 /* #ifdef MP-WEIXIN */
 .mall-header,
-.page-heading { padding-top: calc(22px + var(--status-bar-height)); }
-.app-shell { width: 100vw; max-width: none; }
-.live-room { left: 0; width: 100vw; transform: none; }
+.page-heading,
+.loading-state { padding-top: calc(12px + var(--status-bar-height)); padding-right: 96px; }
+.auth-page { padding-top: calc(24px + var(--status-bar-height)); padding-right: 96px; }
+.live-room-top { padding-top: calc(10px + var(--status-bar-height)); padding-right: 96px; }
+.live-room { height: 100%; }
+.app-shell,
+.bottom-tabs,
+.sheet-mask,
+.live-room,
+.sheet { left: 0; right: 0; width: 100%; max-width: none; transform: none; }
+.cart-checkout { position: relative; bottom: auto; }
 /* #endif */
 
 @media (max-width: 390px) {
   .product-card { grid-template-columns: 116px minmax(0, 1fr); }
   .product-image { width: 116px; }
   .product-body { padding: 11px; }
-  .product-action { min-width: 58px; padding: 0 10px; }
+  .product-action.share { min-width: 58px; padding: 0 10px; }
   .operations-grid { padding-right: 2px; padding-left: 2px; }
   .operations-grid > view > text { font-size: 12px; }
 }
@@ -1202,6 +1360,8 @@ body,
   .product-price { font-size: 17px; }
   .tag { max-width: 74px; }
   .address-row { grid-template-columns: 1fr; }
-  .address-actions { max-width: none; justify-content: flex-start; }
+  .address-actions { max-width: none; width: 100%; justify-content: flex-start; }
+  .waiting-copy { width: 100%; flex-basis: 100%; }
+  .sub-actions { flex-wrap: wrap; justify-content: flex-end; }
 }
 </style>
