@@ -1698,6 +1698,7 @@ export interface StorefrontOrder {
   pointsAwarded?: number
   afterSaleType?: 'refund' | 'return'
   payMethod?: 'balance' | 'wechat'
+  remark?: string
 }
 
 export interface SupplierSettlementRecord {

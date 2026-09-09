@@ -7,7 +7,7 @@ const template = source.slice(source.indexOf('<template>') + '<template>'.length
 const stylePath = resolve(import.meta.dirname, '../../styles/index-page.scss')
 const styles = existsSync(stylePath) ? readFileSync(stylePath, 'utf8') : ''
 
-const workViews = ['select', 'verify', 'design-rooms', 'design-foods', 'design-experiences', 'staff-admin', 'orders', 'bookings', 'ledger', 'addresses', 'help']
+const workViews = ['select', 'verify', 'design-rooms', 'design-foods', 'design-experiences', 'staff-admin', 'orders', 'bookings', 'ledger', 'addresses', 'checkout', 'help']
 const sheets = ['login', 'cart', 'orders', 'bookings', 'room-form', 'food-form', 'experience-form', 'share', 'product', 'contact', 'foods', 'ledger', 'recharge', 'identity', 'help', 'booking-form', 'after-sale', 'service', 'staff-form', 'staff-promo', 'pay']
 
 describe('农家乐移动端视觉契约', () => {
@@ -192,11 +192,11 @@ describe('农家乐移动端视觉契约', () => {
   it('首个地址直接显示默认状态，选址区与管理操作保持独立语义', () => {
     expect(source).toContain("isDefault: address ? address.isDefault : store.addresses.length === 0")
     expect(template).toContain('首个地址将自动设为默认')
-    expect(template).toContain(':role="addressReturnContext === \'cart\' ? \'radiogroup\' : undefined"')
+    expect(template).toContain(":role=\"addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? 'radiogroup' : undefined\"")
     expect(template).toContain('class="address-card-select"')
-    expect(template).toContain(':role="addressReturnContext === \'cart\' ? \'radio\' : undefined"')
-    expect(template).toContain(':aria-checked="addressReturnContext === \'cart\' ? selectedDeliveryAddress?.id === address.id : undefined"')
-    expect(template).toContain(':tabindex="addressReturnContext === \'cart\' ? 0 : undefined"')
+    expect(template).toContain(":role=\"addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? 'radio' : undefined\"")
+    expect(template).toContain(":aria-checked=\"addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? selectedDeliveryAddress?.id === address.id : undefined\"")
+    expect(template).toContain(":tabindex=\"addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? 0 : undefined\"")
     expect(template).toContain('@keyup.enter="chooseDeliveryAddress(address)"')
     expect(template).toContain('@keyup.space.prevent="chooseDeliveryAddress(address)"')
     expect(template).not.toMatch(/class="address-card"[^>]*role=/)
@@ -205,28 +205,39 @@ describe('农家乐移动端视觉契约', () => {
   })
 
   it('快递结算使用可选择的地址卡片，不再使用自由文本地址', () => {
-    expect(template).toContain('class="checkout-address-card"')
-    expect(template).toContain('@click="openAddresses(\'cart\')"')
+    expect(template).toContain('checkout-address-card')
+    expect(template).toContain('@click="openAddresses(\'checkout\')"')
     expect(template).toContain('selectedDeliveryAddress')
     expect(template).not.toContain('v-model="deliveryAddressDraft"')
     expect(source).toContain('addressId: selectedDeliveryAddress.value?.id')
   })
 
   it('本单地址只从结算入口更新，并在购物车清空、支付或退出后重置', () => {
-    expect(source).toMatch(/if \(addressReturnContext\.value === 'cart'\) selectedAddressId\.value = saved\.id/)
+    expect(source).toMatch(/if \(addressReturnContext\.value === 'cart' \|\| addressReturnContext\.value === 'checkout'\) selectedAddressId\.value = saved\.id/)
     expect(source).toContain('function resetCheckoutDeliveryState()')
-    expect(source).toMatch(/watch\(\(\) => store\.cart\.length,[\s\S]*?resetCheckoutDeliveryState\(\)/)
+    expect(source).toMatch(/watch\(\(\) => store\.cart,[\s\S]*?resetCheckoutDeliveryState\(\)/)
     expect(source).toMatch(/if \(!await store\.checkout[\s\S]*?resetCheckoutDeliveryState\(\)/)
     expect(source).toMatch(/function logout\(\)[\s\S]*?resetCheckoutDeliveryState\(\)/)
   })
 
-  it('混合购物车逐商品标记履约方式并提示分别履约', () => {
-    expect(source).toContain('const cartHasPickupOnly')
+  it('购物车按社区团购与快递直发分栏，并按当前分类独立结算', () => {
+    expect(source).toContain("const cartCategory = ref<'community' | 'express'>('community')")
+    expect(source).toContain('const selectedCartLineKeys = reactive(new Set<string>())')
+    expect(source).toContain('const selectedCartItems = computed')
+    expect(source).toContain('selectedLines: checkoutLineRefs.value')
+    expect(template).toContain('class="cart-category-tabs"')
+    expect(template).toContain('社区团购')
+    expect(template).toContain('快递直发')
+    expect(template).toContain('class="cart-line-check"')
+    expect(template).toContain('@click="toggleAllCartLines"')
+    expect(template).toContain('checkout-page')
+    expect(template).toContain('class="pickup-point-card"')
+    expect(source).not.toContain('const cartHasPickupOnly')
     expect(template).toContain('class="cart-fulfillment-tag"')
-    expect(template).toContain("cartLineDeliveryMode(item) === 'courier'")
-    expect(template).toContain('可快递商品寄往该地址，其余商品需到店自提')
-    expect(styles).toMatch(/\.cart-fulfillment-tag\s*\{[^}]*min-height:\s*24px/s)
-    expect(styles).toMatch(/\.delivery-mixed-note\s*\{[^}]*color:\s*var\(--farm-green-deep\)/s)
+    expect(styles).toMatch(/\.cart-category-tabs\s*\{[^}]*grid-template-columns:\s*repeat\(2/s)
+    expect(styles).toMatch(/\.cart-line\s*\{[^}]*grid-template-columns:\s*34px 72px/s)
+    expect(styles).toMatch(/\.cart-sheet-foot\s*\{[^}]*justify-content:\s*space-between/s)
+    expect(styles).toMatch(/\.checkout-page-foot\s*\{[^}]*position:\s*fixed/s)
   })
 
   it('规格弹窗展示随 SKU 更新的商品摘要，并保持操作区固定', () => {
@@ -343,7 +354,7 @@ describe('农家乐移动端视觉契约', () => {
     const scrollEnd = template.indexOf('</scroll-view>')
     const afterScroll = template.slice(scrollEnd)
     expect(afterScroll).toContain('class="sheet-foot"')
-    expect(afterScroll).toContain('提交订单')
+    expect(afterScroll).toContain('去结算')
     expect(afterScroll).toContain('saveRoomForm')
     expect(afterScroll).toContain('saveFoodForm')
     expect(afterScroll).toContain('saveExperienceForm')
@@ -399,8 +410,9 @@ describe('农家乐移动端视觉契约', () => {
     expect(template).toContain('微信支付（演示）')
     expect(template).toContain('会员余额')
     expect(afterScroll).toContain('@click="confirmPay"')
-    expect(afterScroll).toContain('@click="openMallPay"')
-    expect(template.slice(0, scrollEnd)).not.toContain('@click="openMallPay"')
+    expect(afterScroll).toContain('@click="confirmPay"')
+    expect(template).toContain('@click="openCategoryCheckout"')
+    expect(template.slice(0, scrollEnd)).not.toContain('@click="openCategoryCheckout"')
     expect(source).toContain("payMethod?: 'balance' | 'wechat'")
   })
 

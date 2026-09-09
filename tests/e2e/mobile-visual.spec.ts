@@ -261,13 +261,13 @@ test('farmhouse address, sku and checkout surfaces stay readable at all supporte
   }
   await page.locator('.sheet-foot .primary-button').filter({ hasText: '加入购物车' }).click()
   await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
-  await page.locator('.delivery-picker uni-button').filter({ hasText: '快递配送' }).click()
+  await page.locator('.cart-category-tabs uni-button').filter({ hasText: '快递直发' }).click()
+  await page.locator('.cart-sheet-foot .primary-button').filter({ hasText: '去结算' }).click()
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     await expect(page.locator('.checkout-address-card')).toContainText(longReceiver)
     await assertMobileFrame(page, viewport.width)
-    await scrollVisibleSheetToBottom(page)
-    await expectContentAboveSheetFoot(page, '.checkout-summary')
+    await expect(page.locator('.checkout-page-foot')).toBeVisible()
     await screenshot(page, testInfo, `farmhouse-checkout-address-${viewport.width}`)
   }
 
@@ -278,7 +278,7 @@ test('farmhouse address, sku and checkout surfaces stay readable at all supporte
   await expect(addressChoices).toHaveCount(2)
   await expect(page.locator('.address-card[role]')).toHaveCount(0)
   await expect(addressChoices.first()).not.toContainText('编辑')
-  await page.getByLabel('返回购物车').focus()
+  await page.getByLabel('返回确认订单').focus()
   await page.keyboard.press('Tab')
   await expect(addressChoices.first()).toBeFocused()
   await page.keyboard.press('Tab')
@@ -378,18 +378,16 @@ test('farmhouse checkout falls back to pickup after removing the last courier it
   await addProduct('湘西烟熏柴火腊肉')
   await addProduct('炎陵黄桃')
   await page.locator('.cart-bar uni-button').filter({ hasText: '去结算' }).click()
-  await page.locator('.delivery-picker uni-button').filter({ hasText: '快递配送' }).click()
-  await expect(page.locator('.checkout-address-card')).toContainText('添加收货地址')
+  await page.locator('.cart-category-tabs uni-button').filter({ hasText: '快递直发' }).click()
 
   const courierLine = page.locator('.sheet-line').filter({ hasText: '湘西烟熏柴火腊肉' })
   await courierLine.getByLabel('减少数量').click()
   await expect(courierLine).toHaveCount(0)
-  await expect(page.locator('.delivery-picker')).toHaveCount(0)
+  await expect(page.locator('.cart-category-tabs')).toContainText('社区团购')
 
-  await page.locator('.sheet-foot .primary-button').filter({ hasText: '提交订单' }).click()
-  await expect(page.locator('[data-visual-state="pay"]')).toBeVisible()
-  await expect(page.locator('[data-visual-view="addresses"]')).toHaveCount(0)
-  await page.locator('.sheet-foot .primary-button').filter({ hasText: '确认支付' }).click()
+  await page.locator('.cart-sheet-foot .primary-button').filter({ hasText: '去结算' }).click()
+  await expect(page.locator('.pickup-point-card')).toBeVisible()
+  await page.locator('.checkout-page-foot .primary-button').filter({ hasText: '提交订单' }).click()
   await expect(page.locator('[data-visual-view="orders"]')).toBeVisible()
   const order = await page.evaluate(() => {
     const state = JSON.parse(localStorage.getItem('agritainment-platform-farmhouse-commerce') || '{}') as { F001?: { orders?: Array<{ delivery?: { mode?: string }; items?: Array<{ name?: string; deliveryMode?: string }> }> } }

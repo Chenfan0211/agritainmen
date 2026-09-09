@@ -860,17 +860,47 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.checkoutError = ''
       return true
     },
-    async checkout(payload: { deliveryMode?: 'pickup' | 'courier'; addressId?: string; payMethod?: 'balance' | 'wechat' } = {}) {
+    async checkout(payload: { deliveryMode?: 'pickup' | 'courier'; addressId?: string; payMethod?: 'balance' | 'wechat'; selectedLines?: Array<{ productId: string; skuId: string }>; remark?: string } = {}) {
       this.checkoutError = ''
       if (!this.cart.length) {
         this.checkoutError = '购物车为空'
         return false
       }
+      const selectedLineRefs = payload.selectedLines === undefined
+        ? this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId }))
+        : payload.selectedLines
+      if (!selectedLineRefs.length) {
+        this.checkoutError = '请选择要结算的商品'
+        return false
+      }
+      const selectedKeys = new Set<string>()
+      const selectedCart = selectedLineRefs.map((ref) => {
+        const key = `${ref.productId}-${ref.skuId}`
+        if (selectedKeys.has(key)) return null
+        selectedKeys.add(key)
+        return this.cart.find((line) => line.productId === ref.productId && line.skuId === ref.skuId) || null
+      })
+      if (selectedCart.some((line) => !line)) {
+        this.checkoutError = '购物车商品已变化，请重新选择'
+        return false
+      }
+      const selectedLines = selectedCart as CartLine[]
+      const legacyCheckout = payload.selectedLines === undefined && payload.deliveryMode === undefined
+      const selectedModes = selectedLines.map((line) => {
+        const product = this.products.find((item) => item.id === line.productId)
+        return product && isExpressDeliverable(product) ? 'courier' as const : 'pickup' as const
+      })
+      const selectedMode = legacyCheckout ? 'pickup' as const : selectedModes[0]
+      if (!selectedMode || (!legacyCheckout && selectedModes.some((mode) => mode !== selectedMode)) || (payload.deliveryMode && payload.deliveryMode !== selectedMode)) {
+        this.checkoutError = '请按同一配送方式分别结算'
+        return false
+      }
+      const deliveryMode = payload.deliveryMode || selectedMode
       const latestCatalog = readCatalogState()
       if (!latestCatalog) { this.checkoutError = '商品库存已更新，请重试'; return false }
       const revisionChanged = latestCatalog.revision !== this.catalogRevision
       if (revisionChanged) this.applyCatalogState(latestCatalog)
-      const insufficient = this.cart.find((line) => {
+      const insufficient = selectedLines.find((line) => {
         const product = this.products.find((item) => item.id === line.productId)
         const sku = product?.skus.find((item) => item.id === line.skuId)
         return !product || !sku || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
@@ -882,11 +912,7 @@ export const useFarmhouseStore = defineStore('storefront', {
         return false
       }
       if (revisionChanged) { this.checkoutError = '商品库存已更新，请重试'; return false }
-      const expressCart = this.cart.filter((line) => {
-        const product = this.products.find((item) => item.id === line.productId)
-        return !!product && isExpressDeliverable(product)
-      })
-      const wantsCourier = payload.deliveryMode === 'courier' && expressCart.length > 0
+      const wantsCourier = deliveryMode === 'courier'
       const selectedAddress = wantsCourier ? this.addresses.find((address) => address.id === payload.addressId && address.userId === this.currentUserId) : undefined
       if (wantsCourier && !selectedAddress) {
         this.checkoutError = '请选择有效的收货地址'
@@ -897,7 +923,7 @@ export const useFarmhouseStore = defineStore('storefront', {
         this.checkoutError = '门店价格已更新，请确认后重试'
         return false
       }
-      const total = this.cartTotal
+      const total = calcCartTotal(selectedLines.map(({ price, quantity }) => ({ price, quantity })))
       const useBalance = payload.payMethod !== 'wechat'
       if (useBalance && this.member.balance < total) {
         this.checkoutError = '会员余额不足'
@@ -923,12 +949,12 @@ export const useFarmhouseStore = defineStore('storefront', {
         this.checkoutError = '会员余额不足'
         return false
       }
-      const itemCount = this.cartCount
+      const itemCount = selectedLines.reduce((sum, item) => sum + item.quantity, 0)
       const orderId = createId('SO')
       const customerUserId = this.currentUserId || this.auth.openid || `guest:${farmId}`
       const pointsAwarded = Math.floor(total)
       const operationTime = new Date()
-      const cartItems = this.cart.map((item) => {
+      const cartItems = selectedLines.map((item) => {
         const product = this.products.find((p) => p.id === item.productId)
         const courier = wantsCourier && !!product && isExpressDeliverable(product)
         return { productId: item.productId, skuId: item.skuId, name: item.name, skuName: item.skuName, image: mediaValueToImage(item.image), quantity: item.quantity, price: item.price, minimumOrderQuantity: normalizeMinimumOrderQuantity(item.minimumOrderQuantity), deliveryMode: courier ? 'courier' as const : 'pickup' as const }
@@ -936,12 +962,13 @@ export const useFarmhouseStore = defineStore('storefront', {
       const order: StorefrontOrder = {
         id: orderId, customerUserId, amount: total, itemCount, status: '待发货', createdAt: operationTime.toLocaleString('zh-CN'),
         items: cartItems, pointsAwarded, payMethod: useBalance ? 'balance' : 'wechat',
+        ...(payload.remark?.trim() ? { remark: payload.remark.trim() } : {}),
         delivery: wantsCourier && selectedAddress ? { mode: 'courier', address: formatFarmhouseDeliveryAddress(selectedAddress) } : { mode: 'pickup' },
         platformOrderId: wantsCourier ? `FH-${orderId}` : undefined
       }
       const nextBalance = useBalance ? round2(localBase.memberBalance - total) : localBase.memberBalance
       const balanceEntry: BalanceEntry | undefined = useBalance ? { id: `${orderId}:consume`, type: 'consume', amount: -total, balance: nextBalance, description: `商城订单消费 · ${itemCount} 件商品`, createdAt: operationTime.toLocaleString('zh-CN') } : undefined
-      const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
+      const inventoryChanges = selectedLines.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
       const operationId = `${orderId}:checkout`
       const courierItems = cartItems.filter((item) => item.deliveryMode === 'courier')
       const addressSnapshot: CAddress | undefined = courierItems.length && selectedAddress
@@ -1025,14 +1052,14 @@ export const useFarmhouseStore = defineStore('storefront', {
         return false
       }
       const localSnapshot = target.localState![farmId]
-      const soldQuantities = new Map(this.cart.map((line) => [line.productId, line.quantity]))
+      const soldQuantities = new Map(selectedLines.map((line) => [line.productId, line.quantity]))
       this.applyCatalogState(target.catalog!)
       this.products.forEach((product) => { product.sales += soldQuantities.get(product.id) || 0 })
       this.orders = cloneSeed(localSnapshot.orders)
       this.member.balance = localSnapshot.memberBalance
       this.member.points = localSnapshot.memberPoints
       this.balanceEntries = cloneSeed(localSnapshot.balanceEntries)
-      this.cart = []
+      this.cart = this.cart.filter((line) => !selectedKeys.has(`${line.productId}-${line.skuId}`))
       return true
     },
     async cancelStorefrontOrder(id: string) {

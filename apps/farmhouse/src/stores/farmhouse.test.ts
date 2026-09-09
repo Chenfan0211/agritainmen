@@ -86,8 +86,8 @@ describe('farmhouse store interactions', () => {
     expect(source).toContain('minimumOrderQuantity(')
     expect(source).toContain('库存不足或购买数量未达要求')
     expect(source).toContain(':disabled="!canStartOrder(selectedSku)"')
-    expect(source).toContain(':class="{ shortage: item.unavailable }"')
-    expect(source).toContain(':disabled="store.cartHasUnavailable"')
+    expect(source).toContain('shortage: item.unavailable')
+    expect(source).toContain(':disabled="!selectedCartItems.length || cartCategoryHasUnavailable"')
   })
 
   it('rejects an explicit direct-purchase quantity below MOQ before adding or changing the cart', () => {
@@ -806,7 +806,7 @@ describe('farmhouse courier fulfillment', () => {
     expect(platformOrder?.items?.[0]?.deliveryMode).toBe('courier')
   })
 
-  it('keeps pickup-only items local while publishing courier items from one mixed checkout', async () => {
+  it('requires courier and pickup items to be checked out separately', async () => {
     const courierProduct = catalogProduct({ id: 'MIXED-COURIER', name: '快递商品', expressDelivery: true })
     const pickupProduct = catalogProduct({ id: 'MIXED-PICKUP', name: '自提商品', expressDelivery: false })
     seedCatalog([courierProduct, pickupProduct])
@@ -817,23 +817,26 @@ describe('farmhouse courier fulfillment', () => {
     await store.initialize(false, 'F001')
     store.$patch({ currentUserId: 'U-MIXED-DELIVERY', member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
     const address = createCheckoutAddress(store, '混合配送地址 8 号')
-    expect(store.addToCart(store.products.find((item) => item.id === courierProduct.id)!)).toBe('added')
-    expect(store.addToCart(store.products.find((item) => item.id === pickupProduct.id)!)).toBe('added')
+    const courier = store.products.find((item) => item.id === courierProduct.id)!
+    const pickup = store.products.find((item) => item.id === pickupProduct.id)!
+    expect(store.addToCart(courier)).toBe('added')
+    expect(store.addToCart(pickup)).toBe('added')
 
-    expect(await store.checkout({ deliveryMode: 'courier', addressId: address.id })).toBe(true)
-
-    expect(store.orders[0].items.map((item) => ({ productId: item.productId, deliveryMode: item.deliveryMode }))).toEqual([
-      { productId: courierProduct.id, deliveryMode: 'courier' },
-      { productId: pickupProduct.id, deliveryMode: 'pickup' }
-    ])
+    expect(await store.checkout({ deliveryMode: 'courier', selectedLines: [{ productId: courierProduct.id, skuId: courier.skus[0].id }], addressId: address.id })).toBe(true)
+    expect(store.orders[0].items.map((item) => ({ productId: item.productId, deliveryMode: item.deliveryMode }))).toEqual([{ productId: courierProduct.id, deliveryMode: 'courier' }])
+    expect(store.cart).toEqual([expect.objectContaining({ productId: pickupProduct.id })])
     const supplierOrders = Object.values(readPlatformOrders() || {})
     expect(supplierOrders).toHaveLength(1)
     expect(supplierOrders[0].items?.map((item) => item.productId)).toEqual([courierProduct.id])
+    expect(await store.checkout({ deliveryMode: 'pickup', selectedLines: [{ productId: pickupProduct.id, skuId: pickup.skus[0].id }] })).toBe(true)
+    expect(store.orders[0].items.map((item) => ({ productId: item.productId, deliveryMode: item.deliveryMode }))).toEqual([{ productId: pickupProduct.id, deliveryMode: 'pickup' }])
   })
 
   it('keeps pickup orders local without a platform link', async () => {
     const store = useFarmhouseStore()
-    await initializeWithLegacyProducts(store, cloneSeed(products.slice(0, 1)))
+    const pickupProducts = cloneSeed(products.slice(0, 1))
+    pickupProducts[0].expressDelivery = false
+    await initializeWithLegacyProducts(store, pickupProducts)
     store.$patch({ member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
     store.addToCart(store.products[0], store.products[0].skus[0].id)
     expect(await store.checkout({ deliveryMode: 'pickup' })).toBe(true)
@@ -851,6 +854,49 @@ describe('farmhouse courier fulfillment', () => {
     expect(store.checkoutError).toContain('收货地址')
     expect(await store.checkout({ deliveryMode: 'courier', addressId: 'ADDR-NOT-OWNED' })).toBe(false)
     expect(store.checkoutError).toContain('收货地址')
+  })
+
+  it('checks out only the explicitly selected delivery category and keeps the rest of the cart', async () => {
+    const courierProduct = catalogProduct({ id: 'SELECTED-COURIER', name: '快递选中商品', expressDelivery: true })
+    const pickupProduct = catalogProduct({ id: 'SELECTED-PICKUP', name: '社区团购商品', expressDelivery: false })
+    seedCatalog([courierProduct, pickupProduct])
+    for (const product of [courierProduct, pickupProduct]) {
+      expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: product.id, listed: true, retailPrice: product.skus[0].retailPrice })).toBe(true)
+    }
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    store.$patch({ currentUserId: 'U-SELECTED-CHECKOUT', member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
+    const courier = store.products.find((item) => item.id === courierProduct.id)!
+    const pickup = store.products.find((item) => item.id === pickupProduct.id)!
+    store.addToCart(courier, courier.skus[0].id)
+    store.addToCart(pickup, pickup.skus[0].id)
+
+    expect(await store.checkout({ deliveryMode: 'pickup', selectedLines: [{ productId: pickup.id, skuId: pickup.skus[0].id }], remark: '到店时请联系我' })).toBe(true)
+    expect(store.orders[0]).toMatchObject({ remark: '到店时请联系我', itemCount: 1, delivery: { mode: 'pickup' } })
+    expect(store.cart).toEqual([expect.objectContaining({ productId: courier.id })])
+  })
+
+  it('rejects a checkout request that mixes pickup and courier lines', async () => {
+    const courierProduct = catalogProduct({ id: 'MIX-REJECT-COURIER', name: '快递商品', expressDelivery: true })
+    const pickupProduct = catalogProduct({ id: 'MIX-REJECT-PICKUP', name: '普通商品', expressDelivery: false })
+    seedCatalog([courierProduct, pickupProduct])
+    for (const product of [courierProduct, pickupProduct]) {
+      expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: product.id, listed: true, retailPrice: product.skus[0].retailPrice })).toBe(true)
+    }
+    const store = useFarmhouseStore()
+    await store.initialize(false, 'F001')
+    store.$patch({ currentUserId: 'U-MIX-REJECT', member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
+    const courier = store.products.find((item) => item.id === courierProduct.id)!
+    const pickup = store.products.find((item) => item.id === pickupProduct.id)!
+    store.addToCart(courier, courier.skus[0].id)
+    store.addToCart(pickup, pickup.skus[0].id)
+
+    expect(await store.checkout({ deliveryMode: 'pickup', selectedLines: [
+      { productId: courier.id, skuId: courier.skus[0].id },
+      { productId: pickup.id, skuId: pickup.skus[0].id }
+    ] })).toBe(false)
+    expect(store.checkoutError).toContain('同一配送方式')
+    expect(store.cart).toHaveLength(2)
   })
 })
 

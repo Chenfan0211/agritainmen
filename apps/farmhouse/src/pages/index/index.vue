@@ -12,7 +12,7 @@ import { seedDemoFarmhouseCart } from '../../data/demo-cart'
 import { farmhouseBookingStatusText, farmhouseBookingVerificationError, isActiveBookingStatus, useFarmhouseStore, type FoodItem, type Room } from '../../stores/farmhouse'
 
 type TabKey = 'home' | 'reserve' | 'shop' | 'member'
-type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'design-experiences' | 'staff-admin' | 'orders' | 'bookings' | 'ledger' | 'addresses' | 'help' | null
+type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'design-experiences' | 'staff-admin' | 'orders' | 'bookings' | 'ledger' | 'addresses' | 'checkout' | 'help' | null
 type SheetKey = 'login' | 'cart' | 'orders' | 'bookings' | 'room-form' | 'food-form' | 'experience-form' | 'share' | 'product' | 'contact' | 'foods' | 'ledger' | 'recharge' | 'identity' | 'help' | 'booking-form' | 'after-sale' | 'service' | 'staff-form' | 'staff-promo' | 'pay' | null
 type PayContext = { kind: 'service' | 'mall'; title: string; summary: string; amount: number }
 
@@ -40,19 +40,30 @@ const bookingKeyword = ref('')
 const ledgerKeyword = ref('')
 const deliveryMode = ref<'pickup' | 'courier'>('pickup')
 const selectedAddressId = ref('')
-const addressReturnContext = ref<'member' | 'cart'>('member')
+const addressReturnContext = ref<'member' | 'cart' | 'checkout'>('member')
 const addressFormOpen = ref(false)
 const addressForm = reactive({ id: '', receiver: '', phone: '', region: ['湖南省', '长沙市', '岳麓区'], detail: '', isDefault: false })
 const selectedDeliveryAddress = computed(() => store.addresses.find((address) => address.id === selectedAddressId.value) || store.defaultAddress || null)
-const cartHasExpress = computed(() => store.cart.some((line) => {
+const cartCategory = ref<'community' | 'express'>('community')
+const selectedCartLineKeys = reactive(new Set<string>())
+const checkoutLineRefs = ref<Array<{ productId: string; skuId: string }>>([])
+const checkoutRemark = ref('')
+const cartLineKey = (line: { productId: string; skuId: string }) => `${line.productId}-${line.skuId}`
+const cartLineCategory = (line: { productId: string }) => {
   const product = store.products.find((item) => item.id === line.productId)
-  return !!product && isExpressDeliverable(product)
-}))
-const cartHasPickupOnly = computed(() => store.cart.some((line) => {
-  const product = store.products.find((item) => item.id === line.productId)
-  return !product || !isExpressDeliverable(product)
-}))
-const cartHasMixedDelivery = computed(() => deliveryMode.value === 'courier' && cartHasExpress.value && cartHasPickupOnly.value)
+  return product && isExpressDeliverable(product) ? 'express' as const : 'community' as const
+}
+const cartCategoryItems = computed(() => store.cart.filter((line) => cartLineCategory(line) === cartCategory.value))
+const selectedCartItems = computed(() => cartCategoryItems.value.filter((line) => selectedCartLineKeys.has(cartLineKey(line))))
+const selectedCartCount = computed(() => selectedCartItems.value.reduce((sum, line) => sum + line.quantity, 0))
+const selectedCartTotal = computed(() => selectedCartItems.value.reduce((sum, line) => sum + line.price * line.quantity, 0))
+const cartCategoryAllSelected = computed(() => !!cartCategoryItems.value.length && cartCategoryItems.value.every((line) => selectedCartLineKeys.has(cartLineKey(line))))
+const cartCategoryHasUnavailable = computed(() => selectedCartItems.value.some((line) => line.unavailable))
+const cartCategoryCount = (category: 'community' | 'express') => store.cart.filter((line) => cartLineCategory(line) === category).reduce((sum, line) => sum + line.quantity, 0)
+const checkoutItems = computed(() => checkoutLineRefs.value.map((ref) => store.cart.find((line) => line.productId === ref.productId && line.skuId === ref.skuId)).filter((line): line is typeof store.cart[number] => !!line))
+const checkoutTotal = computed(() => checkoutItems.value.reduce((sum, line) => sum + line.price * line.quantity, 0))
+const checkoutIsCourier = computed(() => deliveryMode.value === 'courier')
+const checkoutCanPayWithBalance = computed(() => store.balance >= checkoutTotal.value)
 const sheet = ref<SheetKey>(null)
 const category = ref('全部')
 const shopKeyword = ref('')
@@ -86,22 +97,51 @@ const selectedSku = computed(() => selectedProduct.value?.skus.find((sku) => sku
 const canPromote = computed(() => store.role !== 'customer')
 
 function cartLineDeliveryMode(line: { productId: string }): 'pickup' | 'courier' {
-  const product = store.products.find((item) => item.id === line.productId)
-  return deliveryMode.value === 'courier' && !!product && isExpressDeliverable(product) ? 'courier' : 'pickup'
+  return cartLineCategory(line) === 'express' ? 'courier' : 'pickup'
 }
 
 function resetCheckoutDeliveryState() {
   selectedAddressId.value = ''
   deliveryMode.value = 'pickup'
+  checkoutLineRefs.value = []
+  checkoutRemark.value = ''
 }
 
-watch(() => store.cart.length, (length) => {
-  if (!length) resetCheckoutDeliveryState()
-})
+function syncSelectedCartLines() {
+  const currentKeys = new Set(store.cart.map(cartLineKey))
+  store.cart.forEach((line) => {
+    const key = cartLineKey(line)
+    if (!selectedCartLineKeys.has(key)) selectedCartLineKeys.add(key)
+  })
+  Array.from(selectedCartLineKeys).forEach((key) => { if (!currentKeys.has(key)) selectedCartLineKeys.delete(key) })
+  if (!store.cart.some((line) => cartLineCategory(line) === cartCategory.value)) {
+    cartCategory.value = store.cart.some((line) => cartLineCategory(line) === 'community') ? 'community' : 'express'
+  }
+}
 
-watch(cartHasExpress, (hasExpress) => {
-  if (!hasExpress && deliveryMode.value === 'courier') resetCheckoutDeliveryState()
-})
+function syncCheckoutLines() {
+  const validRefs = checkoutLineRefs.value.filter((ref) => store.cart.some((line) => line.productId === ref.productId && line.skuId === ref.skuId))
+  if (validRefs.length === checkoutLineRefs.value.length) return
+  if (validRefs.length) checkoutLineRefs.value = validRefs
+  else resetCheckoutDeliveryState()
+}
+
+function toggleCartLine(line: { productId: string; skuId: string }) {
+  const key = cartLineKey(line)
+  if (selectedCartLineKeys.has(key)) selectedCartLineKeys.delete(key)
+  else selectedCartLineKeys.add(key)
+}
+
+function toggleAllCartLines() {
+  if (cartCategoryAllSelected.value) cartCategoryItems.value.forEach((line) => selectedCartLineKeys.delete(cartLineKey(line)))
+  else cartCategoryItems.value.forEach((line) => selectedCartLineKeys.add(cartLineKey(line)))
+}
+
+watch(() => store.cart, (cart) => {
+  syncSelectedCartLines()
+  syncCheckoutLines()
+  if (!cart.length) resetCheckoutDeliveryState()
+}, { deep: true })
 
 function minimumOrderQuantity(sku: Pick<Product['skus'][number], 'minimumOrderQuantity'> | null | undefined) {
   return normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
@@ -192,21 +232,17 @@ function submitServiceOrder() {
   })
 }
 
-function openMallPay() {
-  if (!requireLogin(() => openMallPay())) return
-  if (!store.cart.length) return toast('购物车还是空的')
-  if (store.cartHasUnavailable) return toast(store.checkoutError || '库存不足或购买数量未达要求，不可结算')
-  if (deliveryMode.value === 'courier' && cartHasExpress.value && !selectedDeliveryAddress.value) {
-    toast('请先添加收货地址')
-    openAddresses('cart', true)
-    return
-  }
-  openPaySheet({
-    kind: 'mall',
-    title: `特产商城 · ${store.cartCount} 件`,
-    summary: store.cart.map((item) => `${item.name} × ${item.quantity}`).join('、'),
-    amount: store.cartTotal
-  })
+function openCategoryCheckout() {
+  if (!requireLogin(() => openCategoryCheckout())) return
+  if (!selectedCartItems.value.length) return toast('请选择要结算的商品')
+  if (cartCategoryHasUnavailable.value) return toast('选中商品库存不足或购买数量未达要求')
+  checkoutLineRefs.value = selectedCartItems.value.map((line) => ({ productId: line.productId, skuId: line.skuId }))
+  deliveryMode.value = cartCategory.value === 'express' ? 'courier' : 'pickup'
+  checkoutRemark.value = ''
+  payMethod.value = store.balance >= checkoutTotal.value ? 'balance' : 'wechat'
+  sheet.value = null
+  workView.value = 'checkout'
+  if (deliveryMode.value === 'courier' && !selectedDeliveryAddress.value) openAddresses('checkout', true)
 }
 
 function openPaySheet(context: PayContext) {
@@ -231,7 +267,7 @@ async function confirmPay() {
       toast('支付成功')
       return
     }
-    if (!await store.checkout({ deliveryMode: deliveryMode.value, addressId: selectedDeliveryAddress.value?.id, payMethod: payMethod.value })) return toast(store.checkoutError)
+    if (!await store.checkout({ deliveryMode: deliveryMode.value, selectedLines: checkoutLineRefs.value, addressId: selectedDeliveryAddress.value?.id, payMethod: payMethod.value, remark: checkoutRemark.value })) return toast(store.checkoutError)
     resetCheckoutDeliveryState()
     sheet.value = null
     workView.value = 'orders'
@@ -301,7 +337,8 @@ function submitBooking() {
 
 async function checkout(payMethod?: 'balance' | 'wechat') {
   if (!requireLogin(() => checkout(payMethod))) return
-  if (!await store.checkout({ deliveryMode: deliveryMode.value, addressId: selectedDeliveryAddress.value?.id, payMethod })) return toast(store.checkoutError)
+  if (!checkoutLineRefs.value.length) return toast('请先从购物车选择商品')
+  if (!await store.checkout({ deliveryMode: deliveryMode.value, selectedLines: checkoutLineRefs.value, addressId: selectedDeliveryAddress.value?.id, payMethod, remark: checkoutRemark.value })) return toast(store.checkoutError)
   resetCheckoutDeliveryState()
   sheet.value = null
   workView.value = 'orders'
@@ -409,6 +446,8 @@ function loginAccount() {
 function logout() {
   store.logout()
   resetCheckoutDeliveryState()
+  selectedCartLineKeys.clear()
+  syncSelectedCartLines()
   sheet.value = null
   toast('已退出登录')
 }
@@ -499,10 +538,10 @@ function openHelp() {
   workView.value = 'help'
 }
 
-function openAddresses(context: 'member' | 'cart' = 'member', create = false) {
+function openAddresses(context: 'member' | 'cart' | 'checkout' = 'member', create = false) {
   if (!requireLogin(() => openAddresses(context, create))) return
   addressReturnContext.value = context
-  if (context === 'cart' && !selectedDeliveryAddress.value) selectedAddressId.value = store.defaultAddress?.id || ''
+  if ((context === 'cart' || context === 'checkout') && !selectedDeliveryAddress.value) selectedAddressId.value = store.defaultAddress?.id || ''
   sheet.value = null
   workView.value = 'addresses'
   addressFormOpen.value = false
@@ -534,6 +573,7 @@ function closeAddresses() {
   }
   workView.value = null
   if (addressReturnContext.value === 'cart') sheet.value = 'cart'
+  if (addressReturnContext.value === 'checkout') workView.value = 'checkout'
 }
 
 function saveAddress() {
@@ -551,14 +591,14 @@ function saveAddress() {
     isDefault: addressForm.isDefault
   })
   if (!saved) return toast('地址保存失败，请检查填写内容')
-  if (addressReturnContext.value === 'cart') selectedAddressId.value = saved.id
+  if (addressReturnContext.value === 'cart' || addressReturnContext.value === 'checkout') selectedAddressId.value = saved.id
   addressFormOpen.value = false
   toast('收货地址已保存')
-  if (addressReturnContext.value === 'cart') closeAddresses()
+  if (addressReturnContext.value === 'cart' || addressReturnContext.value === 'checkout') closeAddresses()
 }
 
 function chooseDeliveryAddress(address: CAddress) {
-  if (addressReturnContext.value !== 'cart') return
+  if (addressReturnContext.value !== 'cart' && addressReturnContext.value !== 'checkout') return
   selectedAddressId.value = address.id
   closeAddresses()
 }
@@ -798,6 +838,7 @@ onMounted(async () => {
   // #endif
   await store.initialize(false, runtimeFarm)
   store.cart = seedDemoFarmhouseCart(store.cart, store.products, store.mockScenario)
+  syncSelectedCartLines()
   ensureStockDrafts()
   if (typeof query.promoter === 'string' && query.promoter) store.setReferrer({ type: 'promoter', promoterId: query.promoter, name: String(query.promoterName || ''), liveId: typeof query.live === 'string' ? query.live : undefined })
   if (typeof query.staff === 'string' && query.staff) store.setReferrer({ type: 'staff', staffAccountId: query.staff, name: String(query.staffName || '') })
@@ -994,7 +1035,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></view>
         <view v-if="!filteredOrders.length" class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="package-check" :size="28" /></view><text>还没有订单，去商城逛逛吧～</text></view>
         <view class="records order-records">
-          <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><BusinessImage v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFill" /><view v-else class="rec-ic icon-placeholder"><UiIcon name="package" :size="20" /></view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><small v-if="item.delivery?.mode === 'courier'" class="rec-s">{{ item.courier || '快递直发' }}{{ item.trackingNo ? ' ' + item.trackingNo : '' }} · {{ item.delivery?.address }}</small><small v-if="afterSaleFailureOf(item.id)" class="rec-s">退款失败：{{ afterSaleFailureOf(item.id) }}</small><small v-if="afterSaleRetryOf(item.id)" class="rec-s">{{ afterSaleRetryOf(item.id) }}</small><view class="record-actions"><button class="action-btn action-btn--primary" @click="repeatOrder(item.id)">再次购买</button><button v-if="item.status === '待发货'" class="action-btn action-btn--muted" @click="cancelStorefrontOrder(item.id)">取消订单</button><button v-if="item.status === '已完成'" class="action-btn action-btn--gold" @click="requestStorefrontAfterSale(item.id, 'refund')">申请退款</button><button v-if="item.status === '已完成'" class="action-btn action-btn--danger" @click="requestStorefrontAfterSale(item.id, 'return')">申请退货</button></view></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
+         <view v-for="item in filteredOrders" :key="item.id" class="rec-line"><BusinessImage v-if="item.items[0]?.image" class="rec-ic" :src="item.items[0].image" mode="aspectFill" /><view v-else class="rec-ic icon-placeholder"><UiIcon name="package" :size="20" /></view><view class="rec-b"><text class="rec-t">{{ orderTitle(item) }}</text><small class="rec-s">{{ money(item.amount) }} · 特产商城</small><small v-if="item.delivery?.mode === 'courier'" class="rec-s">{{ item.courier || '快递直发' }}{{ item.trackingNo ? ' ' + item.trackingNo : '' }} · {{ item.delivery?.address }}</small><small v-if="item.remark" class="rec-s">备注：{{ item.remark }}</small><small v-if="afterSaleFailureOf(item.id)" class="rec-s">退款失败：{{ afterSaleFailureOf(item.id) }}</small><small v-if="afterSaleRetryOf(item.id)" class="rec-s">{{ afterSaleRetryOf(item.id) }}</small><view class="record-actions"><button class="action-btn action-btn--primary" @click="repeatOrder(item.id)">再次购买</button><button v-if="item.status === '待发货'" class="action-btn action-btn--muted" @click="cancelStorefrontOrder(item.id)">取消订单</button><button v-if="item.status === '已完成'" class="action-btn action-btn--gold" @click="requestStorefrontAfterSale(item.id, 'refund')">申请退款</button><button v-if="item.status === '已完成'" class="action-btn action-btn--danger" @click="requestStorefrontAfterSale(item.id, 'return')">申请退货</button></view></view><span class="rec-st">{{ platformOrderStatus(item.id) || item.status }}</span><span v-if="afterSaleStatusOf(item.id)" class="rec-st after">{{ afterSaleStatusOf(item.id) }}</span></view>
         </view>
         </view>
       </view>
@@ -1021,8 +1062,21 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         </view>
       </view>
 
+      <view v-else-if="workView === 'checkout'" class="work-page page-pad checkout-page" :data-visual-view="workView">
+        <view class="sub-head"><button class="page-back" aria-label="返回购物车" @click="workView = null; sheet = 'cart'"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">确认订单</text><text class="page-sub">{{ checkoutIsCourier ? '快递直发' : '社区团购 · 到店自提' }}</text></view></view>
+        <view class="work-body checkout-body">
+          <view v-if="checkoutIsCourier" class="checkout-address-card checkout-address-card--page" role="button" tabindex="0" aria-label="选择本单收货地址" @click="openAddresses('checkout')" @keyup.enter="openAddresses('checkout')" @keyup.space.prevent="openAddresses('checkout')"><UiIcon name="map-pin" :size="21" /><view v-if="selectedDeliveryAddress"><view><text>{{ selectedDeliveryAddress.receiver }}</text><strong>{{ selectedDeliveryAddress.phone }}</strong><span v-if="selectedDeliveryAddress.isDefault">默认</span></view><small>{{ selectedDeliveryAddress.region }} {{ selectedDeliveryAddress.detail }}</small></view><view v-else><text>添加收货地址</text><small>快递配送前请先填写收货信息</small></view><UiIcon name="chevron-right" :size="17" /></view>
+          <view v-else class="pickup-point-card"><view class="pickup-point-icon"><UiIcon name="store" :size="22" /></view><view><text>{{ store.tenant?.name || store.farm?.name || '当前农家乐' }}</text><small>{{ store.farm?.region || '' }} {{ store.tenant?.address || store.farm?.address || '' }}</small><small>{{ store.tenant?.phone || '' }} · 营业 {{ store.tenant?.hours || '以门店实际营业时间为准' }}</small></view><span>自提点</span></view>
+          <view class="checkout-section"><view class="checkout-section-head"><text>商品明细</text><small>{{ checkoutItems.length }} 款 · {{ checkoutItems.reduce((sum, item) => sum + item.quantity, 0) }} 件</small></view><view class="checkout-items"><view v-for="item in checkoutItems" :key="cartLineKey(item)" class="checkout-line"><BusinessImage :src="item.image" mode="aspectFill" /><view><text>{{ item.name }}</text><small>{{ item.skuName }} × {{ item.quantity }}</small></view><strong>{{ money(item.price * item.quantity) }}</strong></view></view></view>
+          <view class="checkout-section"><view class="checkout-section-head"><text>订单备注</text><small>选填</small></view><textarea v-model="checkoutRemark" class="checkout-remark" maxlength="120" placeholder="如：到店后联系我，或请按门店安排配送" /></view>
+          <view class="checkout-section"><view class="checkout-section-head"><text>支付方式</text><small>{{ checkoutCanPayWithBalance ? '余额优先' : '余额不足' }}</small></view><view class="checkout-pay-methods"><button :class="{ selected: payMethod === 'balance' }" :disabled="!checkoutCanPayWithBalance" @click="payMethod = 'balance'"><UiIcon name="wallet-cards" :size="19" /><view><text>会员余额</text><small>{{ checkoutCanPayWithBalance ? money(store.balance) : '余额不足，请使用微信支付' }}</small></view><span v-if="payMethod === 'balance'">已选</span></button><button :class="{ selected: payMethod === 'wechat' }" @click="payMethod = 'wechat'"><UiIcon name="message-circle" :size="19" /><view><text>微信支付（演示）</text><small>模拟支付成功，不扣储值余额</small></view><span v-if="payMethod === 'wechat'">已选</span></button></view></view>
+          <view class="checkout-total-card"><view><text>商品合计</text><strong>{{ money(checkoutTotal) }}</strong></view><view><text>配送与优惠</text><strong>暂无</strong></view><view class="checkout-total-row"><text>应付金额</text><strong>{{ money(checkoutTotal) }}</strong></view></view>
+        </view>
+        <view class="checkout-page-foot"><view><small>应付金额</small><strong>{{ money(checkoutTotal) }}</strong></view><button class="primary-button" :disabled="paying || !checkoutItems.length || (checkoutIsCourier && !selectedDeliveryAddress) || (payMethod === 'balance' && !checkoutCanPayWithBalance)" @click="checkout(payMethod)">{{ paying ? '提交中…' : '提交订单' }}</button></view>
+      </view>
+
       <view v-else-if="workView === 'addresses'" class="work-page page-pad address-page" :data-visual-view="workView">
-        <view class="sub-head"><button class="page-back" :aria-label="addressFormOpen ? '返回地址列表' : addressReturnContext === 'cart' ? '返回购物车' : '返回会员中心'" @click="closeAddresses"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">{{ addressFormOpen ? (addressForm.id ? '编辑收货地址' : '新增收货地址') : '收货地址' }}</text><text class="page-sub">农家乐商城通用 · 地址信息仅用于快递配送</text></view></view>
+        <view class="sub-head"><button class="page-back" :aria-label="addressFormOpen ? '返回地址列表' : addressReturnContext === 'cart' ? '返回购物车' : addressReturnContext === 'checkout' ? '返回确认订单' : '返回会员中心'" @click="closeAddresses"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">{{ addressFormOpen ? (addressForm.id ? '编辑收货地址' : '新增收货地址') : '收货地址' }}</text><text class="page-sub">农家乐商城通用 · 地址信息仅用于快递配送</text></view></view>
         <view class="work-body">
           <view v-if="addressFormOpen" class="address-form">
             <label class="form-field"><text>收货人</text><input v-model="addressForm.receiver" maxlength="30" placeholder="请输入收货人姓名" /></label>
@@ -1032,11 +1086,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
             <button class="default-choice" :class="{ selected: addressForm.isDefault }" :disabled="addressForm.isDefault" @click="addressForm.isDefault = true"><span><UiIcon v-if="addressForm.isDefault" name="check" :size="15" /></span><text>{{ addressForm.isDefault ? '默认地址（不能直接取消）' : '设为默认地址' }}</text></button>
             <small v-if="!store.addresses.length && !addressForm.id" class="default-address-hint">首个地址将自动设为默认</small>
           </view>
-          <view v-else class="address-list" :role="addressReturnContext === 'cart' ? 'radiogroup' : undefined" :aria-label="addressReturnContext === 'cart' ? '选择本单收货地址' : undefined">
+          <view v-else class="address-list" :role="addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? 'radiogroup' : undefined" :aria-label="addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? '选择本单收货地址' : undefined">
             <view v-if="!store.addresses.length" class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="map-pin" :size="28" /></view><text>还没有收货地址</text><small>新增后，快递配送时可以直接选择</small></view>
-            <view v-for="address in store.addresses" :key="address.id" class="address-card" :class="{ selected: addressReturnContext === 'cart' && selectedDeliveryAddress?.id === address.id }">
-              <view class="address-card-select" :role="addressReturnContext === 'cart' ? 'radio' : undefined" :aria-checked="addressReturnContext === 'cart' ? selectedDeliveryAddress?.id === address.id : undefined" :tabindex="addressReturnContext === 'cart' ? 0 : undefined" @click="chooseDeliveryAddress(address)" @keyup.enter="chooseDeliveryAddress(address)" @keyup.space.prevent="chooseDeliveryAddress(address)">
-                <view class="address-card-head"><text>{{ address.receiver }}</text><strong>{{ address.phone }}</strong><span v-if="address.isDefault" class="address-default-tag">默认</span><span v-if="addressReturnContext === 'cart' && selectedDeliveryAddress?.id === address.id" class="address-selected-tag">本单使用</span></view>
+            <view v-for="address in store.addresses" :key="address.id" class="address-card" :class="{ selected: (addressReturnContext === 'cart' || addressReturnContext === 'checkout') && selectedDeliveryAddress?.id === address.id }">
+              <view class="address-card-select" :role="addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? 'radio' : undefined" :aria-checked="addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? selectedDeliveryAddress?.id === address.id : undefined" :tabindex="addressReturnContext === 'cart' || addressReturnContext === 'checkout' ? 0 : undefined" @click="chooseDeliveryAddress(address)" @keyup.enter="chooseDeliveryAddress(address)" @keyup.space.prevent="chooseDeliveryAddress(address)">
+                <view class="address-card-head"><text>{{ address.receiver }}</text><strong>{{ address.phone }}</strong><span v-if="address.isDefault" class="address-default-tag">默认</span><span v-if="(addressReturnContext === 'cart' || addressReturnContext === 'checkout') && selectedDeliveryAddress?.id === address.id" class="address-selected-tag">本单使用</span></view>
                 <small>{{ address.region }} {{ address.detail }}</small>
               </view>
               <view class="address-card-actions"><button v-if="!address.isDefault" @click.stop="setDefaultAddress(address.id)">设为默认</button><button @click.stop="openAddressForm(address)">编辑</button><button class="danger" @click.stop="confirmRemoveAddress(address.id)">删除</button></view>
@@ -1186,25 +1240,19 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </template>
         </view>
 
-           <view v-else-if="sheet === 'cart'" class="sheet-list">
+           <view v-else-if="sheet === 'cart'" class="sheet-list cart-sheet-list">
              <view v-if="!store.cart.length" class="empty pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>购物车还是空的</text></view>
-             <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.unavailable }">
-               <BusinessImage :src="item.image" mode="aspectFill" />
-               <view class="sheet-line-main">
-                 <view class="sheet-line-title"><text>{{ item.name }}</text><span class="cart-fulfillment-tag" :class="cartLineDeliveryMode(item)">{{ cartLineDeliveryMode(item) === 'courier' ? '快递配送' : '到店自提' }}</span></view>
-                 <small>{{ item.skuName }}</small>
-                 <small v-if="item.unavailable" class="stock-warning">库存不足或购买数量未达要求，不可结算</small>
-                 <view class="sheet-line-foot"><strong>{{ money(item.price) }}</strong><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view>
+             <template v-else>
+               <view class="cart-category-tabs"><button :class="{ active: cartCategory === 'community' }" @click="cartCategory = 'community'"><text>社区团购</text><small>{{ cartCategoryCount('community') }} 件</small></button><button :class="{ active: cartCategory === 'express' }" @click="cartCategory = 'express'"><text>快递直发</text><small>{{ cartCategoryCount('express') }} 件</small></button></view>
+               <view class="cart-select-all"><text>{{ cartCategory === 'express' ? '快递商品' : '普通商品' }} · {{ cartCategoryItems.length }} 款</text><button @click="toggleAllCartLines"><span class="cart-check" :class="{ checked: cartCategoryAllSelected }"><UiIcon v-if="cartCategoryAllSelected" name="check" :size="14" /></span>{{ cartCategoryAllSelected ? '取消全选' : '全选' }}</button></view>
+               <view v-if="!cartCategoryItems.length" class="empty cart-category-empty"><view class="pc-state-icon"><UiIcon :name="cartCategory === 'express' ? 'truck' : 'store'" :size="25" /></view><text>{{ cartCategory === 'express' ? '暂无快递直发商品' : '暂无社区团购商品' }}</text><small>{{ cartCategory === 'express' ? '支持快递的商品会显示在这里' : '普通商品请到农家乐自提' }}</small></view>
+               <view v-for="item in cartCategoryItems" :key="cartLineKey(item)" class="sheet-line cart-line" :class="{ shortage: item.unavailable, selected: selectedCartLineKeys.has(cartLineKey(item)) }">
+                 <button class="cart-line-check" :aria-label="selectedCartLineKeys.has(cartLineKey(item)) ? `取消选择${item.name}` : `选择${item.name}`" @click="toggleCartLine(item)"><span class="cart-check" :class="{ checked: selectedCartLineKeys.has(cartLineKey(item)) }"><UiIcon v-if="selectedCartLineKeys.has(cartLineKey(item))" name="check" :size="14" /></span></button>
+                 <BusinessImage :src="item.image" mode="aspectFill" />
+                 <view class="sheet-line-main"><view class="sheet-line-title"><text>{{ item.name }}</text><span class="cart-fulfillment-tag" :class="cartLineDeliveryMode(item)">{{ cartLineDeliveryMode(item) === 'courier' ? '快递直发' : '社区团购' }}</span></view><small>{{ item.skuName }}</small><small v-if="item.unavailable" class="stock-warning">库存不足或购买数量未达要求，不可结算</small><view class="sheet-line-foot"><strong>{{ money(item.price) }}</strong><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view></view>
                </view>
-             </view>
-             <text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text>
-             <view v-if="cartHasExpress" class="delivery-picker">
-               <text class="delivery-label">配送方式</text>
-               <view class="ui-chips"><button :class="{ sel: deliveryMode === 'pickup' }" @click="deliveryMode = 'pickup'">到店自提</button><button :class="{ sel: deliveryMode === 'courier' }" @click="deliveryMode = 'courier'">快递配送</button></view>
-               <text v-if="cartHasMixedDelivery" class="delivery-mixed-note">可快递商品寄往该地址，其余商品需到店自提</text>
-               <button v-if="deliveryMode === 'courier'" class="checkout-address-card" aria-label="选择本单收货地址" @click="openAddresses('cart')"><UiIcon name="map-pin" :size="21" /><view v-if="selectedDeliveryAddress"><view><text>{{ selectedDeliveryAddress.receiver }}</text><strong>{{ selectedDeliveryAddress.phone }}</strong><span v-if="selectedDeliveryAddress.isDefault">默认</span></view><small>{{ selectedDeliveryAddress.region }} {{ selectedDeliveryAddress.detail }}</small></view><view v-else><text>添加收货地址</text><small>快递配送前请先填写收货信息</small></view><UiIcon name="chevron-right" :size="17" /></button>
-             </view>
-             <view v-if="store.cart.length" class="checkout-summary"><view><text>储值余额</text><strong>{{ money(store.balance) }}</strong></view><view><text>应付合计</text><strong>{{ money(store.cartTotal) }}</strong></view></view>
+               <text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text>
+             </template>
            </view>
 
            <view v-else-if="sheet === 'room-form'" class="design-form">
@@ -1273,7 +1321,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </view>
           <view v-else class="poster-sheet"><small class="poster-sub">分享给好友，好友下单即可获得佣金</small><view class="ui-opt sel"><text>推广门店</text><span>{{ store.tenant?.name }}</span></view></view>
         </scroll-view>
-          <view v-if="sheet === 'cart' && store.cart.length" class="sheet-foot"><button class="primary-button" :disabled="store.cartHasUnavailable" @click="openMallPay">提交订单</button></view>
+          <view v-if="sheet === 'cart' && store.cart.length" class="sheet-foot cart-sheet-foot"><view><small>{{ cartCategory === 'express' ? '快递直发' : '社区团购' }} · 已选 {{ selectedCartCount }} 件</small><strong>{{ money(selectedCartTotal) }}</strong></view><button class="primary-button" :disabled="!selectedCartItems.length || cartCategoryHasUnavailable" @click="openCategoryCheckout">去结算</button></view>
           <view v-else-if="sheet === 'room-form'" class="sheet-foot"><button class="primary-button" @click="saveRoomForm">{{ editingRoomId ? '保存修改' : '新增包厢' }}</button></view>
           <view v-else-if="sheet === 'food-form'" class="sheet-foot"><button class="primary-button" @click="saveFoodForm">{{ editingFoodId ? '保存修改' : '新增菜品' }}</button></view>
           <view v-else-if="sheet === 'experience-form'" class="sheet-foot"><button class="primary-button" @click="saveExperienceForm">{{ editingExperienceId ? '保存修改' : '新增体验' }}</button></view>

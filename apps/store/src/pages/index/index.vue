@@ -273,6 +273,7 @@
               <view><small>收货地址</small><text>{{ store.info.address }}</text></view>
             </view>
             <view class="form-group"><text>下单备注（选填）</text><textarea v-model="remark" placeholder="例如：需要周三前送达 / 到货后电话联系" adjust-position /></view>
+            <view class="checkout-payment-fixed"><UiIcon name="message-circle" :size="19" /><view><text>微信支付</text><small>门店订货端仅支持微信支付</small></view><span>已选</span></view>
             <view class="checkout-items">
               <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="checkout-line">
                 <text>{{ item.name }} ×{{ item.quantity }}</text><strong>{{ money(item.price * item.quantity) }}</strong>
@@ -929,6 +930,12 @@ onBeforeUnmount(() => {
 
 /* ===== 确认下单 ===== */
 .checkout-form { padding-top:12px; }
+.checkout-payment-fixed { min-height:54px; margin:10px 0; padding:9px 10px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:9px; border:1px solid var(--farm-line); border-radius:7px; background:var(--mobile-surface-subtle); }
+.checkout-payment-fixed view { min-width:0; }
+.checkout-payment-fixed text,.checkout-payment-fixed small { display:block; }
+.checkout-payment-fixed text { font-size:13px; font-weight:800; }
+.checkout-payment-fixed small { margin-top:2px; color:var(--farm-muted); font-size:11px; }
+.checkout-payment-fixed span { color:var(--farm-green-deep); font-size:11px; font-weight:800; white-space:nowrap; }
 .checkout-store { padding:10px;background:var(--mobile-surface-subtle);border:1px solid var(--farm-line);border-radius:7px;display:grid;gap:9px; }
 .checkout-store view { display:flex;justify-content:space-between;gap:12px; }
 .checkout-store small { color:var(--farm-muted);font-size:12px;flex:none; }
