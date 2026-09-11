@@ -14,6 +14,16 @@ async function storeLogin(page: Page) {
   await expect(page.locator('.app-shell')).toBeVisible()
 }
 
+async function clearStoreDemoCart(page: Page) {
+  await page.locator('.tabbar uni-button').nth(2).click()
+  if (await page.locator('.cart-row').count()) {
+    await page.locator('.cart-all').click()
+    await page.locator('.cart-del').click()
+    await expect(page.locator('.cart-row')).toHaveCount(0)
+  }
+  await page.locator('.tabbar uni-button').nth(0).click()
+}
+
 async function farmhouseLogin(page: Page) {
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.login-prompt .primary-button').click()
@@ -318,20 +328,24 @@ test('store orders supply products and tracks order status', async ({ page }) =>
   await page.evaluate(() => localStorage.clear())
   await page.reload()
   await storeLogin(page)
+  await clearStoreDemoCart(page)
 
-  // 商城分类数量角标
-  await expect(page.locator('.chips uni-button', { hasText: /^全部\d+$/ })).toContainText('76')
-  await expect(page.locator('.chips uni-button', { hasText: /^土特产\d+$/ })).toContainText('11')
-  await expect(page.locator('.chips uni-button', { hasText: /^生鲜农产\d+$/ })).toContainText('5')
+  // 商城分类宫格与商品总数
+  await expect(page.locator('.category-grid-item')).toHaveCount(10)
+  await expect(page.locator('.category-grid-item', { hasText: '土特产' })).toBeVisible()
+  await expect(page.locator('.category-grid-item', { hasText: '生鲜农产' })).toBeVisible()
+  await expect(page.locator('.result-count')).toContainText('共 76 款商品')
 
   // 商城分类筛选 + 搜索
-  await page.locator('.chips uni-button', { hasText: /^伴手礼\d+$/ }).click()
+  await page.locator('.category-grid-item').filter({ hasText: /^伴手礼$/ }).click()
   await expect(page.locator('.product-card')).toHaveCount(8)
   await expect(page.locator('.result-count')).toContainText('共 8 款商品')
   await page.locator('.search-bar input').fill('蜂蜜')
   await expect(page.locator('.empty-page')).toContainText('没有找到相关商品')
-  await page.locator('.search-bar input').fill('')
-  await page.locator('.chips uni-button', { hasText: '全部' }).click()
+  await page.reload()
+  await expect(page.locator('.app-shell')).toBeVisible()
+  await clearStoreDemoCart(page)
+  await expect(page.locator('.result-count')).toContainText('共 76 款商品')
 
   // 按商品名选择两个单规格商品，避免瀑布流分列改变 DOM 顺序。
   await page.locator('.product-card', { hasText: '商用保鲜膜 300米' }).locator('.product-foot uni-button').click()
@@ -340,9 +354,9 @@ test('store orders supply products and tracks order status', async ({ page }) =>
 
   // 提交订单
   await page.locator('.cart-bar uni-button').last().click()
-  await page.locator('.checkout-summary uni-button', { hasText: '确认下单' }).click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '确认下单' }).click()
   await page.locator('.checkout-form textarea').fill('请周三前送达')
-  await page.locator('.checkout-form uni-button', { hasText: '提交订单' }).click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '提交订单' }).click()
   await expect(page.locator('.order-detail-head')).toContainText('待接单')
 
   // 推进状态 → 待发货
@@ -368,13 +382,15 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
   await page.evaluate(() => localStorage.clear())
   await page.reload()
   await storeLogin(page)
+  await clearStoreDemoCart(page)
 
-  // 商城运营数据条 + 订单汇总数据
-  await expect(page.locator('.shop-metrics')).toContainText('在售商品')
-  await expect(page.locator('.shop-metrics')).toContainText('可订商品')
+  // 商城当前首页结构
+  await expect(page.locator('.mall-hero')).toContainText('中选科技门店订货商城')
+  await expect(page.locator('.category-grid-item')).toHaveCount(10)
+  await expect(page.locator('.result-count')).toContainText('共 76 款商品')
 
   // 门店工作台：统计卡数据 + 快捷入口摘要
-  await page.locator('.tabbar uni-button').nth(2).click()
+  await page.locator('.tabbar uni-button').nth(3).click()
   await expect(page.locator('.store-metrics')).toContainText('本月进货额')
   await expect(page.locator('.store-metrics')).toContainText('累计节省')
   const myOrderEntry = page.locator('.quick-grid uni-button', { hasText: '我的订单' });
@@ -394,7 +410,7 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
   await page.locator('.sheet-head uni-button').click()
 
   // 订单汇总 + 各状态筛选均有数据
-  await page.locator('.tabbar uni-button').nth(1).click()
+  await myOrderEntry.click()
   await expect(page.locator('.order-summary')).toContainText('15 单')
   await page.locator('.order-chips uni-button', { hasText: '已完成' }).click()
   await expect(page.locator('.order-card').first()).toContainText('已完成')
@@ -409,12 +425,13 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
   await expect(page.locator('.sku-options')).toContainText('1kg家庭装')
   await page.locator('.sku-options uni-button').first().click()
   await page.locator('.product-detail-actions uni-button', { hasText: '加入进货单' }).click()
+  await page.locator('.cart-bar uni-button').last().click()
   await page.locator('.sheet-line .stepper uni-button').last().click()
-  await expect(page.locator('.checkout-summary')).toContainText('¥76')
+  await expect(page.locator('.checkout-summary')).toContainText('¥176')
 
   // 提交订单 → 订单详情
-  await page.locator('.checkout-summary uni-button', { hasText: '确认下单' }).click()
-  await page.locator('.checkout-form uni-button', { hasText: '提交订单' }).click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '确认下单' }).click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '提交订单' }).click()
   await expect(page.locator('.order-detail-head')).toContainText('待接单')
   await page.locator('.sheet-head uni-button').click()
 

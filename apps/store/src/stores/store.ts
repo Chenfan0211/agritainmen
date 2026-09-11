@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AfterSale, BusinessMediaValue, CatalogState, MockScenario, Order, OrderItem, OrderStatus, PlatformJournalEntry, PlatformRecoveryHandlerKey, PlatformPrincipal, Product, PurchaseStatus, StoreAccount, StoreRole } from '@agritainment/shared'
-import { abortCatalogTransaction, applyCatalogStockOperation, applyPlatformMedia, buildSupplierAccountSeeds, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, ensureCatalogState, initializePlatformRecoveryHandlers, initialCatalogOrderQuantity, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, nextPurchaseStatus, normalizeMinimumOrderQuantity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, prepareCatalogTransaction, purchaseSteps, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformEntities, readPlatformMedia, readPlatformOrders, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, reconcilePendingPlatformTransactions, resolvePlatformJournal, runLockedPlatformTransaction, storeAccounts, supplierCanReceiveNewOrders, suppliers as supplierSeeds, validateCatalogSkuOrderQuantity, validateSmsCode, writeCatalogState, writePlatformAfterSale, writePlatformAfterSales, writePlatformOrder, writePlatformOrders } from '@agritainment/shared'
+import { abortCatalogTransaction, applyCatalogStockOperation, applyPlatformMedia, buildSupplierAccountSeeds, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, ensureCatalogState, initializePlatformRecoveryHandlers, initialCatalogOrderQuantity, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, nextPurchaseStatus, normalizeMinimumOrderQuantity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, prepareCatalogTransaction, pricePolicies, purchaseSteps, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformEntities, readPlatformMedia, readPlatformOrders, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, reconcilePendingPlatformTransactions, resolvePlatformJournal, runLockedPlatformTransaction, storeAccounts, supplierCanReceiveNewOrders, suppliers as supplierSeeds, tieredUnitPrice, validateCatalogSkuOrderQuantity, validateSmsCode, writeCatalogState, writePlatformAfterSale, writePlatformAfterSales, writePlatformOrder, writePlatformOrders } from '@agritainment/shared'
 import { storeInfo, storeInfoForFarm, storeRepository } from '../services/repository'
 
 interface CartLine {
@@ -15,6 +15,15 @@ interface CartLine {
   quantity: number
   minimumOrderQuantity: number
   unavailable?: boolean
+}
+
+export function readStorePricePolicies() {
+  const policies = readPlatformEntities()?.policies
+  return policies === undefined ? pricePolicies : Object.values(policies).filter((policy) => policy?.enabled)
+}
+
+function storeUnitPrice(product: Product, sku: Product['skus'][number], quantity: number): number {
+  return tieredUnitPrice({ category: product.category, name: product.name, basePrice: sku.cost, quantity }, readStorePricePolicies()).unitPrice
 }
 
 function unavailableSupplierName(supplierIds: string[]): string | null {
@@ -509,7 +518,7 @@ export const useStoreStore = defineStore('store', {
         this.cart.forEach((line) => {
           const product = this.products.find((item) => item.id === line.productId)
           const sku = product?.skus.find((item) => item.id === line.skuId) || product?.skus[0]
-          if (product && sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, price: sku.cost, retail: product.price, stock: sku.stock })
+          if (product && sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, price: storeUnitPrice(product, sku, line.quantity), retail: product.price, stock: sku.stock })
         })
         this.orders.forEach((order) => order.items.forEach((line) => {
           const product = this.products.find((item) => item.id === line.productId)
@@ -526,27 +535,51 @@ export const useStoreStore = defineStore('store', {
       this.mockScenario = scenario
       this.initialized = false
     },
-    addToCart(product: Product, skuId?: string) {
+    repriceCart() {
+      this.cart.forEach((line) => {
+        const product = this.products.find((item) => item.id === line.productId)
+        const sku = product?.skus.find((item) => item.id === line.skuId)
+        if (product && sku) line.price = storeUnitPrice(product, sku, line.quantity)
+      })
+    },
+    addToCart(product: Product, skuId?: string, quantity?: number) {
       if (product.skus.length > 1 && !skuId) return 'sku-required' as const
       const sku = product.skus.find((item) => item.id === skuId) || product.skus[0]
       const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
       const initialQuantity = initialCatalogOrderQuantity(minimumOrderQuantity)
-      if (!sku || !validateCatalogSkuOrderQuantity(sku, initialQuantity).ok) {
-        this.checkoutError = sku && sku.stock < minimumOrderQuantity ? `${product.name}库存不足或购买数量未达要求` : `${product.name}库存不足`
+      if (!sku) {
+        this.checkoutError = `${product.name}库存不足`
         return 'out-of-stock' as const
       }
       const line = this.cart.find((item) => item.productId === product.id && item.skuId === sku.id)
+      const increment = quantity ?? (line ? 1 : initialQuantity)
+      const requestedValidation = quantity === undefined ? null : validateCatalogSkuOrderQuantity(sku, increment)
+      if (requestedValidation && !requestedValidation.ok) {
+        this.checkoutError = requestedValidation.code === 'invalid_quantity'
+          ? `${product.name}购买数量需为正整数`
+          : requestedValidation.code === 'below_minimum_order_quantity'
+            ? `${product.name}购买数量不能低于起订量 ${minimumOrderQuantity} 件`
+            : `${product.name}（${sku.name}）库存不足`
+        return 'out-of-stock' as const
+      }
+      const nextQuantity = (line?.quantity || 0) + increment
+      const nextValidation = validateCatalogSkuOrderQuantity(sku, nextQuantity)
+      if (!nextValidation.ok) {
+        this.checkoutError = nextValidation.code === 'invalid_quantity'
+          ? `${product.name}购买数量需为正整数`
+          : nextValidation.code === 'below_minimum_order_quantity' || (quantity === undefined && !line && sku.stock < minimumOrderQuantity)
+            ? `${product.name}库存不足或购买数量未达要求`
+            : `${product.name}（${sku.name}）库存不足`
+        return 'out-of-stock' as const
+      }
       if (line) {
-        if (line.quantity >= sku.stock) {
-          this.checkoutError = `${product.name}（${sku.name}）库存不足`
-          return 'out-of-stock' as const
-        }
-        line.quantity += 1
+        line.quantity = nextQuantity
+        line.price = storeUnitPrice(product, sku, nextQuantity)
         line.stock = sku.stock
         line.minimumOrderQuantity = minimumOrderQuantity
-        line.unavailable = !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
+        line.unavailable = false
       } else {
-        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity: initialQuantity, minimumOrderQuantity, unavailable: false })
+        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, increment), retail: product.price, stock: sku.stock, quantity: increment, minimumOrderQuantity, unavailable: false })
       }
       this.checkoutError = ''
       return 'added' as const
@@ -566,6 +599,7 @@ export const useStoreStore = defineStore('store', {
         line.stock = sku?.stock ?? 0
         line.minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? line.minimumOrderQuantity)
         line.unavailable = !sku || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
+        if (product && sku) line.price = storeUnitPrice(product, sku, line.quantity)
       }
       this.checkoutError = ''
       return true
@@ -582,7 +616,7 @@ export const useStoreStore = defineStore('store', {
         const sku = product?.skus.find((item) => item.id === line.skuId)
         const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? line.minimumOrderQuantity)
         if (!product || !sku) return { ...line, stock: 0, minimumOrderQuantity, unavailable: true }
-        return { ...line, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, minimumOrderQuantity, unavailable: !validateCatalogSkuOrderQuantity(sku, line.quantity).ok }
+        return { ...line, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, line.quantity), retail: product.price, stock: sku.stock, minimumOrderQuantity, unavailable: !validateCatalogSkuOrderQuantity(sku, line.quantity).ok }
       })
     },
     refreshCatalog(message = '') {
@@ -625,6 +659,7 @@ export const useStoreStore = defineStore('store', {
         this.checkoutError = '进货单为空'
         return false
       }
+      const platformEntitiesRevision = readPlatformCollectionRevision(PLATFORM_ENTITIES_STORAGE_KEY)
       const unavailableSupplier = unavailableSupplierName(this.cart.map((line) => this.products.find((product) => product.id === line.productId)?.supplierId || ''))
       if (unavailableSupplier) {
         this.checkoutError = `${unavailableSupplier}已暂停接单，请选择其他商品`
@@ -646,10 +681,15 @@ export const useStoreStore = defineStore('store', {
         return false
       }
       if (revisionChanged) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
-      const amount = this.cartTotal
-      const saved = Math.round(this.cart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100
+      const pricedCart = this.cart.map((line) => {
+        const product = this.products.find((item) => item.id === line.productId)!
+        const sku = product.skus.find((item) => item.id === line.skuId)!
+        return { ...line, price: storeUnitPrice(product, sku, line.quantity) }
+      })
+      const amount = calcCartTotal(pricedCart.map(({ price, quantity }) => ({ price, quantity })))
+      const saved = Math.round(pricedCart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100
       const itemCount = this.cartCount
-      const orderItems = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, skuName: line.skuName, name: line.name, image: mediaValueToImage(line.image), quantity: line.quantity, price: line.price, minimumOrderQuantity: normalizeMinimumOrderQuantity(line.minimumOrderQuantity) }))
+      const orderItems = pricedCart.map((line) => ({ productId: line.productId, skuId: line.skuId, skuName: line.skuName, name: line.name, image: mediaValueToImage(line.image), quantity: line.quantity, price: line.price, minimumOrderQuantity: normalizeMinimumOrderQuantity(line.minimumOrderQuantity) }))
       const now = new Date().toLocaleString('zh-CN')
       const order: StoreOrder = {
         id: createId('SO'), farmId: this.auth.farmId || 'F001', amount, saved, itemCount, items: orderItems, status: 'submitted', createdAt: now,
@@ -677,6 +717,7 @@ export const useStoreStore = defineStore('store', {
       const result = await runLockedPlatformTransaction({
         operationId,
         collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY],
+        lockCollections: [PLATFORM_ENTITIES_STORAGE_KEY],
         original,
         target,
         recoveryHandlerKey: STORE_ORDER_RECOVERY_HANDLER_KEY,
@@ -684,7 +725,8 @@ export const useStoreStore = defineStore('store', {
         revisionChecks: [
           { key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: stable.revisions.catalog },
           { key: PLATFORM_AFTERSALES_STORAGE_KEY, expectedRevision: stable.revisions.afterSales },
-          { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders }
+          { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders },
+          { key: PLATFORM_ENTITIES_STORAGE_KEY, expectedRevision: platformEntitiesRevision }
         ],
         steps: [
           { key: 'catalog', apply: () => writeCatalogState(targetCatalog, original.catalog.revision), rollback: () => writeCatalogState(original.catalog, targetCatalog.revision) },
@@ -692,7 +734,7 @@ export const useStoreStore = defineStore('store', {
         ]
       })
       if (!result.ok) {
-        this.checkoutError = result.code === 'revision_conflict' ? '商品库存已更新，请刷新后重试' : result.fatal ? '订单事务恢复失败，请联系平台处理' : '订单处理中，请刷新后重试'
+        this.checkoutError = result.code === 'revision_conflict' ? '商品或价格信息已更新，请刷新后重试' : result.fatal ? '订单事务恢复失败，请联系平台处理' : '订单处理中，请刷新后重试'
         return false
       }
       this.applyCatalogState(targetCatalog)
@@ -848,9 +890,15 @@ export const useStoreStore = defineStore('store', {
         if (line) {
           const before = line.quantity
           line.quantity = Math.min(line.quantity + quantity, sku.stock)
-          if (line.quantity > before) added += 1
+          if (line.quantity > before) {
+            line.price = storeUnitPrice(product, sku, line.quantity)
+            line.stock = sku.stock
+            line.minimumOrderQuantity = normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)
+            line.unavailable = !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
+            added += 1
+          }
         } else {
-          this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: product.image, price: sku.cost, retail: product.price, stock: sku.stock, quantity, minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity), unavailable: !validateCatalogSkuOrderQuantity(sku, quantity).ok })
+          this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, quantity), retail: product.price, stock: sku.stock, quantity, minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity), unavailable: !validateCatalogSkuOrderQuantity(sku, quantity).ok })
           added += 1
         }
       })
@@ -875,6 +923,7 @@ export const useStoreStore = defineStore('store', {
         this.cart = []
         this.orders = seedOrders(account.farmId)
       }
+      this.repriceCart()
       const principal: PlatformPrincipal = { actorType: 'store', actorId: account.id, tenantId: account.farmId, status: 'active' }
       this.auth = {
         isLoggedIn: true,

@@ -369,6 +369,7 @@ export interface RouteOrigin {
 export interface RouteOptimizationInput {
   origin: RouteOrigin
   stops: readonly RouteStop[]
+  preserveStopOrder?: boolean
   averageSpeedKmh?: number
   serviceMinutesPerStop?: number
 }
@@ -393,6 +394,7 @@ export interface DailyDeliveryRoute {
   id: string
   supplierId: string
   driverId: string
+  namedRouteId?: string
   deliveryDate: string
   status: 'draft' | 'published' | 'stale' | 'completed'
   stops: RouteStop[]
@@ -404,7 +406,7 @@ export interface DailyDeliveryRoute {
   warnings?: string[]
   origin?: RouteOrigin
   scopeStoreIds?: string[]
-  baselineRevisions?: { routes: number; orders: number; scopes: number; entities: number }
+  baselineRevisions?: { routes: number; orders: number; scopes: number; entities: number; namedRoutes?: number; drivers?: number }
   stopCount?: number
   polyline?: RouteOrigin[]
   generatedAt: string
@@ -3687,7 +3689,7 @@ export const demoDrivers: DriverAccount[] = [
 
 export const demoNamedDeliveryRoutes: NamedDeliveryRoute[] = [
   { id: 'NR-S002-EAST', supplierId: SUPPLIER_DEMO_ID, name: '东线', storeIds: ['F001', 'F002'], driverId: 'D001', updatedAt: '2026-08-18T09:20:00.000Z' },
-  { id: 'NR-S002-WEST', supplierId: SUPPLIER_DEMO_ID, name: '西线', storeIds: ['F002', 'F003'], driverId: 'D002', updatedAt: '2026-08-18T09:21:00.000Z' }
+  { id: 'NR-S002-WEST', supplierId: SUPPLIER_DEMO_ID, name: '西线', storeIds: ['F003'], driverId: 'D002', updatedAt: '2026-08-18T09:21:00.000Z' }
 ]
 
 const supplierStatusToOrderStatus: Record<PurchaseStatus, OrderStatus> = {
@@ -3842,7 +3844,7 @@ export function acceptSupplierOrder(order: Order, operator: string): Order | nul
   }
 }
 
-export function assignSupplierDriver(order: Order, driver: DriverAccount, operator: string): Order | null {
+export function assignSupplierDriver(order: Order, driver: DriverAccount, operator: string, deliveryDate = todayString()): Order | null {
   const fulfillment = ensureSupplierFulfillment(order)
   if (fulfillment.status !== 'accepted') return null
   if (!driver || driver.status !== 'active') return null
@@ -3853,7 +3855,7 @@ export function assignSupplierDriver(order: Order, driver: DriverAccount, operat
     status: 'shipping',
     flow: [...(order.flow || []), flowEvent(`已发货 · 已指派司机 ${driver.name} 配送`, operator)],
     fulfillmentEvents: [...(order.fulfillmentEvents || []), fulfillmentEvent(order.id, 'accepted', 'shipped', operator, 'supplier')],
-    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'driver', driverId: driver.id, driverName: driver.name, deliverDate: todayString(), updatedAt: now }
+    supplierFulfillment: { ...fulfillment, status: 'shipped', shipType: 'driver', driverId: driver.id, driverName: driver.name, deliverDate: deliveryDate, updatedAt: now }
   }
 }
 
@@ -4786,16 +4788,26 @@ function normalizeNamedDeliveryRouteState(value: unknown): NamedDeliveryRouteSta
   if (!state || state.schemaVersion !== NAMED_DELIVERY_ROUTE_SCHEMA_VERSION || !Number.isInteger(state.revision) || Number(state.revision) < 0 || !Array.isArray(state.routes) || !validIsoTimestamp(state.updatedAt)) return null
   const ids = new Set<string>()
   const routes: NamedDeliveryRoute[] = []
+  const candidates: NamedDeliveryRoute[] = []
   for (const route of state.routes) {
     if (!route?.id?.trim() || ids.has(route.id) || !route.supplierId?.trim() || !route.name?.trim() || !Array.isArray(route.storeIds) || route.storeIds.some((storeId) => typeof storeId !== 'string' || !storeId.trim()) || !validIsoTimestamp(route.updatedAt) || (route.driverId !== undefined && !route.driverId.trim())) return null
     ids.add(route.id)
-    routes.push({
+    candidates.push({
       id: route.id, supplierId: route.supplierId, name: route.name.trim(),
       storeIds: uniqueStoreIdsInOrder(route.storeIds),
       ...(route.driverId ? { driverId: route.driverId } : {}),
       updatedAt: route.updatedAt
     })
   }
+  const claimedStores = new Map<string, Set<string>>()
+  candidates.sort((left, right) => Date.parse(left.updatedAt) - Date.parse(right.updatedAt) || left.id.localeCompare(right.id))
+  candidates.forEach((route) => {
+    const claimed = claimedStores.get(route.supplierId) || new Set<string>()
+    const storeIds = route.storeIds.filter((storeId) => !claimed.has(storeId))
+    storeIds.forEach((storeId) => claimed.add(storeId))
+    claimedStores.set(route.supplierId, claimed)
+    routes.push({ ...route, storeIds })
+  })
   routes.sort((left, right) => left.supplierId.localeCompare(right.supplierId) || left.id.localeCompare(right.id))
   return { schemaVersion: NAMED_DELIVERY_ROUTE_SCHEMA_VERSION, revision: Number(state.revision), routes, updatedAt: state.updatedAt }
 }
@@ -4810,7 +4822,11 @@ export function readNamedDeliveryRoutes(supplierId?: string): NamedDeliveryRoute
 }
 
 export function namedRouteForDriver(supplierId: string, driverId: string): NamedDeliveryRoute | undefined {
-  return readNamedDeliveryRoutes(supplierId).find((route) => route.driverId === driverId)
+  return namedRoutesForDriver(supplierId, driverId)[0]
+}
+
+export function namedRoutesForDriver(supplierId: string, driverId: string): NamedDeliveryRoute[] {
+  return readNamedDeliveryRoutes(supplierId).filter((route) => route.driverId === driverId)
 }
 
 export function writeNamedDeliveryRouteState(next: NamedDeliveryRouteState, expectedRevision: number): boolean {
@@ -4831,13 +4847,13 @@ export function saveNamedDeliveryRoute(route: NamedDeliveryRoute, expectedRevisi
   if (!normalizedRoute) return writeFailure('invalid_payload', '命名线路无效')
   const routes = cloneSeed(current?.routes ?? [])
   const index = routes.findIndex((item) => item.id === normalizedRoute.id)
+  const conflict = routes
+    .filter((item) => item.id !== normalizedRoute.id && item.supplierId === normalizedRoute.supplierId)
+    .flatMap((item) => normalizedRoute.storeIds.filter((storeId) => item.storeIds.includes(storeId)).map((storeId) => ({ item, storeId })))
+    .at(0)
+  if (conflict) return writeFailure('route_store_conflict', `门店「${conflict.storeId}」已在线路「${conflict.item.name}」中`)
   if (index >= 0) routes[index] = normalizedRoute
   else routes.push(normalizedRoute)
-  if (normalizedRoute.driverId) {
-    for (const item of routes) {
-      if (item.id !== normalizedRoute.id && item.supplierId === normalizedRoute.supplierId && item.driverId === normalizedRoute.driverId) delete item.driverId
-    }
-  }
   routes.sort((left, right) => left.supplierId.localeCompare(right.supplierId) || left.id.localeCompare(right.id))
   const next: NamedDeliveryRouteState = { schemaVersion: NAMED_DELIVERY_ROUTE_SCHEMA_VERSION, revision: expectedRevision + 1, routes, updatedAt: route.updatedAt }
   return writeNamedDeliveryRouteState(next, expectedRevision) ? { ok: true, value: cloneSeed(normalizedRoute) } : writeFailure('write_failed', '命名线路保存失败')
@@ -5125,7 +5141,7 @@ export function optimizeDeliveryRoute(input: RouteOptimizationInput): RouteOptim
   if (!Number.isFinite(averageSpeedKmh) || averageSpeedKmh <= 0 || !Number.isFinite(serviceMinutesPerStop) || serviceMinutesPerStop < 0) return null
   const located = input.stops.filter((stop) => stop.longitude !== undefined).map((stop) => cloneSeed(stop))
   const missing = input.stops.filter((stop) => stop.longitude === undefined).map((stop) => cloneSeed(stop)).sort((left, right) => left.storeId.localeCompare(right.storeId))
-  const optimized = improveRouteWithTwoOpt(input.origin, nearestNeighborRoute(input.origin, located))
+  const optimized = input.preserveStopOrder ? located : improveRouteWithTwoOpt(input.origin, nearestNeighborRoute(input.origin, located))
   const segments: RouteSegment[] = []
   let previous: RouteOrigin = input.origin
   let fromId = 'origin'

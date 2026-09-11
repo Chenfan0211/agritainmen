@@ -6,6 +6,8 @@ import {
   ensurePublishedRoutesForDate,
   filterStopsWithOrders,
   namedRouteForDriver,
+  namedRoutesForDriver,
+  optimizeDeliveryRoute,
   orderStopsByNamedRoute,
   saveDailyDeliveryRoute,
   saveNamedDeliveryRoute,
@@ -166,15 +168,36 @@ describe('daily delivery route snapshot', () => {
 describe('named delivery routes', () => {
   beforeEach(() => localStorage.clear())
 
-  it('perserves farmhouse order and unique driver assignment', () => {
+  it('rejects the same store on two routes for one supplier while allowing another supplier', () => {
+    expect(saveNamedDeliveryRoute({
+      id: 'NR-UNIQUE-EAST', supplierId: 'S-1', name: '东线', storeIds: ['F001'], updatedAt: '2026-09-07T00:00:00.000Z'
+    }, 0)).toMatchObject({ ok: true })
+    expect(saveNamedDeliveryRoute({
+      id: 'NR-UNIQUE-WEST', supplierId: 'S-1', name: '西线', storeIds: ['F001'], updatedAt: '2026-09-07T00:00:01.000Z'
+    }, 1)).toMatchObject({ ok: false, code: 'route_store_conflict' })
+    expect(saveNamedDeliveryRoute({
+      id: 'NR-UNIQUE-OTHER', supplierId: 'S-2', name: '西线', storeIds: ['F001'], updatedAt: '2026-09-07T00:00:02.000Z'
+    }, 1)).toMatchObject({ ok: true })
+  })
+
+  it('includes the conflicting store and existing route in the rejection message', () => {
+    expect(saveNamedDeliveryRoute({
+      id: 'NR-FRIENDLY-EAST', supplierId: 'S-1', name: '东线', storeIds: ['F001'], updatedAt: '2026-09-07T00:00:00.000Z'
+    }, 0)).toMatchObject({ ok: true })
+    expect(saveNamedDeliveryRoute({
+      id: 'NR-FRIENDLY-WEST', supplierId: 'S-1', name: '西线', storeIds: ['F001'], updatedAt: '2026-09-07T00:00:01.000Z'
+    }, 1)).toMatchObject({ ok: false, message: '门店「F001」已在线路「东线」中' })
+  })
+
+  it('preserves farmhouse order and allows multiple routes for one driver', () => {
     expect(saveNamedDeliveryRoute({
       id: 'NR-EAST', supplierId: 'S-1', name: '东线', storeIds: ['F002', 'F001', 'F002'], driverId: 'D-1', updatedAt: '2026-09-07T00:00:00.000Z'
     }, 0)).toMatchObject({ ok: true })
     expect(saveNamedDeliveryRoute({
       id: 'NR-WEST', supplierId: 'S-1', name: '西线', storeIds: ['F003'], driverId: 'D-1', updatedAt: '2026-09-07T00:00:01.000Z'
     }, 1)).toMatchObject({ ok: true })
-    expect(namedRouteForDriver('S-1', 'D-1')?.id).toBe('NR-WEST')
-    expect(namedRouteForDriver('S-1', 'D-1')?.storeIds).toEqual(['F003'])
+    expect(namedRouteForDriver('S-1', 'D-1')?.id).toBe('NR-EAST')
+    expect(namedRoutesForDriver('S-1', 'D-1').map((route) => route.id)).toEqual(['NR-EAST', 'NR-WEST'])
   })
 
   it('keeps named-route order and appends extra farms last', () => {
@@ -185,6 +208,15 @@ describe('named delivery routes', () => {
     ])
     expect(ordered.stops.map((item) => item.storeId)).toEqual(['F002', 'F001', 'F003'])
     expect(ordered.warnings).toEqual(['off_route:F003'])
+  })
+
+  it('keeps the requested stop order when route optimization is used for a preview', () => {
+    const result = optimizeDeliveryRoute({
+      origin: { longitude: 109.85, latitude: 28.62 },
+      preserveStopOrder: true,
+      stops: [stop('F002', ['O-B'], { longitude: 110.2 }), stop('F001', ['O-A'], { longitude: 109.86 })]
+    })
+    expect(result?.orderedStops.map((item) => item.storeId)).toEqual(['F002', 'F001'])
   })
 })
 

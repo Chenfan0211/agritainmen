@@ -283,7 +283,7 @@ describe('supplier store interactions', () => {
 
   it('creates a farmhouse courier shipment from the immutable recipient snapshot', async () => {
     expect(writePlatformOrder({
-      id: 'FARMHOUSE-COURIER-ADDRESS', productName: '农家腊味', quantity: 1, amount: 88, customer: '石板溪农家乐', channel: 'purchase', status: 'accepted', createdAt: '2026-08-30T10:00:00.000Z', supplierId: 'S002', storeId: 'F001', storeName: '石板溪农家乐',
+      id: 'FARMHOUSE-COURIER-ADDRESS', productName: '农家腊味', quantity: 1, amount: 88, customer: '石板溪农家乐', channel: 'purchase', status: 'shipping', createdAt: '2026-08-30T10:00:00.000Z', supplierId: 'S002', storeId: 'F001', storeName: '石板溪农家乐',
       supplierOrderLink: {
         source: 'farmhouse-courier', sourceOrderId: 'FH-SO-ADDRESS', customerUserId: 'U-FARMHOUSE-RECIPIENT',
         deliveryAddress: { id: 'FH-SO-ADDRESS-ADDR', userId: 'U-FARMHOUSE-RECIPIENT', receiver: '周女士', phone: '13900000009', region: '湖南省 湘西州 永顺县', detail: '石板溪村 18 号', isDefault: false }
@@ -305,7 +305,7 @@ describe('supplier store interactions', () => {
 
   it('does not fall back to the farmhouse store address when a courier snapshot is missing', async () => {
     expect(writePlatformOrder({
-      id: 'FARMHOUSE-COURIER-NO-SNAPSHOT', productName: '缺少快照商品', quantity: 1, amount: 66, customer: '石板溪农家乐', channel: 'purchase', status: 'accepted', createdAt: '2026-08-30T10:00:00.000Z', supplierId: 'S002', storeId: 'F001', storeName: '石板溪农家乐',
+      id: 'FARMHOUSE-COURIER-NO-SNAPSHOT', productName: '缺少快照商品', quantity: 1, amount: 66, customer: '石板溪农家乐', channel: 'purchase', status: 'shipping', createdAt: '2026-08-30T10:00:00.000Z', supplierId: 'S002', storeId: 'F001', storeName: '石板溪农家乐',
       supplierOrderLink: { source: 'farmhouse-courier', sourceOrderId: 'FH-SO-NO-SNAPSHOT', customerUserId: 'U-NO-SNAPSHOT' },
       supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: '2026-08-30T10:00:00.000Z' }
     })).toBe(true)

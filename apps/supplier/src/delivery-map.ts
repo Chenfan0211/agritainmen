@@ -58,6 +58,6 @@ export function deliveryMapMarkers(input: {
 export function routeOptimizationWarningText(warning: string): string {
   if (warning.startsWith('missing_coordinates:')) return '有门店缺少坐标，已排在末尾，请维护坐标'
   if (warning.startsWith('off_route:')) return '有门店不在命名线路中，已排在末尾'
-  if (warning === 'direction_fallback') return '驾车路算暂不可用，已按直线距离估算'
+  if (warning === 'direction_fallback') return '驾车路线暂不可用，已按直线距离估算'
   return warning
 }

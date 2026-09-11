@@ -6,6 +6,7 @@ type RouteProvider = {
   optimize(input: {
     origin: { longitude: number; latitude: number }
     stops: Array<{ storeId: string; storeName: string; address: string; longitude?: number; latitude?: number; orderIds: string[] }>
+    preserveStopOrder?: boolean
   }): Promise<{ ok: boolean; code?: string; value?: { orderedStops: Array<{ storeId: string }>; segments: Array<{ distanceKm: number }>; totalDistanceKm: number; estimatedDurationMinutes: number; provider: string; warnings: string[] } }>
 }
 
@@ -148,5 +149,26 @@ describe('platform provider contracts', () => {
     const local = await fallback.optimize({ origin: { longitude: 109.85, latitude: 28.62 }, stops })
     expect(local).toMatchObject({ ok: true, value: { provider: 'haversine', warnings: ['missing_coordinates:Z', 'direction_fallback'] } })
     expect(local.ok && local.value && local.value.totalDistanceKm).toBeGreaterThan(0)
+  })
+
+  it('passes through a manually preserved stop order to the driving provider', async () => {
+    let requestedStops: string[] = []
+    const provider = createDrivingRouteOptimizationProvider({
+      requestDirection: async (input) => {
+        requestedStops = input.stops.map((stop) => stop.storeId)
+        return { ok: true, value: { distanceKm: 10, durationMinutes: 25, polyline: [], segments: [] } }
+      }
+    })
+    const result = await provider.optimize({
+      origin: { longitude: 0, latitude: 0 },
+      preserveStopOrder: true,
+      stops: [
+        { storeId: 'SECOND', storeName: '二号店', address: 'B', longitude: 2, latitude: 0, orderIds: ['B'] },
+        { storeId: 'FIRST', storeName: '一号店', address: 'A', longitude: 1, latitude: 0, orderIds: ['A'] }
+      ]
+    })
+    expect(result.ok).toBe(true)
+    expect(requestedStops).toEqual(['SECOND', 'FIRST'])
+    if (result.ok && result.value) expect(result.value.orderedStops.map((stop) => stop.storeId)).toEqual(['SECOND', 'FIRST'])
   })
 })

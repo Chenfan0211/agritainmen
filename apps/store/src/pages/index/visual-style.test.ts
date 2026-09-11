@@ -21,8 +21,8 @@ describe('门店端现代供应链视觉契约', () => {
     expect(template).toContain('<UiIcon name="phone"')
   })
 
-  it('商品和订单缩略图统一使用裁切填充', () => {
-    for (const className of ['product-emoji', 'order-thumb', 'hot-emoji', 'product-detail-emoji']) {
+  it('商品、详情图库和订单缩略图统一使用裁切填充', () => {
+    for (const className of ['product-emoji', 'order-thumb', 'hot-emoji', 'detail-gallery-image']) {
       expect(template).toMatch(new RegExp(`class="${className}"[^>]*mode="aspectFill"`))
       expect(template).not.toMatch(new RegExp(`class="${className}"[^>]*mode="aspectFit"`))
     }
@@ -39,8 +39,37 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.waterfall-column', /flex:\s*1/)
   })
 
-  it('购买端商品模板不直接展示起订量', () => {
-    expect(template).not.toContain('起订')
+  it('详情页直接展示规格起订量，商品列表保持紧凑', () => {
+    expect(template).toContain('起订 {{ effectiveMinimumOrderQuantity(sku) }} 件')
+    expect(template).toContain('当前规格起订量')
+    expect(template.slice(template.indexOf('class="waterfall-grid"'), template.indexOf('class="category-page"'))).not.toContain('起订')
+  })
+
+  it('商品详情使用大图融合长页、内联规格数量和固定加购栏', () => {
+    expect(template).toContain('class="detail-gallery"')
+    expect(template).toContain('class="detail-gallery-count"')
+    expect(template).toContain('v-if="detailGallery.length > 1"')
+    expect(template).toContain('class="detail-summary detail-section"')
+    expect(template).toContain('class="detail-sku-options"')
+    expect(template).toContain('class="detail-quantity-stepper"')
+    expect(template).toContain(':disabled="!selectedSku || detailQuantity >= detailRemainingStock"')
+    expect(template).toContain('class="detail-ladder-section detail-section"')
+    expect(template).toContain('class="detail-product-info detail-section"')
+    expect(template).toContain('class="detail-rich-images detail-section"')
+    expect(template).toContain('class="product-detail-bar"')
+    expect(template).toContain('<view v-if="!productView" class="tabbar">')
+    expect(template).toContain('进入进货单')
+    expect(template).not.toContain('销售时间')
+    expect(template).not.toContain('商品评分')
+    expectRule('.detail-gallery', /aspect-ratio:\s*1\s*\/\s*1/)
+    expectRule('.detail-sku-option', /min-height:\s*var\(--mobile-touch-target\)/)
+    expectRule('.detail-quantity-stepper button', /width:\s*44px[^}]*height:\s*44px/)
+    expectRule('.product-detail-bar', /position:\s*fixed[^}]*padding-bottom:\s*calc\(8px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
+    expectRule('.product-view', /padding-bottom:\s*calc\(72px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
+    expect(source).toContain('next > detailRemainingStock.value')
+    expect(template).toContain('detailNextTier.minQty - detailPricingQuantity')
+    expect(source).toContain('readStorePricePolicies')
+    expect(source).not.toContain('activePolicies.value.length ? activePolicies.value : pricePolicies')
   })
 
   it('主要卡片使用不超过八像素的统一圆角和克制阴影', () => {
@@ -60,6 +89,19 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.logout-button', /min-height:\s*var\(--mobile-touch-target\)/)
   })
 
+  it('商品列表辅助价格和购物车角标保持移动端可读字号', () => {
+    expectRule('.muted', /font-size:\s*12px/)
+    expectRule('.cost-line del,.cost-prices del', /font-size:\s*12px/)
+    expectRule('.cost-line span,.cost-prices span', /font-size:\s*12px/)
+    expectRule('.side-item', /font-size:\s*13px/)
+    expectRule('.cart-count span', /font-size:\s*13px/)
+    expectRule('.tab-badge', /font-size:\s*13px/)
+    expectRule('.cart-all', /font-size:\s*13px/)
+    expectRule('.cart-del', /font-size:\s*13px/)
+    expectRule('.detail-bar-link', /font-size:\s*13px/)
+    expectRule('.quick-grid .pc-tile-label', /font-size:\s*13px/)
+  })
+
   it('分类和购物车页头使用本端主题色块，商品卡底行是圆形加购', () => {
     expect(template).toContain('class="mall-hero-title">商品分类')
     expect(template).toContain('class="mall-hero-title">购物车')
@@ -77,7 +119,6 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.product-foot', /min-height:\s*0/)
     expect(styles).not.toMatch(/\.tabbar button\.active \.ui-icon\s*\{[^}]*filter:/s)
     expect(styles).toMatch(/\.sku-options\s*\{[^}]*flex-wrap:\s*wrap/s)
-    expect(styles).toMatch(/\.detail-thumb\s*\{[^}]*width:\s*72px/s)
     expect(styles).toMatch(/\.stepper button\s*\{[^}]*height:\s*32px/s)
     expect(styles).not.toMatch(/\.cart-footer\s*\{[^}]*position:\s*sticky/s)
     expect(styles).not.toMatch(/\.cart-footer\s*\{[^}]*position:\s*fixed/s)

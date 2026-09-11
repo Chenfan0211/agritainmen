@@ -30,26 +30,89 @@
     </view>
     <template v-else>
       <view v-if="productView && selectedProduct" class="product-view" data-visual-view="product">
-        <view class="mall-hero heading-with-back"><button class="page-back" aria-label="返回" @click="closeProductView"><UiIcon name="arrow-left" :size="20" /></button><view><text class="mall-hero-title">商品详情</text><text class="mall-hero-sub">供货价直采 · 中台直配到店</text></view></view>
-        <view class="page-pad product-detail" data-visual-state="store-product">
-          <view class="detail-head">
-            <BusinessImage class="product-detail-emoji" :src="selectedProduct.image" mode="aspectFill" />
-            <view class="detail-info">
-              <text>{{ selectedProduct.name }}</text>
-              <small>{{ selectedProduct.supplier }} · {{ selectedProduct.tags.join(' / ') }}</small>
-              <view class="detail-price"><strong>{{ money(selectedSku?.cost ?? selectedProduct.cost) }}</strong><del>{{ money(selectedProduct.price) }}</del><span>省 {{ savePercent(selectedProduct) }}%</span></view>
-              <small v-if="selectedSku">库存 {{ selectedSku.stock }}</small>
+        <view class="detail-gallery-shell">
+          <swiper class="detail-gallery" :current="detailGalleryIndex" :circular="detailGallery.length > 1" @change="onDetailGalleryChange">
+            <swiper-item v-for="image in detailGallery" :key="mediaValueToImage(image)">
+              <BusinessImage class="detail-gallery-image" :src="image" mode="aspectFill" />
+            </swiper-item>
+          </swiper>
+          <button class="detail-gallery-back" aria-label="返回商品列表" @click="closeProductView"><UiIcon name="arrow-left" :size="21" /></button>
+          <template v-if="detailGallery.length > 1">
+            <button class="detail-gallery-arrow detail-gallery-prev" aria-label="上一张商品图" @click="moveDetailGallery(-1)"><UiIcon name="arrow-left" :size="18" /></button>
+            <button class="detail-gallery-arrow detail-gallery-next" aria-label="下一张商品图" @click="moveDetailGallery(1)"><UiIcon name="arrow-right" :size="18" /></button>
+            <text class="detail-gallery-count">{{ detailGalleryIndex + 1 }} / {{ detailGallery.length }}</text>
+          </template>
+          <text v-if="selectedProduct.source === 'platform'" class="detail-source-badge">中台供</text>
+        </view>
+
+        <view class="detail-summary detail-section" data-visual-state="store-product">
+          <view class="detail-price-row">
+            <view class="detail-current-price">
+              <strong>{{ money(detailUnitPrice) }}</strong>
+              <del v-if="selectedSku && detailUnitPrice !== selectedSku.cost">{{ money(selectedSku.cost) }}</del>
+            </view>
+            <text v-if="detailSavePercent > 0" class="detail-saving">较零售价省 {{ detailSavePercent }}%</text>
+          </view>
+          <text class="detail-retail-price">建议零售价 {{ money(selectedSku?.price ?? selectedProduct.price) }}</text>
+          <text class="detail-product-name">{{ selectedProduct.name }}</text>
+          <view class="detail-meta-row">
+            <text>{{ selectedProduct.supplier }}</text>
+            <text>已售 {{ selectedProduct.sales.toLocaleString('zh-CN') }}</text>
+            <text :class="{ 'is-in-stock': !!selectedSku?.stock }">库存 {{ selectedSku?.stock ?? 0 }}</text>
+          </view>
+          <view v-if="selectedProduct.tags.length" class="detail-tag-row">
+            <text v-for="tag in selectedProduct.tags" :key="tag">{{ tag }}</text>
+          </view>
+        </view>
+
+        <view class="detail-purchase detail-section">
+          <view class="detail-section-heading"><text>商品规格</text><small>{{ selectedProduct.skus.length }} 个可选规格</small></view>
+          <view class="detail-sku-options" role="radiogroup" aria-label="商品规格">
+            <button v-for="sku in selectedProduct.skus" :key="sku.id" class="detail-sku-option" :class="{ active: selectedSkuId === sku.id }" :disabled="!canStartOrder(sku)" role="radio" :aria-checked="selectedSkuId === sku.id" @click="selectDetailSku(sku.id)">
+              <text>{{ sku.name }}</text>
+              <small>{{ money(sku.cost) }} · 库存 {{ sku.stock }} · 起订 {{ effectiveMinimumOrderQuantity(sku) }} 件</small>
+            </button>
+          </view>
+          <view class="detail-quantity-row">
+            <view><text>采购数量</text><small>当前规格起订量 {{ detailMinimumQuantity }} 件 · 可加 {{ detailRemainingStock }} 件</small></view>
+            <view class="detail-quantity-stepper">
+              <button aria-label="减少采购数量" :disabled="detailQuantity <= detailMinimumQuantity" @click="changeDetailQuantity(-1)">−</button>
+              <text>{{ detailQuantity }} 件</text>
+              <button aria-label="增加采购数量" :disabled="!selectedSku || detailQuantity >= detailRemainingStock" @click="changeDetailQuantity(1)">+</button>
             </view>
           </view>
-          <view v-if="ladderTiersFor(selectedProduct).length" class="ladder-table">
-            <text class="ladder-table-title">阶梯采购价</text>
-            <text v-for="tier in ladderTiersFor(selectedProduct)" :key="tier.minQty" class="ladder-tier">{{ tier.minQty }}–{{ tier.maxQty ?? '以上' }} · ¥{{ money(tier.price) }} · 让利 {{ tier.discountOff }}%</text>
+          <view class="detail-purchase-total"><text>当前小计</text><strong>{{ money(detailSubtotal) }}</strong></view>
+          <small v-if="selectedSku && !detailCanAdd" class="stock-warning">库存不足或购买数量未达要求</small>
+        </view>
+
+        <view v-if="detailLadderTiers.length" class="detail-ladder-section detail-section">
+          <view class="detail-section-heading"><text>阶梯采购价</text><small>数量越多，采购单价越低</small></view>
+          <view class="detail-ladder-list">
+            <view v-for="tier in detailLadderTiers" :key="tier.minQty" class="detail-ladder-row" :class="{ active: detailActiveTier?.minQty === tier.minQty }">
+              <text>{{ tierRange(tier) }}</text><strong>{{ money(tier.price) }} / 件</strong><small>让利 {{ tier.discountOff }}%</small>
+            </view>
           </view>
-          <small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">库存不足或数量未达要求</small>
-          <view class="product-detail-actions">
-            <button class="outline-button" @click="closeProductView">再看看</button>
-            <button class="primary-button" :disabled="!canStartProductOrder(selectedProduct)" @click="addProduct(selectedProduct)">加入进货单</button>
-          </view>
+          <text v-if="detailNextTier" class="detail-next-tier">再购 {{ detailNextTier.minQty - detailPricingQuantity }} 件，可享 {{ money(detailNextTier.price) }} / 件</text>
+        </view>
+
+        <view class="detail-product-info detail-section">
+          <view class="detail-section-heading"><text>商品信息</text></view>
+          <view class="detail-info-row"><small>商品分类</small><text>{{ selectedProduct.category }}</text></view>
+          <view class="detail-info-row"><small>供应商</small><text>{{ selectedProduct.supplier }}</text></view>
+          <view class="detail-info-row"><small>规格数量</small><text>{{ selectedProduct.skus.length }} 个</text></view>
+          <view class="detail-info-row"><small>当前规格库存</small><text>{{ selectedSku?.stock ?? 0 }} 件</text></view>
+          <view class="detail-info-row"><small>当前规格起订量</small><text>{{ detailMinimumQuantity }} 件</text></view>
+        </view>
+
+        <view v-if="detailRichImages.length" class="detail-rich-images detail-section">
+          <view class="detail-section-heading"><text>图文详情</text></view>
+          <BusinessImage v-for="image in detailRichImages" :key="mediaValueToImage(image)" class="detail-rich-image" :src="image" mode="widthFix" />
+        </view>
+
+        <view class="product-detail-bar">
+          <button class="detail-bar-link" aria-label="返回首页" @click="goProductHome"><UiIcon name="house" :size="21" /><text>首页</text></button>
+          <button class="detail-bar-link" aria-label="进入进货单" @click="goProductCart"><view class="detail-cart-icon"><UiIcon name="shopping-cart" :size="21" /><text v-if="store.cartCount" class="detail-cart-badge">{{ store.cartCount > 99 ? '99+' : store.cartCount }}</text></view><text>进货单</text></button>
+          <button class="detail-bar-add" :disabled="!detailCanAdd" @click="addDetailProduct">加入进货单</button>
         </view>
       </view>
       <template v-else>
@@ -222,7 +285,7 @@
       </view>
       </template>
 
-      <view class="tabbar">
+      <view v-if="!productView" class="tabbar">
         <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="chooseTab(tab.key)"><view class="tab-icon-wrap"><UiIcon :name="tab.icon" :size="21" /><text v-if="tab.key === 'cart' && store.cartCount" class="tab-badge" data-typography-compact>{{ store.cartCount > 99 ? '99+' : store.cartCount }}</text></view><text class="tab-label">{{ tab.label }}</text></button>
       </view>
 
@@ -369,14 +432,14 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { PriceTier, Product, PurchaseStatus } from '@agritainment/shared'
-import { pricePolicies, tieredUnitPrice } from '@agritainment/shared'
-import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, installKeyboardButtonSupport, money, normalizeMinimumOrderQuantity, orderStatusText, productCategoryImage, purchaseSteps, readPlatformAfterSaleStatus, readPlatformDictionaries, readPlatformEntities, readPlatformOrder, subscribePlatformChanges, validateCatalogSkuOrderQuantity, validatePhone } from '@agritainment/shared'
+import type { BusinessMediaValue, PriceTier, Product, PurchaseStatus } from '@agritainment/shared'
+import { tieredUnitPrice } from '@agritainment/shared'
+import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, installKeyboardButtonSupport, matchesPolicyScope, mediaValueToImage, money, normalizeMinimumOrderQuantity, orderStatusText, productCategoryImage, purchaseSteps, readPlatformAfterSaleStatus, readPlatformDictionaries, readPlatformOrder, subscribePlatformChanges, validateCatalogSkuOrderQuantity, validatePhone } from '@agritainment/shared'
 import { BusinessImage } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import { seedDemoStoreCart } from '../../data/demo-cart'
 import { deriveStoreMetrics } from '../../services/repository'
-import { useStoreStore } from '../../stores/store'
+import { readStorePricePolicies, useStoreStore } from '../../stores/store'
 
 type TabKey = 'home' | 'category' | 'cart' | 'mine'
 type SheetKey = 'product' | 'cart' | 'checkout' | 'order' | 'address' | 'contact' | null
@@ -386,7 +449,11 @@ const dictCache = createPlatformDictionaryCache()
 const dictionaryState = ref(readPlatformDictionaries())
 let disposeDictionaryImages: () => void = () => undefined
 const storeMetrics = computed(() => deriveStoreMetrics(store.products))
-const activePolicies = computed(() => Object.values(readPlatformEntities()?.policies || {}).filter((item) => item.enabled))
+const pricePolicyVersion = ref(0)
+const activePolicies = computed(() => {
+  void pricePolicyVersion.value
+  return readStorePricePolicies()
+})
 const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: 'home', label: '首页', icon: 'house' },
   { key: 'category', label: '商品分类', icon: 'layout-dashboard' },
@@ -402,6 +469,8 @@ const orderFilter = ref<'all' | PurchaseStatus>('all')
 const sheet = ref<SheetKey>(null)
 const selectedProduct = ref<Product | null>(null)
 const productView = ref(false)
+const detailGalleryIndex = ref(0)
+const detailQuantity = ref(1)
 const cartKey = (item: { productId: string; skuId: string }) => `${item.productId}:${item.skuId}`
 const cartSelected = ref<string[]>([])
 const cartAllSelected = computed(() => store.cart.length > 0 && store.cart.every((item) => cartSelected.value.includes(cartKey(item))))
@@ -476,6 +545,28 @@ const selectedSku = computed(() => {
   return selectedProduct.value.skus.find((sku) => sku.id === selectedSkuId.value) || selectedProduct.value.skus[0] || null
 })
 
+function uniqueMedia(items: Array<BusinessMediaValue | undefined>): BusinessMediaValue[] {
+  const seen = new Set<string>()
+  return items.filter((item): item is BusinessMediaValue => {
+    if (!item) return false
+    const key = mediaValueToImage(item)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const detailGallery = computed(() => {
+  if (!selectedProduct.value) return []
+  return uniqueMedia([selectedSku.value?.image, selectedProduct.value.image, ...(selectedProduct.value.images || [])])
+})
+
+const detailRichImages = computed(() => {
+  if (!selectedProduct.value) return []
+  const mainImage = mediaValueToImage(selectedProduct.value.image)
+  return uniqueMedia(selectedProduct.value.images || []).filter((image) => mediaValueToImage(image) !== mainImage)
+})
+
 const stepIndex = computed(() => {
   if (!selectedOrder.value) return 0
   return Math.max(0, purchaseSteps.indexOf(selectedOrder.value.status))
@@ -487,8 +578,12 @@ function minimumOrderQuantity(sku: Pick<Product['skus'][number], 'minimumOrderQu
   return normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
 }
 
+function effectiveMinimumOrderQuantity(sku: Pick<Product['skus'][number], 'minimumOrderQuantity'> | null | undefined) {
+  return Math.max(1, minimumOrderQuantity(sku))
+}
+
 function canStartOrder(sku: Pick<Product['skus'][number], 'stock' | 'minimumOrderQuantity'> | null | undefined) {
-  return !!sku && validateCatalogSkuOrderQuantity(sku, minimumOrderQuantity(sku)).ok
+  return !!sku && validateCatalogSkuOrderQuantity(sku, effectiveMinimumOrderQuantity(sku)).ok
 }
 
 function canStartProductOrder(product: Product) {
@@ -512,9 +607,57 @@ function savePercent(product: Product) {
 }
 function ladderTiersFor(product: Product | null | undefined): PriceTier[] {
   if (!product) return []
-  const policies = activePolicies.value.length ? activePolicies.value : pricePolicies
-  const result = tieredUnitPrice({ category: product.category, name: product.name, basePrice: product.cost, quantity: 1 }, policies)
-  return result.matchedPolicy?.tiers ?? []
+  return activePolicies.value.find((policy) => policy.enabled && policy.type === 'ladder' && matchesPolicyScope(policy.scope, product.category, product.name))?.tiers ?? []
+}
+
+const detailMinimumQuantity = computed(() => effectiveMinimumOrderQuantity(selectedSku.value))
+const detailCartQuantity = computed(() => {
+  if (!selectedProduct.value || !selectedSku.value) return 0
+  return store.cart.find((line) => line.productId === selectedProduct.value?.id && line.skuId === selectedSku.value?.id)?.quantity ?? 0
+})
+const detailRemainingStock = computed(() => Math.max(0, (selectedSku.value?.stock ?? 0) - detailCartQuantity.value))
+const detailPricingQuantity = computed(() => detailCartQuantity.value + detailQuantity.value)
+const detailPricing = computed(() => {
+  if (!selectedProduct.value || !selectedSku.value) return null
+  return tieredUnitPrice({ category: selectedProduct.value.category, name: selectedProduct.value.name, basePrice: selectedSku.value.cost, quantity: detailPricingQuantity.value }, activePolicies.value)
+})
+const detailUnitPrice = computed(() => detailPricing.value?.unitPrice ?? selectedSku.value?.cost ?? selectedProduct.value?.cost ?? 0)
+const detailSubtotal = computed(() => Math.round(detailUnitPrice.value * detailQuantity.value * 100) / 100)
+const detailSavePercent = computed(() => {
+  const retail = selectedSku.value?.price ?? selectedProduct.value?.price ?? 0
+  return retail > 0 ? Math.max(0, Math.round((1 - detailUnitPrice.value / retail) * 100)) : 0
+})
+const detailLadderTiers = computed(() => ladderTiersFor(selectedProduct.value))
+const detailActiveTier = computed(() => detailPricing.value?.tier ?? null)
+const detailNextTier = computed(() => detailLadderTiers.value.find((tier) => tier.minQty > detailPricingQuantity.value) || null)
+const detailCanAdd = computed(() => !!selectedSku.value && detailQuantity.value <= detailRemainingStock.value && validateCatalogSkuOrderQuantity(selectedSku.value, detailQuantity.value).ok)
+
+function tierRange(tier: PriceTier) {
+  return tier.maxQty === null ? `${tier.minQty} 件以上` : `${tier.minQty}–${tier.maxQty} 件`
+}
+
+function onDetailGalleryChange(event: { detail: { current: number } }) {
+  detailGalleryIndex.value = event.detail.current
+}
+
+function moveDetailGallery(delta: number) {
+  if (detailGallery.value.length < 2) return
+  detailGalleryIndex.value = (detailGalleryIndex.value + delta + detailGallery.value.length) % detailGallery.value.length
+}
+
+function selectDetailSku(skuId: string) {
+  const sku = selectedProduct.value?.skus.find((item) => item.id === skuId)
+  if (!sku || !canStartOrder(sku)) return
+  selectedSkuId.value = sku.id
+  detailQuantity.value = effectiveMinimumOrderQuantity(sku)
+  detailGalleryIndex.value = 0
+}
+
+function changeDetailQuantity(delta: number) {
+  if (!selectedSku.value) return
+  const next = detailQuantity.value + delta
+  if (next < detailMinimumQuantity.value || next > detailRemainingStock.value) return
+  detailQuantity.value = next
 }
 
 function totalStock(product: Product) {
@@ -572,9 +715,13 @@ function goOrders() {
 
 function openProduct(product: Product) {
   selectedProduct.value = product
-  selectedSkuId.value = product.skus[0].id
+  const sku = product.skus.find((item) => canStartOrder(item)) || product.skus[0]
+  selectedSkuId.value = sku?.id || ''
+  detailQuantity.value = effectiveMinimumOrderQuantity(sku)
+  detailGalleryIndex.value = 0
   productView.value = true
   sheet.value = null
+  uni.pageScrollTo({ scrollTop: 0, duration: 0 })
 }
 
 function openSkuSheet(product: Product) {
@@ -585,6 +732,24 @@ function openSkuSheet(product: Product) {
 
 function closeProductView() {
   productView.value = false
+}
+
+function goProductHome() {
+  productView.value = false
+  chooseTab('home')
+}
+
+function goProductCart() {
+  productView.value = false
+  chooseTab('cart')
+}
+
+function addDetailProduct() {
+  if (!selectedProduct.value || !selectedSku.value) return
+  const result = store.addToCart(selectedProduct.value, selectedSku.value.id, detailQuantity.value)
+  if (result === 'sku-required') return toast('请先选择商品规格')
+  if (result === 'out-of-stock') return toast(store.checkoutError || '库存不足或购买数量未达要求')
+  toast(`已加入 ${detailQuantity.value} 件`)
 }
 
 function addProduct(product: Product) {
@@ -703,6 +868,7 @@ function submitLogin() {
     return
   }
   store.cart = seedDemoStoreCart(store.cart, store.products, store.mockScenario)
+  store.repriceCart()
   store.saveCurrentTenantSession()
   toast('登录成功')
 }
@@ -716,7 +882,10 @@ let disposePlatformChanges: (() => void) | null = null
 let disposeStorageSync: (() => void) | null = null
 let disposeVisibilitySync: (() => void) | null = null
 const platformChangeKeys = [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY]
-const refreshSharedState = () => void store.refreshSharedState()
+const refreshSharedState = () => {
+  pricePolicyVersion.value += 1
+  void store.refreshSharedState()
+}
 onMounted(async () => {
   disposeKeyboardButtons = installKeyboardButtonSupport()
   disposeDictionaryImages = dictCache.subscribe((state) => { dictionaryState.value = state })
@@ -725,6 +894,7 @@ onMounted(async () => {
   await store.initialize()
   if (store.auth.isLoggedIn) {
     store.cart = seedDemoStoreCart(store.cart, store.products, store.mockScenario)
+    store.repriceCart()
     store.saveCurrentTenantSession()
   }
   disposePlatformChanges = subscribePlatformChanges(refreshSharedState, platformChangeKeys)
@@ -821,12 +991,12 @@ onBeforeUnmount(() => {
 .product-image text { position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:3px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:700; }
 .product-body { min-width:0;padding:8px 8px 10px;display:flex;flex-direction:column;gap:4px; }
 .item-title { display:-webkit-box;width:100%;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;font-weight:800;line-height:1.4; }
-.muted { display:block;min-width:0;color:var(--farm-muted);font-size:11px;margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.muted { display:block;min-width:0;color:var(--farm-muted);font-size:12px;margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .cost-line { display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin-top:0; }
 .cost-prices { display:flex;align-items:baseline;gap:4px;min-width:0;flex-wrap:wrap; }
 .cost-line strong,.cost-prices strong { font-size:16px;font-weight:800;color:var(--farm-red); }
-.cost-line del,.cost-prices del { font-size:11px;color:var(--farm-muted); }
-.cost-line span,.cost-prices span { font-size:11px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:1px 5px; }
+.cost-line del,.cost-prices del { font-size:12px;color:var(--farm-muted); }
+.cost-line span,.cost-prices span { font-size:12px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:1px 5px; }
 .product-foot { min-height:0;margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:8px; }
 .product-divider { height:1px;background:#eef0eb;margin:8px 0; }
 .ladder-hint { margin-top:4px;font-size:12px;color:var(--farm-green);font-weight:700; }
@@ -849,7 +1019,7 @@ onBeforeUnmount(() => {
 /* ===== 底部购物车栏 ===== */
 .cart-bar { position:fixed;left:12px;right:12px;bottom:calc(var(--mobile-tab-height) + 8px + env(safe-area-inset-bottom));height:56px;padding:6px 7px 6px 12px;background:var(--farm-green);color:#fff;border-radius:8px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:0 8px 25px rgba(0,0,0,.2); }
 .cart-count { width:44px;height:44px;position:relative;border-radius:var(--mobile-radius-control);background:#fff;display:grid;place-items:center;padding:0; }
-.cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:8px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:12px; }
+.cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:8px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:13px; }
 .cart-bar>view { flex:1; }
 .cart-bar small,.cart-bar strong { display:block; }
 .cart-bar small { opacity:.7;font-size:12px; }
@@ -860,7 +1030,7 @@ onBeforeUnmount(() => {
 .tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--mobile-surface);border-top:1px solid var(--farm-line);display:grid;grid-template-columns:repeat(4,1fr);z-index:20; }
 .tabbar button { min-height:var(--mobile-touch-target);background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#7b877f;font-size:13px; }
 .tab-icon-wrap { position:relative;display:grid;place-items:center; }
-.tab-badge { position:absolute;top:-5px;right:-11px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:800; }
+.tab-badge { position:absolute;top:-5px;right:-11px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:800; }
 .tabbar button.active { color:var(--farm-green);font-weight:800; }
 .tab-label { display:block;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis; }
 
@@ -903,22 +1073,75 @@ onBeforeUnmount(() => {
 .empty-page text { margin-top:10px;font-size:12px;font-weight:800; }
 .empty-page small { margin-top:5px;font-size:12px; }
 
-.product-view { min-height:calc(100vh - var(--mobile-tab-height)); background:var(--farm-bg); }
-.product-view .product-detail { padding-top:12px; }
-.product-view .product-detail-actions { margin-top:16px; }
-
 /* ===== 商品详情 ===== */
+.product-view { min-height:100vh;padding-bottom:calc(72px + env(safe-area-inset-bottom));background:var(--farm-bg);overflow-x:hidden;box-sizing:border-box; }
+.detail-gallery-shell { position:relative;width:100%;background:#fff;overflow:hidden; }
+.detail-gallery { width:100%;height:100vw;max-height:430px;aspect-ratio:1 / 1;background:var(--mobile-surface-subtle); }
+.detail-gallery-image { width:100%;height:100%;display:block; }
+.detail-gallery-back,.detail-gallery-arrow { position:absolute;width:44px;height:44px;margin:0;padding:0;border:1px solid rgba(255,255,255,.58);border-radius:50%;background:rgba(255,255,255,.9);color:var(--farm-ink);display:grid;place-items:center;box-shadow:0 3px 12px rgba(43,34,22,.13);z-index:2; }
+.detail-gallery-back { left:12px;top:calc(10px + env(safe-area-inset-top)); }
+.detail-gallery-arrow { top:50%;transform:translateY(-50%);opacity:.9; }
+.detail-gallery-prev { left:10px; }
+.detail-gallery-next { right:10px; }
+.detail-gallery-count { position:absolute;right:12px;bottom:12px;min-width:48px;height:26px;padding:0 9px;border-radius:13px;background:rgba(38,32,25,.68);color:#fff;font-size:12px;line-height:26px;text-align:center;z-index:2; }
+.detail-source-badge { position:absolute;right:12px;top:calc(12px + env(safe-area-inset-top));padding:5px 8px;border-radius:4px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:800;z-index:2; }
+.detail-section { margin-top:8px;padding:16px 14px;background:#fff;border-top:1px solid rgba(224,218,207,.75);border-bottom:1px solid rgba(224,218,207,.75);box-shadow:0 2px 8px rgba(61,48,30,.035); }
+.detail-summary { margin-top:0;border-top:0; }
+.detail-price-row { display:flex;align-items:center;justify-content:space-between;gap:10px; }
+.detail-current-price { min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap; }
+.detail-current-price strong { color:var(--farm-red);font-size:27px;font-weight:900;line-height:1.1; }
+.detail-current-price del { color:var(--farm-muted);font-size:12px; }
+.detail-saving { flex:none;padding:4px 7px;border-radius:4px;background:#fff0e8;color:var(--farm-red);font-size:12px;font-weight:800; }
+.detail-retail-price { display:block;margin-top:5px;color:var(--farm-muted);font-size:12px; }
+.detail-product-name { display:-webkit-box;margin-top:12px;overflow:hidden;color:var(--farm-ink);font-size:18px;font-weight:900;line-height:1.42;-webkit-box-orient:vertical;-webkit-line-clamp:2;word-break:break-all; }
+.detail-meta-row { margin-top:10px;display:flex;align-items:center;gap:7px 12px;flex-wrap:wrap;color:var(--farm-muted);font-size:12px; }
+.detail-meta-row .is-in-stock { color:#2f754e;font-weight:700; }
+.detail-tag-row { margin-top:11px;display:flex;gap:6px;flex-wrap:wrap; }
+.detail-tag-row text { padding:3px 7px;border:1px solid #f1cfa8;border-radius:4px;background:#fff8ee;color:var(--farm-green-deep);font-size:12px;font-weight:700; }
+.detail-section-heading { min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px; }
+.detail-section-heading>text { color:var(--farm-ink);font-size:15px;font-weight:900; }
+.detail-section-heading>small { color:var(--farm-muted);font-size:12px;text-align:right; }
+.detail-sku-options { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
+.detail-sku-option { min-width:0;min-height:var(--mobile-touch-target);padding:9px 10px;border:1px solid var(--farm-line);border-radius:8px;background:#fff;color:var(--farm-ink);text-align:left;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;line-height:1.35; }
+.detail-sku-option>text { width:100%;font-size:13px;font-weight:800;white-space:normal;word-break:break-all; }
+.detail-sku-option>small { width:100%;margin-top:4px;color:var(--farm-muted);font-size:13px;white-space:normal;word-break:break-all; }
+.detail-sku-option.active { border-color:var(--farm-green);background:var(--farm-green-soft);box-shadow:inset 3px 0 0 var(--farm-green); }
+.detail-sku-option.active>small { color:var(--farm-green-deep); }
+.detail-sku-option:disabled { background:#f1f1ee;color:#969b94;opacity:.72; }
+.detail-quantity-row { min-height:60px;margin-top:14px;padding-top:13px;border-top:1px solid #eeeae3;display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.detail-quantity-row>view:first-child { min-width:0; }
+.detail-quantity-row>view:first-child text,.detail-quantity-row>view:first-child small { display:block; }
+.detail-quantity-row>view:first-child text { font-size:13px;font-weight:800; }
+.detail-quantity-row>view:first-child small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
+.detail-quantity-stepper { width:150px;flex:none;display:grid;grid-template-columns:44px minmax(52px,1fr) 44px;border:1px solid var(--farm-line);border-radius:8px;overflow:hidden;background:#fff; }
+.detail-quantity-stepper button { width:44px;height:44px;margin:0;padding:0;border:0;border-radius:0;background:#fff;color:var(--farm-green-deep);font-size:20px;font-weight:700;display:grid;place-items:center; }
+.detail-quantity-stepper button:disabled { color:#aaa;background:#f1f1ee; }
+.detail-quantity-stepper>text { min-width:0;border-left:1px solid var(--farm-line);border-right:1px solid var(--farm-line);font-size:13px;font-weight:800;line-height:44px;text-align:center;white-space:nowrap; }
+.detail-purchase-total { margin-top:12px;padding-top:11px;border-top:1px solid #eeeae3;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px; }
+.detail-purchase-total strong { color:var(--farm-red);font-size:18px;font-weight:900; }
+.detail-ladder-list { border-top:1px solid #eeeae3; }
+.detail-ladder-row { min-height:45px;padding:0 8px;display:grid;grid-template-columns:minmax(72px,1fr) auto auto;align-items:center;gap:8px;border-bottom:1px solid #eeeae3;font-size:12px; }
+.detail-ladder-row>strong { color:var(--farm-red);font-size:13px;white-space:nowrap; }
+.detail-ladder-row>small { color:var(--farm-muted);font-size:12px;white-space:nowrap; }
+.detail-ladder-row.active { background:var(--farm-green-soft);box-shadow:inset 3px 0 0 var(--farm-green); }
+.detail-ladder-row.active>text,.detail-ladder-row.active>small { color:var(--farm-green-deep);font-weight:800; }
+.detail-next-tier { display:block;margin-top:10px;color:var(--farm-green-deep);font-size:12px;font-weight:700; }
+.detail-info-row { min-height:43px;padding:9px 0;display:grid;grid-template-columns:92px minmax(0,1fr);align-items:start;gap:12px;border-bottom:1px solid #eeeae3; }
+.detail-info-row:last-child { border-bottom:0; }
+.detail-info-row>small { color:var(--farm-muted);font-size:12px; }
+.detail-info-row>text { min-width:0;color:var(--farm-ink);font-size:12px;font-weight:700;text-align:right;word-break:break-all; }
+.detail-rich-images { padding-left:0;padding-right:0;padding-bottom:0;overflow:hidden; }
+.detail-rich-images .detail-section-heading { padding:0 14px; }
+.detail-rich-image { width:100%;display:block; }
+.product-detail-bar { position:fixed;left:0;right:0;bottom:0;z-index:30;min-height:calc(64px + env(safe-area-inset-bottom));padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom));box-sizing:border-box;border-top:1px solid var(--farm-line);background:#fff;display:grid;grid-template-columns:54px 62px minmax(0,1fr);align-items:center;gap:6px;box-shadow:0 -5px 18px rgba(48,38,26,.08); }
+.detail-bar-link { position:relative;min-width:0;height:48px;margin:0;padding:0;border:0;background:transparent;color:var(--farm-muted);font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px; }
+.detail-cart-icon { position:relative; }
+.detail-cart-badge { position:absolute;right:-11px;top:-7px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--farm-red);color:#fff;font-size:12px;font-weight:800;line-height:18px;text-align:center;box-sizing:border-box; }
+.detail-bar-add { min-width:0;height:48px;margin:0;padding:0 16px;border:0;border-radius:8px;background:var(--farm-green);color:#fff;font-size:14px;font-weight:900;white-space:nowrap;display:flex;align-items:center;justify-content:center; }
+.detail-bar-add:disabled { background:#c8c9c4;color:#fff; }
+
+/* 列表加购时的规格弹层 */
 .product-detail { padding-top:12px; }
-.detail-head { display:flex;gap:12px;align-items:flex-start; }
-.detail-thumb { width:72px;height:72px;flex:none;display:block;border-radius:8px;background:var(--mobile-surface-subtle); }
-.product-detail-emoji { width:72px;height:72px;flex:none;display:block;border-radius:8px;background:var(--mobile-surface-subtle); }
-.detail-info { min-width:0;flex:1; }
-.detail-info>text,.product-detail>text { display:block;font-size:16px;font-weight:800;line-height:1.35; }
-.detail-info>small,.product-detail>small { display:block;margin-top:4px;color:var(--farm-muted);font-size:12px; }
-.detail-price { display:flex;align-items:baseline;gap:6px;margin-top:8px;flex-wrap:wrap; }
-.detail-price strong { font-size:20px;color:var(--farm-red); }
-.detail-price del { font-size:12px;color:var(--farm-muted); }
-.detail-price span { margin-left:auto;font-size:12px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:2px 6px; }
 .sku-label { display:block;margin-top:14px;font-size:13px;font-weight:800; }
 .sku-options { display:flex;flex-wrap:wrap;gap:8px;margin-top:8px; }
 .sku-options button { min-height:36px;padding:6px 12px;border:1px solid #e0e4dd;border-radius:8px;background:#fff;color:#23291f;font-size:13px;font-weight:700; }
@@ -1041,6 +1264,7 @@ onBeforeUnmount(() => {
 .section-head text { font-size:15px;font-weight:900; }
 .quick-grid { margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px; }
 .quick-grid button { min-width:0;width:100%;min-height:56px;padding:8px 4px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card); }
+.quick-grid .pc-tile-label { font-size:13px; }
 .quick-grid button small { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--farm-muted);font-size:13px;line-height:1.3; }
 .hot-list { display:grid;gap:9px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);padding:12px;box-shadow:var(--mobile-shadow-card); }
 .hot-item { display:grid;grid-template-columns:20px 40px 1fr auto;gap:9px;align-items:center; }
@@ -1098,6 +1322,16 @@ onBeforeUnmount(() => {
   .store-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+@media (max-width: 340px) {
+  .detail-section { padding-left:12px;padding-right:12px; }
+  .detail-sku-options { grid-template-columns:1fr; }
+  .detail-quantity-row { gap:8px; }
+  .detail-quantity-stepper { width:142px; }
+  .detail-ladder-row { padding-left:6px;padding-right:6px;gap:5px; }
+  .product-detail-bar { grid-template-columns:50px 56px minmax(0,1fr);padding-left:8px;padding-right:8px; }
+  .detail-bar-add { padding:0 10px; }
+}
+
 /* ===== 键盘可访问 ===== */
 .app-shell button:focus-visible,.app-shell input:focus-visible,.app-shell textarea:focus-visible { outline:3px solid rgba(240,129,15,.28);outline-offset:2px; }
 
@@ -1109,6 +1343,7 @@ onBeforeUnmount(() => {
   .cart-bar { left:50%;right:auto;width:406px;transform:translateX(-50%); }
   .sheet { max-width:430px;margin:0 auto; }
   .sheet-mask { justify-content:center; }
+  .product-detail-bar { left:50%;right:auto;width:430px;transform:translateX(-50%); }
 }
 /* #endif */
 
@@ -1126,7 +1361,9 @@ onBeforeUnmount(() => {
 .product-foot uni-button,
 .cart-count,
 .sheet-head uni-button,
-.stepper uni-button {
+.stepper uni-button,
+.detail-gallery-shell uni-button,
+.product-detail-bar uni-button {
   padding: 0;
 }
 
@@ -1134,7 +1371,8 @@ onBeforeUnmount(() => {
 .chips uni-button::after, .primary-button::after, .outline-button::after,
 .product-foot uni-button::after, .cart-count::after, .sheet-head uni-button::after,
 .stepper uni-button::after, .login-tabs uni-button::after, .tabbar uni-button::after,
-.code-button::after, .login-button::after, .logout-button::after, .quick-grid uni-button::after { border: none; }
+.code-button::after, .login-button::after, .logout-button::after, .quick-grid uni-button::after,
+.detail-gallery-shell uni-button::after, .product-detail-bar uni-button::after, .detail-sku-options uni-button::after { border: none; }
 .chips button.active::after,
 .chips uni-button.active::after { content:'';position:absolute;left:50%;bottom:2px;width:20px;height:3px;border:none;border-radius:var(--mobile-radius-pill);background:currentColor;transform:translateX(-50%); }
 .chips uni-button:active, .quick-grid uni-button:active, .primary-button:active, .outline-button:active { opacity: .88; }
@@ -1166,7 +1404,7 @@ onBeforeUnmount(() => {
 /* ===== 商品分类页 ===== */
 .category-layout { margin-top:12px;display:flex;gap:0;align-items:stretch; }
 .category-side { width:84px;flex:none;background:#f3f2ef;border-right:1px solid var(--farm-line);display:flex;flex-direction:column;align-content:start; }
-.side-item { min-width:0;min-height:40px;margin:0;padding:8px 8px 8px 10px;border:0;border-radius:0;background:transparent;font-size:12px;line-height:1.25;color:var(--farm-muted);text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:break-all; }
+.side-item { min-width:0;min-height:40px;margin:0;padding:8px 8px 8px 10px;border:0;border-radius:0;background:transparent;font-size:13px;line-height:1.25;color:var(--farm-muted);text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:break-all; }
 .side-item.active { color:var(--farm-green);font-weight:800;background:#fff;box-shadow:inset 3px 0 0 var(--farm-green); }
 .category-main { flex:1;min-width:0;margin-left:12px; }
 .category-products { margin-top:12px;display:grid;gap:11px; }
@@ -1207,14 +1445,14 @@ onBeforeUnmount(() => {
 .cart-row-bottom .stepper button { width:var(--mobile-control-compact);height:var(--mobile-control-compact);border:0;border-radius:0;background:#fff;display:grid;place-items:center;padding:0;font-size:15px; }
 .cart-row-bottom .stepper text { min-width:var(--mobile-control-compact);text-align:center;font-size:13px;font-weight:700;line-height:var(--mobile-control-compact);border-left:1px solid var(--farm-line);border-right:1px solid var(--farm-line); }
 .cart-footer { position:relative; flex:none; margin:0; padding:10px 12px; background:#fff; border:0; border-top:1px solid var(--farm-line); border-radius:0; display:flex; align-items:center; gap:10px; }
-.cart-all { display:inline-flex;align-items:center;gap:6px;color:var(--farm-muted);font-size:12px;padding:0; }
+.cart-all { display:inline-flex;align-items:center;gap:6px;color:var(--farm-muted);font-size:13px;padding:0; }
 .cart-all-check { width:20px;height:20px;border-radius:50%;border:1px solid #cfd8d2;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#fff; }
 .cart-all-check.on { background:var(--farm-green);border-color:var(--farm-green); }
 .cart-all-check .ui-icon { opacity:0; }
 .cart-all-check.on .ui-icon { opacity:1; }
 .cart-footer-total { flex:1;display:flex;align-items:baseline;gap:4px;color:var(--farm-muted);font-size:12px; }
 .cart-footer-total strong { font-size:17px;font-weight:800;color:var(--farm-red); }
-.cart-del { min-height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--farm-red);color:var(--farm-red);background:#fff;font-size:12px;font-weight:700; }
+.cart-del { min-height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--farm-red);color:var(--farm-red);background:#fff;font-size:13px;font-weight:700; }
 .cart-checkout { min-height:40px;padding:0 18px;border-radius:8px;background:var(--farm-green);color:#fff;font-size:13px;font-weight:800; }
 
 </style>

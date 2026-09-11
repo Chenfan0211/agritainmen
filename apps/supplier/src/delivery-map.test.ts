@@ -15,7 +15,22 @@ describe('delivery route map', () => {
     expect(source).toContain('MultiPolyline')
     expect(source).toContain('MultiLabel')
     expect(source).toContain('delivery-route-map-pin')
+    expect(source).toContain('selectedStopId')
+    expect(source).toContain("'is-selected': marker.id === selectedStopId")
     expect(source).toContain("content: marker.label")
+    expect(source).toContain('select-stop')
+    expect(source).toContain('<map')
+  })
+
+  it('moves driver assignment into route planning', () => {
+    const source = readFileSync(new URL('./pages/index/index.vue', import.meta.url), 'utf8')
+    expect(source).toContain('route-planning-map')
+    expect(source).toContain('optimizeNamedRoute')
+    expect(source).not.toContain("key: 'assign'")
+    expect(source).not.toContain("key: 'reassign'")
+    expect(source).toContain('invalidateRoutePreview')
+    expect(source).toContain('todayDriverRoutes')
+    expect(source).toContain('selectDriverRoute')
   })
 
   it('numbers warehouse and ordered farm stops for map labels', () => {
@@ -36,7 +51,7 @@ describe('delivery route map', () => {
   it('translates route optimization fallback warnings', () => {
     expect(routeOptimizationWarningText('missing_coordinates:F003')).toBe('有门店缺少坐标，已排在末尾，请维护坐标')
     expect(routeOptimizationWarningText('off_route:F003')).toBe('有门店不在命名线路中，已排在末尾')
-    expect(routeOptimizationWarningText('direction_fallback')).toBe('驾车路算暂不可用，已按直线距离估算')
+    expect(routeOptimizationWarningText('direction_fallback')).toBe('驾车路线暂不可用，已按直线距离估算')
     expect(routeOptimizationWarningText('other')).toBe('other')
   })
 })

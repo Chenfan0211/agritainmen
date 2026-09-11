@@ -87,6 +87,44 @@ describe('store ordering store interactions', () => {
     expect(store.products).toEqual(beforeMemory.products)
   })
 
+  it('keeps procurement snapshots unchanged when pricing changes after the lock request', async () => {
+    const product = catalogProduct({
+      id: 'PRICE-LOCK-CONFLICT',
+      channel: 'store',
+      category: '价格并发测试',
+      skus: [{ id: 'PRICE-LOCK-CONFLICT-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 120, cost: 100, stock: 100, level1Amount: 10, level2Amount: 10 }]
+    })
+    writeCatalog([product])
+    expect(upsertPlatformEntity('policies', 'PRICE-LOCK-POLICY', {
+      id: 'PRICE-LOCK-POLICY', name: '价格并发阶梯价', type: 'ladder', scope: '价格并发测试类目', discount: 20, enabled: true,
+      tiers: [{ minQty: 1, maxQty: null, price: 80, discountOff: 20 }]
+    })).toBe(true)
+    const store = useStoreStore()
+    await store.initialize()
+    expect(store.addToCart(store.products[0], product.skus[0].id, 10)).toBe('added')
+    const beforeMemory = { cart: cloneSeed(store.cart), orders: cloneSeed(store.orders), products: cloneSeed(store.products) }
+    const beforeCatalog = cloneSeed(readCatalogState())
+    let injected = false
+    vi.stubGlobal('navigator', { locks: { request: async (_name: string, callback: () => Promise<unknown>) => {
+      if (!injected) {
+        injected = true
+        expect(upsertPlatformEntity('policies', 'PRICE-LOCK-POLICY', {
+          id: 'PRICE-LOCK-POLICY', name: '价格并发阶梯价', type: 'ladder', scope: '价格并发测试类目', discount: 30, enabled: true,
+          tiers: [{ minQty: 1, maxQty: null, price: 70, discountOff: 30 }]
+        })).toBe(true)
+      }
+      return callback()
+    } } })
+
+    expect(await store.submitOrder()).toBe(false)
+
+    expect(readCatalogState()).toEqual(beforeCatalog)
+    expect(readPlatformOrders()).toEqual(null)
+    expect(store.cart).toEqual(beforeMemory.cart)
+    expect(store.orders).toEqual(beforeMemory.orders)
+    expect(store.products).toEqual(beforeMemory.products)
+  })
+
   it('rolls back procurement storage and Pinia when platform order persistence fails', async () => {
     writeCatalog([catalogProduct({ id: 'ORDER-WRITE-FAIL', channel: 'store' })])
     const store = useStoreStore()
@@ -234,6 +272,127 @@ describe('store ordering store interactions', () => {
     expect(store.cartCount).toBe(1)
     expect(store.cartTotal).toBe(tea.skus[0].cost)
     expect(store.cart[0].retail).toBe(tea.price)
+  })
+
+  it('adds an explicit SKU quantity and prices the accumulated line by its ladder tier', () => {
+    const product = catalogProduct({
+      id: 'TIER-ADD',
+      channel: 'store',
+      category: '测试阶梯',
+      skus: [{ id: 'TIER-ADD-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 120, cost: 100, stock: 100, level1Amount: 10, level2Amount: 10, minimumOrderQuantity: 2 }]
+    })
+    expect(upsertPlatformEntity('policies', 'TIER-ADD-POLICY', {
+      id: 'TIER-ADD-POLICY', name: '测试阶梯价', type: 'ladder', scope: '测试阶梯类目', discount: 20, enabled: true,
+      tiers: [
+        { minQty: 1, maxQty: 9, price: 90, discountOff: 10 },
+        { minQty: 10, maxQty: null, price: 80, discountOff: 20 }
+      ]
+    })).toBe(true)
+    const store = useStoreStore()
+    const orderingProduct = catalogProductToProduct(product)
+    store.$patch({ products: [orderingProduct], cart: [], checkoutError: '' })
+
+    expect(store.addToCart(orderingProduct, 'TIER-ADD-SKU', 6)).toBe('added')
+    expect(store.cart[0]).toMatchObject({ quantity: 6, price: 90 })
+    expect(store.addToCart(orderingProduct, 'TIER-ADD-SKU', 4)).toBe('added')
+    expect(store.cart[0]).toMatchObject({ quantity: 10, price: 80 })
+    expect(store.cartTotal).toBe(800)
+  })
+
+  it('falls back to SKU cost when the published matching ladder policy is disabled', () => {
+    const product = catalogProduct({
+      id: 'DISABLED-TIER',
+      channel: 'store',
+      category: '腊味',
+      skus: [{ id: 'DISABLED-TIER-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 120, cost: 100, stock: 100, level1Amount: 10, level2Amount: 10 }]
+    })
+    expect(upsertPlatformEntity('policies', 'R002', { ...cloneSeed(shared.pricePolicies.find((policy) => policy.id === 'R002')!), enabled: false })).toBe(true)
+    const store = useStoreStore()
+    const orderingProduct = catalogProductToProduct(product)
+    store.$patch({ products: [orderingProduct], cart: [], checkoutError: '' })
+
+    expect(store.addToCart(orderingProduct, product.skus[0].id, 10)).toBe('added')
+
+    expect(store.cart[0]).toMatchObject({ quantity: 10, price: 100 })
+    expect(store.cartTotal).toBe(1000)
+  })
+
+  it('rejects invalid explicit quantities without changing the cart', () => {
+    const product = catalogProduct({
+      id: 'DETAIL-QUANTITY',
+      channel: 'store',
+      skus: [{ id: 'DETAIL-QUANTITY-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 45, cost: 20, stock: 8, level1Amount: 10, level2Amount: 15, minimumOrderQuantity: 3 }]
+    })
+    const store = useStoreStore()
+    const orderingProduct = catalogProductToProduct(product)
+    store.$patch({ products: [orderingProduct], cart: [], checkoutError: '' })
+
+    expect(store.addToCart(orderingProduct, 'DETAIL-QUANTITY-SKU', 2)).toBe('out-of-stock')
+    expect(store.addToCart(orderingProduct, 'DETAIL-QUANTITY-SKU', 3.5)).toBe('out-of-stock')
+    expect(store.addToCart(orderingProduct, 'DETAIL-QUANTITY-SKU', 9)).toBe('out-of-stock')
+    expect(store.cart).toEqual([])
+  })
+
+  it('recalculates the ladder unit price when cart quantity moves between tiers', () => {
+    const product = catalogProduct({ id: 'TIER-STEP', channel: 'store', category: '阶梯步进', skus: [{ id: 'TIER-STEP-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 120, cost: 100, stock: 100, level1Amount: 10, level2Amount: 10 }] })
+    expect(upsertPlatformEntity('policies', 'TIER-STEP-POLICY', {
+      id: 'TIER-STEP-POLICY', name: '步进阶梯价', type: 'ladder', scope: '阶梯步进类目', discount: 20, enabled: true,
+      tiers: [{ minQty: 1, maxQty: 9, price: 90, discountOff: 10 }, { minQty: 10, maxQty: null, price: 80, discountOff: 20 }]
+    })).toBe(true)
+    const store = useStoreStore()
+    const orderingProduct = catalogProductToProduct(product)
+    store.$patch({ products: [orderingProduct], cart: [], checkoutError: '' })
+
+    expect(store.addToCart(orderingProduct, 'TIER-STEP-SKU', 10)).toBe('added')
+    expect(store.cart[0].price).toBe(80)
+    expect(store.changeCart('TIER-STEP', 'TIER-STEP-SKU', -1)).toBe(true)
+    expect(store.cart[0]).toMatchObject({ quantity: 9, price: 90 })
+    expect(store.cartTotal).toBe(810)
+  })
+
+  it('reprices cart lines restored outside addToCart with the active ladder policy', () => {
+    const product = catalogProduct({ id: 'TIER-RESTORE', channel: 'store', category: '恢复阶梯', skus: [{ id: 'TIER-RESTORE-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 120, cost: 100, stock: 100, level1Amount: 10, level2Amount: 10 }] })
+    expect(upsertPlatformEntity('policies', 'TIER-RESTORE-POLICY', {
+      id: 'TIER-RESTORE-POLICY', name: '恢复阶梯价', type: 'ladder', scope: '恢复阶梯类目', discount: 20, enabled: true,
+      tiers: [{ minQty: 1, maxQty: 9, price: 90, discountOff: 10 }, { minQty: 10, maxQty: null, price: 80, discountOff: 20 }]
+    })).toBe(true)
+    const store = useStoreStore()
+    const orderingProduct = catalogProductToProduct(product)
+    store.$patch({
+      products: [orderingProduct],
+      cart: [{ productId: product.id, skuId: product.skus[0].id, skuName: '整箱', name: product.name, image: product.image, price: 100, retail: 120, stock: 100, quantity: 10, minimumOrderQuantity: 0, unavailable: false }],
+      checkoutError: ''
+    })
+
+    store.repriceCart()
+
+    expect(store.cart[0].price).toBe(80)
+    expect(store.cartTotal).toBe(800)
+  })
+
+  it('uses the latest ladder price at checkout and keeps the order price snapshot immutable', async () => {
+    const product = catalogProduct({ id: 'TIER-ORDER', channel: 'store', category: '订单阶梯', skus: [{ id: 'TIER-ORDER-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 120, cost: 100, stock: 100, level1Amount: 10, level2Amount: 10 }] })
+    writeCatalog([product])
+    expect(upsertPlatformEntity('policies', 'TIER-ORDER-POLICY', {
+      id: 'TIER-ORDER-POLICY', name: '订单阶梯价', type: 'ladder', scope: '订单阶梯类目', discount: 25, enabled: true,
+      tiers: [{ minQty: 1, maxQty: 9, price: 90, discountOff: 10 }, { minQty: 10, maxQty: null, price: 80, discountOff: 20 }]
+    })).toBe(true)
+    const store = useStoreStore()
+    await store.initialize()
+    expect(store.addToCart(store.products[0], 'TIER-ORDER-SKU', 10)).toBe('added')
+    expect(upsertPlatformEntity('policies', 'TIER-ORDER-POLICY', {
+      id: 'TIER-ORDER-POLICY', name: '订单阶梯价', type: 'ladder', scope: '订单阶梯类目', discount: 30, enabled: true,
+      tiers: [{ minQty: 1, maxQty: 9, price: 90, discountOff: 10 }, { minQty: 10, maxQty: null, price: 75, discountOff: 25 }]
+    })).toBe(true)
+
+    expect(await store.submitOrder()).toBe(true)
+    expect(store.orders[0]).toMatchObject({ amount: 750, saved: 450 })
+    expect(store.orders[0].items[0]).toMatchObject({ quantity: 10, price: 75 })
+    expect(upsertPlatformEntity('policies', 'TIER-ORDER-POLICY', {
+      id: 'TIER-ORDER-POLICY', name: '订单阶梯价', type: 'ladder', scope: '订单阶梯类目', discount: 40, enabled: true,
+      tiers: [{ minQty: 1, maxQty: 9, price: 85, discountOff: 15 }, { minQty: 10, maxQty: null, price: 65, discountOff: 35 }]
+    })).toBe(true)
+    expect(store.orders[0].items[0].price).toBe(75)
   })
 
   it('uses the SKU MOQ for first add and snapshots it on the procurement item', async () => {

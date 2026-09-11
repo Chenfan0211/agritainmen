@@ -21,13 +21,18 @@ type RoutingStore = ReturnType<typeof useSupplierStore> & {
   driverScopes?: DriverStoreScope[]
   routeDraft?: DailyDeliveryRoute | null
   currentDriverRoute?: DailyDeliveryRoute | null
+  todayDriverRoutes?: DailyDeliveryRoute[]
+  activeDriverRouteId?: string
   pendingRouteTasks?: Order[]
   updateDriverScope?: (driverId: string, storeIds: string[]) => Promise<WriteResult<DriverStoreScope>>
   checkInStop?: (storeId: string, location: { latitude: number; longitude: number }) => Promise<WriteResult<{ distanceM: number }>>
   assignableDriversForOrder?: (order: Order) => Array<{ id: string }>
   optimizeDriverRoute?: (driverId: string, deliveryDate: string) => Promise<WriteResult<DailyDeliveryRoute>>
+  optimizeNamedRoute?: (input: { namedRouteId: string; driverId: string; deliveryDate: string }) => Promise<WriteResult<DailyDeliveryRoute>>
   moveRouteStop?: (index: number, direction: -1 | 1) => boolean
   publishRoute?: () => Promise<WriteResult<DailyDeliveryRoute>>
+  selectDriverRoute?: (routeId: string) => boolean
+  invalidateRoutePreview?: () => void
   ensureTodayRoutes?: () => Promise<WriteResult<{ generated: number }>>
   dailyRouteRevision: number
   updateWarehouse?: (input: { address: string; longitude?: number; latitude?: number }) => Promise<WriteResult>
@@ -365,6 +370,7 @@ describe('supplier routing workflow', () => {
     expect(store.optimizeDriverRoute).toBeTypeOf('function')
     const first = await store.optimizeDriverRoute!('D001', shared.todayString())
     expect(first).toMatchObject({ ok: true })
+    if (!first.ok) throw new Error('expected route optimization to succeed')
     expect(first.value?.warnings).toEqual(expect.arrayContaining(['missing_coordinates:F003']))
     expect(store.routeDraft?.stops.find((stop: RouteStop) => stop.storeId === 'F001')?.orderIds).toEqual(expect.arrayContaining(['ROUTE-A1', 'ROUTE-A2']))
     expect(store.routeDraft?.stops.at(-1)?.storeId).toBe('F003')
@@ -812,5 +818,70 @@ describe('supplier routing workflow', () => {
     expect(shared.readDailyDeliveryRoutes('S002', 'D002')[0]).toMatchObject({ driverId: 'D002', status: 'published', stopCount: 1 })
     expect(shared.readDailyDeliveryRoutes('S002', 'D003')[0]).toMatchObject({ driverId: 'D003', status: 'published', stopCount: 1 })
     expect(await store.ensureTodayRoutes!()).toMatchObject({ ok: true, value: { generated: 0 } })
+  })
+
+  it('publishes a named route and batches accepted store orders onto its driver', async () => {
+    const store = useSupplierStore() as RoutingStore
+    await store.initialize()
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+    const route = store.namedRoutes.find((item) => item.id === 'NR-S002-EAST')!
+    const at = new Date().toISOString()
+    const accepted = [
+      routeOrder({ id: 'BATCH-ROUTE-1', status: 'pending', storeId: 'F001', customer: '石板溪农家乐·门店', supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: at } }),
+      routeOrder({ id: 'BATCH-ROUTE-2', status: 'pending', storeId: 'F001', customer: '石板溪农家乐·门店', supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: at } })
+    ]
+    accepted.forEach((order) => { expect(shared.writePlatformOrder(order)).toBe(true) })
+    await store.refreshSharedState()
+
+    expect(await store.optimizeNamedRoute!({ namedRouteId: route.id, driverId: 'D001', deliveryDate: shared.todayString() })).toMatchObject({ ok: true })
+    expect(await store.publishRoute!()).toMatchObject({ ok: true, value: { driverId: 'D001', status: 'published' } })
+    expect(shared.readPlatformOrders()?.['BATCH-ROUTE-1']?.supplierFulfillment).toMatchObject({ status: 'shipped', shipType: 'driver', driverId: 'D001', deliverDate: shared.todayString() })
+    expect(shared.readPlatformOrders()?.['BATCH-ROUTE-2']?.supplierFulfillment).toMatchObject({ status: 'shipped', shipType: 'driver', driverId: 'D001', deliverDate: shared.todayString() })
+    expect(shared.readDailyDeliveryRoutes('S002', 'D001').find((item) => item.sourceOrderIds.includes('BATCH-ROUTE-1'))?.stops.filter((stop) => stop.storeId === 'F001')).toHaveLength(1)
+  })
+
+  it('lets one driver switch between multiple routes on the same day', async () => {
+    const firstOrder = routeOrder({ id: 'MULTI-ROUTE-A', storeId: 'F001', customer: '石板溪农家乐·门店' })
+    const secondOrder = routeOrder({ id: 'MULTI-ROUTE-B', storeId: 'F002', customer: '云上人家·门店' })
+    expect(shared.writePlatformOrder(firstOrder)).toBe(true)
+    expect(shared.writePlatformOrder(secondOrder)).toBe(true)
+    const now = new Date().toISOString()
+    const first = publishedRoute('D001', firstOrder.id)
+    const second: DailyDeliveryRoute = {
+      ...publishedRoute('D001', secondOrder.id),
+      id: `ROUTE-S002-D001-SECOND-${shared.todayString()}`,
+      stops: [{ storeId: 'F002', storeName: '云上人家·门店', address: '湖南省张家界市武陵源区云上村', longitude: 110.4792, latitude: 29.1171, orderIds: [secondOrder.id] }],
+      sourceOrderIds: [secondOrder.id], generatedAt: new Date(Date.parse(now) + 1).toISOString(), publishedAt: new Date(Date.parse(now) + 1).toISOString()
+    }
+    expect(shared.saveDailyDeliveryRoute(first, 0)).toMatchObject({ ok: true })
+    expect(shared.saveDailyDeliveryRoute(second, 1)).toMatchObject({ ok: true })
+
+    const store = useSupplierStore() as RoutingStore
+    await store.initialize()
+    expect(store.loginDriver('driver01', '123456')).toBe(true)
+    expect(store.todayDriverRoutes?.map((route) => route.id)).toEqual([first.id, second.id])
+    expect(store.currentDriverRoute?.id).toBe(first.id)
+    expect(store.pendingRouteTasks?.map((order) => order.id)).not.toEqual(expect.arrayContaining([firstOrder.id, secondOrder.id]))
+    expect(store.selectDriverRoute?.(second.id)).toBe(true)
+    expect(store.currentDriverRoute?.id).toBe(second.id)
+    expect(await store.checkInStop?.('F002', { longitude: 110.4792, latitude: 29.1171 })).toMatchObject({ ok: true })
+    expect(shared.readDailyDeliveryRoutes('S002', 'D001').find((route) => route.id === second.id)?.stops[0].checkIn).toEqual(expect.objectContaining({ distanceM: 0 }))
+    expect(shared.readDailyDeliveryRoutes('S002', 'D001').find((route) => route.id === first.id)?.stops[0].checkIn).toBeUndefined()
+  })
+
+  it('invalidates a route preview so the old draft cannot be published', async () => {
+    const store = useSupplierStore() as RoutingStore
+    await store.initialize()
+    expect(store.loginSupplier('13787366688', '13787366688')).toBe(true)
+    const route = store.namedRoutes.find((item) => item.id === 'NR-S002-EAST')!
+    const at = new Date().toISOString()
+    const accepted = routeOrder({ id: 'PREVIEW-INVALIDATED', status: 'pending', storeId: 'F001', customer: '石板溪农家乐·门店', supplierFulfillment: { status: 'accepted', shortages: [], handovers: [], updatedAt: at } })
+    expect(shared.writePlatformOrder(accepted)).toBe(true)
+    await store.refreshSharedState()
+    expect(await store.optimizeNamedRoute!({ namedRouteId: route.id, driverId: 'D001', deliveryDate: shared.todayString() })).toMatchObject({ ok: true })
+    expect(store.routeDraft).toBeTruthy()
+    store.invalidateRoutePreview?.()
+    expect(store.routeDraft).toBeNull()
+    expect(await store.publishRoute!()).toMatchObject({ ok: false, code: 'invalid_route' })
   })
 })

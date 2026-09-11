@@ -483,6 +483,92 @@ test('store mobile views stay inside all supported widths', async ({ page }, tes
   await auditTabs(page, '.tabbar uni-button', 4, testInfo, 'store')
 })
 
+test('store product detail keeps gallery, ladder pricing and fixed ordering actions usable', async ({ page }, testInfo) => {
+  test.setTimeout(90_000)
+  await page.setViewportSize(viewports[0])
+  await reset(page, 'http://127.0.0.1:8795')
+  await page.evaluate(() => {
+    const catalog = JSON.parse(localStorage.getItem('agritainment-platform-catalog') || '{}') as { products?: Array<{ id: string; name: string; category: string; image?: string; images?: string[]; skus?: Array<{ id: string; name: string; image?: string; stock: number; cost: number; retailPrice: number; minimumOrderQuantity?: number }> }> }
+    const product = catalog.products?.find((item) => item.id === 'P001')
+    if (!product || !product.skus?.length) throw new Error('统一目录缺少门店详情验收商品')
+    product.name = '湘西烟熏柴火腊肉家庭宴席分享装'
+    product.category = '详情阶梯测试'
+    product.images = [product.image || '', '/static/images/farmhouse.webp']
+    product.skus = product.skus.map((sku, index) => ({
+      ...sku,
+      name: index === 0 ? '500g农家手工烟熏长规格名称' : '1kg家庭宴席分享长规格名称',
+      cost: index === 0 ? 100 : 110,
+      retailPrice: index === 0 ? 128 : 148,
+      stock: 30,
+      minimumOrderQuantity: 2
+    }))
+    localStorage.setItem('agritainment-platform-catalog', JSON.stringify(catalog))
+    localStorage.setItem('agritainment-platform-entities', JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      policies: {
+        'DETAIL-TIER': {
+          id: 'DETAIL-TIER', name: '详情阶梯价', type: 'ladder', scope: '详情阶梯测试类目', discount: 30, enabled: true,
+          tiers: [
+            { minQty: 1, maxQty: 2, price: 90, discountOff: 10 },
+            { minQty: 3, maxQty: null, price: 80, discountOff: 20 }
+          ]
+        }
+      }
+    }))
+  })
+  await page.reload()
+  await page.waitForLoadState('networkidle')
+  await page.locator('.login-field input').nth(0).fill('13800000001')
+  await page.locator('.login-field input').nth(1).fill('123456')
+  await page.locator('.login-button').click()
+  await page.locator('.tabbar uni-button').filter({ hasText: '购物车' }).click()
+  await page.locator('.cart-all').click()
+  await page.locator('.cart-del').click()
+  await page.locator('.tabbar uni-button').filter({ hasText: '首页' }).click()
+
+  const product = page.locator('.product-card').filter({ hasText: '湘西烟熏柴火腊肉家庭宴席分享装' })
+  await product.locator('.product-open').click()
+  await expect(page.locator('.product-view')).toBeVisible()
+  await expect(page.locator('.detail-gallery-count')).toBeVisible()
+  await expect(page.locator('.detail-product-name')).toContainText('湘西烟熏柴火腊肉家庭宴席分享装')
+  await expect(page.locator('.tabbar')).toHaveCount(0)
+
+  for (const viewport of [viewports[0], viewports[1], viewports[3]]) {
+    await page.setViewportSize(viewport)
+    await assertMobileFrame(page, viewport.width)
+    const controls = await page.locator('.detail-sku-option, .detail-quantity-stepper uni-button, .product-detail-bar uni-button').evaluateAll((elements) => elements.map((element) => ({ height: element.getBoundingClientRect().height, text: element.textContent?.trim() || '' })))
+    for (const control of controls) expect(control.height, `${control.text} 触控高度不足`).toBeGreaterThanOrEqual(44)
+    await screenshot(page, testInfo, `store-product-detail-${viewport.width}`)
+  }
+
+  const initialRetailPrice = await page.locator('.detail-retail-price').innerText()
+  await page.getByLabel('下一张商品图').click()
+  await expect(page.locator('.detail-gallery-count')).toContainText('2 /')
+  await page.locator('.detail-sku-option').nth(1).click()
+  await expect(page.locator('.detail-retail-price')).not.toHaveText(initialRetailPrice)
+  await expect(page.locator('.detail-current-price del')).toContainText('¥110')
+  await expect(page.locator('.detail-quantity-row')).toContainText('2 件')
+  await expect(page.locator('.detail-current-price strong')).toContainText('¥90')
+  await page.getByLabel('增加采购数量').click()
+  await expect(page.locator('.detail-quantity-row')).toContainText('3 件')
+  await expect(page.locator('.detail-current-price strong')).toContainText('¥80')
+  await expect(page.locator('.detail-ladder-row.active')).toContainText('3 件以上')
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  const bottomGap = await page.locator('.detail-section').last().evaluate((section) => {
+    const sectionBottom = section.getBoundingClientRect().bottom
+    const barTop = document.querySelector('.product-detail-bar')?.getBoundingClientRect().top || 0
+    return barTop - sectionBottom
+  })
+  expect(bottomGap).toBeGreaterThanOrEqual(0)
+  await page.locator('.detail-bar-add').click()
+  await expect(page.locator('.detail-cart-badge')).toHaveText('3')
+  await page.getByLabel('进入进货单').click()
+  await expect(page.locator('.cart-row')).toContainText('3')
+  await expect(page.locator('.cart-row-price')).toContainText('¥80')
+  await expect(page.locator('.cart-footer-total')).toContainText('¥240')
+})
+
 test('user mobile views stay inside all supported widths', async ({ page }, testInfo) => {
   await page.setViewportSize(viewports[1])
   await reset(page, 'http://127.0.0.1:8797/#/pages/index/index?promoter=T002')

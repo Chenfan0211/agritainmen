@@ -29,7 +29,7 @@ async function login(page: Page, role: 'supplier' | 'driver') {
   await expect(page.locator('.app-shell')).toBeVisible()
 }
 
-test('supplier workspace covers metrics, driver handovers and reassignment warning', async ({ page }) => {
+test('supplier workspace covers metrics, route planning and driver handovers', async ({ page }) => {
   const monitor = trackPageErrors(page)
   await page.goto(supplierUrl)
   await page.evaluate(() => localStorage.clear())
@@ -41,6 +41,24 @@ test('supplier workspace covers metrics, driver handovers and reassignment warni
   await expect(page.locator('.hero-stat').filter({ hasText: '缺货件数' })).toContainText('4')
   await expect(page.locator('.hero-stat').filter({ hasText: '配送中件' })).toContainText('52')
   await assertNoHorizontalOverflow(page)
+  await page.locator('.tab-item').filter({ hasText: '订单' }).click()
+  await expect(page.getByText('指派司机')).toHaveCount(0)
+  await expect(page.getByText('改派司机')).toHaveCount(0)
+  const acceptButtons = page.locator('.order-actions').getByText('接单')
+  for (let index = 0; index < await acceptButtons.count(); index += 1) await acceptButtons.first().click()
+  await page.locator('.tab-item').filter({ hasText: /^首页$/ }).click()
+  await page.locator('.dashboard-foot .outline-button').filter({ hasText: '今日线路' }).click()
+  await expect(page.locator('.secondary-workspace')).toBeVisible()
+  const namedRoute = page.locator('.secondary-workspace .list-card').first()
+  await expect(namedRoute).toContainText('东线')
+  await namedRoute.getByText('规划').click()
+  await expect(page.locator('.route-planning-map')).toBeVisible()
+  await expect(page.getByText('生成路线预览')).toBeVisible()
+  await page.getByText('生成路线预览').click()
+  await expect(page.locator('.delivery-route-map-overlay')).toContainText('km')
+  await expect(page.locator('.route-preview')).toContainText('总距离')
+  await page.locator('.page-back[aria-label="返回"]').click()
+  await page.locator('.page-back[aria-label="返回"]').click()
   monitor.assertClean()
 
   await page.locator('.hero-logout').click()
@@ -81,11 +99,11 @@ test('supplier workspace covers metrics, driver handovers and reassignment warni
   await expect(page.locator('.tab-item')).toHaveCount(4)
   await page.locator('.dashboard-foot .outline-button').filter({ hasText: '司机管理' }).click()
   await expect(page.locator('.secondary-workspace')).toBeVisible()
-  await expect(page.locator('.secondary-head button[aria-label="返回"]')).toBeVisible()
+  await expect(page.locator('.page-back[aria-label="返回"]')).toBeVisible()
   expect(await page.evaluate(() => {
     const shell = document.querySelector('.app-shell')
     const workspace = document.querySelector('.secondary-workspace')
-    const back = document.querySelector('.secondary-head button[aria-label="返回"]')
+    const back = document.querySelector('.page-back[aria-label="返回"]')
     if (!shell || !workspace || !back) return false
     const frame = shell.getBoundingClientRect()
     const area = workspace.getBoundingClientRect()

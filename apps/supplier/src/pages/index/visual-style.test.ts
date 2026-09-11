@@ -28,7 +28,6 @@ const visualViews = [
 
 const visualSheets = [
   'order',
-  'assign-reassign',
   'courier',
   'handover-out',
   'handover-in',
@@ -186,10 +185,32 @@ describe('supplier mobile visual contract', () => {
 
   it('订单与交接弹层是 head / scroll-view / foot 三段式', () => {
     expect(template).toMatch(/data-visual-sheet="order"[\s\S]*class="sheet-head"[\s\S]*<scroll-view class="sheet-scroll"[\s\S]*class="sheet-actions sheet-foot"/)
-    expect(template).toMatch(/data-visual-sheet="assign-reassign"[\s\S]*<scroll-view class="sheet-scroll"/)
+    expect(template).not.toContain("key: 'assign'")
+    expect(template).not.toContain("key: 'reassign'")
+    expect(template).not.toContain('data-visual-sheet="assign-reassign"')
     expect(template).toMatch(/data-visual-sheet="handover-out"[\s\S]*<scroll-view class="sheet-scroll"/)
     expect(globalStyles).not.toMatch(/\.sheet-panel > view,\s*\.sheet-panel > scroll-view \{[^}]*overflow-y:\s*auto/)
     expect(template).toContain('class="sheet-handle"')
     expect(globalStyles).toMatch(/\.compact-empty \{[^}]*min-height:\s*96px/)
+  })
+
+  it('线路规划提供地图预览、道路摘要和站点顺序调整', () => {
+    expect(template).toContain('route-planning-map')
+    expect(template).toContain('生成路线预览')
+    expect(template).toContain('发布配送线路')
+    expect(template).toContain('总距离')
+    expect(pageSource).toContain('routeProviderLabel')
+    expect(pageSource).toContain('optimizeNamedRoute')
+    expect(template).toContain('route-workbench-status')
+    expect(template).toContain('route-bottom-actions')
+    expect(pageSource).toContain('invalidateRoutePreview')
+  })
+
+  it('司机今日任务支持多线路切换并保持紧凑布局', () => {
+    expect(template).toContain('driver-route-switcher')
+    expect(template).toContain('store.todayDriverRoutes')
+    expect(template).toContain('selectDriverRoute')
+    expect(styles).toContain('@media (max-width: 390px)')
+    expect(styles).toMatch(/\.driver-route-switcher\s*\{[^}]*overflow-x:\s*auto/)
   })
 })
