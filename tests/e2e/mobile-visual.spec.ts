@@ -312,7 +312,7 @@ test('farmhouse 320px member card and store rating keep compact text hierarchy',
   expect(ratingMetrics.iconTop - ratingMetrics.ratingTop).toBeLessThan(8)
 
   await loginFarmhouseManager(page)
-  for (const selector of ['.member-hero .lv', '.member-hero .recharge', '.member-asset-row strong']) {
+  for (const selector of ['.member-hero .lv', '.mem-asset .recharge', '.member-asset-row strong']) {
     const metrics = await page.locator(selector).evaluate((element) => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,

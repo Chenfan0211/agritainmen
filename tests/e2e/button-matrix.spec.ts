@@ -27,7 +27,7 @@ async function clearStoreDemoCart(page: Page) {
 async function farmhouseLogin(page: Page) {
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.login-prompt .primary-button').click()
-  await page.locator('.login-sheet .primary-button').click()
+  await page.locator('.sheet-foot .primary-button').click()
   await expect(page.locator('.member-hero')).toBeVisible()
   await page.locator('.tabbar uni-button').nth(0).click()
 }
@@ -47,6 +47,16 @@ async function farmhouseSeedSelection(page: Page, count: number, filterText?: st
     }))
   }, { count, filterText })
   await page.reload()
+}
+
+async function submitFarmhouseCheckout(page: Page) {
+  if (await page.locator('.checkout-page-foot:visible').count()) {
+    await page.locator('.checkout-page-foot .primary-button', { hasText: '提交订单' }).click()
+    return
+  }
+  await page.locator('.cart-float:visible uni-button').last().click()
+  await page.locator('.cart-sheet-foot .primary-button', { hasText: '去结算' }).click()
+  await page.locator('.checkout-page-foot .primary-button', { hasText: '提交订单' }).click()
 }
 
 test('admin buttons open data surfaces and keep overflow local', async ({ page }) => {
@@ -81,7 +91,7 @@ test('farmhouse buttons filter data and open persisted records', async ({ page }
   await farmhouseLogin(page)
 
   await page.locator('.tabbar uni-button').nth(2).click()
-  await page.locator('.chips uni-button', { hasText: '套餐券' }).click()
+  await page.locator('.cat-scroll uni-button', { hasText: '套餐券' }).click()
   await expect(page.locator('.product-card')).toHaveCount(2)
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.mine-list uni-button', { hasText: '储值记录' }).click()
@@ -130,11 +140,11 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await farmhouseSeedSelection(page, 3)
   await farmhouseLogin(page)
 
-  await page.locator('.quick-grid uni-button', { hasText: '套餐预订' }).click()
-  await expect(page.locator('.combo').first()).toContainText('四人欢聚套餐')
-  await page.locator('.combo').first().locator('uni-button', { hasText: '预订' }).click()
-  await page.locator('.booking-sheet uni-button', { hasText: '确认预订' }).click()
-  await expect(page.locator('.records')).toContainText('四人欢聚套餐')
+  await page.locator('.quick-grid uni-button', { hasText: '包厢预订' }).click()
+  await expect(page.locator('.room-list2 .room-li').first()).toContainText('观溪雅间')
+  await page.locator('.room-list2 .room-li').first().locator('uni-button', { hasText: '预订' }).click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '确认预订' }).click()
+  await expect(page.locator('.records')).toContainText('观溪雅间')
   await page.locator('.sub-head .page-back').click()
 
   await page.locator('.tabbar uni-button').nth(2).click()
@@ -142,16 +152,15 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await expect(page.locator('.product-detail')).toBeVisible()
   await page.locator('.sku-options uni-button').first().click()
   await page.locator('.product-detail-actions uni-button', { hasText: '加入购物车' }).click()
-  await page.locator('.sheet-foot .primary-button', { hasText: '提交订单' }).click()
-  await page.locator('.sheet-foot .primary-button', { hasText: '确认支付' }).click()
+  await submitFarmhouseCheckout(page)
   await expect(page.locator('.records')).toContainText('待发货')
   await page.locator('.sub-head .page-back').click()
 
   await page.locator('.tabbar uni-button').nth(3).click()
-  await page.locator('.member-hero .recharge').click()
+  await page.locator('.mem-asset .recharge').click()
   await expect(page.locator('.recharge-confirm')).toContainText('储值享 9 折')
   await page.locator('.recharge-confirm .ui-chips uni-button').nth(1).click()
-  await page.locator('.recharge-confirm .primary-button').click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '确认充值' }).click()
   await expect(page.locator('.ledger-list')).toContainText('会员储值充值')
 })
 
@@ -245,7 +254,7 @@ test('farmhouse multi-SKU order keeps details and can be repurchased', async ({ 
   await page.locator('.product-body uni-button').first().click()
   await page.locator('.sku-options uni-button').first().click()
   await page.locator('.product-detail-actions uni-button', { hasText: '加入购物车' }).click()
-  await page.locator('.checkout-summary uni-button', { hasText: '提交订单' }).click()
+  await submitFarmhouseCheckout(page)
   await expect(page.locator('.records')).toContainText('500g')
   await page.locator('.records uni-button', { hasText: '再次购买' }).first().click()
   await expect(page.locator('.sheet-list')).toContainText('500g')
@@ -286,7 +295,7 @@ test('manager verifies a booking and designs a signature dish', async ({ page })
   await page.locator('.design-form .form-field input').nth(0).fill('秘制辣子鸡')
   await page.locator('.design-form .form-field input').nth(1).fill('农家自养土鸡 · 香辣过瘾')
   await page.locator('.design-form .form-field input').nth(2).fill('68')
-  await page.locator('.design-form .primary-button').click()
+  await page.locator('.sheet-foot .primary-button').click()
   await expect(page.locator('.design-list')).toContainText('秘制辣子鸡')
 })
 

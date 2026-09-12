@@ -54,8 +54,8 @@ describe('农家乐移动端视觉契约', () => {
   })
 
   it('特产商城使用双列瀑布流并隐藏购买端起订量', () => {
-    expect(template).toContain('class="waterfall-grid"')
-    expect(template).toContain('class="waterfall-column"')
+    expect(template).toMatch(/class="[^"]*waterfall-grid[^"]*"/)
+    expect(template).toMatch(/class="[^"]*waterfall-column[^"]*"/)
     const shopViewAt = template.indexOf("activeTab === 'shop'")
     expect(template.slice(shopViewAt, shopViewAt + 5200)).not.toContain('起订')
     expect(styles).toMatch(/\.waterfall-grid\s*\{[^}]*display:\s*flex/s)
@@ -65,7 +65,7 @@ describe('农家乐移动端视觉契约', () => {
   it('特产商城提供胶囊搜索且圆形分类不含全部', () => {
     const shopAt = template.indexOf("activeTab === 'shop'")
     const shop = template.slice(shopAt, shopAt + 2800)
-    expect(shop).toContain('class="search-bar"')
+    expect(shop).toMatch(/class="[^"]*search-bar[^"]*"/)
     expect(shop).toContain('placeholder="搜索商品名称 / 品类"')
     expect(shop).toContain('v-for="item in shopCategories"')
     expect(source).toContain('const keyword = ref(\'\')')
@@ -79,12 +79,12 @@ describe('农家乐移动端视觉契约', () => {
   })
 
   it('特产商城整卡进入详情且加购不冒泡', () => {
-    expect(template).toMatch(/class="product-card"[^>]*@click="openProduct\(product\)"/)
+    expect(template).toMatch(/class="[^"]*product-card[^"]*"[^>]*@click="openProduct\(product\)"/)
     expect(template).toMatch(/class="add-btn"[^>]*@click\.stop="addProduct\(product\)"/)
   })
 
   it('特产商城页头用主题色块，商品卡底行是圆形加购', () => {
-    expect(template).toContain('class="mall-hero"')
+    expect(template).toMatch(/class="[^\"]*mall-hero[^\"]*"/)
     expect(template).toContain('class="mall-hero-title">特产商城')
     expect(template).toContain('件在售')
     expect(template).not.toContain('>加购<')
@@ -117,7 +117,7 @@ describe('农家乐移动端视觉契约', () => {
     expect(styles).toMatch(/\.sheet-head\s*\{[^}]*min-height:\s*var\(--mobile-sheet-header-height\)/s)
     expect(styles).toMatch(/\.sheet-head\s*\{[^}]*margin:\s*0 12px/s)
     expect(template).toMatch(/class="empty pc-empty"[\s\S]*购物车还是空的/)
-    expect(template).toMatch(/class="record-link" @click="workView = 'bookings'"/)
+    expect(template).toMatch(/class="[^\"]*record-link[^\"]*" @click="workView = 'bookings'"/)
     expect(template).not.toMatch(/class="record-link" @click="sheet = 'bookings'"/)
     expect(styles).toMatch(/\.cart-count span\s*\{[^}]*border-radius:\s*var\(--mobile-radius-card\)/)
     expect(styles).toMatch(/\.cart-count\s*\{[^}]*overflow:\s*visible/)
@@ -178,10 +178,10 @@ describe('农家乐移动端视觉契约', () => {
   })
 
   it('会员中心采用资产卡 + 快捷宫格并移除重复充值', () => {
-    expect(template).toContain('class="member-hero pc-hero"')
+    expect(template).toMatch(/class="[^"]*member-hero[^"]*pc-hero[^"]*"/)
     expect(template).toContain('class="member-hero-top"')
     expect(template).toContain('class="member-avatar"')
-    expect(template).toContain('class="mine-list pc-tile-grid"')
+    expect(template).toMatch(/class="[^"]*mine-list[^"]*pc-tile-grid[^"]*"/)
     expect(template).toContain('class="recharge pc-hero-action"')
     expect(template).toContain('class="member-footer pc-footer"')
     expect(template).toMatch(/class="pc-tile pc-tile--[a-z]+"/)
@@ -191,11 +191,11 @@ describe('农家乐移动端视觉契约', () => {
     expect(styles).toMatch(/\.mine-list\.pc-tile-grid \.pc-tile\s*\{[^}]*background:\s*transparent/)
   })
 
-  it('会员中心提供独立收货地址入口，宫格标准五列且窄屏三列', () => {
+  it('会员中心提供独立收货地址入口，服务四列且工作台三列', () => {
     expect(template).toContain('class="pc-tile-label">收货地址<')
     expect(template).toContain('@click="openAddresses()"')
-    expect(styles).toMatch(/\.mine-list\s*\{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/s)
-    expect(styles).toMatch(/@media \(max-width:\s*380px\)[\s\S]*\.mine-list\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
+    expect(styles).toMatch(/\.svc5\s*\{[^}]*grid-template-columns:\s*repeat\(4/s)
+    expect(styles).toMatch(/\.workbench-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3/s)
   })
 
   it('地址工作页提供列表、表单、地区选择、默认标记和删除确认入口', () => {
@@ -248,7 +248,7 @@ describe('农家乐移动端视觉契约', () => {
     expect(source).toContain('const selectedCartLineKeys = reactive(new Set<string>())')
     expect(source).toContain('const selectedCartItems = computed')
     expect(source).toContain('selectedLines: checkoutLineRefs.value')
-    expect(template).toContain('class="cart-category-tabs"')
+    expect(template).toMatch(/class="[^\"]*cart-category-tabs[^\"]*"/)
     expect(template).toContain('社区团购')
     expect(template).toContain('快递直发')
     expect(template).toContain('class="cart-line-check"')
@@ -285,7 +285,7 @@ describe('农家乐移动端视觉契约', () => {
     expect(productView).toContain('class="gallery-share"')
     expect(productView).toContain('class="detail-cart-button"')
     expect(productView).toContain("sheet = 'cart'")
-    expect(template).toMatch(/v-if="!productView && activeTab === 'shop' && store\.cartCount" class="cart-bar"/)
+    expect(template).toMatch(/v-if="!productView && activeTab === 'shop' && store\.cartCount" class="[^"]*cart-bar[^"]*"/)
     expect(template).toMatch(/v-if="!productView" class="tabbar"/)
     expect(styles).toMatch(/\.product-gallery\s*\{[^}]*aspect-ratio:\s*1/s)
     expect(styles).toMatch(/\.gallery-back(?:,\s*\.gallery-share)?\s*\{[^}]*position:\s*absolute/s)
@@ -314,8 +314,8 @@ describe('农家乐移动端视觉契约', () => {
   })
 
   it('预订和会员页头用主题色块，套餐预订不再挤成三列', () => {
-    expect(template).toMatch(/class="mall-hero">[\s\S]*预约预订/)
-    expect(template).toMatch(/class="mall-hero">[\s\S]*会员中心/)
+    expect(template).toMatch(/class="mall-hero[^\"]*">[\s\S]*预约预订/)
+    expect(template).not.toMatch(/class="mall-hero[^\"]*">[\s\S]*会员中心/)
     expect(template).toContain('class="pc-login-hero"')
     expect(template).not.toContain('class="login-prompt-icon')
     expect(styles).not.toMatch(/\.login-prompt-icon\s*,/)
@@ -360,7 +360,7 @@ describe('农家乐移动端视觉契约', () => {
     expect(styles).toMatch(/\.item-title\s*\{[^}]*-webkit-line-clamp:\s*2/)
   })
   it('店铺经营工作台对齐我的服务无底宫格', () => {
-    expect(template).toContain('class="workbench mine-list pc-tile-grid"')
+    expect(template).toMatch(/class="[^"]*workbench[^"]*mine-list[^"]*pc-tile-grid[^"]*"/)
     expect(template).toContain('class="pc-tile-icon"')
     expect(template).toContain('class="pc-tile-label">订单核销<')
     expect(template).not.toContain('到店核销')
@@ -499,7 +499,7 @@ describe('农家乐移动端视觉契约', () => {
   it('首页预订弹层、土菜详情与套餐购买', () => {
     expect(template).toContain('@click="openBookingForm(\'room\', room.name, room.people)">立即预订')
     expect(template).toMatch(/class="food-card"[^>]*@click="openFoodDetail\(food\)"/)
-    expect(source).toContain('Array.from({ length: 3 }')
+    expect(source).toContain('Array.from({ length: 5 }')
     expect(source).toContain("offset === 1 ? '明天' : '后天'")
     expect(template).toContain('<text>套餐</text>')
     expect(template).not.toContain('<text>套餐预订</text>')

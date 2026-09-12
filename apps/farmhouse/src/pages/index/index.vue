@@ -16,6 +16,7 @@ type TabKey = 'home' | 'reserve' | 'shop' | 'member'
 type WorkView = 'select' | 'verify' | 'design-rooms' | 'design-foods' | 'design-experiences' | 'staff-admin' | 'orders' | 'bookings' | 'ledger' | 'addresses' | 'checkout' | 'help' | null
 type SheetKey = 'login' | 'cart' | 'orders' | 'bookings' | 'room-form' | 'food-form' | 'experience-form' | 'share' | 'product' | 'contact' | 'foods' | 'ledger' | 'recharge' | 'identity' | 'help' | 'booking-form' | 'after-sale' | 'service' | 'staff-form' | 'staff-promo' | 'pay' | null
 type PayContext = { kind: 'service' | 'mall' | 'food'; title: string; summary: string; amount: number }
+type BookingDateOption = { value: string; weekday: string; dateLabel: string }
 
 let disposePlatformChanges: (() => void) | null = null
 let disposeStorageSync: (() => void) | null = null
@@ -72,11 +73,20 @@ const sheet = ref<SheetKey>(null)
 const category = ref('全部')
 const keyword = ref('')
 const reserveType = ref<'room' | 'package'>('room')
-const bookingDates = Array.from({ length: 3 }, (_, offset) => {
+const bookingDates = Array.from({ length: 5 }, (_, offset) => {
   const date = new Date()
   date.setDate(date.getDate() + offset)
   const prefix = offset === 0 ? '今天' : offset === 1 ? '明天' : '后天'
   return `${prefix} ${date.getMonth() + 1}月${date.getDate()}日`
+})
+const bookingDateOptions: BookingDateOption[] = bookingDates.map((value, index) => {
+  const date = new Date()
+  date.setDate(date.getDate() + index)
+  return {
+    value,
+    weekday: index === 0 ? '今天' : index === 1 ? '明天' : `周${'日一二三四五六'[date.getDay()]}`,
+    dateLabel: `${date.getMonth() + 1}/${date.getDate()}`
+  }
 })
 const PACKAGE_FOOD_IDS: Record<string, string[]> = {
   P007: ['FD01', 'FD02', 'FD03', 'FD04'],
@@ -1102,7 +1112,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view v-for="item in filteredVerifyBookings" :key="item.id" class="verify-item booking-verify">
             <BusinessImage v-if="item.image" class="verify-emoji" :src="item.image" mode="aspectFill" /><view v-else class="verify-emoji icon-placeholder"><UiIcon name="calendar-check" :size="22" /></view>
             <view class="verify-main"><text class="item-title">{{ item.name }}</text><small>{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small></view>
-            <span class="verify-status" :class="item.status === 'cancelled' ? 'cancel' : item.status === 'completed' ? 'ok' : ''">{{ farmhouseBookingStatusText(item.status) }}</span>
+             <span class="verify-status status-corner" :class="item.status === 'cancelled' ? 'cancel' : item.status === 'completed' ? 'ok' : ''">{{ farmhouseBookingStatusText(item.status) }}</span>
             <view v-if="isActiveBookingStatus(item.status)" class="verify-amount"><text>¥</text><input type="digit" inputmode="decimal" aria-label="实际消费金额" placeholder="实际金额" :value="bookingAmounts[item.id] ?? item.amount ?? ''" @input="setBookingAmount(item.id, $event)" /></view>
             <button v-if="isActiveBookingStatus(item.status)" class="verify-btn" @click="verifyBooking(item.id)">核销</button>
             <span v-else class="verify-done"><UiIcon :name="item.status === 'cancelled' ? 'x' : 'check'" :size="16" /></span>
@@ -1187,7 +1197,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
         <view class="list-search"><UiIcon name="search" :size="16" /><input v-model="bookingKeyword" placeholder="搜索预订名称 / 日期" /></view>
         <view v-if="!filteredBookings.length" class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="calendar-check" :size="28" /></view><text>还没有预订，去门店逛逛吧～</text></view>
         <view class="records order-records">
-          <view v-for="item in filteredBookings" :key="item.id" class="rec-line"><BusinessImage v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFill" /><view v-else class="rec-ic icon-placeholder"><UiIcon name="calendar-days" :size="20" /></view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="isActiveBookingStatus(item.status)" class="action-btn action-btn--muted" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ farmhouseBookingStatusText(item.status) }}</span></view>
+           <view v-for="item in filteredBookings" :key="item.id" class="rec-line"><BusinessImage v-if="item.image" class="rec-ic" :src="item.image" mode="aspectFill" /><view v-else class="rec-ic icon-placeholder"><UiIcon name="calendar-days" :size="20" /></view><view class="rec-b"><text class="rec-t">{{ item.name }}</text><small class="rec-s">{{ item.type === 'service' ? item.date + ' · ' + item.people + ' 人' + (item.amount ? ' · ' + money(item.amount) : '') : item.date + ' · ' + item.session + ' · ' + item.people + ' 人' }}</small><button v-if="isActiveBookingStatus(item.status)" class="action-btn action-btn--muted" @click="cancelBooking(item.id)">取消预订</button></view><span class="rec-st status-corner" :class="item.status === 'cancelled' ? 'go' : item.status === 'completed' ? 'ok' : ''">{{ farmhouseBookingStatusText(item.status) }}</span></view>
         </view>
         </view>
       </view>
@@ -1255,31 +1265,31 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
       <template v-else>
         <view v-if="activeTab === 'home'" class="tab-page home-page" :data-visual-view="activeTab">
           <view v-if="referrerText" class="referrer-banner"><UiIcon name="user-round-check" :size="16" /><text>{{ referrerText }}</text></view>
-          <view class="hero">
+          <view class="hero hero2">
             <BusinessImage class="hero-media" :src="store.farm?.image" mode="aspectFill" />
             <view class="hero-shade"></view>
-            <view class="hero-content"><text class="location"><UiIcon name="map-pin" :size="15" />{{ store.farm?.city || '湘西州' }} · 距您 {{ store.tenant?.distanceKm || 8.6 }}km</text><text class="hero-title">{{ store.tenant?.name }}</text><text class="hero-sub"><UiIcon name="trophy" :size="15" />{{ store.farm?.rating || 4.9 }} 分 · {{ store.tenant?.slogan }} · 营业 {{ store.tenant?.hours }}</text></view>
+            <view class="hero-content"><text class="location loc-chip"><UiIcon name="map-pin" :size="15" />{{ store.farm?.city || '湘西州' }} · 距您 {{ store.tenant?.distanceKm || 8.6 }}km</text><text class="hero-sub"><UiIcon name="trophy" :size="15" />{{ store.farm?.rating || 4.9 }} 分 · {{ store.tenant?.slogan }} · 营业 {{ store.tenant?.hours }}</text></view>
           </view>
-           <view class="store-summary"><BusinessImage :src="store.farm?.image" mode="aspectFill" /><view><text class="item-title">{{ store.tenant?.name }}</text><text class="rating"><UiIcon name="trophy" :size="14" />{{ store.farm?.rating || 0 }} · 月售 {{ store.farm?.monthlySales || 0 }}+ · 本地口碑店</text><view class="tag-row"><text v-for="tag in store.farm?.storeTags || store.farm?.tags || []" :key="tag">{{ tag }}</text></view></view><button class="call-button" @click="sheet = 'contact'"><UiIcon name="phone" :size="17" />电话</button></view>
-<view class="quick-grid pc-tile-grid"><button class="pc-tile pc-tile--green" @click="openReservation('room', '观溪雅间')"><view class="pc-tile-icon"><UiIcon name="door-open" :size="26" /></view><text class="pc-tile-label">包厢预订</text></button><button class="pc-tile pc-tile--amber" @click="openReservation('package', '四人欢聚套餐')"><view class="pc-tile-icon"><UiIcon name="utensils" :size="26" /></view><text class="pc-tile-label">套餐预订</text></button><button class="pc-tile pc-tile--coral" @click="chooseTab('shop')"><view class="pc-tile-icon"><UiIcon name="shopping-bag" :size="26" /></view><text class="pc-tile-label">特产商城</text></button><button class="pc-tile pc-tile--blue" @click="chooseTab('member')"><view class="pc-tile-icon"><UiIcon name="crown" :size="26" /></view><text class="pc-tile-label">会员中心</text></button></view>
-          <view class="notice"><UiIcon name="megaphone" :size="18" /><text>端午特惠：到店满 200 减 30，会员储值享 9 折，分享好友下单得佣金～</text></view>
+           <view class="store-summary store-card"><BusinessImage :src="store.farm?.image" mode="aspectFill" /><view><text class="item-title">{{ store.tenant?.name }}</text><text class="rating"><UiIcon name="trophy" :size="14" />{{ store.farm?.rating || 0 }} · 月售 {{ store.farm?.monthlySales || 0 }}+ · 本地口碑店</text><view class="tag-row"><text v-for="tag in store.farm?.storeTags || store.farm?.tags || []" :key="tag">{{ tag }}</text></view></view><button class="call-button" @click="sheet = 'contact'"><UiIcon name="phone" :size="17" />电话</button></view>
+<view class="quick-grid quick2 pc-tile-grid"><button class="pc-tile pc-tile--green" @click="openReservation('room', '观溪雅间')"><view class="pc-tile-icon"><UiIcon name="door-open" :size="26" /></view><text class="pc-tile-label">包厢预订</text></button><button class="pc-tile pc-tile--amber" @click="openReservation('package', '四人欢聚套餐')"><view class="pc-tile-icon"><UiIcon name="utensils" :size="26" /></view><text class="pc-tile-label">套餐预订</text></button><button class="pc-tile pc-tile--coral" @click="chooseTab('shop')"><view class="pc-tile-icon"><UiIcon name="shopping-bag" :size="26" /></view><text class="pc-tile-label">特产商城</text></button><button class="pc-tile pc-tile--blue" @click="chooseTab('member')"><view class="pc-tile-icon"><UiIcon name="crown" :size="26" /></view><text class="pc-tile-label">会员中心</text></button></view>
+          <view class="notice notice2"><UiIcon name="megaphone" :size="18" /><text>端午特惠：到店满 200 减 30，会员储值享 9 折，分享好友下单得佣金～</text></view>
           <view class="section-head"><view><span></span><text>招牌土菜</text></view><button v-if="store.foods.length" @click="sheet = 'foods'">查看更多</button></view>
-          <view v-if="store.foods.length" class="food-scroll"><view class="food-list"><view v-for="food in store.foods.slice(0, 4)" :key="food.id" class="food-card" @click="openFoodDetail(food)"><BusinessImage class="food-thumb" :src="food.image" mode="aspectFill" /><text>{{ food.name }}</text><small>{{ food.description }}</small><view class="food-price"><strong>{{ money(food.price) }}</strong><del v-if="food.originalPrice">{{ money(food.originalPrice) }}</del></view></view></view></view>
+          <view v-if="store.foods.length" class="food-scroll food-h"><view class="food-list"><view v-for="food in store.foods.slice(0, 4)" :key="food.id" class="food-card" @click="openFoodDetail(food)"><BusinessImage class="food-thumb" :src="food.image" mode="aspectFill" /><text>{{ food.name }}</text><small>{{ food.description }}</small><view class="food-price"><strong>{{ money(food.price) }}</strong><del v-if="food.originalPrice">{{ money(food.originalPrice) }}</del></view></view></view></view>
           <view v-else class="empty-page home-empty pc-empty"><view class="pc-state-icon"><UiIcon name="utensils" :size="28" /></view><text>暂无招牌土菜，店主可到会员中心→设计招牌土菜添加</text></view>
           <view class="section-head"><view><span></span><text>特色包厢</text></view><button class="more-button" @click="chooseTab('reserve')">去预订 ›</button></view>
-          <view v-if="store.rooms.length" class="room-list"><view v-for="room in store.rooms.slice(0, 2)" :key="room.id" class="room-card"><BusinessImage class="room-emoji" :src="room.image" mode="aspectFill" /><view><text>{{ room.name }}</text><small>{{ room.capacity }}</small></view><button @click="openBookingForm('room', room.name, room.people)">立即预订</button></view></view>
+          <view v-if="store.rooms.length" class="room-list room-h"><view v-for="room in store.rooms.slice(0, 3)" :key="room.id" class="room-card"><BusinessImage class="room-emoji" :src="room.image" mode="aspectFill" /><view><text>{{ room.name }}</text><small>{{ room.capacity }}</small></view><button @click="openBookingForm('room', room.name, room.people)">立即预订</button></view></view>
           <view v-else class="empty-page home-empty pc-empty"><view class="pc-state-icon"><UiIcon name="door-open" :size="28" /></view><text>暂无包厢，店主可到会员中心→设计特色包厢添加</text></view>
           <view class="section-head" @click="openService(experienceList[0])"><view><span></span><text>特色服务</text></view></view>
-          <view class="service-grid"><view v-for="s in experienceList" :key="s.id" hover-class="s-hover" @click="openService(s)"><BusinessImage class="s-emoji" :src="s.image" mode="aspectFill" /><text>{{ s.name }}</text><small>{{ s.description }}</small></view></view>
+          <view class="service-grid svc-card"><view v-for="s in experienceList" :key="s.id" hover-class="s-hover" @click="openService(s)"><BusinessImage class="s-emoji" :src="s.image" mode="aspectFill" /><text>{{ s.name }}</text><small>{{ s.description }}</small></view></view>
         </view>
 
         <view v-else-if="activeTab === 'reserve'" class="tab-page page-pad" :data-visual-view="activeTab">
-          <view class="mall-hero"><text class="mall-hero-title">预约预订</text><text class="mall-hero-sub">包厢预定 · 套餐预定 · 到店预约</text></view>
+          <view class="mall-hero green-head2"><text class="mall-hero-title">预约预订</text><text class="mall-hero-sub">包厢预定 · 套餐预定 · 到店预约</text></view>
           <view class="section-head compact"><view><span></span><text>选择日期</text></view></view>
-          <view class="cats"><button v-for="item in bookingDates" :key="item" :class="{ on: booking.date === item }" @click="booking.date = item">{{ item }}</button></view>
+          <view class="cats date-strip"><button v-for="item in bookingDateOptions" :key="item.value" class="date-chip" :class="{ on: booking.date === item.value }" @click="booking.date = item.value"><small>{{ item.weekday }}</small><b>{{ item.dateLabel }}</b></button></view>
           <view class="section-head compact"><view><span></span><text>包厢预订</text></view></view>
-          <view v-if="store.rooms.length" class="reserve-list">
-            <view v-for="room in store.rooms" :key="room.id" class="room">
+          <view v-if="store.rooms.length" class="reserve-list room-list2">
+            <view v-for="room in store.rooms" :key="room.id" class="room room-li">
               <BusinessImage class="rimg" :src="room.image" mode="aspectFill" />
               <view class="rb">
                 <text class="rn">{{ room.name }}</text>
@@ -1290,8 +1300,8 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </view>
           <view v-else class="empty-page home-empty pc-empty"><view class="pc-state-icon"><UiIcon name="door-open" :size="28" /></view><text>暂无包厢可预订</text></view>
           <view class="section-head compact"><view><span></span><text>套餐</text></view><small>含锁定食材</small></view>
-          <view class="combo-list">
-            <view v-for="pkg in catalogPackages" :key="pkg.id" class="combo" @click="openPackageDetail(pkg)">
+          <view class="combo-list combo-g">
+            <view v-for="pkg in catalogPackages" :key="pkg.id" class="combo combo-c" @click="openPackageDetail(pkg)">
               <BusinessImage class="ci" :src="pkg.image" mode="aspectFill" />
               <view class="cb">
                 <view class="cn">{{ pkg.name }}</view>
@@ -1301,15 +1311,14 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
             </view>
           </view>
           <view class="reserve-note"><UiIcon name="bell" :size="16" /><text>{{ reminderNote() }}</text></view>
-          <button class="record-link" @click="workView = 'bookings'"><UiIcon name="calendar-check" :size="18" />查看我的预订（{{ store.bookings.length }}）<UiIcon name="chevron-right" :size="18" /></button>
+          <button class="record-link book-float" @click="workView = 'bookings'"><UiIcon name="calendar-check" :size="18" />查看我的预订（{{ store.bookings.length }}）<UiIcon name="chevron-right" :size="18" /></button>
         </view>
         <view v-else-if="activeTab === 'shop'" class="tab-page page-pad shop-page" :data-visual-view="activeTab">
-          <view class="mall-hero"><text class="mall-hero-title">特产商城</text><text class="mall-hero-sub">{{ visibleProducts.length }} 件在售</text></view>
-          <view class="search-bar"><UiIcon name="search" :size="18" /><input v-model="keyword" placeholder="搜索商品名称 / 品类" confirm-type="search" /></view>
-          <view class="category-grid"><button v-for="item in shopCategories" :key="item" class="category-grid-item" :class="{ active: category === item }" :aria-label="item" :title="item" @click="selectShopCategory(item)"><BusinessImage class="category-grid-img" :src="productCategoryImage(item, dictionaryState)" :fallback="defaultProductCategoryImage(item)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ item }}</text></button></view>
-          <view v-if="visibleProducts.length" class="waterfall-grid">
+          <view class="mall-hero shop-head"><text class="mall-hero-title">特产商城</text><text class="mall-hero-sub">{{ visibleProducts.length }} 件在售</text><view class="search-bar search2"><UiIcon name="search" :size="18" /><input v-model="keyword" placeholder="搜索商品名称 / 品类" confirm-type="search" /></view></view>
+          <view class="category-grid cat-scroll"><button v-for="item in shopCategories" :key="item" class="category-grid-item" :class="{ active: category === item }" :aria-label="item" :title="item" @click="selectShopCategory(item)"><BusinessImage class="category-grid-img" :src="productCategoryImage(item, dictionaryState)" :fallback="defaultProductCategoryImage(item)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ item }}</text></button></view>
+          <view v-if="visibleProducts.length" class="waterfall-grid wf">
             <view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column">
-             <view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)"><view class="product-image product-open" :aria-label="`查看${product.name}`"><BusinessImage class="product-emoji" :src="product.image" mode="aspectFill" /><text v-if="product.source === 'platform'" data-typography-compact>中台供</text></view><view class="product-body"><view class="tag-row"><span class="source-tag">{{ displayProductTags(product, 'store')[0] || '门店商品' }}</span><span v-if="isExpressDeliverable(product)" class="express-tag">快递直发</span></view><text class="item-title">{{ product.name }}</text><small class="muted">{{ canStartProductOrder(product) ? `已售 · 库存 ${product.skus.reduce((sum, sku) => sum + sku.stock, 0)}` : '库存不足或数量未达要求' }}</small><view class="product-foot"><strong>{{ money(product.price) }}</strong><button class="add-btn" :aria-label="`加入${product.name}到购物车`" :disabled="!canStartProductOrder(product)" @click.stop="addProduct(product)"><UiIcon name="plus" :size="16" /></button></view></view></view>
+             <view v-for="product in column" :key="product.id" class="product-card p-card" @click="openProduct(product)"><view class="product-image product-open" :aria-label="`查看${product.name}`"><BusinessImage class="product-emoji" :src="product.image" mode="aspectFill" /><text v-if="product.source === 'platform'" data-typography-compact>中台供</text><text v-if="isExpressDeliverable(product)" class="p-card-delivery">快递直发</text></view><view class="product-body"><view class="tag-row"><span class="source-tag">{{ displayProductTags(product, 'store')[0] || '门店商品' }}</span></view><text class="item-title">{{ product.name }}</text><small class="muted">{{ canStartProductOrder(product) ? `已售 · 库存 ${product.skus.reduce((sum, sku) => sum + sku.stock, 0)}` : '库存不足或数量未达要求' }}</small><view class="product-foot"><strong>{{ money(product.price) }}</strong><button class="add-btn" :aria-label="`加入${product.name}到购物车`" :disabled="!canStartProductOrder(product)" @click.stop="addProduct(product)"><UiIcon name="plus" :size="16" /></button></view></view></view>
             </view>
           </view>
           <view v-else class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="search" :size="26" /></view><text>没有找到相关商品</text><small>试试其他关键词或分类</small></view>
@@ -1317,14 +1326,14 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
 
         <view v-else class="tab-page member-page page-pad" :data-visual-view="activeTab">
           <template v-if="store.auth.isLoggedIn">
-<view class="mall-hero"><text class="mall-hero-title">会员中心</text><text class="mall-hero-sub">会员充值 · 等级权益 · 积分优惠券<text v-if="canPromote"> · 分销推广</text></text></view>
 <view class="member-body pc-page">
-<view class="member-hero pc-hero"><view class="member-hero-top"><view class="member-hero-id"><view class="member-avatar">{{ store.member.name.slice(0, 1) }}</view><view><text class="uname pc-hero-name">{{ store.member.name }}</text><small class="uid pc-hero-uid">{{ store.member.memberNo || 'SBX·8829' }} · 已享专属价</small></view></view><span class="lv pc-hero-badge"><UiIcon name="crown" :size="15" />黄金会员</span></view><view class="mbal pc-hero-data"><view class="member-asset"><small>储值余额</small><view class="member-asset-row"><strong>{{ money(store.balance) }}</strong><button class="recharge pc-hero-action" @click="recharge">充值 ＋</button></view></view><view><small>积分</small><strong>{{ store.points.toLocaleString('zh-CN') }}</strong></view></view></view>
+<view class="member-hero mem-hero pc-hero"><view class="member-hero-top"><view class="member-hero-id"><view class="member-avatar">{{ store.member.name.slice(0, 1) }}</view><view><text class="uname pc-hero-name">{{ store.member.name }}</text><small class="uid pc-hero-uid">{{ store.member.memberNo || 'SBX·8829' }} · 已享专属价</small></view></view><span class="lv pc-hero-badge"><UiIcon name="crown" :size="15" />黄金会员</span></view></view>
+<view class="member-asset mem-asset"><view><small>储值余额</small><view class="member-asset-row"><strong>{{ money(store.balance) }}</strong><button class="recharge pc-hero-action" @click="recharge">充值 ＋</button></view></view><view><small>积分</small><strong>{{ store.points.toLocaleString('zh-CN') }}</strong></view></view>
 <view class="pc-section-title"><view class="pc-bar"></view><text>我的服务</text></view>
-<view class="mine-list pc-tile-grid"><button class="pc-tile pc-tile--green" @click="workView = 'orders'"><view class="pc-tile-icon"><UiIcon name="package-check" :size="26" /><text v-if="store.orders.length" class="pc-tile-badge">{{ store.orders.length > 99 ? '99+' : store.orders.length }}</text></view><text class="pc-tile-label">我的订单</text></button><button class="pc-tile pc-tile--amber" @click="workView = 'bookings'"><view class="pc-tile-icon"><UiIcon name="calendar-check" :size="26" /><text v-if="store.bookings.length" class="pc-tile-badge">{{ store.bookings.length > 99 ? '99+' : store.bookings.length }}</text></view><text class="pc-tile-label">我的预订</text></button><button class="pc-tile pc-tile--coral" @click="workView = 'ledger'"><view class="pc-tile-icon"><UiIcon name="credit-card" :size="26" /></view><text class="pc-tile-label">储值记录</text></button><button class="pc-tile pc-tile--teal" @click="openAddresses()"><view class="pc-tile-icon"><UiIcon name="map-pin" :size="26" /></view><text class="pc-tile-label">收货地址</text></button><button class="pc-tile pc-tile--blue" @click="openHelp()"><view class="pc-tile-icon"><UiIcon name="headset" :size="26" /></view><text class="pc-tile-label">设置帮助</text></button></view>
-<view class="role-block pc-card"><view class="pc-section-title"><view class="pc-bar"></view><text>切换演示身份</text></view><view class="segmented roles pc-seg"><button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ active: store.role === role }" @click="chooseRole(role)">{{ roleNames[role] }}</button></view><text class="role-help pc-help">{{ store.role === 'customer' ? '浏览、预订、商城和会员功能' : store.role === 'staff' ? '包含顾客功能，并可核销订单' : '包含全部功能，并可设计包厢土菜、选品上架、核销订单' }}</text></view>
+<view class="mine-list svc5 pc-tile-grid"><button class="pc-tile pc-tile--green" @click="workView = 'orders'"><view class="pc-tile-icon"><UiIcon name="package-check" :size="26" /><text v-if="store.orders.length" class="pc-tile-badge">{{ store.orders.length > 99 ? '99+' : store.orders.length }}</text></view><text class="pc-tile-label">我的订单</text></button><button class="pc-tile pc-tile--amber" @click="workView = 'bookings'"><view class="pc-tile-icon"><UiIcon name="calendar-check" :size="26" /><text v-if="store.bookings.length" class="pc-tile-badge">{{ store.bookings.length > 99 ? '99+' : store.bookings.length }}</text></view><text class="pc-tile-label">我的预订</text></button><button class="pc-tile pc-tile--coral" @click="workView = 'ledger'"><view class="pc-tile-icon"><UiIcon name="credit-card" :size="26" /></view><text class="pc-tile-label">储值记录</text></button><button class="pc-tile pc-tile--teal" @click="openAddresses()"><view class="pc-tile-icon"><UiIcon name="map-pin" :size="26" /></view><text class="pc-tile-label">收货地址</text></button><button class="pc-tile pc-tile--blue" @click="openHelp()"><view class="pc-tile-icon"><UiIcon name="headset" :size="26" /></view><text class="pc-tile-label">设置帮助</text></button></view>
+<view class="role-block role-card pc-card"><view class="pc-section-title"><view class="pc-bar"></view><text>切换演示身份</text></view><view class="segmented roles pc-seg seg2"><button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ active: store.role === role }" @click="chooseRole(role)">{{ roleNames[role] }}</button></view><text class="role-help pc-help">{{ store.role === 'customer' ? '浏览、预订、商城和会员功能' : store.role === 'staff' ? '包含顾客功能，并可核销订单' : '包含全部功能，并可设计包厢土菜、选品上架、核销订单' }}</text></view>
 <view v-if="canPromote" class="promotion"><view><UiIcon name="badge-dollar-sign" :size="24" /><text>分销推广中心</text><small>分享门店 / 商品给好友，好友下单你就赚佣金。员工、老客户、推客、主播均可参与，形成私域裂变。</small></view><view class="promo-stats"><view><text>累计佣金</text><strong>¥{{ formatNumber(store.member.cumulativeCommission ?? 0) }}</strong></view><view><text>我的粉丝</text><strong>{{ store.member.fans ?? 0 }}</strong></view><view><text>本月订单</text><strong>{{ store.member.monthlyOrders ?? 0 }}</strong></view></view><button @click="sheet = 'share'"><UiIcon name="link" :size="16" />生成我的专属推广海报</button></view>
-<view v-if="store.canOperate" class="workbench mine-list pc-tile-grid">
+<view v-if="store.canOperate" class="workbench workbench-grid mine-list pc-tile-grid">
 <view class="pc-section-title pc-light-title workbench-title"><view class="pc-bar"></view><text>店铺经营工作台</text></view>
 <button class="pc-tile pc-tile--green" @click="workView = 'verify'"><view class="pc-tile-icon"><UiIcon name="check" :size="26" /></view><text class="pc-tile-label">订单核销</text></button>
 <button v-if="store.canSelect" class="pc-tile pc-tile--amber" @click="workView = 'design-rooms'"><view class="pc-tile-icon"><UiIcon name="door-open" :size="26" /></view><text class="pc-tile-label">特色包厢</text></button>
@@ -1353,7 +1362,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           </view>
         </view>
 
-        <view v-if="!productView && activeTab === 'shop' && store.cartCount" class="cart-bar"><button class="cart-count" @click="sheet = 'cart'"><UiIcon name="shopping-cart" :size="21" /><span>{{ store.cartCount }}</span></button><view><small>合计</small><strong>{{ money(store.cartTotal) }}</strong></view><button @click="sheet = 'cart'">去结算</button></view>
+        <view v-if="!productView && activeTab === 'shop' && store.cartCount" class="cart-bar cart-float"><button class="cart-count" @click="sheet = 'cart'"><UiIcon name="shopping-cart" :size="21" /><span>{{ store.cartCount }}</span></button><view><small>合计</small><strong>{{ money(store.cartTotal) }}</strong></view><button @click="sheet = 'cart'">去结算</button></view>
         <view v-if="!productView" class="tabbar"><button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="chooseTab(tab.key)"><UiIcon :name="tab.icon" :size="21" /><text>{{ tab.label }}</text></button></view>
       </template>
 
@@ -1365,9 +1374,11 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
            <view class="sheet-head"><text>{{ sheet === 'login' ? '微信登录' : sheet === 'service' ? (selectedService?.name || '服务详情') : sheet === 'cart' ? '购物车结算' : sheet === 'room-form' ? (editingRoomId ? '编辑包厢' : '新增包厢') : sheet === 'food-form' ? (editingFoodId ? '编辑菜品' : '新增菜品') : sheet === 'experience-form' ? (editingExperienceId ? '编辑体验' : '新增体验') : sheet === 'product' ? '选择规格' : sheet === 'booking-form' ? booking.name : sheet === 'contact' ? `联系${store.tenant?.name || ''}` : sheet === 'after-sale' ? '售后申请' : sheet === 'foods' ? '招牌菜品' : sheet === 'recharge' ? '会员储值充值' : sheet === 'identity' ? '切换身份' : sheet === 'staff-form' ? (staffForm.id ? '编辑店员' : '新增店员') : sheet === 'pay' ? '确认支付' : sheet === 'staff-promo' ? '我的推广码' : '专属推广海报' }}</text><button aria-label="关闭弹层" @click="sheet = null"><UiIcon name="x" :size="19" /></button></view>
         <scroll-view class="sheet-scroll" scroll-y>
 <view v-if="sheet === 'login'" class="login-sheet">
+          <view class="login-brand-row">
           <view class="login-sheet-icon icon-placeholder"><UiIcon name="user-round-check" :size="28" /></view>
           <text class="login-sheet-title">{{ loginRole === 'customer' ? '微信一键登录' : '账号密码登录' }}</text>
           <text class="login-sheet-sub">登录「{{ store.tenant?.name || '中选科技农家乐门店端' }}」前，请先选择身份</text>
+          </view>
           <view class="segmented roles login-roles">
             <button v-for="role in (['customer','staff','manager'] as Role[])" :key="role" :class="{ active: loginRole === role }" @click="loginRole = role">{{ roleNames[role] }}</button>
           </view>
@@ -1385,7 +1396,7 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
            <view v-else-if="sheet === 'cart'" class="sheet-list cart-sheet-list">
              <view v-if="!store.cart.length" class="empty pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>购物车还是空的</text></view>
              <template v-else>
-               <view class="cart-category-tabs"><button :class="{ active: cartCategory === 'community' }" @click="cartCategory = 'community'"><text>社区团购</text><small>{{ cartCategoryCount('community') }} 件</small></button><button :class="{ active: cartCategory === 'express' }" @click="cartCategory = 'express'"><text>快递直发</text><small>{{ cartCategoryCount('express') }} 件</small></button></view>
+               <view class="cart-category-tabs cart-channel-segment"><button :class="{ active: cartCategory === 'community' }" @click="cartCategory = 'community'"><text>社区团购</text><small>{{ cartCategoryCount('community') }} 件</small></button><button :class="{ active: cartCategory === 'express' }" @click="cartCategory = 'express'"><text>快递直发</text><small>{{ cartCategoryCount('express') }} 件</small></button></view>
                <view class="cart-select-all"><text>{{ cartCategory === 'express' ? '快递商品' : '普通商品' }} · {{ cartCategoryItems.length }} 款</text><button @click="toggleAllCartLines"><span class="cart-check" :class="{ checked: cartCategoryAllSelected }"><UiIcon v-if="cartCategoryAllSelected" name="check" :size="14" /></span>{{ cartCategoryAllSelected ? '取消全选' : '全选' }}</button></view>
                <view v-if="!cartCategoryItems.length" class="empty cart-category-empty"><view class="pc-state-icon"><UiIcon :name="cartCategory === 'express' ? 'truck' : 'store'" :size="25" /></view><text>{{ cartCategory === 'express' ? '暂无快递直发商品' : '暂无社区团购商品' }}</text><small>{{ cartCategory === 'express' ? '支持快递的商品会显示在这里' : '普通商品请到农家乐自提' }}</small></view>
                <view v-for="item in cartCategoryItems" :key="cartLineKey(item)" class="sheet-line cart-line" :class="{ shortage: item.unavailable, selected: selectedCartLineKeys.has(cartLineKey(item)) }">
@@ -1397,10 +1408,10 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
              </template>
            </view>
 
-           <view v-else-if="sheet === 'room-form'" class="design-form">
+           <view v-else-if="sheet === 'room-form'" class="design-form management-form-grid">
             <label class="form-field"><text>包厢名称</text><input v-model="roomForm.name" placeholder="如：观溪雅间" /></label>
             <view class="form-field"><text>展示图片</text>
-              <ImageUploader v-model="roomForm.image" purpose="room" profile="normal" />
+              <view class="upload-grid"><ImageUploader v-model="roomForm.image" purpose="room" profile="normal" /></view>
               <small class="form-hint">可上传门店实拍图，未上传使用默认场景图</small>
             </view>
             <label class="form-field"><text>容量与特色</text><input v-model="roomForm.capacity" placeholder="如：8–10 人 · 临溪景观 · 最低消费 ¥600" /></label>
@@ -1408,33 +1419,33 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
             <label class="form-field"><text>可容纳人数</text><input v-model.number="roomForm.people" type="number" /></label>
             <view class="form-field"><text>状态</text><view class="choice-row"><button :class="{ active: roomForm.status === '可预订' }" @click="roomForm.status = '可预订'">可预订</button><button :class="{ active: roomForm.status === '仅余晚市' }" @click="roomForm.status = '仅余晚市'">仅余晚市</button></view></view>
           </view>
-          <view v-else-if="sheet === 'food-form'" class="design-form">
+          <view v-else-if="sheet === 'food-form'" class="design-form management-form-grid">
             <label class="form-field"><text>菜品名称</text><input v-model="foodForm.name" placeholder="如：土鸡汤" /></label>
             <label class="form-field"><text>菜品描述</text><input v-model="foodForm.description" placeholder="如：柴火慢炖 3 小时" /></label>
             <label class="form-field"><text>售价（元）</text><input v-model.number="foodForm.price" type="digit" /></label>
             <label class="form-field"><text>原价（元，可选）</text><input v-model.number="foodForm.originalPrice" type="digit" placeholder="留空则无划线价" /></label>
 
             <view class="form-field"><text>菜品图片</text>
-              <ImageUploader v-model="foodForm.image" purpose="food" profile="normal" />
+              <view class="upload-grid"><ImageUploader v-model="foodForm.image" purpose="food" profile="normal" /></view>
               <small class="form-hint">可上传菜品实拍图，未上传使用默认图</small>
             </view>
           </view>
-          <view v-else-if="sheet === 'experience-form'" class="design-form">
+          <view v-else-if="sheet === 'experience-form'" class="design-form management-form-grid">
             <label class="form-field"><text>体验名称</text><input v-model="experienceForm.name" placeholder="如：农事采摘体验" /></label>
             <view class="form-field"><text>体验分类</text><view class="choice-row"><button v-for="opt in experienceCategoryOptions" :key="opt.code" :class="{ active: experienceForm.categoryCode === opt.code }" @click="experienceForm.categoryCode = opt.code">{{ opt.label }}</button></view></view>
             <label class="form-field"><text>体验描述</text><input v-model="experienceForm.description" placeholder="如：应季果蔬采摘 · 亲子互动" /></label>
             <label class="form-field"><text>价格（元/人）</text><input v-model.number="experienceForm.price" type="digit" /></label>
-            <view class="form-field"><text>体验图片</text><ImageUploader v-model="experienceForm.image" purpose="experience" profile="normal" /></view>
+            <view class="form-field"><text>体验图片</text><view class="upload-grid"><ImageUploader v-model="experienceForm.image" purpose="experience" profile="normal" /></view></view>
           </view>
 
 
 
 
-           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail sku-sheet"><view class="sku-product-summary"><BusinessImage class="sku-product-image" :src="selectedSku?.image || selectedProduct.image" mode="aspectFill" /><view><text class="sku-product-name">{{ selectedProduct.name }}</text><strong>{{ money(selectedSku?.price || selectedProduct.price) }}</strong><small>库存 {{ selectedSku?.stock || 0 }}</small><small>已选：{{ selectedSku?.name || '暂未选择' }}</small></view></view><text class="sku-label">选择规格</text><view class="sku-options"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!canStartOrder(sku)" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">库存不足或数量未达要求</small></view>
+           <view v-else-if="sheet === 'product' && selectedProduct" class="product-detail sku-sheet"><view class="sku-product-summary"><BusinessImage class="sku-product-image" :src="selectedSku?.image || selectedProduct.image" mode="aspectFill" /><view><text class="sku-product-name">{{ selectedProduct.name }}</text><strong>{{ money(selectedSku?.price || selectedProduct.price) }}</strong><small>库存 {{ selectedSku?.stock || 0 }}</small><small>已选：{{ selectedSku?.name || '暂未选择' }}</small></view></view><text class="sku-label">选择规格</text><view class="sku-options sku-options-grid"><button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!canStartOrder(sku)" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text><small>{{ money(sku.price) }} · 库存 {{ sku.stock }}</small></button></view><small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">库存不足或数量未达要求</small></view>
            <view v-else-if="sheet === 'booking-form'" class="booking-sheet"><small class="booking-sub">选择日期 / 场次 / 人数，确认后将发送到店提醒</small><view class="booking-section"><text class="inline-label"><UiIcon name="calendar-days" :size="16" />选择日期</text><view class="ui-chips"><button v-for="item in bookingDates.slice(0, 3)" :key="item" :class="{ sel: booking.date === item }" @click="booking.date = item">{{ item }}</button></view></view><view class="booking-section"><text class="inline-label"><UiIcon name="bell" :size="16" />选择场次</text><view class="ui-chips"><button v-for="opt in (bookingSessionOptions.length ? bookingSessionOptions : [{ label: '午市 11:00' }, { label: '晚市 17:30' }])" :key="opt.label" :class="{ sel: booking.session === opt.label }" @click="booking.session = opt.label">{{ opt.label }}</button></view></view><view class="booking-section"><text class="inline-label"><UiIcon name="users" :size="16" />用餐人数</text><view class="ui-chips"><button v-for="item in [4,6,8,10,20]" :key="item" :class="{ sel: booking.people === item }" @click="booking.people = item">{{ item }} 人</button></view></view></view>
           <view v-else-if="sheet === 'after-sale' && afterSaleTarget" class="design-form">
             <view class="form-field"><text>售后类型</text><view class="choice-row"><button :class="{ active: afterSaleTarget.type === 'refund' }" @click="afterSaleTarget.type = 'refund'">申请退款</button><button :class="{ active: afterSaleTarget.type === 'return' }" @click="afterSaleTarget.type = 'return'">申请退货</button></view></view>
-            <view class="form-field"><text>上传凭证（1-6 张，可选）</text><ImageUploader v-model="afterSaleEvidence" multiple :max-count="6" purpose="after-sale" profile="license" /></view>
+            <view class="form-field"><text>上传凭证（1-6 张，可选）</text><view class="upload-grid"><ImageUploader v-model="afterSaleEvidence" multiple :max-count="6" purpose="after-sale" profile="license" /></view></view>
             <small class="form-hint">提交后平台将结合凭证审核</small>
           </view>
 <view v-else-if="sheet === 'contact'" class="contact-sheet"><small class="contact-sub">营业 {{ store.tenant?.hours }} · {{ store.tenant?.slogan }}</small><view class="ui-opt sel" @click="copyPhone"><text>门店电话</text><span>{{ store.tenant?.phone }}</span></view></view>
@@ -1443,12 +1454,12 @@ onShareTimeline(() => ({ title: store.tenant?.name || '石板溪农家乐' }))
           <view v-else-if="sheet === 'pay' && payContext" class="pay-sheet">
             <view class="pay-summary"><text>{{ payContext.title }}</text><small>{{ payContext.summary }}</small><strong>应付 {{ money(payContext.amount) }}</strong></view>
             <text class="pay-label">支付方式</text>
-            <view class="pay-methods">
+            <view class="pay-methods payment-method-card">
               <button :class="{ sel: payMethod === 'balance' }" :disabled="!canPayWithBalance" @click="payMethod = 'balance'"><text>会员余额</text><small>{{ canPayWithBalance ? money(store.balance) : '余额不足，请改用微信支付或先充值' }}</small></button>
               <button :class="{ sel: payMethod === 'wechat' }" @click="payMethod = 'wechat'"><text>微信支付（演示）</text><small>模拟支付成功，不扣储值余额</small></button>
             </view>
           </view>
-          <view v-else-if="sheet === 'staff-form'" class="design-form">
+          <view v-else-if="sheet === 'staff-form'" class="design-form management-form-grid">
             <label class="form-field"><text>姓名</text><input v-model="staffForm.name" placeholder="如 李店员" /></label>
             <label class="form-field"><text>登录账号（手机号）</text><input v-model="staffForm.account" placeholder="如 13800000002" /></label>
             <label class="form-field"><text>登录密码</text><input v-model="staffForm.password" placeholder="如 123456" /></label>
