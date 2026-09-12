@@ -146,9 +146,9 @@ test('farmhouse workspaces stay readable at all supported widths', async ({ page
 
   const workspaces = [
     ['订单核销', 'verify'],
-    ['设计特色包厢', 'design-rooms'],
-    ['设计招牌土菜', 'design-foods'],
-    ['设计体验项目', 'design-experiences'],
+    ['特色包厢', 'design-rooms'],
+    ['招牌土菜', 'design-foods'],
+    ['体验项目', 'design-experiences'],
     ['选品上架', 'select'],
     ['店员管理', 'staff-admin']
   ] as const
@@ -156,7 +156,7 @@ test('farmhouse workspaces stay readable at all supported widths', async ({ page
     ['我的订单', 'orders'],
     ['我的预订', 'bookings'],
     ['储值记录', 'ledger'],
-    ['设置与帮助', 'help']
+    ['设置帮助', 'help']
   ] as const
 
   for (const viewport of viewports) {
@@ -594,7 +594,7 @@ test('supplier mobile views stay inside all supported widths', async ({ page }, 
     await page.setViewportSize(viewport)
     await assertMobileFrame(page, viewport.width)
   }
-  await auditTabs(page, '.tabbar .tab-item', 4, testInfo, 'supplier')
+  await auditTabs(page, '.tabbar .tab-item', 3, testInfo, 'supplier')
 })
 
 test('promoter mobile view stays inside all supported widths', async ({ page }, testInfo) => {
@@ -646,8 +646,7 @@ test('supplier secondary workspaces stay readable at all supported widths', asyn
     ['线路规划', 'workspace-routes'],
     ['结算账单', 'workspace-settlements'],
     ['交接日志', 'workspace-handovers'],
-    ['仓点设置', 'workspace-warehouse'],
-    ['账号信息', 'workspace-account']
+    ['仓点设置', 'workspace-warehouse']
   ] as const
 
   for (const viewport of viewports) {

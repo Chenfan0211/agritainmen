@@ -4,7 +4,7 @@ import * as echarts from 'echarts'
 import type { ECharts } from 'echarts'
 import type { AdminAccount, AdminMenuKey, AdminPermissionCode, AdminRole, TravelRoute, AfterSale, AfterSaleStatus, BusinessMediaValue, CatalogProduct, CatalogProductSubmission, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, MediaReference, OperationalReportDimension, Order, OrderFlowEvent, OrderItem, OrderStatus, PlatformAuditLogEntry, PlatformDictionaryState, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier, WithdrawalRequest } from '@agritainment/shared'
 import { ALL_ADMIN_ACTION_PERMISSIONS, ALL_ADMIN_MENU_KEYS, PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, aggregateOperationalReport, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, defaultProductCategoryImage, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, normalizeMediaReference, pendingShareAmount, productCategoryImage, readPlatformAuditLogs, readPlatformDrivers, readPlatformRecoveryQueue, readPlatformWithdrawals, readShareConfig, readShareRecords, round2, subscribePlatformChanges, summarizeOperationalReport, todayString, toCsv, validatePricePolicy } from '@agritainment/shared'
-import { BusinessImage, ImageUploader, UI_TYPOGRAPHY, getMediaRuntime } from '@agritainment/ui'
+import { BusinessImage, ImageUploader, UI_TYPOGRAPHY, designTokens, getMediaRuntime } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
 import SearchableSelect from '../../components/SearchableSelect.vue'
@@ -114,6 +114,7 @@ function switchPeriod(value: string) {
 }
 const supplierKeyword = ref('')
 const supplierStatusFilter = ref('全部')
+const supplierCategoryFilter = ref('全部')
 const orderKeyword = ref('')
 const orderStatusFilter = ref('全部')
 const orderChannelFilter = ref('全部来源')
@@ -135,6 +136,7 @@ const farmStatusFilter = ref('全部门店')
 const farmCityFilter = ref('全部城市')
 const promoterKeyword = ref('')
 const promoterTypeFilter = ref('全部')
+const promoterLevelFilter = ref('全部')
 const commissionTab = ref('佣金结算')
 const commissionTabOptions: { label: string; value: string }[] = ['佣金结算', '提现审核', '供应商结算', '佣金规则', '消费分成'].map((v) => ({ label: v, value: v }))
 const commissionKeyword = ref('')
@@ -147,6 +149,7 @@ const withdrawalRejectId = ref('')
 const withdrawalNote = ref('')
 const withdrawalStatusOptions: SearchableSelectOption[] = [{ label: '全部', value: '全部' }, { label: '待审核', value: 'pending' }, { label: '已通过', value: 'approved' }, { label: '已驳回', value: 'rejected' }]
 const supplierSettleKeyword = ref('')
+const supplierSettleSupplierFilter = ref('')
 const ruleKeyword = ref('')
 const categoryKeyword = ref('')
 const categoryTypeFilter = ref('全部')
@@ -156,6 +159,7 @@ const farmTab = ref('门店列表')
 const farmAccountFilter = ref('全部')
 const afterReasonFilter = ref('全部')
 const productKeyword = ref('')
+const productSupplierFilter = ref('')
 const productSourceFilter = ref('全部')
 const productCategoryFilter = ref('全部')
 const productStatusFilter = ref('全部')
@@ -173,7 +177,6 @@ const catalogProductForm = reactive<CatalogProductDraft>({ id: '', name: '', cat
 const pricingDefaultsForm = reactive({ promoterCommissionRate: 5, storeCommissionRate: 3, level1Amount: 10, level2Amount: 15 })
 const promoterRankTab = ref('推客排行')
 const afterTab = ref('售后工单')
-const selectedOrderIds = ref<string[]>([])
 const busy = ref(false)
 const operationKeys = ref<Record<string, boolean>>({})
 let pendingCreateMediaRetry: { dialog: 'supplier' | 'supplier-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'dict' | 'dict-edit'; retryFinalize: () => Promise<void> } | null = null
@@ -209,10 +212,11 @@ const navItems: Array<{ key: ModuleKey; label: string; icon: string; badge?: () 
 ]
 
 const navGroupDefinitions = [
-  { name: '数据中心', items: navItems.filter((item) => ['dashboard', 'reports'].includes(item.key)) },
-  { name: '供应链管理', items: navItems.filter((item) => ['suppliers','products','categories','routes','prices','orders','afterSales','dict'].includes(item.key)) },
-  { name: '经营端', items: navItems.filter((item) => ['bookings','farms','promoters','commissions'].includes(item.key)) },
-  { name: '系统管理', items: navItems.filter((item) => ['logs', 'roles', 'accounts'].includes(item.key)) }
+  { name: '平台总览', items: navItems.filter((item) => ['dashboard', 'reports'].includes(item.key)) },
+  { name: '供应链', items: navItems.filter((item) => ['suppliers', 'products', 'categories', 'prices'].includes(item.key)) },
+  { name: '履约作业', items: navItems.filter((item) => ['bookings', 'routes', 'orders', 'afterSales'].includes(item.key)) },
+  { name: '经营', items: navItems.filter((item) => ['farms', 'promoters', 'commissions'].includes(item.key)) },
+  { name: '系统', items: navItems.filter((item) => ['dict', 'logs', 'roles', 'accounts'].includes(item.key)) }
 ]
 const navGroups = computed(() => navGroupDefinitions.map((group) => ({ ...group, items: group.items.filter((item) => store.canMenu(item.key)) })).filter((group) => group.items.length))
 
@@ -263,9 +267,10 @@ const adminMenuLabels: Record<AdminMenuKey, string> = Object.fromEntries(navItem
 const filteredSuppliers = computed(() => store.suppliers.filter((item) => {
   const matchesGlobal = `${item.name}${item.region}${item.category}`.includes(keyword.value)
   const q = supplierKeyword.value.trim().toLowerCase()
-  const matchesKeyword = !q || `${item.name}${item.region}${item.category}`.toLowerCase().includes(q)
+  const matchesKeyword = !q || item.name.toLowerCase().includes(q)
+  const matchesCategory = supplierCategoryFilter.value === '全部' || item.category === supplierCategoryFilter.value
   const matchesStatus = supplierStatusFilter.value === '全部' || (supplierStatusFilter.value === '待审核' && item.status === 'pending') || (supplierStatusFilter.value === '已合作' && item.status === 'cooperating') || (supplierStatusFilter.value === '已停用' && item.status === 'paused') || (supplierStatusFilter.value === '供销社' && item.coop)
-  return matchesGlobal && matchesKeyword && matchesStatus && matchesActiveTodo('suppliers', item)
+  return matchesGlobal && matchesKeyword && matchesCategory && matchesStatus && matchesActiveTodo('suppliers', item)
 }))
 const filteredProducts = computed(() => store.products.filter((item) => {
   const matchesGlobal = `${item.name}${item.category}${item.supplier}`.includes(keyword.value)
@@ -344,7 +349,7 @@ const filteredFarms = computed(() => store.farms.filter((item) => {
   if (item.id === 'F004') return false
   const matchesGlobal = `${item.name}${item.region}${item.tags.join('')}`.includes(keyword.value)
   const q = farmKeyword.value.trim().toLowerCase()
-  const matchesKeyword = !q || `${item.name}${item.region}${item.tags.join('')}`.toLowerCase().includes(q)
+  const matchesKeyword = !q || item.name.toLowerCase().includes(q)
   const matchesStatus = farmStatusFilter.value === '全部门店' || (farmStatusFilter.value === '试点样板' && item.id === 'F001') || (farmStatusFilter.value === '经营中' && item.status === 'active') || (farmStatusFilter.value === '筹备中' && item.status === 'pending') || (farmStatusFilter.value === '已停用' && item.status === 'paused')
   const matchesCity = farmCityFilter.value === '全部城市' || item.city === farmCityFilter.value
   return matchesGlobal && matchesKeyword && matchesStatus && matchesCity
@@ -353,9 +358,10 @@ const farmCityOptions = computed(() => dashboardRegionChildren('43').map((item) 
 const filteredPromoters = computed(() => store.promoters.filter((item) => {
   const matchesGlobal = `${item.name}${item.level}`.includes(keyword.value)
   const q = promoterKeyword.value.trim().toLowerCase()
-  const matchesKeyword = !q || `${item.name}${item.level}`.toLowerCase().includes(q)
+  const matchesKeyword = !q || item.name.toLowerCase().includes(q)
   const matchesType = promoterTypeFilter.value === '全部' || item.type === promoterTypeFilter.value
-  return matchesGlobal && matchesKeyword && matchesType
+  const matchesLevel = promoterLevelFilter.value === '全部' || item.level === promoterLevelFilter.value
+  return matchesGlobal && matchesKeyword && matchesType && matchesLevel
 }))
 const visiblePromoters = computed(() => {
   const list = promoterRankTab.value === '主播排行' ? filteredPromoters.value.filter((item) => item.type === '主播' || item.type === '达人') : filteredPromoters.value
@@ -375,16 +381,20 @@ const unifiedProductRows = computed(() => {
   return store.catalogProducts.filter((product) => {
     const channels = catalogChannelFlags(product.channel)
     const matchesChannel = channel === 'all' || (channel === 'store' ? channels.store : channels.live)
-    const matchesKeyword = !q || `${product.name}${product.category}${product.supplierName}`.toLowerCase().includes(q)
+    const matchesKeyword = !q || product.name.toLowerCase().includes(q)
+    const matchesSupplier = !productSupplierFilter.value || product.supplierId === productSupplierFilter.value
     const matchesCategory = category === '全部' || product.category === category
     const matchesStatus = status === '全部' || product.status === status
-    return matchesChannel && matchesKeyword && matchesCategory && matchesStatus && matchesActiveTodo('products', product)
+    return matchesChannel && matchesKeyword && matchesSupplier && matchesCategory && matchesStatus && matchesActiveTodo('products', product)
   })
 })
 const pagedUnifiedProductRows = computed(() => unifiedProductRows.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const visibleProductSubmissions = computed(() => store.productSubmissions.filter((submission) => {
+  const q = productKeyword.value.trim().toLowerCase()
   const matchesReview = productReviewFilter.value === '待审核' ? submission.status === 'pending' : submission.status === 'rejected'
-  return matchesReview && matchesActiveTodo('products', submission)
+  const matchesKeyword = !q || submission.draft.name.toLowerCase().includes(q)
+  const matchesSupplier = !productSupplierFilter.value || submission.supplierId === productSupplierFilter.value || submission.draft.supplierId === productSupplierFilter.value
+  return matchesReview && matchesKeyword && matchesSupplier && matchesActiveTodo('products', submission)
 }))
 const pagedOrders = computed(() => visibleOrders.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const reportStoreOptions = computed<SearchableSelectOption[]>(() => {
@@ -426,8 +436,9 @@ const filteredCommissionRecords = computed(() => {
 const filteredSupplierRecords = computed(() => {
   const q = supplierSettleKeyword.value.trim().toLowerCase()
   return store.supplierSettlementRecords.filter((record) => {
-    const matchesQ = !q || `${record.id}${record.amount}${record.items.map((item) => item.supplierName).join('')}`.toLowerCase().includes(q)
-    return matchesQ && matchesActiveTodo('commissions', record)
+    const matchesQ = !q || `${record.id}${record.amount}`.toLowerCase().includes(q)
+    const matchesSupplier = !supplierSettleSupplierFilter.value || record.items.some((item) => item.supplierId === supplierSettleSupplierFilter.value)
+    return matchesQ && matchesSupplier && matchesActiveTodo('commissions', record)
   })
 })
 const filteredRules = computed(() => {
@@ -496,9 +507,11 @@ const productCategoryFilterOptions = computed<SearchableSelectOption[]>(() => [
 ])
 const productCategoryOptions = computed<SearchableSelectOption[]>(() => productCategories.value.map((option) => ({ value: option.name, label: option.name, image: option.image, imageFallback: defaultProductCategoryImage(option.name), imageErrorFallback: defaultProductCategoryImage() })))
 const supplierCategoryOptions = computed<SearchableSelectOption[]>(() => supplierCategories.value.map((option) => ({ value: option.name, label: option.name })))
+const supplierCategoryFilterOptions = computed<SearchableSelectOption[]>(() => [{ value: '全部', label: '全部品类' }, ...supplierCategoryOptions.value])
 const promoterTypeOptions = computed<SearchableSelectOption[]>(() => [{ value: '全部', label: '全部类型' }, ...dictionaryItems('promoterType').map((item) => ({ value: item.label, label: item.label }))])
 const promoterFormTypeOptions = computed<SearchableSelectOption[]>(() => dictionaryItems('promoterType').map((item) => ({ value: item.label, label: item.label })))
 const promoterLevelOptions = computed<SearchableSelectOption[]>(() => dictionaryItems('promoterLevel').map((item) => ({ value: item.label, label: item.label })))
+const promoterLevelFilterOptions = computed<SearchableSelectOption[]>(() => [{ value: '全部', label: '全部等级' }, ...promoterLevelOptions.value])
 const promoterStatusOptions = computed<SearchableSelectOption[]>(() => dictionaryItems('promoterStatus').map((item) => ({ value: item.code, label: item.label })))
 const dictionaryToneOptions: SearchableSelectOption[] = [
   { value: 'default', label: '默认' }, { value: 'success', label: '成功' }, { value: 'warning', label: '提醒' }, { value: 'danger', label: '危险' }
@@ -532,6 +545,17 @@ const catalogSupplierOptions = computed<SearchableSelectOption[]>(() => [
   { value: '', label: '请选择供应商' },
   ...store.suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))
 ])
+const productSupplierFilterOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '', label: '全部供应商' },
+  ...store.suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))
+])
+const supplierSettleSupplierOptions = computed<SearchableSelectOption[]>(() => {
+  const names = new Map<string, string>()
+  store.supplierSettlementRecords.forEach((record) => {
+    record.items.forEach((item) => names.set(item.supplierId, item.supplierName))
+  })
+  return [{ value: '', label: '全部供应商' }, ...[...names.entries()].map(([value, label]) => ({ value, label }))]
+})
 const catalogProductChannelOptions = computed<SearchableSelectOption[]>(() => [
   { value: 'store', label: '门店商品' },
   { value: 'live', label: '直播商品', disabled: catalogProductForm.productType === 'package' },
@@ -544,8 +568,7 @@ const filteredCategories = computed(() => {
     ...store.categories.filter((item) => item.type !== 'product')
   ]
   return managedCategories.filter((item) => {
-    const typeText = item.type === 'product' ? '商品品类' : item.type === 'supplier' ? '供应商品类' : '通用'
-    const matchesKeyword = !q || `${item.name}${typeText}`.toLowerCase().includes(q)
+    const matchesKeyword = !q || item.name.toLowerCase().includes(q)
     const matchesType = categoryTypeFilter.value === '全部' || item.type === categoryTypeFilter.value
     return matchesKeyword && matchesType
   })
@@ -594,9 +617,11 @@ function resetFiltersForModule(route: ModuleKey) {
   if (route === 'suppliers') {
     supplierKeyword.value = ''
     supplierStatusFilter.value = '全部'
+    supplierCategoryFilter.value = '全部'
   }
   if (route === 'products') {
     productKeyword.value = ''
+    productSupplierFilter.value = ''
     productSourceFilter.value = '全部'
     productCategoryFilter.value = '全部'
     productStatusFilter.value = '全部'
@@ -609,7 +634,6 @@ function resetFiltersForModule(route: ModuleKey) {
     orderChannelFilter.value = '全部来源'
     orderAfterFilter.value = '全部'
     orderStoreFilter.value = ''
-    selectedOrderIds.value = []
   }
   if (route === 'afterSales') {
     afterKeyword.value = ''
@@ -622,6 +646,7 @@ function resetFiltersForModule(route: ModuleKey) {
     commissionKeyword.value = ''
     commissionStatusFilter.value = '全部'
     supplierSettleKeyword.value = ''
+    supplierSettleSupplierFilter.value = ''
     withdrawalKeyword.value = ''
     withdrawalStatusFilter.value = '全部'
     commissionHistoryPage.value = 1
@@ -661,6 +686,7 @@ function openTodo(todo: AdminTodo) {
   if (todo.route === 'commissions' && filters.settlementType === 'supplier') {
     commissionTab.value = '供应商结算'
     supplierSettleKeyword.value = ''
+    supplierSettleSupplierFilter.value = ''
   }
   if (todo.route === 'commissions' && filters.settlementType === 'commission') {
     commissionTab.value = '佣金结算'
@@ -1144,6 +1170,15 @@ function categoryUsage(category: Category) {
 
 const editingRouteId = ref('')
 const routeSearch = ref('')
+const routeCityFilter = ref('')
+const routeCityFilterOptions = computed<SearchableSelectOption[]>(() => [
+  { value: '', label: '全部城市' },
+  ...[...new Set(store.routes.map((route) => route.city).filter(Boolean))].map((city) => ({ value: city, label: city }))
+])
+const filteredRoutes = computed(() => store.routes.filter((route) => {
+  const q = routeSearch.value.trim().toLowerCase()
+  return (!q || route.name.toLowerCase().includes(q)) && (!routeCityFilter.value || route.city === routeCityFilter.value)
+}))
 function openRouteDialog() {
   editingRouteId.value = ''
   Object.assign(form.value, { routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null })
@@ -1311,14 +1346,29 @@ function onValidUntilChange(event: { detail: { value: string } }) {
   form.value.validUntil = event.detail.value
 }
 
+function onReportFromChange(event: { detail: { value: string } }) {
+  reportFrom.value = event.detail.value
+}
+
+function onReportToChange(event: { detail: { value: string } }) {
+  reportTo.value = event.detail.value
+}
+
+function onBookingDateChange(event: { detail: { value: string } }) {
+  bookingDateFilter.value = event.detail.value
+}
+
+function onLogFromChange(event: { detail: { value: string } }) {
+  logFrom.value = event.detail.value
+}
+
+function onLogToChange(event: { detail: { value: string } }) {
+  logTo.value = event.detail.value
+}
+
 function previewImage(src: string) {
   if (!src) return
   uni.previewImage({ current: src, urls: [src] })
-}
-
-async function confirmShip(order: Order) {
-  if (!await store.shipOrder(order.id)) return showToast(store.error || '该订单当前不可发货')
-  showToast('已发货，司机配送中')
 }
 
 async function confirmOrder(order: Order) {
@@ -1617,23 +1667,6 @@ async function saveDialog() {
   showToast('已保存到演示数据')
 }
 
-async function batchShip() {
-  if (!selectedOrderIds.value.length) return showToast('请选择待发货订单')
-  const ids = [...selectedOrderIds.value]
-  await runOperation('batch-ship', async () => {
-    const count = await store.batchShipOrders(ids)
-    if (!count) return false
-    showToast(`已批量发货 ${count} 单`)
-  }, '', '没有可发货的订单')
-  selectedOrderIds.value = []
-}
-
-function toggleOrderSelection(id: string) {
-  selectedOrderIds.value = selectedOrderIds.value.includes(id)
-    ? selectedOrderIds.value.filter((item) => item !== id)
-    : [...selectedOrderIds.value, id]
-}
-
 function confirmAction(content: string, action: () => void) {
   uni.showModal({ title: '操作确认', content, success: ({ confirm }) => { if (confirm) action() } })
 }
@@ -1808,15 +1841,15 @@ function renderCharts() {
   trendChart.setOption({
     grid: { left: 52, right: 46, top: 34, bottom: 30 },
     tooltip: { trigger: 'axis', confine: true, textStyle: { fontSize: UI_TYPOGRAPHY.chartTooltip } },
-    legend: { top: 4, left: 'center', itemWidth: 9, itemHeight: 9, textStyle: { color: '#626b62', fontSize: UI_TYPOGRAPHY.chartLabel } },
-    xAxis: { type: 'category', data: trend.map((item) => item.label), axisLine: { lineStyle: { color: '#d9ddd6' } }, axisLabel: { color: '#687168', fontSize: UI_TYPOGRAPHY.chartLabel } },
+    legend: { top: 4, left: 'center', itemWidth: 9, itemHeight: 9, textStyle: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } },
+    xAxis: { type: 'category', data: trend.map((item) => item.label), axisLine: { lineStyle: { color: designTokens.colorLine } }, axisLabel: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } },
     yAxis: [
-      { type: 'value', name: '交易额', splitLine: { lineStyle: { color: '#eef0eb' } }, axisLabel: { color: '#687168', fontSize: UI_TYPOGRAPHY.chartLabel } },
-      { type: 'value', name: '订单量', splitLine: { show: false }, axisLabel: { color: '#687168', fontSize: UI_TYPOGRAPHY.chartLabel } }
+      { type: 'value', name: '交易额', splitLine: { lineStyle: { color: designTokens.colorLineLight } }, axisLabel: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } },
+      { type: 'value', name: '订单量', splitLine: { show: false }, axisLabel: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } }
     ],
     series: [
-      { name: '交易额', type: 'line', yAxisIndex: 0, smooth: true, data: trend.map((item) => item.amount), symbolSize: 7, lineStyle: { width: 3, color: '#1d6b44' }, itemStyle: { color: '#1d6b44' }, areaStyle: { color: 'rgba(29,107,68,.08)' } },
-      { name: '订单量', type: 'bar', yAxisIndex: 1, data: trend.map((item) => item.count), barWidth: 11, itemStyle: { color: '#c2a25a', borderRadius: [3, 3, 0, 0] } }
+      { name: '交易额', type: 'line', yAxisIndex: 0, smooth: true, data: trend.map((item) => item.amount), symbolSize: 7, lineStyle: { width: 3, color: designTokens.colorBrandPrimary }, itemStyle: { color: designTokens.colorBrandPrimary }, areaStyle: { color: designTokens.colorChartFill } },
+      { name: '订单量', type: 'bar', yAxisIndex: 1, data: trend.map((item) => item.count), barWidth: 11, itemStyle: { color: designTokens.colorGold, borderRadius: [3, 3, 0, 0] } }
     ]
   })
   const viewportWidth = typeof window === 'undefined' ? 1280 : window.innerWidth
@@ -1825,19 +1858,19 @@ function renderCharts() {
   const lowCategoryChart = !narrowCategoryChart && viewportHeight <= 700
   const categoryNames = metrics.value.categoryShares.map((item) => item.name)
   const categoryLegend = narrowCategoryChart
-    ? { orient: 'horizontal' as const, left: 'center', right: 8, bottom: 0, itemWidth: 9, itemHeight: 9, itemGap: 10, textStyle: { color: '#626b62', fontSize: UI_TYPOGRAPHY.chartLabel } }
+    ? { orient: 'horizontal' as const, left: 'center', right: 8, bottom: 0, itemWidth: 9, itemHeight: 9, itemGap: 10, textStyle: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } }
     : lowCategoryChart
       ? [
-          { orient: 'vertical' as const, left: '58%', top: 18, data: categoryNames.filter((_, index) => index % 2 === 0), itemWidth: 8, itemHeight: 8, itemGap: 7, textStyle: { color: '#626b62', fontSize: UI_TYPOGRAPHY.chartLabel } },
-          { orient: 'vertical' as const, left: '78%', top: 18, data: categoryNames.filter((_, index) => index % 2 === 1), itemWidth: 8, itemHeight: 8, itemGap: 7, textStyle: { color: '#626b62', fontSize: UI_TYPOGRAPHY.chartLabel } }
+          { orient: 'vertical' as const, left: '58%', top: 18, data: categoryNames.filter((_, index) => index % 2 === 0), itemWidth: 8, itemHeight: 8, itemGap: 7, textStyle: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } },
+          { orient: 'vertical' as const, left: '78%', top: 18, data: categoryNames.filter((_, index) => index % 2 === 1), itemWidth: 8, itemHeight: 8, itemGap: 7, textStyle: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } }
         ]
-      : { orient: 'vertical' as const, right: 6, top: 'middle', itemWidth: 9, itemHeight: 9, textStyle: { color: '#626b62', fontSize: UI_TYPOGRAPHY.chartLabel } }
+      : { orient: 'vertical' as const, right: 6, top: 'middle', itemWidth: 9, itemHeight: 9, textStyle: { color: designTokens.colorInk2, fontSize: UI_TYPOGRAPHY.chartLabel } }
   const categoryCenter: [string, string] = narrowCategoryChart ? ['50%', '38%'] : lowCategoryChart ? ['30%', '50%'] : ['38%', '50%']
   categoryChart.setOption({
     tooltip: { trigger: 'item', formatter: '{b}: {d}%', textStyle: { fontSize: UI_TYPOGRAPHY.chartTooltip } },
-    title: { text: `${metrics.value.categoryShares.length} 类`, left: categoryCenter[0], top: categoryCenter[1], textAlign: 'center', textVerticalAlign: 'middle', textStyle: { fontSize: UI_TYPOGRAPHY.subtitle, fontWeight: 700, color: '#23291f' }, subtext: '商品品类', subtextStyle: { fontSize: UI_TYPOGRAPHY.chartLabel, color: '#626b62' } },
+    title: { text: `${metrics.value.categoryShares.length} 类`, left: categoryCenter[0], top: categoryCenter[1], textAlign: 'center', textVerticalAlign: 'middle', textStyle: { fontSize: UI_TYPOGRAPHY.subtitle, fontWeight: 700, color: designTokens.colorInk }, subtext: '商品品类', subtextStyle: { fontSize: UI_TYPOGRAPHY.chartLabel, color: designTokens.colorInk2 } },
     legend: categoryLegend,
-    series: [{ type: 'pie', radius: narrowCategoryChart ? ['32%', '48%'] : ['38%', '58%'], center: categoryCenter, label: { show: false }, data: metrics.value.categoryShares.map((item, index) => ({ value: item.value, name: item.name, itemStyle: { color: ['#1d6b44', '#c2a25a', '#a65735', '#52617f', '#8c998b'][index % 5] } })) }]
+    series: [{ type: 'pie', radius: narrowCategoryChart ? ['32%', '48%'] : ['38%', '58%'], center: categoryCenter, label: { show: false }, data: metrics.value.categoryShares.map((item, index) => ({ value: item.value, name: item.name, itemStyle: { color: [designTokens.colorBrandPrimary, designTokens.colorGold, designTokens.colorWarningDark, designTokens.colorInfoDark, designTokens.colorInk3][index % 5] } })) }]
   })
 }
 
@@ -1865,9 +1898,9 @@ watch([() => store.auth.isLoggedIn, () => store.auth.roleId, () => store.adminRo
 watch([trendRange, period], async () => { if (active.value === 'dashboard') { await nextTick(); renderCharts() } })
 watch([() => store.loading, () => store.auth.isLoggedIn], async () => { if (!store.loading && store.auth.isLoggedIn) { await nextTick(); renderCharts() } })
 watch(keyword, () => { page.value = 1 })
-watch([productKeyword, productSourceFilter, productCategoryFilter, productStatusFilter, productChannelFilter], () => { page.value = 1 })
-watch([supplierKeyword, supplierStatusFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, afterTypeFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, ruleKeyword, dictKeyword, farmAccountFilter, afterReasonFilter, withdrawalKeyword, withdrawalStatusFilter], () => { page.value = 1; commissionHistoryPage.value = 1 })
-watch(orderStatusFilter, () => { page.value = 1; selectedOrderIds.value = [] })
+watch([productKeyword, productSupplierFilter, productSourceFilter, productCategoryFilter, productStatusFilter, productChannelFilter, productReviewFilter], () => { page.value = 1 })
+watch([supplierKeyword, supplierStatusFilter, supplierCategoryFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, afterTypeFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, promoterLevelFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, supplierSettleSupplierFilter, ruleKeyword, dictKeyword, farmAccountFilter, afterReasonFilter, withdrawalKeyword, withdrawalStatusFilter, routeSearch, routeCityFilter], () => { page.value = 1; commissionHistoryPage.value = 1 })
+watch(orderStatusFilter, () => { page.value = 1 })
 const loginAccount = ref('admin')
 const loginPassword = ref('123456')
 async function submitLogin() {
@@ -1950,17 +1983,11 @@ onBeforeUnmount(() => {
         <template v-for="group in navGroups" :key="group.name">
           <text class="nav-group">{{ group.name }}</text>
           <button v-for="item in group.items" :key="item.key" class="nav-item" :class="{ active: active === item.key }" @click="selectModule(item.key)">
-            <UiIcon :name="item.icon" :size="18" />
             <text>{{ item.label }}</text>
             <text v-if="item.badge && item.badge()" class="nav-badge">{{ item.badge() }}</text>
           </button>
         </template>
       </nav>
-      <view class="operator short-sidebar-account">
-        <view class="avatar">{{ store.auth.name.slice(0, 1) }}</view>
-        <view><text>{{ store.auth.name }}</text><small>{{ store.currentAdminRole()?.name || store.auth.roleCode }} · {{ store.auth.account }}</small></view>
-        <button class="logout-button" aria-label="退出登录" title="退出登录" @click="logout"><UiIcon name="door-open" :size="15" /><text>退出登录</text></button>
-      </view>
     </aside>
 
     <main class="main">
@@ -1970,6 +1997,11 @@ onBeforeUnmount(() => {
           <label class="search-box"><UiIcon name="search" :size="17" /><input v-model="keyword" placeholder="搜索商品 / 供应商 / 订单号" /></label>
           <button class="period-button" :class="{ on: period === '本月' }" @click="switchPeriod(period === '本月' ? '本周' : '本月')"><UiIcon name="calendar-days" :size="15" />{{ period }}</button>
           <button class="icon-button" aria-label="打开待办提醒" title="待办提醒" @click="openDetail('todos')"><UiIcon name="bell" :size="19" /><span v-if="!store.notificationsRead && store.pendingTodos" class="notice-dot"></span></button>
+          <view class="operator">
+            <view class="avatar">{{ store.auth.name.slice(0, 1) }}</view>
+            <view class="operator-meta"><text>{{ store.auth.name }}</text><small>{{ store.currentAdminRole()?.name || store.auth.roleCode }} · {{ store.auth.account }}</small></view>
+            <button class="logout-button" aria-label="退出登录" title="退出登录" @click="logout"><UiIcon name="door-open" :size="15" /><text>退出登录</text></button>
+          </view>
         </view>
       </header>
 
@@ -2064,8 +2096,8 @@ onBeforeUnmount(() => {
 
         <section v-else-if="active === 'reports'" class="data-panel report-panel">
           <view class="report-filters">
-            <label class="field"><text>开始日期</text><input v-model="reportFrom" type="date" /></label>
-            <label class="field"><text>结束日期</text><input v-model="reportTo" type="date" /></label>
+            <label class="field"><text>开始日期</text><picker mode="date" :value="reportFrom" @change="onReportFromChange"><view class="picker-field">{{ reportFrom }}</view></picker></label>
+            <label class="field"><text>结束日期</text><picker mode="date" :value="reportTo" @change="onReportToChange"><view class="picker-field">{{ reportTo }}</view></picker></label>
             <view class="field"><text>门店</text><SearchableSelect v-model="reportStoreFilter" :options="reportStoreOptions" search-placeholder="筛选门店" /></view>
             <view class="field"><text>供应商</text><SearchableSelect v-model="reportSupplierFilter" :options="reportSupplierOptions" search-placeholder="筛选供应商" /></view>
             <view class="field"><text>品类</text><SearchableSelect v-model="reportCategoryFilter" :options="reportCategoryOptions" search-placeholder="筛选品类" /></view>
@@ -2081,7 +2113,7 @@ onBeforeUnmount(() => {
 
         <section v-else-if="active === 'bookings'" class="data-panel booking-panel">
           <view class="booking-filters">
-            <label class="field"><text>预约日期</text><input v-model="bookingDateFilter" type="date" /></label>
+            <label class="field"><text>预约日期</text><picker mode="date" :value="bookingDateFilter" @change="onBookingDateChange"><view class="picker-field" :class="{ placeholder: !bookingDateFilter }">{{ bookingDateFilter || '请选择日期' }}</view></picker></label>
             <view class="field"><text>门店</text><SearchableSelect v-model="bookingFarmFilter" :options="bookingFarmOptions" search-placeholder="筛选门店" /></view>
             <view class="field"><text>状态</text><SearchableSelect v-model="bookingStatusFilter" :options="bookingStatusOptions" search-placeholder="筛选状态" /></view>
             <label class="field"><text>用户</text><input v-model="bookingUserFilter" placeholder="搜索用户 ID" /></label>
@@ -2115,7 +2147,7 @@ onBeforeUnmount(() => {
             <view><small>待审核资质</small><strong>{{ supplierStatCounts.pending }} 家</strong><span>需在 48h 内处理</span></view>
             <view><small>供销社渠道</small><strong>{{ supplierStatCounts.coop }} 家</strong></view>
           </view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierKeyword" placeholder="搜索供应商名称 / 品类 / 区域" /></label><SearchableSelect v-model="supplierStatusFilter" :options="supplierStatusOptions" size="medium" search-placeholder="搜索供应商状态" /></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierKeyword" placeholder="搜索供应商名称" /></label><SearchableSelect v-model="supplierStatusFilter" :options="supplierStatusOptions" class="is-wide" search-placeholder="搜索供应商状态" /><SearchableSelect v-model="supplierCategoryFilter" :options="supplierCategoryFilterOptions" class="is-wide" search-placeholder="搜索供应商品类" /></view>
           <view class="supplier-table-scroll">
           <view class="table-row table-head supplier-grid"><text>供应商</text><text>主营品类</text><text>商品数</text><text>资质与状态</text><text>操作</text></view>
           <view v-for="item in pagedSuppliers" :key="item.id" class="table-row supplier-grid">
@@ -2129,7 +2161,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'categories'" class="data-panel">
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="categoryKeyword" placeholder="搜索品类名称 / 类型" /></label><SearchableSelect v-model="categoryTypeFilter" :options="categoryTypeFilterOptions" size="medium" search-placeholder="搜索品类类型" /></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="categoryKeyword" placeholder="搜索品类名称" /></label><SearchableSelect v-model="categoryTypeFilter" :options="categoryTypeFilterOptions" search-placeholder="搜索品类类型" /></view>
           <view class="table-row table-head category-grid"><text>品类名称</text><text>类型</text><text>使用数量</text><text>操作</text></view>
           <view v-for="item in pagedCategories" :key="item.id" class="table-row category-grid">
             <strong class="category-label"><BusinessImage v-if="item.type === 'product'" class="category-thumb" :src="productCategoryImage(item.name, dictionaryState)" :fallback="defaultProductCategoryImage(item.name)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="item.name">{{ item.name }}</text></strong>
@@ -2141,9 +2173,9 @@ onBeforeUnmount(() => {
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredCategories.length" @change="page = $event" />
         </section>
         <section v-else-if="active === 'routes'" class="data-panel">
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="15" /><input v-model="routeSearch" placeholder="搜索线路名称 / 城市" /></label></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="15" /><input v-model="routeSearch" placeholder="搜索线路名称" /></label><SearchableSelect v-model="routeCityFilter" :options="routeCityFilterOptions" search-placeholder="搜索城市" /></view>
           <view class="table-row table-head route-grid"><text>线路</text><text>城市</text><text>参考价</text><text>描述</text><text>操作</text></view>
-          <view v-for="item in store.routes.filter((r) => r.name.includes(routeSearch) || r.city.includes(routeSearch))" :key="item.id" class="table-row route-grid">
+          <view v-for="item in filteredRoutes" :key="item.id" class="table-row route-grid">
             <view class="route-cell"><BusinessImage class="route-thumb" :src="item.image" mode="aspectFill" /><strong>{{ item.name }}</strong></view>
             <text>{{ item.city }}</text>
             <text>¥{{ formatNumber(item.price) }}</text>
@@ -2154,8 +2186,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'products'" class="data-panel">
-          <view class="goods-tools"><view class="module-search"><SearchableSelect v-model="productChannelFilter" :options="catalogChannelFilterOptions" size="medium" search-placeholder="搜索商品渠道" /><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称 / 供应商" /></label><SearchableSelect v-model="productCategoryFilter" :options="productCategoryFilterOptions" size="medium" search-placeholder="搜索商品品类" /><SearchableSelect v-model="productStatusFilter" :options="productStatusOptions" size="medium" search-placeholder="搜索商品状态" /></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
-          <SearchableSelect v-model="productReviewFilter" :options="productReviewOptions" size="medium" search-placeholder="搜索商品审核状态" />
+          <view class="goods-tools"><view class="module-search"><SearchableSelect v-model="productReviewFilter" :options="productReviewOptions" class="is-wide" search-placeholder="搜索商品审核状态" /><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称" /></label><SearchableSelect v-model="productSupplierFilter" :options="productSupplierFilterOptions" class="is-wide" search-placeholder="搜索供应商" /><SearchableSelect v-model="productChannelFilter" :options="catalogChannelFilterOptions" search-placeholder="搜索商品渠道" /><SearchableSelect v-model="productCategoryFilter" :options="productCategoryFilterOptions" search-placeholder="搜索商品品类" /><SearchableSelect v-model="productStatusFilter" :options="productStatusOptions" search-placeholder="搜索商品状态" /></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
           <view v-if="productReviewFilter === '正式商品'" class="product-table-scroll">
           <view class="table-row table-head unified-product-grid"><text>商品</text><text>渠道</text><text>品类</text><text>价格</text><text>库存</text><text>状态</text><text>操作</text></view>
           <view v-for="product in pagedUnifiedProductRows" :key="product.id" class="table-row unified-product-grid">
@@ -2216,7 +2247,7 @@ onBeforeUnmount(() => {
         </view>
 
         <section v-else-if="active === 'orders'" class="data-panel">
-           <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></label><SearchableSelect v-model="orderStoreFilter" :options="orderStoreSelectOptions" size="medium" search-placeholder="搜索门店" /><SearchableSelect v-model="orderChannelFilter" :options="orderChannelOptions" size="medium" search-placeholder="搜索订单来源" /><SearchableSelect v-model="orderStatusFilter" :options="orderStatusOptions" size="medium" search-placeholder="搜索订单状态" /><SearchableSelect v-model="orderAfterFilter" :options="orderAfterOptions" size="medium" search-placeholder="搜索售后状态" /></view><view class="toolbar-actions"><button v-if="store.can('order.ship')" class="button secondary" :disabled="!selectedOrderIds.length || isOperating('batch-ship')" @click="batchShip">{{ isOperating('batch-ship') ? '发货处理中...' : '批量发货' }}</button><button v-if="store.can('report.export')" class="button primary" @click="exportCurrent"><UiIcon name="download" :size="15" />导出订单</button></view></view>
+           <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></label><SearchableSelect v-model="orderStoreFilter" :options="orderStoreSelectOptions" search-placeholder="搜索门店" /><SearchableSelect v-model="orderChannelFilter" :options="orderChannelOptions" search-placeholder="搜索订单来源" /><SearchableSelect v-model="orderStatusFilter" :options="orderStatusOptions" search-placeholder="搜索订单状态" /><SearchableSelect v-model="orderAfterFilter" :options="orderAfterOptions" search-placeholder="搜索售后状态" /></view><view class="toolbar-actions"><button v-if="store.can('report.export')" class="button primary" @click="exportCurrent"><UiIcon name="download" :size="15" />导出订单</button></view></view>
           <view class="fulfill-strip">
             <view class="done"><b><UiIcon name="check" :size="15" /></b><small>下单付款</small><strong>{{ metrics.orderStats.total }} 单</strong></view>
             <view class="done"><b><UiIcon name="check" :size="15" /></b><small>中台接单</small><strong>自动分配供应商</strong></view>
@@ -2227,7 +2258,7 @@ onBeforeUnmount(() => {
           </view>
           <view class="order-table-scroll">
                     <view class="table-row table-head order-grid"><text>订单号</text><text>商品</text><text>数量</text><text>下单门店 / 渠道</text><text>金额</text><text>实付金额</text><text>来源</text><text>状态</text><text>售后状态</text><text>操作</text></view>
-          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><button v-if="item.status === 'pending' && store.can('order.ship')" class="order-select" :class="{ selected: selectedOrderIds.includes(item.id) }" :title="selectedOrderIds.includes(item.id) ? '取消选择' : '选择订单'" :aria-label="selectedOrderIds.includes(item.id) ? '取消选择订单' : '选择订单'" @click="toggleOrderSelection(item.id)"><UiIcon v-if="selectedOrderIds.includes(item.id)" name="check" :size="12" /></button><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><BusinessImage class="order-thumb" :src="p.image" :fallback="orderProductFallback(p.name)" :error-fallback="orderProductFallback()" :show-error="false" mode="aspectFit" @click="previewImage" /><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id) && store.can('afterSale.manage')" @click="openAfterSaleInit(item)">发起售后</button><button v-if="item.status === 'pending' && store.can('order.ship')" @click="confirmShip(item)">发货</button><button v-else @click="openDetail('order', item.id)">流转</button></view></view>
+          <view v-for="item in pagedOrders" :key="item.id" class="table-row order-grid"><view class="order-id"><view><strong>{{ item.id }}</strong><small>{{ item.createdAt }}</small></view></view><view class="order-products"><view v-for="(p, idx) in orderItems(item)" :key="idx" class="order-product"><BusinessImage class="order-thumb" :src="p.image" :fallback="orderProductFallback(p.name)" :error-fallback="orderProductFallback()" :show-error="false" mode="aspectFit" @click="previewImage" /><text>{{ p.name }} ×{{ p.quantity }}</text></view></view><text class="order-qty">{{ orderTotalQty(item) }}</text><view><strong>{{ item.customer }}</strong></view><strong>¥{{ formatNumber(item.amount) }}</strong><strong>¥{{ formatNumber(orderPaidAmount(item)) }}</strong><text>{{ channelText(item.channel) }}</text><span class="status" :class="item.status">{{ orderFulfillmentText(item.status) }}</span><text>{{ orderAfterStatus(item) }}</text><view class="row-actions"><button v-if="item.status === 'delivered' && !store.afterSales.some((a) => a.orderId === item.id) && store.can('afterSale.manage')" @click="openAfterSaleInit(item)">发起售后</button><button @click="openDetail('order', item.id)">流转</button></view></view>
           </view>
           <view v-if="!visibleOrders.length" class="empty-state">没有符合筛选条件的订单</view><PaginationBar :page="page" :page-size="pageSize" :total="visibleOrders.length" @change="page = $event" />
         </section>
@@ -2241,7 +2272,7 @@ onBeforeUnmount(() => {
           <view class="summary-strip"><view><small>工单总量</small><strong>{{ store.afterSales.length }} 单</strong></view><view><small>处理中</small><strong>{{ store.pendingAfterSales }} 单</strong></view><view><small>售后金额</small><strong>{{ money(store.afterSales.reduce((sum,item) => sum + item.amount, 0)) }}</strong></view><view><small>已退款</small><strong>{{ store.afterSales.filter(item => item.status === 'refunded').length }} 单</strong></view></view>
           <view class="filter-chips"><button v-for="item in ['售后工单','结算流水']" :key="item" :class="{ active: afterTab === item }" @click="afterTab = item; page = 1">{{ item }}</button></view>
           <template v-if="afterTab === '售后工单'">
-          <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="afterKeyword" placeholder="搜索工单号 / 订单号 / 商品 / 申请方" /></label><SearchableSelect v-model="afterTypeFilter" :options="afterTypeFilterOptions" size="medium" search-placeholder="搜索售后类型" /><SearchableSelect v-model="afterReasonFilter" :options="afterReasonFilterSelectOptions" size="medium" search-placeholder="搜索售后原因" /></view></view>
+          <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="afterKeyword" placeholder="搜索工单号 / 订单号 / 商品 / 申请方" /></label><SearchableSelect v-model="afterTypeFilter" :options="afterTypeFilterOptions" search-placeholder="搜索售后类型" /><SearchableSelect v-model="afterReasonFilter" :options="afterReasonFilterSelectOptions" search-placeholder="搜索售后原因" /></view></view>
           <view class="after-sale-table-scroll">
           <view class="table-row table-head after-grid"><text>工单</text><text>商品</text><text>数量</text><text>类型</text><text>申请金额</text><text>退款金额</text><text>状态</text><text>操作</text></view>
           <view v-for="item in pagedAfterSales" :key="item.id" class="table-row after-grid"><view><strong>{{ item.id }}</strong><small>{{ item.orderId }}</small></view><view class="product-cell"><BusinessImage class="after-thumb" :src="item.image" mode="aspectFit" /><view><strong>{{ item.productName }}</strong><small>{{ item.issue || item.applicant }}</small></view></view><text>{{ item.quantity ?? '—' }}</text><text>{{ item.type === 'reship' ? '破损补寄' : item.type === 'refund' ? '退货退款' : '质量理赔' }}</text><strong>{{ money(item.amount) }}</strong><text class="refund-amount">{{ item.refundAmount != null ? money(item.refundAmount) : '—' }}</text><span class="status" :class="item.status">{{ afterSaleStatusText(item.status) }}</span><view class="row-actions"><template v-if="item.status === 'processing' && store.can('afterSale.manage')"><button class="danger" @click="confirmAction('确认拒绝该售后申请？', () => runOperation(`after-${item.id}`, () => store.rejectAfterSale(item.id), '已拒绝售后'))">拒绝</button><button @click="confirmAction('确认同意退款？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleRefund(item.id), '已同意退款'))">同意退款</button><button @click="confirmAction('确认同意退货？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleReturn(item.id), '已同意退货'))">同意退货</button></template><template v-else-if="['refund-pending', 'return-pending'].includes(item.status) && store.can('afterSale.manage')"><small>{{ item.status === 'return-pending' ? '等待退货验收' : '等待退款回执' }}</small><button :disabled="isOperating(`after-${item.id}`)" @click="confirmAction(item.status === 'return-pending' ? '确认已收到退货并原路退款？' : '确认发起原路退款？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id), item.status === 'return-pending' ? '退货退款已完成' : '退款已完成'))">{{ isOperating(`after-${item.id}`) ? '处理中...' : item.status === 'return-pending' ? '确认退货退款' : '执行退款' }}</button></template><template v-else-if="item.status === 'refund-failed' && store.can('afterSale.manage')"><small>{{ item.failureReason || '退款渠道处理失败' }}</small><button :disabled="isOperating(`after-${item.id}`)" @click="confirmAction('确认重新发起原路退款？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id), '退款已完成'))">{{ isOperating(`after-${item.id}`) ? '处理中...' : '重试退款' }}</button></template><button v-else @click="openDetail('afterSale', item.id)">记录</button></view></view><view v-if="!filteredAfterSales.length" class="empty-state">没有符合条件的售后工单</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredAfterSales.length" @change="page = $event" />
@@ -2262,7 +2293,7 @@ onBeforeUnmount(() => {
             <view><small>已开通小程序</small><strong>{{ metrics.farmStats.liveCount }} 个</strong><span>{{ metrics.farmStats.configuring }} 家配置中</span></view>
             <view><small>门店自有商品</small><strong>{{ metrics.farmStats.selfProducts }} 个</strong><span class="pending-text">待审核 {{ metrics.farmStats.pendingSelfProducts }} 个</span></view>
           </view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="搜索门店名称 / 区域" /></label><SearchableSelect v-model="farmCityFilter" :options="farmCityFilterOptions" size="medium" search-placeholder="搜索城市" /><SearchableSelect v-model="farmStatusFilter" :options="farmStatusFilterOptions" size="medium" search-placeholder="搜索门店状态" /></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="搜索门店名称" /></label><SearchableSelect v-model="farmCityFilter" :options="farmCityFilterOptions" search-placeholder="搜索城市" /><SearchableSelect v-model="farmStatusFilter" :options="farmStatusFilterOptions" search-placeholder="搜索门店状态" /></view>
           <view class="farm-table-scroll">
           <view class="table-row table-head farm-grid"><text>农家乐门店</text><text>区域</text><text>小程序</text><text>已选品</text><text>本月 GMV</text><text>人气值</text><text>状态</text><text>操作</text></view>
           <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><BusinessImage class="farm-thumb" :src="item.image" mode="aspectFit" @click="previewImage" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><text>{{ item.livePopularity.toLocaleString('zh-CN') }}</text><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button v-if="store.can('farm.manage')" @click="openFarmEdit(item)">修改</button></view></view>
@@ -2270,7 +2301,7 @@ onBeforeUnmount(() => {
           <view v-if="!filteredFarms.length" class="empty-state">没有符合条件的门店</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredFarms.length" @change="page = $event" />
           </template>
           <template v-else>
-            <view class="module-search"><SearchableSelect v-model="farmAccountFilter" :options="farmAccountSelectOptions" size="medium" search-placeholder="搜索门店" /><button class="button primary" @click="openAccountDialog()"><UiIcon name="plus" :size="16" />新增门店账号</button></view>
+            <view class="module-search"><SearchableSelect v-model="farmAccountFilter" :options="farmAccountSelectOptions" search-placeholder="搜索门店" /><button class="button primary" @click="openAccountDialog()"><UiIcon name="plus" :size="16" />新增门店账号</button></view>
             <view class="account-table-scroll">
             <view class="table-row table-head account-grid"><text>门店</text><text>姓名</text><text>登录账号</text><text>角色</text><text>推广</text><text>状态</text><text>操作</text></view>
             <view v-for="item in pagedStoreAccounts" :key="item.id" class="table-row account-grid"><text>{{ store.farms.find((farm) => farm.id === item.farmId)?.name || item.farmId }}</text><strong>{{ item.name }}</strong><text>{{ item.account }}</text><span class="status" :class="item.role === 'owner' ? 'active' : 'pending'">{{ item.role === 'owner' ? '店主' : '店员' }}</span><span class="status" :class="item.promoEnabled ? 'active' : 'rejected'">{{ item.promoEnabled ? '已开' : '关闭' }}</span><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><view class="row-actions"><button @click="openAccountDialog(item)">修改</button><button class="danger" :disabled="isOperating(`store-account-${item.id}`)" @click="runOperation(`store-account-${item.id}`, () => store.toggleStoreAccount(item.id), item.enabled ? '账号已停用' : '账号已启用')">{{ isOperating(`store-account-${item.id}`) ? '处理中...' : item.enabled ? '停用' : '启用' }}</button></view></view>
@@ -2288,7 +2319,7 @@ onBeforeUnmount(() => {
             <view><small>累计锁粉</small><strong>{{ metrics.promoterStats.lockedFans.toLocaleString('zh-CN') }}</strong><span class="positive">带货 GMV ¥{{ formatNumber(store.promoters.reduce((sum, p) => sum + p.gmv, 0)) }}</span></view>
           </view>
           <view class="filter-chips solid"><button v-for="item in ['推客排行','主播排行']" :key="item" :class="{ active: promoterRankTab === item }" @click="promoterRankTab = item; page = 1">{{ item }}</button></view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="搜索推客名称 / 等级" /></label><SearchableSelect v-model="promoterTypeFilter" :options="promoterTypeOptions" size="medium" search-placeholder="搜索推客类型" /></view>
+          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="搜索推客名称" /></label><SearchableSelect v-model="promoterTypeFilter" :options="promoterTypeOptions" search-placeholder="搜索推客类型" /><SearchableSelect v-model="promoterLevelFilter" :options="promoterLevelFilterOptions" search-placeholder="搜索推客等级" /></view>
           <view class="promoter-table-scroll">
           <view class="table-row table-head promoter-grid"><text>推客 / 主播</text><text>类型</text><text>锁粉数</text><text>订单</text><text>带货 GMV</text><text>佣金</text><text>状态</text><text>操作</text></view>
           <view v-for="item in pagedPromoters" :key="item.id" class="table-row promoter-grid"><view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view><span class="source-pill" :class="item.type === '主播' ? 'host' : item.type === '达人' ? 'expert' : 'platform'">{{ item.type || '推客' }}</span><text>{{ item.fans }}</text><text>{{ item.orders }}</text><strong>{{ money(item.gmv) }}</strong><strong class="commission">{{ money(item.commission) }}</strong><span class="status" :class="item.settled ? 'delivered' : 'pending'">{{ item.settled ? '已结算' : '待结算' }}</span><view class="row-actions"><button v-if="store.can('promoter.manage')" @click="openPromoterEdit(item)">修改</button></view></view>
@@ -2299,7 +2330,7 @@ onBeforeUnmount(() => {
         <section v-else-if="active === 'commissions'" class="data-panel">
           <view class="filter-chips commission-filter-tabs"><button v-for="item in commissionTabOptions" :key="item.value" :class="{ active: commissionTab === item.value }" @click="commissionTab = item.value; page = 1">{{ item.label }}</button></view>
           <template v-if="commissionTab === '佣金结算'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" size="medium" search-placeholder="搜索结算状态" /></view>
+            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" search-placeholder="搜索结算状态" /></view>
             <view class="commission-status-table">
               <view class="panel-head"><h2>推客结算状态</h2><text>未结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) > 0).length }} 人 · 已结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) <= 0).length }} 人</text></view>
               <view class="table-row table-head commission-status-grid"><text>推客</text><text>类型</text><text>待结佣金</text><text>结算状态</text></view>
@@ -2319,7 +2350,7 @@ onBeforeUnmount(() => {
             </view>
           </template>
           <template v-else-if="commissionTab === '提现审核'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="withdrawalKeyword" placeholder="搜索申请人 / 提现单号 / 方式" /></label><SearchableSelect v-model="withdrawalStatusFilter" :options="withdrawalStatusOptions" size="medium" search-placeholder="筛选状态" /></view>
+            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="withdrawalKeyword" placeholder="搜索申请人 / 提现单号 / 方式" /></label><SearchableSelect v-model="withdrawalStatusFilter" :options="withdrawalStatusOptions" search-placeholder="筛选状态" /></view>
             <view class="withdrawal-table">
               <view class="withdrawal-table-scroll">
               <view class="table-row table-head withdrawal-grid"><text>申请人</text><text>金额</text><text>方式</text><text>申请时间</text><text>状态</text><text>备注</text><text>操作</text></view>
@@ -2332,7 +2363,7 @@ onBeforeUnmount(() => {
             </view>
           </template>
           <template v-else-if="commissionTab === '供应商结算'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierSettleKeyword" placeholder="搜索单号 / 金额 / 供应商" /></label></view>
+            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierSettleKeyword" placeholder="搜索单号 / 金额" /></label><SearchableSelect v-model="supplierSettleSupplierFilter" :options="supplierSettleSupplierOptions" class="is-wide" search-placeholder="搜索供应商" /></view>
             <view class="settlement-history"><view class="panel-head"><h2>供应商结算记录</h2><text>累计 {{ money(filteredSupplierRecords.reduce((sum, item) => sum + item.amount, 0)) }}</text></view>
               <view v-if="!filteredSupplierRecords.length" class="empty-state">暂无供应商结算记录</view>
               <view v-for="record in pagedSupplierSettlementRecords" :key="record.id" class="history-row"><strong>{{ record.id }} · {{ money(record.amount) }}</strong><small>{{ record.period }} · {{ record.items.length }} 家供应商 · {{ record.orderIds.length }} 笔订单 · {{ record.createdAt }}</small><view class="history-items"><view v-for="item in record.items" :key="item.supplierId"><span>{{ item.supplierName }}</span><small>{{ item.orderIds.join('、') || '无关联订单' }}</small><b>{{ money(item.amount) }}</b></view></view></view>
@@ -2374,7 +2405,7 @@ onBeforeUnmount(() => {
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredDictItems.length" @change="page = $event" />
         </section>
         <section v-else-if="active === 'logs'" class="data-panel system-table-panel">
-          <view class="audit-filters"><label class="field"><text>开始日期</text><input v-model="logFrom" type="date" /></label><label class="field"><text>结束日期</text><input v-model="logTo" type="date" /></label><view class="field"><text>操作人</text><SearchableSelect v-model="logActor" :options="logActorOptions" /></view><view class="field"><text>角色</text><SearchableSelect v-model="logRole" :options="logRoleOptions" /></view><view class="field"><text>模块</text><SearchableSelect v-model="logModule" :options="logModuleOptions" /></view></view>
+          <view class="audit-filters"><label class="field"><text>开始日期</text><picker mode="date" :value="logFrom" @change="onLogFromChange"><view class="picker-field" :class="{ placeholder: !logFrom }">{{ logFrom || '请选择日期' }}</view></picker></label><label class="field"><text>结束日期</text><picker mode="date" :value="logTo" @change="onLogToChange"><view class="picker-field" :class="{ placeholder: !logTo }">{{ logTo || '请选择日期' }}</view></picker></label><view class="field"><text>操作人</text><SearchableSelect v-model="logActor" :options="logActorOptions" /></view><view class="field"><text>角色</text><SearchableSelect v-model="logRole" :options="logRoleOptions" /></view><view class="field"><text>模块</text><SearchableSelect v-model="logModule" :options="logModuleOptions" /></view></view>
           <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="logKeyword" placeholder="搜索动作 / 目标 / 失败原因" /></label><view class="filter-chips"><button :class="{ active: logResult === 'all' }" @click="logResult = 'all'">全部</button><button :class="{ active: logResult === 'success' }" @click="logResult = 'success'">成功</button><button :class="{ active: logResult === 'failure' }" @click="logResult = 'failure'">失败</button></view></view>
           <view class="system-table-scroll"><view class="table-row table-head audit-grid"><text>时间</text><text>操作人</text><text>角色</text><text>模块 / 动作</text><text>目标</text><text>结果</text><text>原因</text><text>详情</text></view><view v-for="entry in filteredAuditLogs" :key="entry.id" class="table-row audit-grid"><text>{{ new Date(entry.createdAt).toLocaleString('zh-CN') }}</text><view><strong>{{ entry.actorName || entry.actorId }}</strong><small>{{ entry.actorId }}</small></view><text>{{ entry.actorRole || '—' }}</text><view><strong>{{ entry.module }}</strong><small>{{ entry.action }}</small></view><text>{{ entry.targetId || '—' }}</text><span class="status" :class="entry.result === 'success' ? 'active' : 'rejected'">{{ entry.result === 'success' ? '成功' : '失败' }}</span><text>{{ entry.reason || '—' }}</text><view class="row-actions"><button @click="openDetail('auditLog', entry.id)">查看</button></view></view></view>
           <view v-if="!filteredAuditLogs.length" class="empty-state">暂无符合条件的操作日志</view>
@@ -2566,84 +2597,79 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .admin-shell { min-height: 100vh; display: flex; background: var(--admin-bg); }
-.sidebar { position: fixed; inset: 0 auto 0 0; width:var(--admin-sidebar-width); background: #153e2c; color: #fff; display: flex; flex-direction: column; z-index: 10; }
-.brand { height: 76px; padding: 0 18px; display: flex; align-items: center; gap: 11px; border-bottom: 1px solid rgba(255,255,255,.1); }
-.brand-mark { width: 38px; height: 38px; border-radius: 7px; display: grid; place-items: center; background: #2b7a52; }
-.brand-mark .ui-icon { filter: brightness(0) invert(1); }
-.brand-title, .brand-sub { display: block; } .brand-title { font-size: 15px; font-weight: 800; } .brand-sub { color: #9fb7a9; font-size: 12px; margin-top: 3px; }
-.nav-list { min-height:0;padding:12px 10px;flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.24) transparent; } .nav-group { display: block; color: rgba(255,255,255,.45); font-size: 13px; letter-spacing: 1px; font-weight: 700; padding: 14px 12px 6px; }
-.nav-item { width: 100%; padding: 10px 12px; display: flex; align-items: center; gap: 11px; color: #bcccdb; background: transparent; border-radius: var(--admin-radius-control); cursor: pointer; text-align: left; margin-bottom: 2px; font-size: 13.5px; font-weight: 500; }
-.nav-item .ui-icon { opacity: .75; } .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; } .nav-item.active { background: rgba(255,255,255,.08); color: #fff; font-weight: 700; box-shadow:inset 3px 0 0 #7dcea0; } .nav-item.active .ui-icon { opacity: 1; }
-.nav-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 7px; border-radius: 999px; background: #a8542b; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 700; }
-.operator { flex-shrink:0;padding:16px;border-top:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:10px;font-size:12px; } .operator small { display: block; color: #80998a; margin-top: 3px; font-size: 12px; } .avatar { width: 32px; height: 32px; border-radius: 6px; background: #315d48; display: grid; place-items: center; }
-.main { width: calc(100% - var(--admin-sidebar-width)); min-height: 100vh; margin-left: var(--admin-sidebar-width); } .topbar { height: 60px; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--admin-line); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 8; }
+.sidebar { position: fixed; inset: 0 auto 0 0; width:var(--admin-sidebar-width); background: var(--color-sidebar-bg); color: var(--color-ink); display: flex; flex-direction: column; z-index: 10; box-shadow: var(--shadow-card); }
+.brand { height: 76px; padding: 0 18px; display: flex; align-items: center; gap: 11px; border-bottom: 1px solid var(--color-line); }
+.brand-mark { flex: none; width: 38px; height: 38px; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-icon); display: grid; place-items: center; background: var(--gradient-brand); color: var(--color-on-brand); }
+.brand-mark .ui-icon { flex: none; max-width: 100%; max-height: 100%; filter: brightness(0) invert(1); }
+.brand-title, .brand-sub { display: block; } .brand-title { font-size: 16px; font-weight: 800; } .brand-sub { color: var(--color-ink-3); font-size: 12px; margin-top: 3px; }
+.nav-list { min-height:0;padding:8px 12px 16px;flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--color-line) transparent; } .nav-group { display: block; color: var(--color-ink-3); font-size: var(--text-body); letter-spacing: 0; font-weight: 500; padding: 16px 10px 6px; } .nav-list > .nav-group:first-child { padding-top: 8px; }
+.nav-item { width: 100%; min-height: 40px; padding: 0 10px; display: flex; align-items: center; gap: 10px; color: var(--color-text-nav); background: transparent; border-radius: var(--radius-nav); cursor: pointer; text-align: left; margin-bottom: 2px; font-size: var(--text-subtitle); font-weight: 500; position: relative; }
+.nav-item::before { content: ''; width: 7px; height: 7px; flex: none; background: currentColor; transform: rotate(45deg); }
+.nav-item.active { background: var(--color-sidebar-active-bg); color: var(--color-brand-primary-dark); font-weight: 600; }
+.nav-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--color-line-light); color: var(--color-ink-2); display: grid; place-items: center; font-size: var(--text-caption); font-weight: 600; }
+.operator { display:flex;align-items:center;gap:10px;flex:none;padding:0;border:0;font-size:13px; } .operator-meta { min-width:0; } .operator-meta text, .operator small { display: block; } .operator small { color: var(--color-ink-2); margin-top: 2px; font-size: 12px; } .avatar { width: 32px; height: 32px; border-radius: var(--radius-icon); background: var(--color-brand-primary); color: var(--color-on-brand); display: grid; place-items: center; flex: none; }
+.main { width: calc(100% - var(--admin-sidebar-width)); min-height: 100vh; margin-left: var(--admin-sidebar-width); } .topbar { height: 60px; padding: 0 24px; background:var(--color-card); border-bottom: 1px solid var(--admin-line); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 8; }
 .crumb { font-size: 13px; color: var(--admin-muted); } .crumb strong { color: var(--admin-ink); } .top-actions, .head-actions, .row-actions { display: flex; align-items: center; gap: 8px; }
-.search-box { width: 240px; height: var(--admin-control-height); display: flex; align-items: center; gap: 8px; padding: 0 12px; background: #f7f8f5; border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); } .search-box input { min-width:0;flex: 1; height: 100%; border: 0; outline: 0; background: transparent; font-size: 13px; }
-.icon-button { width: var(--admin-control-height); height: var(--admin-control-height); position:relative; display: grid; place-items: center; background: #f7f8f5; border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); cursor: pointer; }.icon-button:hover{background:#e9eee8}.notice-dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:#b64e40;border:1px solid #fff}
-.content { padding: 24px 28px 40px; max-width: 1600px; margin: 0 auto; } .page-head { min-height: 58px; margin-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.search-box { width: 240px; height: var(--admin-control-height); display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); } .search-box input { min-width:0;flex: 1; height: 100%; border: 0; outline: 0; background: transparent; font-size: 13px; }
+.icon-button { width: var(--admin-control-height); height: var(--admin-control-height); position:relative; display: grid; place-items: center; background: var(--color-card-alt); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); cursor: pointer; }.notice-dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--color-danger);border:1px solid var(--color-card)}
+.content { padding: var(--space-section); } .page-head { min-height: 58px; margin-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .page-head p { margin-top: 6px; color: var(--admin-muted); font-size: 13px; }
-.todo-filter-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:-6px 0 16px;padding:11px 14px;border:1px solid #c9d8ce;border-radius:6px;background:var(--admin-green-soft);color:var(--admin-ink)}.todo-filter-banner>view{min-width:0}.todo-filter-banner strong,.todo-filter-banner small{display:block}.todo-filter-banner small{margin-top:3px;color:var(--admin-muted);overflow-wrap:anywhere}.todo-filter-banner .button{margin:0;flex:none}
-.button { min-height: 40px; padding: 0 14px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 700; font-size: 13px; } .button.primary { background: var(--admin-green-2); color: #fff; min-height: 44px; } .button.primary:hover{background:#155b39}.button.secondary { background: #fff; color: var(--admin-ink); border: 1px solid var(--admin-line); }.button.secondary:hover{background:#f7f8f4} .button:disabled { opacity: .45; cursor: default; }.button.wide{width:100%;margin-top:18px}
+.todo-filter-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:-6px 0 16px;padding:11px 14px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);background:var(--admin-green-soft);color:var(--admin-ink)}.todo-filter-banner>view{min-width:0}.todo-filter-banner strong,.todo-filter-banner small{display:block}.todo-filter-banner small{margin-top:3px;color:var(--admin-muted);overflow-wrap:anywhere}.todo-filter-banner .button{margin:0;flex:none}
+.button { min-height: 40px; padding: 0 14px; border-radius: var(--admin-radius-control); display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 700; font-size: 13px; } .button.primary { background: var(--admin-green-2); color:var(--color-on-brand); min-height: 44px; box-shadow: var(--shadow-button-primary); } .button.secondary { background:var(--color-card); color: var(--admin-ink); border: 1px solid var(--admin-line); } .button:disabled { opacity: .45; cursor: default; }.button.wide{width:100%;margin-top:18px}
 .loading { min-height: 420px; display: grid; place-items: center; color: var(--admin-muted); }
-.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 16px; } .kpi-card { min-width:0;padding: 16px; background: #fff; border: 1px solid var(--admin-line); border-left: 3px solid var(--admin-green-2); border-radius: var(--admin-radius-panel); } .kpi-card text,.kpi-card small { display:block; color: var(--admin-muted); font-size: 12px; } .kpi-card strong { display:block; margin: 8px 0 5px; font-size: 24px; font-weight: 800;overflow-wrap:anywhere; } .kpi-card .positive { color: #28724d; }
-.chart-grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: 16px; margin-bottom: 16px; } .panel,.data-panel { background: #fff; border: 1px solid var(--admin-line); border-radius: 7px; overflow: hidden; } .data-panel{overflow-x:auto;scrollbar-width:thin;scrollbar-color:#c7ccc6 transparent}.panel { padding: 17px; } .panel-head { display:flex; align-items:center; justify-content:space-between; } .panel-head h2 { font-size: 15px; } .panel-head text { color:var(--admin-muted); font-size:12px; } .chart { height: 280px; width: 100%; }
-.lower-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:16px; } .rank-row { display:flex; align-items:center; gap:10px; padding:13px 0; border-bottom:1px solid #e5e1d6; } .rank-row .hot-emoji { width:34px; height:34px; border-radius:8px; background:#f1f6ef; display:grid; place-items:center; font-size:18px; flex-shrink:0; } .rank-row>view:nth-child(2) { flex:1; min-width:0; } .rank-row .hot-right { text-align:right; flex-shrink:0; } .rank-row .hot-right b { color:var(--admin-green-2); } .rank-row .hot-right small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .rank-row:last-child { border:0; } .rank-row image { width:42px;height:42px;border-radius:5px; } .rank-row strong,.rank-row small { display:block; } .rank-row strong { font-size:12px; } .rank-row small { color:var(--admin-muted);font-size:12px;margin-top:3px; } .rank-row b { color:var(--admin-green-2);font-size:12px; } .rank-no { font-weight:800;color:var(--admin-gold); }
-.todo-row { width:100%;min-height:56px;padding:9px 0;display:flex;align-items:center;gap:11px;background:transparent;border-bottom:1px solid #eef0eb;cursor:pointer;text-align:left;color:var(--admin-ink); } .todo-row .todo-emoji { width:32px; height:32px; border-radius:8px; background:#f1f6ef; display:grid; place-items:center; font-size:16px; flex-shrink:0; } .todo-row>view { flex:1; min-width:0; } .todo-row strong,.todo-row small { display:block; } .todo-row strong { font-size:13px; } .todo-row small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .todo-pill { font-size:12px; font-weight:600; border-radius:4px; padding:3px 10px; background:#eef0eb; color:#6b6b63; flex-shrink:0; } .todo-pill.wait { background:#fff3e0; color:#a65735; } .todo-pill.no { background:#fdeaea; color:#b03a2e; }
-.table-row { min-height:var(--admin-row-height); padding:0 17px; display:grid; align-items:center; gap:12px; border-bottom:1px solid #eceee8; font-size:12px; } .table-row:last-of-type { border-bottom:0; } .table-head { min-height:40px; background:#f8f9f6; color:var(--admin-muted);font-size:12px;font-weight:700; }
-.report-filters{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px;padding:16px;border-bottom:1px solid var(--admin-line)}.report-filters .field{display:flex;flex-direction:column;gap:6px;min-width:0}.report-filters .field>text{font-size:12px;color:var(--admin-muted)}.report-filters input{height:var(--admin-control-height);padding:0 9px;border:1px solid #dfe3dc;border-radius:6px;background:#fff;box-sizing:border-box}.report-filter-error{margin:10px 16px 0;padding:8px 10px;color:#b03a2e;background:#fff1ef;border:1px solid #f1c4bc;border-radius:6px;font-size:12px}.report-summary{margin:16px}.report-table-scroll{overflow-x:auto;margin:0 16px 16px;border:1px solid #dfe3dc;border-radius:8px}.report-grid{grid-template-columns:1fr 2fr .8fr .9fr 1fr;min-width:620px}.report-panel{overflow:visible}
+.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--space-section); margin-bottom: var(--space-section); } .kpi-card { min-width:0;padding: var(--space-card-pc); background:var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-panel); box-shadow: var(--shadow-card); } .kpi-card text,.kpi-card small { display:block; color: var(--admin-muted); font-size: var(--text-caption); } .kpi-card strong { display:block; margin: 8px 0 5px; font-size: 26px; font-weight: 700; color: var(--color-ink); overflow-wrap:anywhere; } .kpi-card .positive { color: var(--color-success); }
+.chart-grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: var(--space-section); margin-bottom: var(--space-section); } .panel,.data-panel { background:var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-panel); overflow: hidden; box-shadow: var(--shadow-card); } .data-panel{overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--color-line) transparent}.panel { padding: var(--space-card-pc); } .panel-head { display:flex; align-items:center; justify-content:space-between; } .panel-head h2 { font-size: 15px; } .panel-head text { color:var(--admin-muted); font-size:12px; } .chart { height: 280px; width: 100%; }
+.lower-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:16px; } .rank-row { display:flex; align-items:center; gap:10px; padding:13px 0; border-bottom:1px solid var(--color-line); } .rank-row .hot-emoji { width:34px; height:34px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:18px; flex-shrink:0; } .rank-row>view:nth-child(2) { flex:1; min-width:0; } .rank-row .hot-right { text-align:right; flex-shrink:0; } .rank-row .hot-right b { color:var(--admin-green-2); } .rank-row .hot-right small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .rank-row:last-child { border:0; } .rank-row image { width:42px;height:42px;border-radius:var(--radius-icon); } .rank-row strong,.rank-row small { display:block; } .rank-row strong { font-size:12px; } .rank-row small { color:var(--admin-muted);font-size:12px;margin-top:3px; } .rank-row b { color:var(--admin-green-2);font-size:12px; } .rank-no { font-weight:800;color:var(--admin-gold); }
+.todo-row { width:100%;min-height:56px;padding:9px 0;display:flex;align-items:center;gap:11px;background:transparent;border-bottom:1px solid var(--color-line-light);cursor:pointer;text-align:left;color:var(--admin-ink); } .todo-row .todo-emoji { width:32px; height:32px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:16px; flex-shrink:0; } .todo-row>view { flex:1; min-width:0; } .todo-row strong,.todo-row small { display:block; } .todo-row strong { font-size:13px; } .todo-row small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .todo-pill { font-size:12px; font-weight:600; border-radius:var(--radius-nav); padding:3px 10px; background:var(--color-line-light); color:var(--color-ink-2); flex-shrink:0; } .todo-pill.wait { background:var(--color-warning-soft); color:var(--color-warning-dark); } .todo-pill.no { background:var(--color-danger-soft); color:var(--color-danger); }
+.table-row { min-height:var(--admin-row-height); padding:0 17px; display:grid; align-items:center; gap:12px; border-bottom:1px solid var(--color-line-light); font-size:12px; } .table-row:last-of-type { border-bottom:0; } .table-head { min-height:40px; background:var(--color-card-alt); color:var(--admin-muted);font-size:12px;font-weight:700; }
+.report-filters{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px;padding:16px;border-bottom:1px solid var(--admin-line)}.report-filters .field{display:flex;flex-direction:column;gap:6px;min-width:0}.report-filters .field>text{font-size:12px;color:var(--admin-muted)}.report-filters .picker-field,.booking-filters .picker-field,.audit-filters .picker-field{height:var(--admin-control-height);padding:0 9px;border:1px solid var(--color-line);border-radius:var(--admin-radius-control);background:var(--color-card);box-sizing:border-box}.report-filter-error{margin:10px 16px 0;padding:8px 10px;color:var(--color-danger);background:var(--color-danger-soft);border:1px solid var(--color-danger-soft);border-radius:var(--admin-radius-control);font-size:12px}.report-summary{margin:16px}.report-table-scroll{overflow-x:auto;margin:0 16px 16px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel)}.report-grid{grid-template-columns:1fr 2fr .8fr .9fr 1fr;min-width:620px}.report-panel{overflow:visible}
 @media (max-width: 900px){.report-filters{grid-template-columns:repeat(2,minmax(0,1fr));}.report-filters .field{min-width:0;}.report-filters :deep(.searchable-select){min-width:0;}}
-.supplier-table-scroll{overflow-x:auto;max-width:100%}.order-table-scroll{overflow-x:auto;max-width:100%}.farm-table-scroll{overflow-x:auto;max-width:100%}.product-table-scroll{overflow-x:auto;max-width:100%}.promoter-table-scroll{overflow-x:auto;max-width:100%}.account-table-scroll{overflow-x:auto;max-width:100%}.withdrawal-table-scroll{overflow-x:auto;max-width:100%}.role-table-scroll{overflow-x:auto;max-width:100%}.admin-account-table-scroll{overflow-x:auto;max-width:100%}.supplier-grid { grid-template-columns:1.4fr 1.3fr .55fr 1fr minmax(240px, 1.4fr);min-width:980px; }.supplier-grid .row-actions{flex-wrap:wrap}.dict-grid { grid-template-columns:1.4fr 1.6fr .7fr .6fr 1fr; }.dict-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;flex-wrap:wrap}.dict-tabs{display:flex;flex-wrap:wrap;gap:7px}.dict-tab{display:flex;align-items:center;min-height:32px;padding:0 4px 0 12px;border-radius:6px;border:1px solid #d9ddd6;background:#fff;color:#23291f}.dict-tab.active{background:#e8f1ea;border-color:#c9e0cf;color:#1d6b44}.dict-tab-btn{min-height:28px;padding:0 8px;border:0;background:transparent;color:inherit;font-size:13px;cursor:pointer}.dict-tab.active .dict-tab-btn{font-weight:700}.dict-tool-actions{display:flex;align-items:center;gap:8px}.dict-table{border:1px solid #dfe3dc;border-radius:8px;overflow:hidden}.dict-table .table-row{min-height:var(--admin-row-height);padding:0 14px}.dict-table .table-row:nth-child(even){background:#fafbf8}.dict-table .table-row:not(.table-head):hover{background:#f0f6f1}.dict-table .table-head{min-height:40px;background:#f0f3ee}.account-grid { grid-template-columns:1.3fr 1fr 1.3fr .6fr .7fr .7fr 1.2fr; }.product-grid { grid-template-columns:1.6fr .8fr .7fr .8fr .6fr .7fr .6fr .6fr .6fr .8fr; }.order-grid{grid-template-columns:1.2fr 1.4fr .45fr .75fr .6fr .6fr .55fr .6fr .6fr .8fr;min-width:1080px}.farm-grid{grid-template-columns:1.3fr 1.2fr .7fr .8fr .75fr .6fr .7fr .8fr;min-width:860px}
+.supplier-table-scroll{overflow-x:auto;max-width:100%}.order-table-scroll{overflow-x:auto;max-width:100%}.farm-table-scroll{overflow-x:auto;max-width:100%}.product-table-scroll{overflow-x:auto;max-width:100%}.promoter-table-scroll{overflow-x:auto;max-width:100%}.account-table-scroll{overflow-x:auto;max-width:100%}.withdrawal-table-scroll{overflow-x:auto;max-width:100%}.role-table-scroll{overflow-x:auto;max-width:100%}.admin-account-table-scroll{overflow-x:auto;max-width:100%}.supplier-grid { grid-template-columns:1.4fr 1.3fr .55fr 1fr minmax(240px, 1.4fr);min-width:980px; }.supplier-grid .row-actions{flex-wrap:wrap}.dict-grid { grid-template-columns:1.4fr 1.6fr .7fr .6fr 1fr; }.dict-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;flex-wrap:wrap}.dict-tabs{display:flex;flex-wrap:wrap;gap:7px}.dict-tab{display:flex;align-items:center;min-height:32px;padding:0 4px 0 12px;border-radius:var(--admin-radius-control);border:1px solid var(--color-line);background:var(--color-card);color:var(--color-ink)}.dict-tab.active{background:var(--color-brand-primary-soft);border-color:var(--color-line);color:var(--color-brand-primary)}.dict-tab-btn{min-height:28px;padding:0 8px;border:0;background:transparent;color:inherit;font-size:13px;cursor:pointer}.dict-tab.active .dict-tab-btn{font-weight:700}.dict-tool-actions{display:flex;align-items:center;gap:8px}.dict-table{border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);overflow:hidden}.dict-table .table-row{min-height:var(--admin-row-height);padding:0 14px}.dict-table .table-row:nth-child(even){background:var(--color-card-alt)}.dict-table .table-head{min-height:40px;background:var(--color-line-light)}.account-grid { grid-template-columns:1.3fr 1fr 1.3fr .6fr .7fr .7fr 1.2fr; }.product-grid { grid-template-columns:1.6fr .8fr .7fr .8fr .6fr .7fr .6fr .6fr .6fr .8fr; }.order-grid{grid-template-columns:1.2fr 1.4fr .45fr .75fr .6fr .6fr .55fr .6fr .6fr .8fr;min-width:1080px}.farm-grid{grid-template-columns:1.3fr 1.2fr .7fr .8fr .75fr .6fr .7fr .8fr;min-width:860px}
 .after-sale-table-scroll{overflow-x:auto;max-width:100%}.after-grid { grid-template-columns:1fr 1.4fr .5fr .7fr .7fr .7fr .7fr minmax(220px,1.2fr);min-width:1040px }.after-grid .row-actions{min-width:220px;flex-wrap:nowrap}.after-grid .row-actions button{white-space:nowrap}.promoter-grid { grid-template-columns:1.2fr 1.1fr .65fr .65fr .9fr .8fr .6fr .8fr;min-width:900px }
-.table-row strong,.table-row small { display:block; } .table-row small { color:var(--admin-muted);font-size:12px;margin-top:4px; } .route-grid { display:grid;grid-template-columns:1.6fr .8fr .7fr 1.4fr .8fr; }.route-cell { display:flex;align-items:center;gap:10px;min-width:0; }.route-thumb { width:42px;height:42px;flex:none;border-radius:5px; }.product-cell { display:flex;align-items:center;gap:10px;min-width:0; } .product-cell image { width:42px;height:42px;border-radius:5px;flex:none; } .product-cell view { min-width:0; } .product-cell strong { overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere; }
-.status { width:max-content;max-width:100%;padding:5px 8px;border-radius:4px;background:#eef0eb;color:#687168;font-size:12px;white-space:nowrap; }.status.active,.status.cooperating,.status.delivered,.status.resolved { background:#dcfce7;color:#15803d; }.status.pending,.status.processing { background:#fff4da;color:#997126; }.status.rejected,.status.after-sale { background:#f9e7e4;color:#a34339; }.status.shipping { background:#e7eef8;color:#45658d; }
-.row-actions button { min-height:32px;padding:5px 9px;background:#fff;color:#1d6b44;border:1px solid #c9e0cf;border-radius:4px;cursor:pointer;font-size:13px; }.row-actions button:first-child:not(.danger){background:#1d6b44;color:#fff;border-color:#1d6b44}.row-actions button:hover{background:#e7f1eb}.row-actions button:first-child:not(.danger):hover{background:#15512f}.row-actions button.danger { background:#fff;color:#a34339;border-color:#f1c4bc; }.row-actions button.danger:hover{background:#f9e7e4}
+.table-row strong,.table-row small { display:block; } .table-row small { color:var(--admin-muted);font-size:12px;margin-top:4px; } .route-grid { display:grid;grid-template-columns:1.6fr .8fr .7fr 1.4fr .8fr; }.route-cell { display:flex;align-items:center;gap:10px;min-width:0; }.route-thumb { width:42px;height:42px;flex:none;border-radius:var(--radius-icon); }.product-cell { display:flex;align-items:center;gap:10px;min-width:0; } .product-cell image { width:42px;height:42px;border-radius:var(--radius-icon);flex:none; } .product-cell view { min-width:0; } .product-cell strong { overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere; }
+.status { width:max-content;max-width:100%;padding:5px 8px;border-radius:var(--radius-nav);background:var(--color-line-light);color:var(--color-ink-2);font-size:12px;white-space:nowrap; }.status.active,.status.cooperating,.status.delivered,.status.resolved { background:var(--color-success-soft);color:var(--color-success); }.status.pending,.status.processing { background:var(--color-warning-soft);color:var(--color-warning-dark); }.status.rejected,.status.after-sale { background:var(--color-danger-soft);color:var(--color-danger); }.status.shipping { background:var(--color-info-soft);color:var(--color-info-dark); }
+.row-actions button { min-height:32px;padding:5px 9px;background:var(--color-card);color:var(--color-brand-primary);border:1px solid var(--color-line);border-radius:var(--radius-nav);cursor:pointer;font-size:13px; }.row-actions button:first-child:not(.danger){background:var(--color-brand-primary);color:var(--color-on-brand);border-color:var(--color-brand-primary)}.row-actions button.danger { background:var(--color-card);color:var(--color-danger);border-color:var(--color-danger-soft); }
 
-.policy-panels { display:flex;flex-direction:column;gap:14px; }.policy-group { padding:0;overflow:hidden; }.policy-group-head { padding:14px 16px;border-bottom:1px solid var(--admin-line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }.policy-group-head h2 { display:flex;align-items:center;gap:7px;font-size:15px;margin:0; }.policy-group-head h2>text{margin:0;color:var(--admin-ink);font-size:15px}.policy-group-head>view>text { display:block;color:var(--admin-muted);font-size:12px;margin-top:3px; }.policy-group-count { white-space:nowrap;font-size:12px;color:var(--admin-muted); }.policy-card-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:16px; }.policy-data-card { min-width:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px;background:#fff; }.policy-data-top { display:flex;align-items:flex-start;justify-content:space-between;gap:10px; }.policy-data-top strong { font-size:14px;overflow-wrap:anywhere; }.policy-scope { display:block;margin-top:4px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.policy-data-meta { display:flex;align-items:center;gap:10px;margin-top:10px; }.policy-discount { font-size:13px;font-weight:700;color:var(--admin-green-2); }.tier-table { margin-top:12px;border:1px solid #eceee8;border-radius:var(--admin-radius-panel);overflow:hidden; }.tier-table .table-row { min-height:34px;padding:0 12px;font-size:12px; }.tier-table .tier-grid { grid-template-columns:1.3fr .8fr .7fr 1.2fr; }.tier-off { color:var(--admin-green-2);font-weight:700; }.tier-empty { margin-top:12px;padding:10px;border-radius:var(--admin-radius-panel);background:#fafbf8;color:var(--admin-muted);font-size:12px;text-align:center; }.switch { width:42px;height:23px;padding:3px;border-radius:8px;background:#c7ccc6;cursor:pointer; }.switch span { display:block;width:17px;height:17px;border-radius:50%;background:#fff;transition:.2s; }.switch.on { background:var(--admin-green-2); }.switch.on span { transform:translateX(19px); }
-.summary-strip { display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--admin-line);background:#fafbf8; }.summary-strip view { padding:15px 18px;border-right:1px solid var(--admin-line); }.summary-strip view:last-child { border:0; }.summary-strip small,.summary-strip strong { display:block; }.summary-strip small { color:var(--admin-muted);font-size:12px; }.summary-strip strong { margin-top:4px;font-size:16px; }.commission-banner { min-height:108px;padding:18px;display:flex;align-items:center;justify-content:space-between;background:#f7f4ea;border-bottom:1px solid #e8dfc7; }.commission-banner small,.commission-banner strong,.commission-banner text { display:block; }.commission-banner small { color:#7a725e;font-size:12px; }.commission-banner strong { margin:5px 0;font-size:26px;color:#8c6b28; }.commission-banner text { color:#8c8370;font-size:12px; }.gold { color:#957027; }
-.modal-mask { position:fixed;inset:0;background:rgba(14,25,19,.46);z-index:30;display:grid;place-items:center; }.modal,.catalog-product-modal { width:440px;max-width:92vw;max-height:86vh;background:#fff;border-radius:var(--admin-radius-panel);padding:22px;box-shadow:0 18px 48px rgba(0,0,0,.22); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px; }.modal-head>view{min-width:0}.modal-head h2 { font-size:19px;overflow-wrap:anywhere; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.field { display:block;margin-bottom:14px;min-width:0; }.field text { display:block;margin-bottom:6px;font-size:12px;font-weight:700; }.field>input { width:100%;height:var(--admin-control-height);padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);outline:0;background:#fff; }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
-.location-info{display:flex;flex-direction:column;gap:6px;margin:-2px 0 14px;padding:10px;border:1px solid var(--admin-line);border-radius:6px;background:#f8f9f6;color:var(--admin-muted);font-size:12px;line-height:1.45}.location-info-head{display:flex;align-items:center;gap:8px;color:var(--admin-ink);font-weight:700}.location-info-head strong.resolved{color:var(--admin-green-2)}.location-info-head strong.failed{color:#a34339}.location-info-head .compact-button{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
-.drawer-mask{position:fixed;inset:0;background:rgba(14,25,19,.42);z-index:35;display:flex;justify-content:flex-end}.drawer{width:min(440px,100vw);max-width:100vw;height:100%;max-height:100vh;padding:22px;background:#fff;box-shadow:-18px 0 48px rgba(12,31,21,.2);overflow-y:auto}.drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--admin-line)}.drawer-head small{display:block;color:var(--admin-muted);font-size:12px;margin-bottom:4px}.drawer-head h2{font-size:20px}.drawer-list{padding-top:18px}.todo-detail>button{width:100%;min-height:52px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;background:#f8f9f6;border-bottom:1px solid var(--admin-line);color:var(--admin-ink);text-align:left}.todo-detail>button:hover{background:var(--admin-green-soft)}.todo-detail b{color:var(--admin-green-2)}.export-history{margin-top:20px;padding:14px;background:#f7f4ea;border-radius:6px}.export-history strong,.export-history text{display:block}.export-history text{margin-top:8px;color:var(--admin-muted);font-size:12px}.detail-hero{display:flex;align-items:center;gap:12px;padding:14px;background:#f7f8f4;border-radius:7px}.detail-icon{width:46px;height:46px;border-radius:7px;background:var(--admin-green-soft);display:grid;place-items:center}.detail-hero h3,.drawer-list>h3{margin:0;font-size:17px}.detail-hero text,.drawer-muted{display:block;margin-top:5px;color:var(--admin-muted);font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.detail-grid view{padding:13px;background:#f8f9f6;border:1px solid #eceee8;border-radius:6px}.detail-grid small,.detail-grid strong{display:block}.detail-grid small{color:var(--admin-muted);font-size:12px}.detail-grid strong{margin-top:5px;font-size:14px}.tracking-number{margin:16px 0;padding:13px;border:1px dashed #c8d7cd;border-radius:6px}.tracking-number small,.tracking-number strong{display:block}.tracking-number small{color:var(--admin-muted);font-size:12px}.tracking-number strong{margin-top:5px;font-size:14px}.timeline-list>view{position:relative;display:grid;grid-template-columns:16px 1fr;gap:9px;padding-bottom:18px}.timeline-list>view>span{width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--admin-green-2);box-shadow:0 0 0 4px var(--admin-green-soft)}.timeline-list>view:not(:last-child)::after{content:"";position:absolute;left:4px;top:16px;bottom:2px;width:1px;background:#cbd8cf}.timeline-list strong,.timeline-list small,.timeline-list text{display:block}.timeline-list small,.timeline-list text{margin-top:4px;color:var(--admin-muted);font-size:12px}.history-row{padding:13px 0;border-bottom:1px solid #eceee8}.history-row strong,.history-row small{display:block}.history-row small{margin-top:5px;color:var(--admin-muted);font-size:12px}.history-items{margin-top:9px;display:grid;gap:6px}.history-items>view{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:12px;align-items:center;padding:8px 10px;border-radius:5px;background:#f7f8f4}.history-items span{font-size:12px;font-weight:700}.history-items small{margin:0;overflow-wrap:anywhere}.history-items b{color:var(--admin-green-2);font-size:12px}.farm-cover{width:100%;height:180px;border-radius:7px;margin-bottom:14px;cursor:zoom-in}
+.policy-panels { display:flex;flex-direction:column;gap:14px; }.policy-group { padding:0;overflow:hidden; }.policy-group-head { padding:14px 16px;border-bottom:1px solid var(--admin-line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }.policy-group-head h2 { display:flex;align-items:center;gap:7px;font-size:15px;margin:0; }.policy-group-head h2>text{margin:0;color:var(--admin-ink);font-size:15px}.policy-group-head>view>text { display:block;color:var(--admin-muted);font-size:12px;margin-top:3px; }.policy-group-count { white-space:nowrap;font-size:12px;color:var(--admin-muted); }.policy-card-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:16px; }.policy-data-card { min-width:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px;background:var(--color-card); }.policy-data-top { display:flex;align-items:flex-start;justify-content:space-between;gap:10px; }.policy-data-top strong { font-size:14px;overflow-wrap:anywhere; }.policy-scope { display:block;margin-top:4px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.policy-data-meta { display:flex;align-items:center;gap:10px;margin-top:10px; }.policy-discount { font-size:13px;font-weight:700;color:var(--admin-green-2); }.tier-table { margin-top:12px;border:1px solid var(--color-line-light);border-radius:var(--admin-radius-panel);overflow:hidden; }.tier-table .table-row { min-height:34px;padding:0 12px;font-size:12px; }.tier-table .tier-grid { grid-template-columns:1.3fr .8fr .7fr 1.2fr; }.tier-off { color:var(--admin-green-2);font-weight:700; }.tier-empty { margin-top:12px;padding:10px;border-radius:var(--admin-radius-panel);background:var(--color-card-alt);color:var(--admin-muted);font-size:12px;text-align:center; }.switch { width:42px;height:23px;padding:3px;border-radius:var(--radius-nav);background:var(--color-line);cursor:pointer; }.switch span { display:block;width:17px;height:17px;border-radius:50%;background:var(--color-card);transition:.2s; }.switch.on { background:var(--admin-green-2); }.switch.on span { transform:translateX(19px); }
+.summary-strip { display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--admin-line);background:var(--color-card-alt); }.summary-strip view { padding:15px 18px;border-right:1px solid var(--admin-line); }.summary-strip view:last-child { border:0; }.summary-strip small,.summary-strip strong { display:block; }.summary-strip small { color:var(--admin-muted);font-size:12px; }.summary-strip strong { margin-top:4px;font-size:16px; }.commission-banner { min-height:108px;padding:18px;display:flex;align-items:center;justify-content:space-between;background:var(--color-gold-soft);border-bottom:1px solid var(--color-gold-soft); }.commission-banner small,.commission-banner strong,.commission-banner text { display:block; }.commission-banner small { color:var(--color-gold-dark);font-size:12px; }.commission-banner strong { margin:5px 0;font-size:26px;color:var(--color-gold-dark); }.commission-banner text { color:var(--color-ink-2);font-size:12px; }.gold { color:var(--color-gold-dark); }
+.modal-mask { position:fixed;inset:0;background:var(--color-overlay);z-index:30;display:grid;place-items:center; }.modal,.catalog-product-modal { width:440px;max-width:92vw;max-height:86vh;background:var(--color-card);border-radius:var(--admin-radius-panel);padding:22px;box-shadow:0 18px 48px var(--color-overlay); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px; }.modal-head>view{min-width:0}.modal-head h2 { font-size:19px;overflow-wrap:anywhere; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.field { display:block;margin-bottom:14px;min-width:0; }.field text { display:block;margin-bottom:6px;font-size:12px;font-weight:700; }.field>input { width:100%;height:var(--admin-control-height);padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);outline:0;background:var(--color-card); }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
+.location-info{display:flex;flex-direction:column;gap:6px;margin:-2px 0 14px;padding:10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt);color:var(--admin-muted);font-size:12px;line-height:1.45}.location-info-head{display:flex;align-items:center;gap:8px;color:var(--admin-ink);font-weight:700}.location-info-head strong.resolved{color:var(--admin-green-2)}.location-info-head strong.failed{color:var(--color-danger)}.location-info-head .compact-button{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
+.drawer-mask{position:fixed;inset:0;background:var(--color-overlay);z-index:35;display:flex;justify-content:flex-end}.drawer{width:min(440px,100vw);max-width:100vw;height:100%;max-height:100vh;padding:22px;background:var(--color-card);box-shadow:-18px 0 48px var(--color-overlay);overflow-y:auto}.drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--admin-line)}.drawer-head small{display:block;color:var(--admin-muted);font-size:12px;margin-bottom:4px}.drawer-head h2{font-size:20px}.drawer-list{padding-top:18px}.todo-detail>button{width:100%;min-height:52px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;background:var(--color-card-alt);border-bottom:1px solid var(--admin-line);color:var(--admin-ink);text-align:left}.todo-detail b{color:var(--admin-green-2)}.export-history{margin-top:20px;padding:14px;background:var(--color-gold-soft);border-radius:var(--admin-radius-panel)}.export-history strong,.export-history text{display:block}.export-history text{margin-top:8px;color:var(--admin-muted);font-size:12px}.detail-hero{display:flex;align-items:center;gap:12px;padding:14px;background:var(--color-hover-bg);border-radius:var(--admin-radius-panel)}.detail-icon{width:46px;height:46px;border-radius:var(--radius-icon);background:var(--admin-green-soft);display:grid;place-items:center}.detail-hero h3,.drawer-list>h3{margin:0;font-size:17px}.detail-hero text,.drawer-muted{display:block;margin-top:5px;color:var(--admin-muted);font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.detail-grid view{padding:13px;background:var(--color-card-alt);border:1px solid var(--color-line-light);border-radius:var(--admin-radius-panel)}.detail-grid small,.detail-grid strong{display:block}.detail-grid small{color:var(--admin-muted);font-size:12px}.detail-grid strong{margin-top:5px;font-size:14px}.tracking-number{margin:16px 0;padding:13px;border:1px dashed var(--color-line);border-radius:var(--admin-radius-panel)}.tracking-number small,.tracking-number strong{display:block}.tracking-number small{color:var(--admin-muted);font-size:12px}.tracking-number strong{margin-top:5px;font-size:14px}.timeline-list>view{position:relative;display:grid;grid-template-columns:16px 1fr;gap:9px;padding-bottom:18px}.timeline-list>view>span{width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--admin-green-2);box-shadow:0 0 0 4px var(--admin-green-soft)}.timeline-list>view:not(:last-child)::after{content:"";position:absolute;left:4px;top:16px;bottom:2px;width:1px;background:var(--color-line)}.timeline-list strong,.timeline-list small,.timeline-list text{display:block}.timeline-list small,.timeline-list text{margin-top:4px;color:var(--admin-muted);font-size:12px}.history-row{padding:13px 0;border-bottom:1px solid var(--color-line-light)}.history-row strong,.history-row small{display:block}.history-row small{margin-top:5px;color:var(--admin-muted);font-size:12px}.history-items{margin-top:9px;display:grid;gap:6px}.history-items>view{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:12px;align-items:center;padding:8px 10px;border-radius:var(--admin-radius-panel);background:var(--color-hover-bg)}.history-items span{font-size:12px;font-weight:700}.history-items small{margin:0;overflow-wrap:anywhere}.history-items b{color:var(--admin-green-2);font-size:12px}.farm-cover{width:100%;height:180px;border-radius:var(--radius-icon);margin-bottom:14px;cursor:zoom-in}
 @media(max-width:1280px){.admin-shell{--admin-sidebar-width:var(--admin-sidebar-compact-width)}}
-@media(max-width:1180px){.commission-rule-grid{grid-template-columns:repeat(2,1fr)}.sidebar{width:var(--admin-sidebar-width)}.main{width:calc(100% - var(--admin-sidebar-width));margin-left:var(--admin-sidebar-width)}.brand{padding:0 12px}.brand-title{font-size:13px}.nav-item{padding:0 9px;gap:8px}.content{padding:20px 18px 36px}.topbar{padding:0 18px}.search-box{width:210px}.kpi-grid{grid-template-columns:repeat(2,1fr)}.chart-grid,.lower-grid{grid-template-columns:1fr}.supplier-grid{min-width:760px}.product-grid,.order-grid,.after-grid,.farm-grid{min-width:860px}.promoter-grid{min-width:900px}}
-.search-box{height:40px}.row-actions button,.compact-button{min-height:32px}.state-panel{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--admin-muted)}.empty-state{min-height:120px;display:grid;place-items:center;color:var(--admin-muted);font-size:12px}.module-toolbar{padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-bottom:1px solid var(--admin-line);background:#fff}.module-toolbar .searchable-select{min-width:130px}.module-toolbar .button{margin-left:auto}.order-id{display:flex;align-items:center;gap:9px}.order-id input{width:16px;height:16px}.policy-actions{display:flex;align-items:center;gap:8px}.compact-button{padding:0 9px;border-radius:4px;background:var(--admin-green-soft);color:var(--admin-green-2);font-size:13px}.compact-button.danger { background: #f8e9e6; color: #a34339; border: 1px solid #f1c4bc; }.banner-actions,.drawer-actions{display:flex;flex-wrap:wrap;gap:9px}.danger-button{background:#a34339!important;color:#fff!important}.share-config-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;padding:4px 0 8px}.share-config-row .field{min-width:160px}.share-config-row .button{margin:0 0 4px}.commission-rules{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:7px;background:#fafbf8}.commission-rules>button{width:100%;min-height:40px;padding:0 10px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;border-bottom:1px solid var(--admin-line);background:transparent;text-align:left}.commission-rules>button:last-child{border:0}.commission-rules small{color:var(--admin-muted)}
-.order-select{width:24px;height:24px;border:1px solid var(--admin-line);border-radius:4px;background:#fff;display:grid;place-items:center;flex:none}.order-select.selected{background:var(--admin-green-2);border-color:var(--admin-green-2)}.order-select.selected .ui-icon{filter:brightness(0) invert(1)}
-.settlement-history{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:7px;background:#fff}.settlement-history .empty-state{min-height:72px}
-.button:focus-visible,.icon-button:focus-visible,.row-actions button:focus-visible,.nav-item:focus-visible,.switch:focus-visible{outline:3px solid rgba(36,115,77,.28);outline-offset:2px}.row-actions button:disabled,.switch:disabled{opacity:.5;cursor:default}.drawer-actions{margin-top:18px}.detail-grid strong{overflow-wrap:anywhere}
+@media(max-width:1180px){.commission-rule-grid{grid-template-columns:repeat(2,1fr)}.sidebar{width:var(--admin-sidebar-width)}.main{width:calc(100% - var(--admin-sidebar-width));margin-left:var(--admin-sidebar-width)}.brand{padding:0 12px}.brand-title{font-size:13px}.nav-item{padding:0 8px;gap:8px}.content{padding:var(--space-section)}.topbar{padding:0 18px}.search-box{width:210px}.kpi-grid{grid-template-columns:repeat(2,1fr)}.chart-grid,.lower-grid{grid-template-columns:1fr}.supplier-grid{min-width:760px}.product-grid,.order-grid,.after-grid,.farm-grid{min-width:860px}.promoter-grid{min-width:900px}}
+.search-box{height:var(--admin-control-height)}.row-actions button,.compact-button{min-height:32px}.state-panel{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--admin-muted)}.empty-state{min-height:120px;display:grid;place-items:center;color:var(--admin-muted);font-size:12px}.module-toolbar{padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-bottom:1px solid var(--admin-line);background:var(--color-card)}.module-toolbar .searchable-select{min-width:160px}.module-toolbar .button{margin-left:auto}.order-id{display:flex;align-items:center;gap:9px}.order-id input{width:16px;height:16px}.policy-actions{display:flex;align-items:center;gap:8px}.compact-button{padding:0 9px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2);font-size:13px}.compact-button.danger { background: var(--color-danger-soft); color: var(--color-danger); border: 1px solid var(--color-danger-soft); }.banner-actions,.drawer-actions{display:flex;flex-wrap:wrap;gap:9px}.danger-button{background:var(--color-danger);color:var(--color-on-brand)}.share-config-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;padding:4px 0 8px}.share-config-row .field{min-width:160px}.share-config-row .button{margin:0 0 4px}.commission-rules{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt)}.commission-rules>button{width:100%;min-height:40px;padding:0 10px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;border-bottom:1px solid var(--admin-line);background:transparent;text-align:left}.commission-rules>button:last-child{border:0}.commission-rules small{color:var(--admin-muted)}
+.order-select{width:24px;height:24px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card);display:grid;place-items:center;flex:none}.order-select.selected{background:var(--admin-green-2);border-color:var(--admin-green-2)}.order-select.selected .ui-icon{filter:brightness(0) invert(1)}
+.settlement-history{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card)}.settlement-history .empty-state{min-height:72px}
+.row-actions button:disabled,.switch:disabled{opacity:.5;cursor:default}.drawer-actions{margin-top:18px}.detail-grid strong{overflow-wrap:anywhere}
 
 /* ===== 原型 1:1 补充样式 ===== */
-.page-time{display:block;margin-top:4px;font-size:12px;color:var(--muted,#6f786f)}
-.kpi-icon{display:inline-grid;place-items:center;width:auto;height:auto;border-radius:0;background:transparent;font-size:16px;margin-bottom:8px}
-.period-button{min-height:32px;padding:0 10px;border:1px solid var(--line,#d9ddd6);border-radius:6px;background:#fff;color:var(--ink,#23291f);font-size:13px;cursor:pointer}.period-button.on{background:#e8f1ea;color:#1d6b44;border-color:#c9e0cf}
-.stat-strip{display:grid;gap:14px;margin-bottom:16px}.stat-strip.three{grid-template-columns:repeat(3,1fr)}.stat-strip.four{grid-template-columns:repeat(4,1fr)}.stat-strip>view{min-width:0;background:#fff;border:1px solid var(--line,#e5e1d6);border-radius:var(--admin-radius-panel);padding:14px 16px}.stat-strip small{display:block;font-size:12.5px;color:var(--muted,#6f786f)}.stat-strip strong{display:block;margin-top:5px;font-size:21px;font-weight:800;overflow-wrap:anywhere}.stat-strip span{display:block;margin-top:5px;font-size:12px;color:var(--muted,#6f786f);line-height:1.4;overflow-wrap:anywhere}.stat-strip .positive{color:var(--green,#1d6b44)}.stat-strip .pending-text{color:#a65735}
-.filter-chips{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}.filter-chips button{min-height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--line,#d9ddd6);background:#fff;color:var(--ink,#23291f);font-size:13px;cursor:pointer}.filter-chips button.active{background:#eef2e9;color:#15512f;border-color:#cfe0d2}
-.mini-button{min-height:32px;padding:0 8px;border-radius:6px;background:#e8f1ea;color:#1d6b44;font-size:13px;border:1px solid #c9e0cf;cursor:pointer;margin-left:6px;vertical-align:2px}
-.fulfill-strip{display:flex;gap:0;margin-bottom:16px;background:#fff;border:1px solid var(--line,#e5e1d6);border-radius:var(--admin-radius-panel);padding:12px 8px;overflow-x:auto}.fulfill-strip>view{flex:1;min-width:96px;text-align:center;position:relative;padding:2px 4px}.fulfill-strip>view:not(:last-child)::after{content:"→";position:absolute;right:-1px;top:12px;color:#cbd5e1;font-size:16px}.fulfill-strip b{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#d6d3c8;color:#fff;font-size:14px;font-weight:800;margin-bottom:6px}.fulfill-strip .done b{background:var(--green,#1d6b44)}.fulfill-strip .done b .ui-icon{filter:brightness(0) invert(1)}.fulfill-strip .cur b{background:#c2a25a}.fulfill-strip small{display:block;font-size:12px;font-weight:700;color:var(--ink,#23291f)}.fulfill-strip strong{display:block;margin-top:4px;font-size:12px;font-weight:700;line-height:1.3}
-.settle-banner{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:stretch;margin-bottom:12px}.settle-banner>view{min-width:0;background:#f4f8f3;border:1px solid var(--line,#e5e1d6);border-radius:var(--admin-radius-panel);padding:11px 13px}.settle-banner small{display:block;font-size:12px;color:var(--muted,#6f786f)}.settle-banner strong{display:block;margin-top:5px;font-size:18px;font-weight:800;overflow-wrap:anywhere}.settle-banner span{display:block;margin-top:4px;font-size:12px;color:var(--muted,#6f786f);overflow-wrap:anywhere}.settle-banner .positive{color:var(--green,#1d6b44)}.settle-banner .button{min-height:var(--admin-control-height);align-self:center;white-space:nowrap}
+.page-time{display:block;margin-top:4px;font-size:12px;color:var(--admin-muted)}
+.kpi-icon{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);color:var(--color-brand-primary);font-size:16px;margin-bottom:10px}
+.period-button{min-height:32px;padding:0 10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--admin-ink);font-size:13px;cursor:pointer}.period-button.on{background:var(--color-brand-primary-soft);color:var(--color-brand-primary);border-color:var(--color-line)}
+.stat-strip{display:grid;gap:14px;margin-bottom:16px}.stat-strip.three{grid-template-columns:repeat(3,1fr)}.stat-strip.four{grid-template-columns:repeat(4,1fr)}.stat-strip>view{min-width:0;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px 16px}.stat-strip small{display:block;font-size:12.5px;color:var(--admin-muted)}.stat-strip strong{display:block;margin-top:5px;font-size:21px;font-weight:800;overflow-wrap:anywhere}.stat-strip span{display:block;margin-top:5px;font-size:12px;color:var(--admin-muted);line-height:1.4;overflow-wrap:anywhere}.stat-strip .positive{color:var(--admin-green-2)}.stat-strip .pending-text{color:var(--color-warning-dark)}
+.filter-chips{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}.filter-chips button{min-height:32px;padding:0 12px;border-radius:var(--admin-radius-control);border:1px solid var(--admin-line);background:var(--color-card);color:var(--admin-ink);font-size:13px;cursor:pointer}.filter-chips button.active{background:var(--color-brand-primary-soft);color:var(--color-brand-primary-dark);border-color:var(--color-line)}
+.mini-button{min-height:32px;padding:0 8px;border-radius:var(--admin-radius-control);background:var(--color-brand-primary-soft);color:var(--color-brand-primary);font-size:13px;border:1px solid var(--color-line);cursor:pointer;margin-left:6px;vertical-align:2px}
+.fulfill-strip{display:flex;gap:0;margin-bottom:16px;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:12px 8px;overflow-x:auto}.fulfill-strip>view{flex:1;min-width:96px;text-align:center;position:relative;padding:2px 4px}.fulfill-strip>view:not(:last-child)::after{content:"→";position:absolute;right:-1px;top:12px;color:var(--color-line);font-size:16px}.fulfill-strip b{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--color-ink-3);color:var(--color-on-brand);font-size:14px;font-weight:800;margin-bottom:6px}.fulfill-strip .done b{background:var(--admin-green-2)}.fulfill-strip .done b .ui-icon{filter:brightness(0) invert(1)}.fulfill-strip .cur b{background:var(--color-gold)}.fulfill-strip small{display:block;font-size:12px;font-weight:700;color:var(--admin-ink)}.fulfill-strip strong{display:block;margin-top:4px;font-size:12px;font-weight:700;line-height:1.3}
+.settle-banner{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:stretch;margin-bottom:12px}.settle-banner>view{min-width:0;background:var(--color-brand-primary-soft);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:11px 13px}.settle-banner small{display:block;font-size:12px;color:var(--admin-muted)}.settle-banner strong{display:block;margin-top:5px;font-size:18px;font-weight:800;overflow-wrap:anywhere}.settle-banner span{display:block;margin-top:4px;font-size:12px;color:var(--admin-muted);overflow-wrap:anywhere}.settle-banner .positive{color:var(--admin-green-2)}.settle-banner .button{min-height:var(--admin-control-height);align-self:center;white-space:nowrap}
 .tier-grid{grid-template-columns:1.2fr 1fr 1fr 1.4fr 1fr}.tier-grid strong{font-weight:700}
-.status.delivered{background:#e8f2e4;color:var(--green,#1d6b44)}.status.pending{background:#fff3e0;color:#a65735}
-.promoter-grid>view strong{display:block}.promoter-grid>view small{display:block;margin-top:3px;color:var(--muted,#6f786f);font-size:12px}
+.status.delivered{background:var(--color-success-soft);color:var(--admin-green-2)}.status.pending{background:var(--color-warning-soft);color:var(--color-warning-dark)}
+.promoter-grid>view strong{display:block}.promoter-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:12px}
 
 
 /* ===== P1 样式调整（对照原型） ===== */
 .brand{padding:0 14px;gap:8px}
-.brand-title{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kpi-card,.panel,.data-panel{border-radius:6px}
-.kpi-card{box-shadow:0 1px 3px rgba(20,40,30,.05)}
-.kpi-card:nth-child(1) .kpi-icon,.kpi-card:nth-child(2) .kpi-icon,.kpi-card:nth-child(3) .kpi-icon,.kpi-card:nth-child(4) .kpi-icon{background:transparent}
-.rank-row{padding:13px 0;border-bottom:1px solid #e5e1d6}
-.filter-chips button.active{background:#eef2e9;color:#15512f;border-color:#cfe0d2}
-.status{border-radius:4px}
-.row-actions button{background:#fff;color:#1d6b44;border:1px solid #c9e0cf}
-.row-actions button:first-child:not(.danger){background:#1d6b44;color:#fff;border-color:#1d6b44}
-.row-actions button:hover{background:#e7f1eb}
-.row-actions button:first-child:not(.danger):hover{background:#15512f}
-.row-actions button.danger{background:#fff;color:#a34339;border-color:#f1c4bc}
-.row-actions button.danger:hover{background:#f9e7e4}
+.brand-title{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rank-row{padding:13px 0;border-bottom:1px solid var(--color-line)}
+.filter-chips button.active{background:var(--color-brand-primary-soft);color:var(--color-brand-primary-dark);border-color:var(--color-line)}
+.status{border-radius:var(--radius-nav)}
+.row-actions button{background:var(--color-card);color:var(--color-brand-primary);border:1px solid var(--color-line)}
+.row-actions button:first-child:not(.danger){background:var(--color-brand-primary);color:var(--color-on-brand);border-color:var(--color-brand-primary)}
+.row-actions button.danger{background:var(--color-card);color:var(--color-danger);border-color:var(--color-danger-soft)}
 
 
 
 .drawer-head-actions{display:flex;align-items:center;gap:8px}
-.mark-read-button{min-height:32px;padding:0 10px;border-radius:6px;background:#e8f1ea;color:#1d6b44;border:1px solid #c9e0cf;font-size:13px;display:inline-flex;align-items:center;gap:5px}
+.mark-read-button{min-height:32px;padding:0 10px;border-radius:var(--admin-radius-control);background:var(--color-brand-primary-soft);color:var(--color-brand-primary);border:1px solid var(--color-line);font-size:13px;display:inline-flex;align-items:center;gap:5px}
 
 
 /* ===== 按钮靠左 + 文字居中（统一） ===== */
@@ -2654,59 +2680,60 @@ button, uni-button { text-align: center; }
 .commission-banner { justify-content: flex-start; gap: 18px; }
 .nav-item { justify-content: flex-start; text-align: left; }
 .todo-row, .todo-detail button, .commission-rules button { justify-content: flex-start; text-align: left; }
-.recovery-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--admin-line)}.recovery-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700}.recovery-head b{color:var(--admin-green-2)}.recovery-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #eef0eb}.recovery-row>view{flex:1;min-width:0}.recovery-row strong,.recovery-row small{display:block}.recovery-row small{margin-top:3px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere}.recovery-row .compact-button{flex-shrink:0}
+.recovery-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--admin-line)}.recovery-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700}.recovery-head b{color:var(--admin-green-2)}.recovery-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--color-line-light)}.recovery-row>view{flex:1;min-width:0}.recovery-row strong,.recovery-row small{display:block}.recovery-row small{margin-top:3px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere}.recovery-row .compact-button{flex-shrink:0}
 .nav-badge { margin-left: auto; }
 .module-toolbar .button { margin-left: 0; }
 .order-tabs{display:flex;gap:8px;flex-wrap:wrap}
-.order-tabs button{min-height:32px;padding:6px 13px;border-radius:6px;background:#f5f5f1;border:1px solid #e5e1d6;color:#566;font-size:13px;font-weight:600}
-.order-tabs button.active{background:#e8f1ea;color:#1d6b44;border-color:#c9e0cf}
+.order-tabs button{min-height:32px;padding:6px 13px;border-radius:var(--admin-radius-control);background:var(--color-card-alt);border:1px solid var(--color-line);color:var(--color-ink-2);font-size:13px;font-weight:600}
+.order-tabs button.active{background:var(--color-brand-primary-soft);color:var(--color-brand-primary);border-color:var(--color-line)}
 .toolbar-actions{margin-left:auto;display:flex;flex-wrap:wrap;gap:10px}
 .goods-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.goods-tools .module-search{flex:1 0 auto}
 .goods-count{margin-left:auto;font-size:12px;color:var(--admin-muted);white-space:nowrap}
-.c-product-grid{grid-template-columns:1.7fr 1.2fr .7fr .7fr .7fr .7fr .7fr 1fr;min-width:920px}.c-sku-editor{padding:12px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8;overflow-x:auto;box-shadow: inset -12px 0 12px -12px rgba(20,40,30,.18)}.after-evidence-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
-.after-evidence-thumb { width: 72px; height: 72px; border-radius: 4px; }
-.tier-editor { padding: 12px; border: 1px solid var(--admin-line); border-radius: 6px; }
+.c-product-grid{grid-template-columns:1.7fr 1.2fr .7fr .7fr .7fr .7fr .7fr 1fr;min-width:920px}.c-sku-editor{padding:12px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt);overflow-x:auto;box-shadow: inset -12px 0 12px -12px var(--color-overlay)}.after-evidence-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
+.after-evidence-thumb { width: 72px; height: 72px; border-radius:var(--radius-icon); }
+.tier-editor { padding: 12px; border: 1px solid var(--admin-line); border-radius:var(--admin-radius-panel); }
 .tier-editor-head { display: flex; justify-content: space-between; align-items: center; }
-.tier-editor-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; }.c-sku-row,.catalog-sku-labels{display:grid;grid-template-columns:1.2fr 110px repeat(6,.8fr) auto;gap:7px;margin-top:8px;align-items:start}.catalog-sku-labels{padding:0 4px;color:var(--admin-muted);font-size:12px}.c-sku-row input{width:100%;box-sizing:border-box;height:34px;padding:0 8px;border:1px solid var(--admin-line);border-radius:4px;background:#fff;font-size:13px}.c-sku-row.retired{opacity:.65}.c-sku-row.retired input{background:#f1f3ef}
-.product-submission-list{display:grid;gap:10px}.product-submission-card{display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(150px,.7fr) minmax(180px,1fr) minmax(180px,1fr) auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--admin-line)}.product-submission-card small,.submission-skus{display:block;color:var(--admin-muted);font-size:12px}.submission-skus{display:grid;gap:3px}.reject-note{color:#a51d2d}.product-submission-card .row-actions{justify-content:flex-end}
+.tier-editor-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; }.c-sku-row,.catalog-sku-labels{display:grid;grid-template-columns:1.2fr 110px repeat(6,.8fr) auto;gap:7px;margin-top:8px;align-items:start}.catalog-sku-labels{padding:0 4px;color:var(--admin-muted);font-size:12px}.c-sku-row input{width:100%;box-sizing:border-box;height:34px;padding:0 8px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);font-size:13px}.c-sku-row.retired{opacity:.65}.c-sku-row.retired input{background:var(--color-line-light)}
+.product-submission-list{display:grid;gap:10px}.product-submission-card{display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(150px,.7fr) minmax(180px,1fr) minmax(180px,1fr) auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--admin-line)}.product-submission-card small,.submission-skus{display:block;color:var(--admin-muted);font-size:12px}.submission-skus{display:grid;gap:3px}.reject-note{color:var(--color-danger)}.product-submission-card .row-actions{justify-content:flex-end}
 @media(max-width:1180px){.settle-banner{grid-template-columns:1fr 1fr}.settle-banner .button{grid-column:1/-1}.module-toolbar .toolbar-actions{width:100%;justify-content:flex-end}}
 @media(max-width:1100px){.product-submission-card{grid-template-columns:minmax(0,1fr)}.product-submission-card .row-actions{grid-column:1/-1;justify-content:flex-start}}
-.sku-no{color:var(--admin-muted)!important;font-size:12px}
-.source-pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600}
-.source-pill.platform{background:#e8eff4;color:#3b5f7a}
-.source-pill.farmhouse{background:#ececea;color:#6b6b63}
+.sku-no{color:var(--admin-muted);font-size:12px}
+.source-pill{display:inline-block;padding:2px 8px;border-radius:var(--radius-nav);font-size:12px;font-weight:600}
+.source-pill.platform{background:var(--color-info-soft);color:var(--color-info-dark)}
+.source-pill.farmhouse{background:var(--color-line-light);color:var(--color-ink-2)}
 
 
 
 
 /* ===== 行内 emoji（按截图） ===== */
-.row-emoji{display:inline-grid;place-items:center;width:22px;height:22px;margin-right:6px;font-size:14px;background:#f2f4ee;border-radius:5px;vertical-align:-3px}
-.row-emoji.big{width:38px;height:38px;font-size:20px;border-radius:6px;vertical-align:middle}
+.row-emoji{display:inline-grid;place-items:center;width:22px;height:22px;margin-right:6px;font-size:14px;background:var(--color-line-light);border-radius:var(--radius-icon);vertical-align:-3px}
+.row-emoji.big{width:38px;height:38px;font-size:20px;border-radius:var(--radius-icon);vertical-align:middle}
 
 
 /* ===== 中台表格密度（按截图） ===== */
 .table-row{min-height:var(--admin-row-height)}
-.table-head{min-height:40px;background:#fafbf8;color:#8a918a;font-weight:600}
+.table-head{min-height:40px;background:var(--color-card-alt);color:var(--color-ink-3);font-weight:600}
 
 
 /* ===== 推客排行标签实底（按截图） ===== */
-.filter-chips.solid button{border-radius:6px}
-.filter-chips.solid button.active{background:#eef2e9;color:#15512f;border-color:#cfe0d2;font-weight:700}
+.filter-chips.solid button{border-radius:var(--admin-radius-control)}
+.filter-chips.solid button.active{background:var(--color-brand-primary-soft);color:var(--color-brand-primary-dark);border-color:var(--color-line);font-weight:700}
 
 
 /* ===== 1:1 还原（对照原型） ===== */
-.source-pill.host{background:#f3e3df;color:#a8442e}
-.source-pill.expert{background:#e9ecf2;color:#52617f}
-.promoter-grid .commission{color:var(--red,#b23a2c);font-weight:800}
-.commission-status-table{margin-bottom:14px;border:1px solid #dfe3dc;border-radius:8px;overflow:hidden}
+.source-pill.host{background:var(--color-danger-soft);color:var(--color-danger)}
+.source-pill.expert{background:var(--color-info-soft);color:var(--color-info-dark)}
+.promoter-grid .commission{color:var(--color-danger);font-weight:800}
+.commission-status-table{margin-bottom:14px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);overflow:hidden}
 .commission-status-grid{grid-template-columns:1.4fr 1fr 1fr 1fr}
-.withdrawal-table{margin:0 16px 16px;border:1px solid #dfe3dc;border-radius:8px;overflow:auto}.withdrawal-grid{grid-template-columns:1.5fr .8fr 1fr 1.4fr .8fr 1.5fr 1.2fr;min-width:980px}.withdrawal-grid>view strong{display:block}.withdrawal-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:12px}
-.withdrawal-grid .status.approved,.status.approved{background:#eaf5ec;color:#2f7650}
+.withdrawal-table{margin:0 16px 16px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);overflow:auto}.withdrawal-grid{grid-template-columns:1.5fr .8fr 1fr 1.4fr .8fr 1.5fr 1.2fr;min-width:980px}.withdrawal-grid>view strong{display:block}.withdrawal-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:12px}
+.withdrawal-grid .status.approved,.status.approved{background:var(--color-success-soft);color:var(--color-success)}
 .commission-status-grid>view strong{display:block}
 .commission-status-grid>view small{display:block;margin-top:3px;color:var(--admin-muted);font-size:12px}
 .commission-status-grid .status{justify-self:start}
-.commission-status-grid.status-unsettled{background:#fff7e6}
-.commission-status-grid.status-settled{background:#eaf5ec}
+.commission-status-grid.status-unsettled{background:var(--color-warning-soft)}
+.commission-status-grid.status-settled{background:var(--color-success-soft)}
 
 
 
@@ -2741,40 +2768,40 @@ button, uni-button { text-align: center; }
 /* ===== 弹层/图标按钮水平垂直居中（uni-button 默认 padding 14px 导致 grid 图标右偏） ===== */
 .icon-button, .order-id uni-button { padding: 0; }
 /* ===== 登录页 ===== */
-.login-page{position:relative;isolation:isolate;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#173b2a;padding:24px;overflow:hidden}
-.login-card{position:relative;width:min(380px,100%);background:rgba(255,255,255,.98);border:1px solid rgba(255,255,255,.8);border-radius:var(--admin-radius-panel);padding:32px 30px 26px;box-shadow:0 20px 48px -24px rgba(0,0,0,.58)}
+.login-page{position:relative;isolation:isolate;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--color-bg);padding:24px;overflow:hidden}
+.login-card{position:relative;width:min(380px,100%);background:var(--color-card);border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);padding:32px 30px 26px;box-shadow:var(--shadow-card)}
 .login-brand{display:flex;align-items:center;gap:12px;margin-bottom:26px}
-.login-brand .brand-mark{width:46px;height:46px;border-radius:var(--admin-radius-panel);background:#1d6b44;display:grid;place-items:center;color:#fff}
-.login-brand .brand-title{display:block;font-size:19px;font-weight:800;color:#123}
-.login-brand .brand-sub{display:block;font-size:12px;color:#8a9a90;margin-top:3px}
+.login-brand .brand-mark{flex:none;width:46px;height:46px;aspect-ratio:1;overflow:hidden;border-radius:var(--admin-radius-panel);background:var(--gradient-brand);display:grid;place-items:center;color:var(--color-on-brand)}
+.login-brand .brand-title{display:block;font-size:19px;font-weight:800;color:var(--color-ink)}
+.login-brand .brand-sub{display:block;font-size:12px;color:var(--color-ink-2);margin-top:3px}
 .login-fields{display:flex;flex-direction:column;gap:14px;margin-bottom:20px}
 .login-field{display:flex;flex-direction:column;gap:6px}
-.login-field text{font-size:12px;color:#5a6a60;font-weight:700}
-.login-field input{height:var(--admin-control-height);border:1px solid #dfe7e1;border-radius:var(--admin-radius-control);padding:0 14px;font-size:14px;background:#fafcfb}
-.login-button{min-height:44px;border-radius:var(--admin-radius-control);background:#1d6b44;color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center}
-.login-hint{display:block;text-align:center;margin-top:16px;font-size:12px;color:#8a9a90}
-.page-back{width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border:1px solid #dde5df;border-radius:6px;background:#fff;color:#18231d;display:inline-flex;align-items:center;justify-content:center;flex:none}
-.logout-button{width:36px;height:36px;min-height:36px;padding:0;border-radius:6px;background:#b83532;color:#fff;font-size:13px;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;flex:none;border:1px solid #b83532}
-.logout-button text{display:none}
-.logout-button .ui-icon{filter:brightness(0) invert(1)}
+.login-field text{font-size:12px;color:var(--color-ink-2);font-weight:700}
+.login-field input{height:var(--admin-control-height);border:1px solid var(--color-line);border-radius:var(--admin-radius-control);padding:0 14px;font-size:14px;background:var(--color-card-alt)}
+.login-button{min-height:44px;border-radius:var(--admin-radius-control);background:var(--color-brand-primary);color:var(--color-on-brand);font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-button-primary)}
+.login-hint{display:block;text-align:center;margin-top:16px;font-size:12px;color:var(--color-ink-2)}
+.page-back{width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border:1px solid var(--color-line);border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--color-ink);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.logout-button{min-height:32px;padding:0 10px;border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--color-ink-2);font-size:12px;margin-left:0;display:inline-flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap;flex:none;border:1px solid var(--color-line)}
+.logout-button text{display:inline}
+.logout-button .ui-icon{filter:none}
 
 
 .upload-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.upload-preview{width:64px;height:64px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8;cursor:zoom-in}
-.upload-button{margin:0;min-height:32px;padding:0 11px;border:1px solid var(--admin-line);border-radius:5px;background:#fff;color:var(--admin-green-2);font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
-.upload-button.danger{color:#a34339}
-.module-search{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.module-search .search-box{width:240px}
-.module-search .searchable-select{min-width:120px}
-.product-thumb{width:42px;height:42px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:contain}
-.product-cell .after-thumb{width:40px;height:40px;border-radius:5px;background:#f1f6ef;flex:none;object-fit:contain}
-.refund-amount{color:#a34339;font-weight:700}
+.upload-preview{width:64px;height:64px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt);cursor:zoom-in}
+.upload-button{margin:0;min-height:32px;padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--admin-green-2);font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.upload-button.danger{color:var(--color-danger)}
+.module-search{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.module-search .search-box{width:min(280px,100%);min-width:220px}
+.module-search .searchable-select{min-width:160px}
+.module-search .searchable-select.is-wide{min-width:180px}
+.product-thumb{width:42px;height:42px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);flex:none;object-fit:contain}
+.product-cell .after-thumb{width:40px;height:40px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);flex:none;object-fit:contain}
+.refund-amount{color:var(--color-danger);font-weight:700}
 .refund-apply{color:var(--admin-green-2);font-size:16px}
 .flow-view{display:flex;flex-direction:column;gap:16px}
 .flow-view .settlement-history{margin:0}
 .commission-rule-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:16px}
-.commission-rule-card{min-width:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px;background:#fff;display:flex;flex-direction:column;gap:8px;transition:border-color .16s ease,box-shadow .16s ease}
-.commission-rule-card:hover{border-color:#c8d8cb;box-shadow:0 4px 14px rgba(29,107,68,.08)}
+.commission-rule-card{min-width:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px;background:var(--color-card);display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow-card)}
 .rule-top{display:flex;align-items:center;justify-content:space-between}
 .rule-icon{width:34px;height:34px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);display:inline-grid;place-items:center}
 .rule-name{font-size:14px}
@@ -2783,24 +2810,24 @@ button, uni-button { text-align: center; }
 .rule-meta{color:var(--admin-muted);font-size:12px;line-height:1.5}
 .rule-top .compact-button{margin:0}
 
-.hot-thumb{width:34px;height:34px;border-radius:8px;background:#f1f6ef;flex:none;object-fit:contain}
+.hot-thumb{width:34px;height:34px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);flex:none;object-fit:contain}
 .gallery-thumb{position:relative;width:64px;height:64px}
-.gallery-thumb image{width:64px;height:64px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8;cursor:zoom-in}
-.gallery-remove{position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;background:#a34339;color:#fff;font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
-.picker-field{width:100%;height:40px;padding:0 11px;border:1px solid var(--admin-line);border-radius:5px;background:#fff;display:flex;align-items:center;font-size:13px;color:var(--admin-ink)}
+.gallery-thumb image{width:64px;height:64px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt);cursor:zoom-in}
+.gallery-remove{position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;background:var(--color-danger);color:var(--color-on-brand);font-size:12px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.picker-field{width:100%;height:var(--admin-control-height);padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);display:flex;align-items:center;font-size:13px;color:var(--admin-ink)}
 .picker-field.placeholder{color:var(--admin-muted)}
-.license-thumb{width:56px;height:56px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8;cursor:zoom-in}
+.license-thumb{width:56px;height:56px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt);cursor:zoom-in}
 .category-grid{grid-template-columns:1.4fr 1fr 1fr 1.2fr}
 .category-grid .status{justify-self:start}
-.farm-thumb{width:44px;height:44px;border-radius:6px;border:1px solid var(--admin-line);background:#fafbf8;flex:none;cursor:zoom-in}
+.farm-thumb{width:44px;height:44px;border-radius:var(--radius-icon);border:1px solid var(--admin-line);background:var(--color-card-alt);flex:none;cursor:zoom-in}
 .order-products{display:flex;flex-direction:column;gap:6px;min-width:0}
 .order-product{display:flex;align-items:center;gap:8px;min-width:0}
-.order-thumb{width:36px;height:36px;border-radius:5px;border:1px solid var(--admin-line);background:#fafbf8;flex:none;cursor:zoom-in}
-.supplier-thumb{width:36px;height:36px;border-radius:5px;border:1px solid var(--admin-line);background:#fafbf8;flex:none;cursor:zoom-in}
+.order-thumb{width:36px;height:36px;border-radius:var(--radius-icon);border:1px solid var(--admin-line);background:var(--color-card-alt);flex:none;cursor:zoom-in}
+.supplier-thumb{width:36px;height:36px;border-radius:var(--radius-icon);border:1px solid var(--admin-line);background:var(--color-card-alt);flex:none;cursor:zoom-in}
 .order-product text{font-size:12.5px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere}
 .order-qty{font-weight:700}
-.supplier-products{margin-top:16px;padding:13px;background:#f8f9f6;border:1px solid #eceee8;border-radius:6px}
-.supplier-product-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #eceee8}
+.supplier-products{margin-top:16px;padding:13px;background:var(--color-card-alt);border:1px solid var(--color-line-light);border-radius:var(--admin-radius-panel)}
+.supplier-product-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--color-line-light)}
 .supplier-product-row:last-child{border-bottom:0}
 .sp-name strong{font-size:13px}
 .sp-name small{display:block;margin-top:3px;color:var(--admin-muted);font-size:12px}
@@ -2809,13 +2836,13 @@ button, uni-button { text-align: center; }
   .admin-shell { overflow-x: hidden; }
   .sidebar { width: 72px; }
   .brand { justify-content: center; padding: 0 8px; }
-  .brand > view:last-child, .nav-group, .nav-item > text:not(.nav-badge), .operator > view:nth-child(2) { display: none; }
+  .brand > view:last-child, .nav-group, .nav-item > text:not(.nav-badge) { display: none; }
   .nav-item { justify-content: center; padding: 10px 6px; }
-  .nav-badge { position: absolute; margin: -24px -3px 0 0; }
+  .nav-badge { position: absolute; top: 2px; right: 2px; margin: 0; }
   .nav-list { padding-bottom: 18px; }
-  .operator { justify-content: center; padding: 10px 6px; }
-  .operator .avatar, .operator .logout-button text { display: none; }
-  .operator .logout-button { width: 36px; height: 36px; min-height: 36px; margin: 0; padding: 0; border-radius: 8px; }
+  .operator-meta { display: none; }
+  .operator .logout-button text { display: none; }
+  .operator .logout-button { width: 36px; height: 36px; min-height: 36px; margin: 0; padding: 0; }
   .chart-grid .panel:last-child .chart { height: 340px; }
   .main { width: calc(100% - 72px); margin-left: 72px; min-width: 0; }
   .topbar { height: auto; min-height: 60px; padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
@@ -2831,7 +2858,7 @@ button, uni-button { text-align: center; }
 @media (max-width: 420px) {
   .main { width: calc(100% - 56px); margin-left: 56px; }
   .sidebar { width: 56px; }
-  .brand-mark { width: 32px; height: 32px; }
+  .brand-mark { flex: none; width: 32px; height: 32px; aspect-ratio: 1; overflow: hidden; }
   .content { padding: 14px 8px 28px; }
   .page-head h1 { font-size: 20px; }
   .button { min-height: 36px; padding: 0 9px; font-size: 13px; }
@@ -2839,22 +2866,22 @@ button, uni-button { text-align: center; }
 
 .unified-product-grid{grid-template-columns:minmax(220px,2.2fr) 1.1fr 1fr 1.5fr 0.8fr 0.9fr 1.2fr;min-width:860px}
 .tag-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
-.product-tag{font-size:12px;padding:2px 7px;border-radius:4px;background:#eef4ee;color:#3f6b4d}
+.product-tag{font-size:12px;padding:2px 7px;border-radius:var(--radius-nav);background:var(--color-brand-primary-soft);color:var(--color-brand-primary)}
 .channel-tags{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-.channel-tag{font-size:12px;padding:2px 8px;border-radius:4px;background:#f5efe2;color:#8a6d2f}
-.channel-tag.live{background:#eaf3ff;color:#35658f}
+.channel-tag{font-size:12px;padding:2px 8px;border-radius:var(--radius-nav);background:var(--color-gold-soft);color:var(--color-gold-dark)}
+.channel-tag.live{background:var(--color-info-soft);color:var(--color-info)}
 .price-cell{display:flex;flex-direction:column;gap:2px}
 .checkbox-field{display:flex;align-items:center;gap:8px}
-.fixed-tag{font-size:12px;color:#3f6b4d;font-weight:700}
+.fixed-tag{font-size:12px;color:var(--color-brand-primary);font-weight:700}
 .catalog-filter{min-width:150px}.catalog-filter .muted{color:var(--admin-muted);cursor:default}.catalog-product-modal{width:min(960px,92vw);max-height:88vh;overflow:auto}.catalog-form-grid,.pricing-defaults-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pricing-defaults-panel{padding:16px}.pricing-defaults-panel .panel-head{padding:0 0 12px}.pricing-defaults-panel .panel-head text{display:block;margin-top:4px;color:var(--admin-muted);font-size:12px}.pricing-defaults-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:768px){.catalog-form-grid,.pricing-defaults-grid{grid-template-columns:1fr}.c-sku-editor{overflow-x:auto}.c-sku-row,.catalog-sku-labels{min-width:760px}}
 
 /* ===== 后台可读性优化 ===== */
 .admin-shell { font-size: 14px; line-height: 1.5; }
 .brand-sub { font-size: 12px; }
-.nav-group { font-size: 13px; }
-.nav-item { font-size: 14px; line-height: 1.4; }
-.nav-badge { font-size: 13px; }
+.nav-group { font-size: var(--text-body); }
+.nav-item { font-size: var(--text-subtitle); line-height: 1.4; }
+.nav-badge { font-size: var(--text-caption); }
 .operator { font-size: 13px; }
 .operator small { font-size: 12px; }
 .crumb, .search-box input { font-size: 14px; }
@@ -2896,17 +2923,17 @@ button, uni-button { text-align: center; }
   .button { font-size: 13px; }
 }
 
-.work-page{width:100%;height:calc(100vh - 118px);min-height:calc(100vh - 118px);display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid var(--admin-line);border-radius:6px;padding:24px}.work-page-head{display:flex;align-items:flex-start;gap:16px;padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--admin-line)}.work-page-head>.button,.work-page-actions>.button{margin:0}.work-page-head>view{min-width:0;flex:1}.work-page-head h1{margin:0;font-size:24px}.work-page-head p{margin:5px 0 0;color:var(--admin-muted);font-size:13px}.work-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 22px;max-width:1120px;flex:1;min-height:0;overflow-y:auto}.work-form-grid .full,.permission-section.full{grid-column:1/-1}.work-page-actions{display:flex;justify-content:flex-end;gap:10px;flex:none;margin-top:auto;padding:18px 0 max(8px,env(safe-area-inset-bottom));border-top:1px solid var(--admin-line)}.permission-section{padding:16px;border:1px solid var(--admin-line);border-radius:6px;background:#fafbf8}.permission-section h3{margin:0 0 12px;font-size:14px}.permission-groups{display:grid;gap:10px}.permission-group{padding:10px;border:1px solid var(--admin-line);border-radius:5px;background:#fff}.permission-group.disabled{opacity:.65}.permission-group-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.permission-group-head>view{display:flex;gap:6px}.permission-group-head button{min-height:28px;padding:0 8px;border-radius:4px;background:var(--admin-green-soft);color:var(--admin-green-2);font-size:13px}.permission-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.permission-grid.actions{grid-template-columns:repeat(3,minmax(0,1fr))}.permission-grid button{min-height:36px;padding:7px 10px;border:1px solid var(--admin-line);border-radius:5px;background:#fff;color:var(--admin-ink);overflow-wrap:anywhere}.permission-grid button.selected{background:var(--admin-green-soft);border-color:#9bc4a8;color:var(--admin-green-2);font-weight:700}.pause-reason{display:block;margin-top:6px;color:#a34339;line-height:1.45;overflow-wrap:anywhere}.system-table-panel{overflow:hidden}.system-table-scroll{overflow-x:auto}.audit-filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;padding:16px 16px 0}.audit-filters .field{min-width:0;margin:0}.audit-grid{grid-template-columns:1.2fr 1fr .8fr 1.4fr 1fr .6fr 1.3fr .7fr;min-width:1120px}.role-grid{grid-template-columns:1.2fr 1fr .8fr .8fr .7fr 1fr;min-width:820px}.admin-account-grid{grid-template-columns:1fr 1fr 1fr .7fr 1.3fr 1fr;min-width:850px}.audit-grid>view strong,.audit-grid>view small{display:block}.audit-grid>view small{margin-top:3px;color:var(--admin-muted)}
-.recovery-verification-summary{display:flex;flex-direction:column;gap:4px;margin-bottom:14px;padding:12px;border:1px solid var(--admin-line);border-radius:6px;background:#f7f9f5}.recovery-verification-summary text,.recovery-verification-summary small{color:var(--admin-muted);overflow-wrap:anywhere}.field textarea{width:100%;min-height:108px;padding:10px 11px;border:1px solid var(--admin-line);border-radius:5px;outline:0;background:#fff;resize:vertical;font:inherit;line-height:1.5}.audit-metadata{margin-top:16px}.audit-metadata small{display:block;margin-bottom:7px;color:var(--admin-muted)}.audit-metadata pre{max-height:320px;margin:0;padding:12px;overflow:auto;border:1px solid var(--admin-line);border-radius:6px;background:#f7f9f5;color:var(--admin-ink);font:12px/1.55 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-.work-modal-mask{left:var(--admin-sidebar-width);top:64px;display:block;padding:24px;background:var(--admin-bg);overflow:hidden}.work-modal-mask .modal{width:100%;max-width:none;height:100%;max-height:100%;min-height:0;border-radius:6px;box-shadow:none}.work-modal-mask .modal:not(.catalog-product-modal){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:0 22px}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:1/-1}
-.booking-filters{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr)) auto;gap:12px;align-items:end;padding:16px;border-bottom:1px solid var(--admin-line)}.booking-filters .field{min-width:0;margin:0}.booking-table-scroll{overflow-x:auto;margin:16px;border:1px solid var(--admin-line);border-radius:7px}.booking-grid{grid-template-columns:1fr 1.4fr 1fr .9fr 1.3fr 1.6fr;min-width:980px}.booking-grid>view strong,.booking-grid>view small{display:block}.booking-grid>view small{margin-top:4px;color:var(--admin-muted);overflow-wrap:anywhere}.booking-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.booking-actions input{width:92px;height:32px;padding:0 7px;border:1px solid var(--admin-line);border-radius:4px}.booking-actions button{min-height:32px;padding:0 9px;border-radius:4px;background:var(--admin-green-soft);color:var(--admin-green-2)}.booking-actions button.danger{background:#f8e9e6;color:#a34339}
-@media (max-height:768px) and (min-width:769px){.short-sidebar-account{padding:7px 10px}.short-sidebar-account .avatar,.short-sidebar-account small,.short-sidebar-account .logout-button text{display:none}.short-sidebar-account .logout-button{width:32px;height:32px;min-height:32px;margin-left:auto;padding:0}.nav-list{padding-bottom:8px}.brand{min-height:54px}.nav-item{min-height:34px}}
-@media(max-width:1180px){.audit-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.work-modal-mask{left:var(--admin-sidebar-width)}.operator>view:nth-child(2){min-width:0;flex:1}.operator>view:nth-child(2)>text,.operator>view:nth-child(2)>small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.operator .logout-button text{display:none}.operator .logout-button{width:32px;height:32px;min-height:32px;margin-left:0;padding:0;flex:none}}
-@media(max-width:768px){.report-filters{grid-template-columns:1fr}.audit-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.booking-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page{padding:18px 14px 96px}.work-page-head{flex-direction:column}.work-form-grid{grid-template-columns:1fr}.work-form-grid .full,.permission-section.full{grid-column:auto}.permission-grid,.permission-grid.actions{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page-actions{flex:none;background:#fff;padding:12px 0 max(12px,env(safe-area-inset-bottom))}.supplier-grid{min-width:980px}.work-modal-mask{left:72px;top:96px;padding:12px}.work-modal-mask .modal:not(.catalog-product-modal){grid-template-columns:1fr}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:auto}}
+.work-page{width:100%;height:calc(100vh - 118px);min-height:calc(100vh - 118px);display:flex;flex-direction:column;overflow:hidden;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:24px}.work-page-head{display:flex;align-items:flex-start;gap:16px;padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--admin-line)}.work-page-head>.button,.work-page-actions>.button{margin:0}.work-page-head>view{min-width:0;flex:1}.work-page-head h1{margin:0;font-size:24px}.work-page-head p{margin:5px 0 0;color:var(--admin-muted);font-size:13px}.work-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 22px;max-width:1120px;flex:1;min-height:0;overflow-y:auto}.work-form-grid .full,.permission-section.full{grid-column:1/-1}.work-page-actions{display:flex;justify-content:flex-end;gap:10px;flex:none;margin-top:auto;padding:18px 0 max(8px,env(safe-area-inset-bottom));border-top:1px solid var(--admin-line)}.permission-section{padding:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt)}.permission-section h3{margin:0 0 12px;font-size:14px}.permission-groups{display:grid;gap:10px}.permission-group{padding:10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card)}.permission-group.disabled{opacity:.65}.permission-group-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.permission-group-head>view{display:flex;gap:6px}.permission-group-head button{min-height:28px;padding:0 8px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2);font-size:13px}.permission-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.permission-grid.actions{grid-template-columns:repeat(3,minmax(0,1fr))}.permission-grid button{min-height:36px;padding:7px 10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--admin-ink);overflow-wrap:anywhere}.permission-grid button.selected{background:var(--admin-green-soft);border-color:var(--color-line);color:var(--admin-green-2);font-weight:700}.pause-reason{display:block;margin-top:6px;color:var(--color-danger);line-height:1.45;overflow-wrap:anywhere}.system-table-panel{overflow:hidden}.system-table-scroll{overflow-x:auto}.audit-filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;padding:16px 16px 0}.audit-filters .field{min-width:0;margin:0}.audit-grid{grid-template-columns:1.2fr 1fr .8fr 1.4fr 1fr .6fr 1.3fr .7fr;min-width:1120px}.role-grid{grid-template-columns:1.2fr 1fr .8fr .8fr .7fr 1fr;min-width:820px}.admin-account-grid{grid-template-columns:1fr 1fr 1fr .7fr 1.3fr 1fr;min-width:850px}.audit-grid>view strong,.audit-grid>view small{display:block}.audit-grid>view small{margin-top:3px;color:var(--admin-muted)}
+.recovery-verification-summary{display:flex;flex-direction:column;gap:4px;margin-bottom:14px;padding:12px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt)}.recovery-verification-summary text,.recovery-verification-summary small{color:var(--admin-muted);overflow-wrap:anywhere}.field textarea{width:100%;min-height:108px;padding:10px 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);outline:0;background:var(--color-card);resize:vertical;font:inherit;line-height:1.5}.audit-metadata{margin-top:16px}.audit-metadata small{display:block;margin-bottom:7px;color:var(--admin-muted)}.audit-metadata pre{max-height:320px;margin:0;padding:12px;overflow:auto;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt);color:var(--admin-ink);font:12px/1.55 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.work-modal-mask{left:var(--admin-sidebar-width);top:64px;display:block;padding:24px;background:var(--admin-bg);overflow:hidden}.work-modal-mask .modal{width:100%;max-width:none;height:100%;max-height:100%;min-height:0;border-radius:var(--admin-radius-panel);box-shadow:none}.work-modal-mask .modal:not(.catalog-product-modal){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:0 22px}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:1/-1}
+.booking-filters{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr)) auto;gap:12px;align-items:end;padding:16px;border-bottom:1px solid var(--admin-line)}.booking-filters .field{min-width:0;margin:0}.booking-table-scroll{overflow-x:auto;margin:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel)}.booking-grid{grid-template-columns:1fr 1.4fr 1fr .9fr 1.3fr 1.6fr;min-width:980px}.booking-grid>view strong,.booking-grid>view small{display:block}.booking-grid>view small{margin-top:4px;color:var(--admin-muted);overflow-wrap:anywhere}.booking-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.booking-actions input{width:92px;height:32px;padding:0 7px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control)}.booking-actions button{min-height:32px;padding:0 9px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2)}.booking-actions button.danger{background:var(--color-danger-soft);color:var(--color-danger)}
+@media (max-height:768px) and (min-width:769px){.nav-list{padding-bottom:8px}.brand{min-height:54px}.nav-item{min-height:40px}}
+@media(max-width:1180px){.audit-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.work-modal-mask{left:var(--admin-sidebar-width)}.operator-meta{display:none}.operator .logout-button text{display:none}.operator .logout-button{width:32px;height:32px;min-height:32px;margin-left:0;padding:0;flex:none}}
+@media(max-width:768px){.report-filters{grid-template-columns:1fr}.audit-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.booking-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page{padding:18px 14px 96px}.work-page-head{flex-direction:column}.work-form-grid{grid-template-columns:1fr}.work-form-grid .full,.permission-section.full{grid-column:auto}.permission-grid,.permission-grid.actions{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page-actions{flex:none;background:var(--color-card);padding:12px 0 max(12px,env(safe-area-inset-bottom))}.supplier-grid{min-width:980px}.work-modal-mask{left:72px;top:96px;padding:12px}.work-modal-mask .modal:not(.catalog-product-modal){grid-template-columns:1fr}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:auto}}
 @media(max-width:420px){.report-filters{grid-template-columns:1fr}.report-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.report-summary>view:last-child{grid-column:1/-1}.booking-filters{grid-template-columns:1fr}.booking-table-scroll{margin:10px 8px}.permission-grid,.permission-grid.actions{grid-template-columns:1fr}.permission-group-head{align-items:flex-start}.work-page-head h1{font-size:20px}.work-modal-mask{left:56px;padding:8px}}
 .category-label{min-width:0;display:inline-flex;align-items:center;gap:6px}
 .category-label text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.category-thumb{width:32px;height:32px;flex:none;border:1px solid var(--admin-line);border-radius:5px;background:#f4f6f3}
+.category-thumb{width:32px;height:32px;flex:none;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt)}
 .category-thumb--small{width:22px;height:22px}
 
 /* ===== 后台桌面工作区视觉契约 ===== */
@@ -2916,9 +2943,9 @@ button, uni-button { text-align: center; }
 .panel,.data-panel,.work-page,.policy-data-card,.commission-rule-card,.commission-rules,.settlement-history,.report-table-scroll,.booking-table-scroll,.dict-table{border-radius:var(--admin-radius-panel)}
 .button,.search-box,.icon-button,.field>input,.field textarea,.picker-field,.upload-button,.compact-button,.mini-button,.period-button{border-radius:var(--admin-radius-control)}
 .button{min-height:var(--admin-control-height)}
-.module-toolbar,.booking-filters,.report-filters,.audit-filters,.dict-toolbar{background:#fff;border-bottom:1px solid var(--admin-line)}
+.module-toolbar,.booking-filters,.report-filters,.audit-filters,.dict-toolbar{background:var(--color-card);border-bottom:1px solid var(--admin-line)}
 .module-toolbar,.dict-toolbar{padding:12px 16px}
-.data-panel>.module-search,.data-panel>.goods-tools,.data-panel>.filter-chips{margin:0;padding:12px 16px;border-bottom:1px solid var(--admin-line);background:#fff}
+.data-panel>.module-search,.data-panel>.goods-tools,.data-panel>.filter-chips{margin:0;padding:12px 16px;border-bottom:1px solid var(--admin-line);background:var(--color-card)}
 .data-panel>.filter-chips+.module-search{border-top:0}
 .table-row{min-height:var(--admin-row-height)}
 .table-head{min-height:40px}
@@ -2926,8 +2953,8 @@ button, uni-button { text-align: center; }
 .table-row:not(.table-head)>text,.table-row:not(.table-head)>strong,.table-row:not(.table-head)>view,.empty-state,.loading{overflow-wrap:anywhere}
 .table-head>text,.table-head>strong,.table-head>view{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .loading,.empty-state{width:100%;min-height:112px;padding:20px;display:grid;place-items:center;color:var(--admin-muted);text-align:center}
-.loading{min-height:320px;background:#fff;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel)}
-.state-panel{align-items:center;text-align:center;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:#fff}
+.loading{min-height:320px;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel)}
+.state-panel{align-items:center;text-align:center;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card)}
 .kpi-icon .ui-icon,.rule-icon .ui-icon,.policy-group-head .ui-icon{opacity:.82}
 .modal-actions,.drawer-actions,.head-actions,.toolbar-actions{flex-wrap:wrap}
 .modal-actions .button,.drawer-actions .button{margin:0}
@@ -2943,7 +2970,7 @@ button, uni-button { text-align: center; }
 .modal,.catalog-product-modal { display:flex; flex-direction:column; overflow:hidden; padding:0; }
 .modal-head { min-height:68px; flex:none; margin:0; padding:16px 22px; border-bottom:1px solid var(--admin-line); }
 .modal-body { min-height:0; padding:16px 22px 4px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
-.modal-actions { flex:none; margin:0; padding:14px 22px 18px; border-top:1px solid var(--admin-line); background:#fff; }
+.modal-actions { flex:none; margin:0; padding:14px 22px 18px; border-top:1px solid var(--admin-line); background:var(--color-card); }
 .catalog-product-body { padding-bottom:16px; }
 .work-modal-mask .modal:not(.catalog-product-modal) { display:flex; flex-direction:column; }
 .work-modal-mask .modal-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-content:start; gap:0 22px; width:100%; }
@@ -2952,12 +2979,12 @@ button, uni-button { text-align: center; }
 .drawer { display:flex; flex-direction:column; overflow:hidden; padding:0; }
 .drawer-head { flex:none; padding:22px 22px 18px; }
 .drawer-list { flex:1; min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; padding:0 22px 18px; }
-.drawer-actions { position:sticky; bottom:0; z-index:2; padding:14px 22px; margin-top:0; border-top:1px solid var(--admin-line); background:#fff; }
+.drawer-actions { position:sticky; bottom:0; z-index:2; padding:14px 22px; margin-top:0; border-top:1px solid var(--admin-line); background:var(--color-card); }
 .drawer > .drawer-actions { flex: none; position: static; }
 
 @media(max-width:1280px){
   .admin-shell{--admin-sidebar-width:var(--admin-sidebar-compact-width)}
-  .content{padding:20px 18px 36px}
+  .content{padding:var(--space-section)}
 }
 
 @media(max-width:768px){.login-page{padding:32px 16px}
@@ -2980,5 +3007,17 @@ button, uni-button { text-align: center; }
 
 @media(max-width:420px){
   .button{min-height:var(--admin-control-height)}
+}
+
+@media (hover: hover) {
+  .nav-item:hover { background: var(--color-hover-bg); color: var(--color-ink); }
+  .icon-button:hover { background: var(--color-hover-bg); }
+  .button.primary:hover, .login-button:hover { background: var(--color-brand-primary-dark); }
+  .button.secondary:hover { background: var(--color-hover-bg); }
+  .row-actions button:hover { background: var(--color-brand-primary-soft); }
+  .row-actions button:first-child:not(.danger):hover { background: var(--color-brand-primary-dark); }
+  .row-actions button.danger:hover { background: var(--color-danger-soft); }
+  .todo-detail>button:hover { background: var(--admin-green-soft); }
+  .dict-table .table-row:not(.table-head):hover { background: var(--color-hover-bg); }
 }
 </style>

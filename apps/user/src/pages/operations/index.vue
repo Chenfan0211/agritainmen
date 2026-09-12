@@ -92,12 +92,12 @@ function withdraw() {
 .operation-header.theme-head {
   margin: calc(-10px - env(safe-area-inset-top)) -8px 0;
   padding: calc(10px + env(safe-area-inset-top)) 8px 12px;
-  background: var(--mobile-brand);
-  color: #fff;
+  background: var(--color-brand-primary-dark);
+  color: var(--color-on-brand);
 }
 
 .operation-header.theme-head text {
-  color: #fff;
+  color: var(--color-on-brand);
 }
 
 .operation-header text {
@@ -113,16 +113,16 @@ function withdraw() {
 .performance-hero {
   margin-top: 16px;
   padding: 16px;
-  border-radius: 8px;
-  background: var(--mobile-brand-deep);
-  color: #fff;
+  border-radius: var(--mobile-radius-card);
+  background: var(--color-brand-primary-dark);
+  color: var(--color-on-brand);
   box-shadow: var(--mobile-shadow-card);
 }
 
 .income-hero small,
 .performance-hero small {
   display: block;
-  color: #cfe0d5;
+  color: color-mix(in srgb, var(--color-on-brand) 80%, var(--color-brand-primary-dark));
   font-size: 12px;
 }
 
@@ -142,8 +142,8 @@ function withdraw() {
   min-height: 44px;
   margin: 18px 0 0;
   border: 0;
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--mobile-radius-card);
+  background: var(--color-card);
   color: var(--mobile-brand-deep);
   font-size: 14px;
   font-weight: 800;
@@ -155,8 +155,8 @@ function withdraw() {
   grid-template-columns: 1fr 1fr;
   overflow: hidden;
   margin-top: 14px;
-  border: 1px solid #e6ece8;
-  border-radius: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--mobile-radius-card);
   background: var(--mobile-surface);
   box-shadow: var(--mobile-shadow-card);
 }
@@ -215,8 +215,8 @@ function withdraw() {
   min-width: 0;
   margin-bottom: 10px;
   padding: 10px 11px;
-  border: 1px solid #e6ece8;
-  border-radius: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--mobile-radius-card);
   background: var(--mobile-surface);
   box-shadow: var(--mobile-shadow-card);
 }
@@ -277,7 +277,7 @@ function withdraw() {
   width: 42px;
   height: 42px;
   flex: none !important;
-  border-radius: 8px;
+  border-radius: var(--mobile-radius-card);
   background: var(--mobile-brand-soft);
   color: var(--mobile-brand-deep);
   font-weight: 900;
@@ -286,7 +286,7 @@ function withdraw() {
 .bound-tag {
   flex: none;
   padding: 4px 7px;
-  border-radius: 6px;
+  border-radius: var(--mobile-radius-control);
   background: var(--mobile-brand-soft);
   color: var(--mobile-brand-deep) !important;
   font-size: 11px !important;
@@ -326,9 +326,9 @@ function withdraw() {
   justify-content: center;
   box-sizing: border-box;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--mobile-radius-card);
   background: var(--mobile-brand);
-  color: #fff;
+  color: var(--color-on-brand);
   font-size: 14px;
   font-weight: 800;
 }
@@ -382,7 +382,7 @@ function withdraw() {
 
 .performance-hero > view {
   margin-top: 15px;
-  color: #cfe0d5;
+  color: color-mix(in srgb, var(--color-on-brand) 80%, var(--color-brand-primary-dark));
   font-size: 12px;
 }
 
@@ -393,13 +393,13 @@ function withdraw() {
 /* #ifdef H5 */
 body,
 #app {
-  background: #dfe5e1;
+  background: var(--color-bg);
 }
 
 .operation-page {
   max-width: 430px;
   margin: 0 auto;
-  box-shadow: 0 0 24px rgba(19, 43, 29, .12);
+  box-shadow: var(--shadow-card);
 }
 /* #endif */
 

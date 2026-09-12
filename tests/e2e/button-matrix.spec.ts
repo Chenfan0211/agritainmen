@@ -61,7 +61,7 @@ test('admin buttons open data surfaces and keep overflow local', async ({ page }
   await page.locator('.drawer-head .icon-button').click()
 
   await page.locator('.nav-item', { hasText: '订单履约' }).click()
-  await page.locator('.row-actions uni-button', { hasText: '发货' }).first().click()
+  await expect(page.locator('.row-actions uni-button', { hasText: '发货' })).toHaveCount(0)
   await expect(page.locator('.row-actions uni-button', { hasText: '流转' }).first()).toBeVisible()
   await page.locator('.row-actions uni-button', { hasText: '流转' }).first().click()
   await expect(page.locator('.drawer')).toContainText('订单流转记录')
@@ -92,7 +92,7 @@ test('farmhouse buttons filter data and open persisted records', async ({ page }
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(430)
 })
 
-test('admin filters, edits products and batches pending shipments', async ({ page }) => {
+test('admin filters, edits products and opens order flow without shipping', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('http://127.0.0.1:8791')
   await page.evaluate(() => localStorage.clear())
@@ -111,9 +111,11 @@ test('admin filters, edits products and batches pending shipments', async ({ pag
   await expect(page.locator('.unified-product-grid').nth(1)).toContainText('¥66')
 
   await page.locator('.nav-item', { hasText: '订单履约' }).click()
-  await page.locator('.order-select').first().click()
-  await page.locator('.module-toolbar uni-button', { hasText: '批量发货' }).click()
-  await expect(page.locator('.order-grid').nth(1)).toContainText('已发货')
+  await expect(page.locator('.module-toolbar')).not.toContainText('批量发货')
+  await expect(page.locator('.order-select')).toHaveCount(0)
+  await page.locator('.row-actions uni-button', { hasText: '流转' }).first().click()
+  await expect(page.locator('.drawer')).toContainText('订单流转记录')
+  await page.locator('.drawer-head .icon-button').click()
 
   await page.locator('.nav-item', { hasText: '售后结算' }).click()
   await page.locator('.data-panel .search-box input').fill('不存在的工单')
@@ -260,8 +262,8 @@ test('manager verifies a booking and designs a signature dish', async ({ page })
 
   // 店长工作台：订单核销 + 设计包厢/土菜 + 选品上架
   await expect(page.locator('.workbench uni-button', { hasText: '订单核销' })).toBeVisible()
-  await expect(page.locator('.workbench uni-button', { hasText: '设计特色包厢' })).toBeVisible()
-  await expect(page.locator('.workbench uni-button', { hasText: '设计招牌土菜' })).toBeVisible()
+  await expect(page.locator('.workbench uni-button', { hasText: '特色包厢' })).toBeVisible()
+  await expect(page.locator('.workbench uni-button', { hasText: '招牌土菜' })).toBeVisible()
   await expect(page.locator('.workbench uni-button', { hasText: '选品上架' })).toBeVisible()
   await expect(page.locator('.workbench uni-button', { hasText: '进货补货' })).toHaveCount(0)
 
@@ -279,7 +281,7 @@ test('manager verifies a booking and designs a signature dish', async ({ page })
   await page.locator('.sub-head .page-back').click()
 
   // 设计招牌土菜：新增一道菜
-  await page.locator('.workbench uni-button', { hasText: '设计招牌土菜' }).click()
+  await page.locator('.workbench uni-button', { hasText: '招牌土菜' }).click()
   await page.locator('.sub-head .text-button', { hasText: '新增菜品' }).click()
   await page.locator('.design-form .form-field input').nth(0).fill('秘制辣子鸡')
   await page.locator('.design-form .form-field input').nth(1).fill('农家自养土鸡 · 香辣过瘾')

@@ -301,6 +301,20 @@ describe('C端商城 user store', () => {
     expect(returning.cProducts.length).toBeGreaterThan(0)
   })
 
+  it('lets a logged-in user reopen without query when last promoter is stored', async () => {
+    vi.stubGlobal('uni', {
+      getStorageSync: (key: string) => key === 'agritainment-user-promoter-id' ? 'T002' : '',
+      setStorageSync: () => undefined
+    })
+    const returning = useUserStore()
+    returning.$patch({ userId: 'U-STORED', auth: { isLoggedIn: true, openid: 'openid-stored' } })
+    returning.applyLaunch({})
+    await returning.initialize()
+    expect(returning.entryRestricted).toBe(false)
+    expect(returning.promoterId).toBe('T002')
+    expect(returning.cProducts.length).toBeGreaterThan(0)
+  })
+
   it('restricts initialize when launch handling did not provide a referral', async () => {
     const unshared = useUserStore()
 

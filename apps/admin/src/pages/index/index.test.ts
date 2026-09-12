@@ -46,8 +46,12 @@ describe('admin supplier and RBAC page', () => {
   it('does not expose the generic supplier toggle or fake settlement action', () => {
     expect(source).not.toContain('store.toggleSupplier')
     expect(source).not.toContain("store.recordExport('售后结算'")
-    expect(source).toContain("store.can('order.ship')")
+    expect(source).not.toContain('批量发货')
+    expect(source).not.toContain('confirmShip')
+    expect(source).not.toContain('batchShip')
+    expect(source).not.toContain('>发货</button>')
     expect(source).toContain("store.can('report.export')")
+    expect(source).toContain("openDetail('order', item.id)")
   })
 
   it('provides audit log dimensions and a read-only details drawer', () => {
@@ -103,9 +107,10 @@ describe('admin supplier and RBAC page', () => {
     expect(source).not.toContain('.summary-strip{min-width:720px}')
   })
 
-  it('keeps the mobile logout icon visible on the dark sidebar', () => {
+  it('keeps the logout control in the topbar on a light surface', () => {
+    expect(source).toContain('class="operator"')
     expect(source).toContain('.logout-button .ui-icon')
-    expect(source).toContain('filter:brightness(0) invert(1)')
+    expect(source).toContain('.logout-button .ui-icon{filter:none}')
     expect(source).toContain('<UiIcon name="door-open"')
     expect(source).not.toContain('<UiIcon name="log-out"')
   })
@@ -184,7 +189,11 @@ describe('admin supplier and RBAC page', () => {
   it('renders product review filters as searchable dropdowns and keeps commission tabs visible', () => {
     expect(source).not.toContain('product-review-tabs')
     expect(source).toContain('SearchableSelect v-model="productReviewFilter"')
+    expect(source).toMatch(/class="goods-tools"><view class="module-search"><SearchableSelect v-model="productReviewFilter"/)
     expect(source).toContain('productReviewFilters')
+    expect(source).toContain('productSupplierFilter')
+    expect(source).toContain('placeholder="搜索商品名称"')
+    expect(source).not.toContain('搜索商品名称 / 供应商')
     expect(source).toContain('class="filter-chips commission-filter-tabs"')
     expect(source).toContain('v-for="item in commissionTabOptions"')
     expect(source).not.toContain('SearchableSelect v-model="commissionTab"')
@@ -219,16 +228,15 @@ describe('admin supplier and RBAC page', () => {
 
   it('keeps short-height sidebar controls compact and scroll-safe', () => {
     expect(source).toContain('@media (max-height:768px)')
-    expect(source).toContain('.short-sidebar-account')
     expect(source).toContain('.nav-list{padding-bottom:')
     expect(source).toContain('aria-label="退出登录" title="退出登录"')
   })
 
-  it('keeps the compact desktop sidebar account row readable', () => {
+  it('keeps the compact desktop topbar account readable', () => {
     const mediaStart = source.lastIndexOf('@media(max-width:1180px)')
     const compactDesktop = source.slice(mediaStart, source.indexOf('@media(max-width:768px)', mediaStart))
 
-    expect(compactDesktop).toContain('.operator>view:nth-child(2){min-width:0;flex:1}')
+    expect(compactDesktop).toContain('.operator-meta{display:none}')
     expect(compactDesktop).toContain('.operator .logout-button text{display:none}')
     expect(compactDesktop).toContain('.operator .logout-button{width:32px')
   })

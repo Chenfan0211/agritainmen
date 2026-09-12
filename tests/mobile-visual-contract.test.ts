@@ -34,11 +34,11 @@ describe('mobile portal visual contract', () => {
 
   it('uses one mobile page background and explicit primary/compact touch targets', () => {
     const backgrounds: Record<string, string> = {
-      farmhouse: '#f4f7f5',
-      user: '#f4f7f5',
+      farmhouse: '#F4F7F2',
+      user: '#F4F7F2',
       store: '#f7f3ee',
-      supplier: '#f4f7f5',
-      promoter: '#f4f7f5'
+      supplier: '#F4F7F2',
+      promoter: '#F4F7F2'
     }
     for (const app of ['farmhouse', 'user', 'store', 'supplier', 'promoter']) {
       const pages = JSON.parse(readFileSync(resolve(root, `apps/${app}/src/pages.json`), 'utf8')) as {
@@ -57,12 +57,15 @@ describe('mobile portal visual contract', () => {
     const storeUni = readFileSync(resolve(root, 'apps/store/src/uni.scss'), 'utf8')
     const userUni = readFileSync(resolve(root, 'apps/user/src/uni.scss'), 'utf8')
     const promoterUni = readFileSync(resolve(root, 'apps/promoter/src/uni.scss'), 'utf8')
+    const farmhouseUni = readFileSync(resolve(root, 'apps/farmhouse/src/uni.scss'), 'utf8')
     expect(storeUni).toContain('$uni-color-primary: #f0810f')
     expect(storeUni).not.toContain('#17633f')
-    expect(userUni).toContain('$uni-color-primary: #17633f')
-    expect(promoterUni).toContain('$uni-color-primary: #17633f')
+    expect(userUni).toContain('$uni-color-primary: #2F7A4D')
+    expect(promoterUni).toContain('$uni-color-primary: #2F7A4D')
+    expect(farmhouseUni).toContain('$uni-color-primary: #2F7A4D')
     expect(userUni).not.toContain('#c83245')
     expect(promoterUni).not.toContain('#c83245')
+    expect(farmhouseUni).not.toContain('#17633f')
   })
 
   it('locks supplier tab chrome to the shared tab token', () => {

@@ -1,0 +1,80 @@
+/* 竹青绿 Design Tokens — 全站唯一色源。规格见 docs/design/zhulv-design-tokens.md */
+:root,
+page {
+  /* brand */
+  --color-brand-primary: #2F7A4D;
+  --color-brand-primary-dark: #245E3B;
+  --color-brand-primary-soft: #E9F3ED;
+  --gradient-brand: linear-gradient(140deg, #3E9B62, #2F7A4D);
+  --color-on-brand: #FFFFFF;
+
+  /* semantic */
+  --color-success: #2F7A4D;
+  --color-success-dark: #245E3B;
+  --color-success-soft: #E9F3ED;
+  --color-warning: #DE8A3B;
+  --color-warning-dark: #A9631F;
+  --color-warning-soft: #FDF1E4;
+  --color-info: #3D7CB0;
+  --color-info-dark: #2C6188;
+  --color-info-soft: #E8F1F8;
+  --color-danger: #C9553F;
+  --color-danger-dark: #A03F2C;
+  --color-danger-soft: #FBECEA;
+  --color-purple: #7A6BB5;
+  --color-purple-dark: #5E4E9E;
+  --color-purple-soft: #F0EDFA;
+  --color-gold: #C99A4E;
+  --color-gold-dark: #8C6A2E;
+  --color-gold-soft: #FBF3E6;
+  --color-price: #D2543C;
+
+  /* neutral */
+  --color-bg: #F4F7F2;
+  --color-card: #FFFFFF;
+  --color-card-alt: #FCFDFC;
+  --color-ink: #1D2A22;
+  --color-ink-2: #5E6F64;
+  --color-ink-3: #9AA8A0;
+  --color-text-nav: #41504A;
+  --color-line: #E7ECE6;
+  --color-line-light: #F1F5F0;
+  --color-hover-bg: #FAFCFA;
+  --color-tabbar-default: #9AA8A0;
+  --color-tabbar-active: #245E3B;
+  --color-overlay: rgba(15, 23, 18, 0.45);
+  --color-toast: rgba(15, 35, 24, 0.92);
+
+  /* radius / shadow / space / control */
+  --radius-card: 14px;
+  --radius-icon: 11px;
+  --radius-button: 12px;
+  --radius-pill: 20px;
+  --radius-nav: 10px;
+  --shadow-card: 0 1px 2px rgba(29, 42, 34, 0.04), 0 10px 28px -16px rgba(29, 42, 34, 0.18);
+  --shadow-button-primary: 0 8px 18px -8px rgba(47, 122, 77, 0.35);
+  --space-page: 16px;
+  --space-section: 16px;
+  --space-card: 14px;
+  --space-gap: 12px;
+  --control-size: 44px;
+
+  /* type overrides (typography.scss 默认 caption 11，供应商/全站按规格用 12) */
+  --text-caption: 12px;
+  --text-title-weight: 700;
+  --text-subtitle-weight: 600;
+  --text-body-weight: 400;
+
+  /* reserved — 写入但不在供应商端使用 */
+  --color-bg-cream: #FBF8F2;
+  --color-sidebar-grad-start: #22303F;
+  --color-sidebar-grad-end: #1A2530;
+  --color-sidebar-text: #AEBFCE;
+  --space-card-pc: 18px;
+
+  /* admin 浅色工作台（不用 reserved 深色侧栏） */
+  --color-sidebar-bg: var(--color-card);
+  --color-sidebar-active-bg: var(--color-brand-primary-soft);
+  --color-focus-ring: rgba(47, 122, 77, 0.22);
+  --color-chart-fill: rgba(47, 122, 77, 0.08);
+}

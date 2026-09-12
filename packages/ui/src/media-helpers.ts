@@ -39,8 +39,8 @@ export function mergeUploadedMedia(current: readonly MediaReference[], incoming:
   return [...current, ...incoming].slice(0, limit).map((item) => ({ ...item }))
 }
 
-export function uploaderCanChoose(currentCount: number, multiple: boolean, maxCount: number): boolean {
-  return !multiple || currentCount < Math.max(1, Math.floor(maxCount || 1))
+export function uploaderCanChoose(currentCount: number, _multiple: boolean, maxCount: number): boolean {
+  return currentCount < Math.max(1, Math.floor(maxCount || 1))
 }
 
 export function moveUploadedMedia(values: readonly MediaReference[], from: number, to: number): MediaReference[] {

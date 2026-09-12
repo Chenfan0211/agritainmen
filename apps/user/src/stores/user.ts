@@ -983,15 +983,18 @@ export const useUserStore = defineStore('user', {
     applyLaunch(query: Record<string, string | undefined>) {
       const savedLive = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-live-id') : ''
       const savedName = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-promoter-name') : ''
+      const savedPromoter = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-promoter-id') : ''
       this.liveId = query.live || (typeof savedLive === 'string' ? savedLive : '') || ''
       this.launchProductId = query.product?.trim() || ''
       this.promoterName = query.promoterName || (typeof savedName === 'string' ? savedName : '') || ''
       if (!this.userId && this.auth.isLoggedIn && this.auth.openid) this.userId = resolveUserIdentity(this.auth.openid)
       const bound = this.userId ? readUserBindings()?.[this.userId] : undefined
       const requestedPromoter = query.promoter?.trim() || ''
+      const storedPromoter = typeof savedPromoter === 'string' ? savedPromoter.trim() : ''
       const profiles = readCDistributorProfiles() || demoCDistributorProfiles
       const validRequestedPromoter = resolveDirectReferralChain(requestedPromoter, profiles) ? requestedPromoter : ''
-      this.promoterId = bound?.status === 'bound' ? bound.promoterId || '' : validRequestedPromoter
+      const validStoredPromoter = this.auth.isLoggedIn && storedPromoter && resolveDirectReferralChain(storedPromoter, profiles) ? storedPromoter : ''
+      this.promoterId = bound?.status === 'bound' ? bound.promoterId || '' : validRequestedPromoter || validStoredPromoter
       this.referralPromoterId = this.promoterId
       this.entryChecked = true
       this.entryRestricted = !this.promoterId

@@ -1,33 +1,63 @@
 @use "../../../../packages/ui/src/typography.scss";
 @use "../../../../packages/ui/src/mobile-theme.scss";
+@import "../../../../packages/ui/src/design-tokens.css";
 
-:root {
-  --union-red: var(--mobile-brand);
-  --union-red-deep: var(--mobile-brand-deep);
-  --union-red-soft: var(--mobile-brand-soft);
-  --union-green: var(--mobile-brand);
-  --union-gold: var(--mobile-warning);
-  --union-bg: var(--mobile-bg);
-  --union-panel: var(--mobile-surface);
-  --union-ink: var(--mobile-text);
-  --union-muted: var(--mobile-muted);
-  --union-line: var(--mobile-border);
+:root,
+page {
+  --mobile-brand: var(--color-brand-primary);
+  --mobile-brand-deep: var(--color-brand-primary-dark);
+  --mobile-brand-soft: var(--color-brand-primary-soft);
+  --mobile-bg: var(--color-bg);
+  --mobile-surface: var(--color-card);
+  --mobile-surface-subtle: var(--color-brand-primary-soft);
+  --mobile-text: var(--color-ink);
+  --mobile-muted: var(--color-ink-2);
+  --mobile-border: var(--color-line);
+  --mobile-price: var(--color-price);
+  --mobile-warning: var(--color-warning-dark);
+  --mobile-info: var(--color-info);
+  --mobile-danger: var(--color-danger);
+  --mobile-radius-control: var(--radius-button);
+  --mobile-radius-card: var(--radius-card);
+  --mobile-radius-pill: var(--radius-pill);
+  --mobile-shadow-card: var(--shadow-card);
+  --mobile-control-compact: var(--control-size);
+  --mobile-control-primary: var(--control-size);
+  --mobile-page-inline: var(--space-page);
+  --mobile-section-gap: var(--space-section);
+  --mobile-card-gap: var(--space-gap);
+  --mobile-card-padding: var(--space-card);
+  --union-red: var(--color-brand-primary);
+  --union-red-deep: var(--color-brand-primary-dark);
+  --union-red-soft: var(--color-brand-primary-soft);
+  --union-green: var(--color-brand-primary);
+  --union-gold: var(--color-warning-dark);
+  --union-bg: var(--color-bg);
+  --union-panel: var(--color-card);
+  --union-ink: var(--color-ink);
+  --union-muted: var(--color-ink-2);
+  --union-line: var(--color-line);
+}
+
+.pc-hero,
+.pc-login-hero {
+  background: var(--gradient-brand);
 }
 
 page, body, #app {
-  min-height:100%;
-  margin:0;
-  background:var(--union-bg);
-  color:var(--union-ink);
-  font-family:var(--font-ui);
-  font-size:var(--text-body);
-  line-height:var(--line-body);
-  letter-spacing:0;
+  min-height: 100%;
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--line-body);
+  letter-spacing: 0;
 }
 
-* { box-sizing:border-box; }
-button, input, select, textarea { font:inherit;letter-spacing:0; }
-button { border:0;transition:background-color .16s ease,color .16s ease,border-color .16s ease,opacity .16s ease,transform .12s ease; }
-button:not(:disabled):active { transform:scale(.98); }
-button:disabled { opacity:.48;pointer-events:none; }
-button:focus-visible,input:focus-visible { outline:2px solid rgba(23,99,63,.3);outline-offset:2px; }
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; letter-spacing: 0; }
+button { border: 0; transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
+button:not(:disabled):active { transform: scale(.98); }
+button:disabled { opacity: .48; pointer-events: none; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--color-brand-primary); outline-offset: 2px; }

@@ -17,6 +17,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { RouteOrigin, RouteStop } from '@agritainment/shared'
+import { designTokens } from '@agritainment/ui'
 import { deliveryMapMarkers, deliveryMapSummary, loadTencentMapSdk } from '../delivery-map'
 
 const props = defineProps<{
@@ -50,11 +51,11 @@ const nativeMarkers = computed(() => markers.value.map((marker, index) => ({
   longitude: marker.longitude,
   width: 24,
   height: 24,
-  callout: { content: marker.label, display: 'ALWAYS', color: '#ffffff', bgColor: marker.id === 'origin' ? '#1f6b3a' : marker.id === selectedStopId.value ? '#2f5bb3' : '#16351f', borderRadius: 12, padding: 4 }
+  callout: { content: marker.label, display: 'ALWAYS', color: designTokens.colorOnBrand, bgColor: marker.id === 'origin' ? designTokens.colorBrandPrimary : marker.id === selectedStopId.value ? designTokens.colorInfo : designTokens.colorBrandPrimaryDark, borderRadius: designTokens.radiusIcon, padding: 4 }
 })))
 const nativePolyline = computed(() => {
   const points = props.polyline?.length ? props.polyline : mapPoints.value
-  return points.length > 1 ? [{ points: points.map((point) => ({ latitude: point.latitude, longitude: point.longitude })), color: '#1f6b3a', width: 5, arrowLine: true }] : []
+  return points.length > 1 ? [{ points: points.map((point) => ({ latitude: point.latitude, longitude: point.longitude })), color: designTokens.colorBrandPrimary, width: 5, arrowLine: true }] : []
 })
 
 function selectMarker(id: string) {
@@ -118,16 +119,16 @@ async function renderMap() {
         geometries: labelPoints,
         styles: {
           origin: new TMap.LabelStyle({
-            color: '#ffffff', size: 12, offset: { x: 0, y: 0 }, alignment: 'center', verticalAlignment: 'middle',
-            backgroundColor: '#1f6b3a', padding: { top: 2, right: 6, bottom: 2, left: 6 }, borderRadius: 10
+            color: designTokens.colorOnBrand, size: 12, offset: { x: 0, y: 0 }, alignment: 'center', verticalAlignment: 'middle',
+            backgroundColor: designTokens.colorBrandPrimary, padding: { top: 2, right: 6, bottom: 2, left: 6 }, borderRadius: designTokens.radiusIcon
           }),
           stop: new TMap.LabelStyle({
-            color: '#ffffff', size: 12, offset: { x: 0, y: 0 }, alignment: 'center', verticalAlignment: 'middle',
-            backgroundColor: '#16351f', padding: { top: 2, right: 6, bottom: 2, left: 6 }, borderRadius: 10
+            color: designTokens.colorOnBrand, size: 12, offset: { x: 0, y: 0 }, alignment: 'center', verticalAlignment: 'middle',
+            backgroundColor: designTokens.colorBrandPrimaryDark, padding: { top: 2, right: 6, bottom: 2, left: 6 }, borderRadius: designTokens.radiusIcon
           }),
           selected: new TMap.LabelStyle({
-            color: '#ffffff', size: 12, offset: { x: 0, y: 0 }, alignment: 'center', verticalAlignment: 'middle',
-            backgroundColor: '#2f5bb3', padding: { top: 3, right: 7, bottom: 3, left: 7 }, borderRadius: 10
+            color: designTokens.colorOnBrand, size: 12, offset: { x: 0, y: 0 }, alignment: 'center', verticalAlignment: 'middle',
+            backgroundColor: designTokens.colorInfo, padding: { top: 3, right: 7, bottom: 3, left: 7 }, borderRadius: designTokens.radiusIcon
           })
         }
       })
@@ -168,9 +169,9 @@ onBeforeUnmount(() => {
   width: 100%;
   min-height: 180px;
   overflow: hidden;
-  border: 1px solid var(--mobile-border, #d7e0d8);
-  border-radius: 8px;
-  background: #eef3ef;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-brand-primary-soft);
 }
 .delivery-route-map-canvas { width: 100%; height: 180px; }
 .delivery-route-map-native { width: 100%; height: 220px; }
@@ -182,9 +183,9 @@ onBeforeUnmount(() => {
   right: 8px;
   min-height: 28px;
   padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .92);
-  color: #16351f;
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+  color: var(--color-brand-primary-dark);
   font-size: 12px;
   font-weight: 700;
   line-height: 18px;
@@ -206,21 +207,21 @@ onBeforeUnmount(() => {
   min-width: 22px;
   height: 22px;
   padding: 0 6px;
-  border-radius: 8px;
-  background: #16351f;
-  color: #fff;
+  border-radius: var(--radius-icon);
+  background: var(--color-brand-primary-dark);
+  color: var(--color-on-brand);
   font-size: 12px;
   font-weight: 700;
   line-height: 22px;
   text-align: center;
   border: 0;
 }
-.delivery-route-map-pin.origin { background: #1f6b3a; }
-.delivery-route-map-pin.is-selected { background: #2f5bb3; box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), 0 0 0 4px rgba(47, 91, 179, .28); }
+.delivery-route-map-pin.origin { background: var(--color-brand-primary); }
+.delivery-route-map-pin.is-selected { background: var(--color-info); box-shadow: 0 0 0 2px var(--color-card), 0 0 0 4px var(--color-info-soft); }
 .delivery-route-map-fallback {
   display: block;
   padding: 8px;
-  color: #5b6d61;
+  color: var(--color-ink-2);
   font-size: 12px;
 }
 </style>

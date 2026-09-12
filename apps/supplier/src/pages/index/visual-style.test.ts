@@ -3,15 +3,21 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const supplierRoot = resolve(import.meta.dirname, '../../..')
+const uiRoot = resolve(supplierRoot, '../../packages/ui/src')
 const pageSource = readFileSync(resolve(import.meta.dirname, 'index.vue'), 'utf8')
 const globalStyles = readFileSync(resolve(supplierRoot, 'src/styles/global.scss'), 'utf8')
 const pageConfig = readFileSync(resolve(supplierRoot, 'src/pages.json'), 'utf8')
+const tokenCss = readFileSync(resolve(uiRoot, 'design-tokens.css'), 'utf8')
+const tokenTs = readFileSync(resolve(uiRoot, 'design-tokens.ts'), 'utf8')
+const mapSource = readFileSync(resolve(supplierRoot, 'src/components/DeliveryRouteMap.vue'), 'utf8')
 const template = pageSource.slice(pageSource.indexOf('<template>'), pageSource.indexOf('<script setup'))
 const styles = pageSource.match(/<style scoped lang="scss">([\s\S]*?)<\/style>/)?.[1] || ''
 const allStyles = `${globalStyles}\n${styles}`
+const businessStyles = allStyles
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/\/\/.*$/gm, '')
 
 const visualViews = [
-  'supplier-dashboard',
   'supplier-orders',
   'supplier-products',
   'supplier-mine',
@@ -22,8 +28,7 @@ const visualViews = [
   'workspace-routes',
   'workspace-settlements',
   'workspace-handovers',
-  'workspace-warehouse',
-  'workspace-account'
+  'workspace-warehouse'
 ]
 
 const visualSheets = [
@@ -38,9 +43,40 @@ const visualSheets = [
   'category-picker'
 ]
 
+const figmaHex = [
+  '#2F7A4D',
+  '#245E3B',
+  '#E9F3ED',
+  '#DE8A3B',
+  '#3D7CB0',
+  '#C9553F',
+  '#F4F7F2',
+  '#1D2A22',
+  '#5E6F64',
+  '#D2543C'
+]
+
 describe('supplier mobile visual contract', () => {
-  it('uses a flat B2B surface without decorative gradients or emoji', () => {
+  it('locks Figma 竹青绿 hex only in shared token files', () => {
+    expect(tokenCss).toMatch(/:root,\s*page/)
+    expect(tokenCss).toContain('--gradient-brand')
+    expect(tokenCss).toContain('--radius-card: 14px')
+    expect(tokenCss).toContain('--space-page: 16px')
+    expect(tokenCss).toContain('--control-size: 44px')
+    expect(tokenCss).toContain('0.35')
+    for (const hex of figmaHex) {
+      expect(tokenCss).toContain(hex)
+      expect(tokenTs).toContain(hex)
+    }
+  })
+
+  it('keeps business styles on CSS variables without hardcoded colors or gradients', () => {
     expect(allStyles).not.toMatch(/(?:linear|radial)-gradient\s*\(/)
+    expect(tokenCss).toMatch(/(?:linear)-gradient\s*\(/)
+    expect(allStyles).toMatch(/var\(--color-/)
+    expect(allStyles).toMatch(/var\(--radius-card\)/)
+    expect(allStyles).toMatch(/var\(--space-page\)/)
+    expect(businessStyles).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(template).not.toMatch(/\p{Extended_Pictographic}/u)
     expect(template).not.toMatch(/\sstyle="/)
   })
@@ -52,24 +88,23 @@ describe('supplier mobile visual contract', () => {
     for (const tag of productImages) expect(tag).toContain('mode="aspectFill"')
   })
 
-  it('keeps touch targets at least 44px and business cards at no more than 8px', () => {
-    expect(globalStyles).toMatch(/\.primary-button\s*\{[^}]*min-height:\s*44px/)
-    expect(globalStyles).toMatch(/\.outline-button\s*\{[^}]*min-height:\s*44px/)
-    expect(globalStyles).toMatch(/\.mini-button\s*\{[^}]*min-height:\s*40px/)
-    expect(globalStyles).toMatch(/\.chip\s*\{[^}]*min-height:\s*40px/)
-    expect(globalStyles).toMatch(/\.icon-button\s*\{[^}]*width:\s*44px;\s*height:\s*44px/)
-    expect(allStyles).toMatch(/\.sku-card-head button\s*\{[^}]*min-height:\s*40px/)
-    expect(allStyles).toMatch(/\.checkbox-field\s*\{[^}]*min-height:\s*40px/)
-    expect(globalStyles).toMatch(/\.list-card\s*\{[^}]*border-radius:\s*\$sup-radius/)
-    expect(globalStyles).toContain('$sup-radius: 8px;')
-    expect(styles).toMatch(/\.supplier-product-card\s*\{[^}]*border-radius:\s*8px/)
+  it('keeps touch targets at least 44px and cards on radius-card', () => {
+    expect(globalStyles).toMatch(/\.primary-button\s*\{[^}]*min-height:\s*var\(--control-size\)/)
+    expect(globalStyles).toMatch(/\.outline-button\s*\{[^}]*min-height:\s*var\(--control-size\)/)
+    expect(globalStyles).toMatch(/\.mini-button\s*\{[^}]*min-height:\s*var\(--control-size\)/)
+    expect(globalStyles).toMatch(/\.chip\s*\{[^}]*min-height:\s*var\(--control-size\)/)
+    expect(globalStyles).toMatch(/\.icon-button\s*\{[^}]*width:\s*var\(--control-size\);\s*height:\s*var\(--control-size\)/)
+    expect(allStyles).toMatch(/\.sku-card-head button\s*\{[^}]*min-height:\s*\$control/)
+    expect(allStyles).toMatch(/\.checkbox-field\s*\{[^}]*min-height:\s*\$control/)
+    expect(globalStyles).toMatch(/\.list-card\s*\{[^}]*border-radius:\s*var\(--radius-card\)/)
+    expect(styles).toMatch(/\.supplier-product-card\s*\{[^}]*border-radius:\$radius-card/)
   })
 
-  it('defines semantic status colors and protects narrow mobile layouts', () => {
-    expect(allStyles).toContain('#2f5bb3')
-    expect(allStyles).toContain('#a05a12')
-    expect(globalStyles).toContain('$sup-green')
-    expect(globalStyles).toContain('$sup-red')
+  it('defines semantic status colors through tokens and protects narrow mobile layouts', () => {
+    expect(globalStyles).toContain('var(--color-info)')
+    expect(globalStyles).toContain('var(--color-warning-dark)')
+    expect(globalStyles).toContain('var(--color-brand-primary)')
+    expect(globalStyles).toContain('var(--color-danger)')
     expect(styles).toMatch(/\.app-shell\s*\{[^}]*overflow-x:\s*hidden/)
     expect(styles).toContain('@media (max-width: 375px)')
   })
@@ -85,7 +120,7 @@ describe('supplier mobile visual contract', () => {
   it('keeps fixed navigation and sheets clear of content and mobile safe areas', () => {
     expect(globalStyles).toMatch(/\.page-pad\s*\{[^}]*padding:[^;}]*calc\(var\(--mobile-tab-height\)/)
     expect(globalStyles).toMatch(/\.tabbar\s*\{[^}]*min-height:\s*var\(--mobile-tab-height\)/)
-    expect(globalStyles).toMatch(/\.hero \{[^}]*padding: 0 8px 12px/)
+    expect(globalStyles).toMatch(/\.hero \{[^}]*padding: 0 var\(--space-page\)/)
     expect(globalStyles).toMatch(/\.tabbar\s*\{[^}]*position:\s*fixed[^}]*padding-bottom:\s*env\(safe-area-inset-bottom\)/)
     expect(globalStyles).toMatch(/\.sheet-panel\s*\{[^}]*max-height:\s*var\(--mobile-sheet-max-height\)[^}]*overflow:\s*hidden/)
     expect(globalStyles).toMatch(/\.sheet-head\s*\{[^}]*min-height:\s*var\(--mobile-sheet-header-height\)/)
@@ -95,21 +130,22 @@ describe('supplier mobile visual contract', () => {
     expect(styles).toMatch(/\.product-work-body\s*\{[^}]*flex:\s*1[^}]*overflow-y:\s*auto/)
   })
 
-  it('在 390px 及以下将五项经营指标重排为三列加两列', () => {
-    expect(allStyles).toMatch(/@media\s*\(max-width:\s*390px\)[\s\S]*?\.hero-stats\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
-    expect(allStyles).toMatch(/@media\s*\(max-width:\s*390px\)[\s\S]*?\.hero-stat:nth-child\(4\)\s*\{[^}]*border-left:\s*0/)
+  it('订单页五项经营指标默认 3+2，不再依赖视口 390', () => {
+    expect(globalStyles).toMatch(/\.hero-stats\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
+    expect(globalStyles).toMatch(/\.hero-stat:nth-child\(4\)\s*\{[^}]*border-left:\s*0/)
+    expect(template).toContain('data-visual-view="supplier-orders"')
+    expect(template).toContain('今日门店')
   })
 
   it('shrinks long business text without pushing status and action controls away', () => {
     expect(allStyles).toMatch(/\.row-top\s*\{[^}]*min-width:\s*0/)
     expect(allStyles).toMatch(/\.row-top\s*>\s*(?:text|\.order-no)[^{]*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis/)
-    expect(allStyles).toMatch(/\.driver-option-name\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis/)
     expect(allStyles).toMatch(/\.work-link\s+\.row-main\s*\{[^}]*min-width:\s*0/)
     expect(allStyles).toMatch(/\.sheet-title\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis/)
   })
 
   it('uses the shared mobile background in H5 and mini program page configuration', () => {
-    expect(JSON.parse(pageConfig).globalStyle.backgroundColor).toBe('#f4f7f5')
+    expect(JSON.parse(pageConfig).globalStyle.backgroundColor).toBe('#F4F7F2')
     expect(globalStyles).not.toMatch(/(^|,)\s*select(?:\s|,|\{)/m)
   })
 
@@ -120,7 +156,7 @@ describe('supplier mobile visual contract', () => {
     expect(pageSource).toContain('class="pc-login-hero"')
     expect(pageSource).not.toContain('class="login-banner"')
     expect(pageSource).toMatch(/\.login-card \{[^}]*max-width: 340px/)
-    expect(pageSource).toMatch(/\.login-body \{ padding: 16px 12px 18px; \}/)
+    expect(pageSource).toMatch(/\.login-body \{ padding: \$space-page; \}/)
     expect(globalStyles).not.toMatch(/\.secondary-workspace \{[^}]*left:\s*50%/)
     expect(globalStyles).not.toMatch(/\.secondary-workspace \{[^}]*transform:\s*translateX\(-50%\)/)
   })
@@ -133,7 +169,7 @@ describe('supplier mobile visual contract', () => {
     expect(pageSource).not.toMatch(/\.secondary-head \{[^}]*margin: -14px/)
   })
 
-  it('首页五卡展示当日农家乐数量，二级页留在框内且返回是方箭头', () => {
+  it('订单页展示当日农家乐数量，二级页留在框内且返回是方箭头', () => {
     expect(template).toContain('今日门店')
     expect(template).toContain('今日件数')
     expect(template).toContain('待发货件')
@@ -141,21 +177,24 @@ describe('supplier mobile visual contract', () => {
     expect(template).toContain('配送中件')
     expect(template).toContain('todayFarmhouseQuantities')
     expect(template).not.toMatch(/hero-stat-label">今日缺货/)
-    expect(template).toMatch(/v-if="store\.auth\.role === 'supplier' && !secondaryWorkspace"/)
+    expect(template).not.toContain('data-visual-view="supplier-dashboard"')
+    expect(template).not.toContain('data-visual-view="workspace-account"')
+    expect(pageSource).not.toContain("label: '首页'")
+    expect(pageSource).not.toContain('账号信息')
     expect(styles).not.toMatch(/\.secondary-workspace\s*\{[^}]*position:\s*fixed/)
     expect(styles).toMatch(/\.secondary-workspace\s*\{[^}]*min-height:\s*calc\(100vh/)
     expect(template).toMatch(/class="page-back" aria-label="返回"/)
     expect(template).not.toMatch(/<text>返回<\/text>/)
-    expect(globalStyles).toMatch(/\.hero-logout \{[^}]*background: \$sup-red/)
+    expect(globalStyles).toMatch(/\.hero-logout \{[^}]*background: var\(--color-danger\)/)
   })
 
   it('我的业务入口两列纵排，空态不再撑满半屏', () => {
-    expect(pageSource).toMatch(/\.mine-tile-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/)
+    expect(pageSource).toMatch(/\.mine-tile-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); gap: var\(--space-gap\)/)
     expect(pageSource).toMatch(/\.mine-tile-grid \.work-link \{ flex-direction: column/)
     expect(globalStyles).toMatch(/\.empty-state \{[^}]*min-height: 120px/)
     expect(pageSource).toMatch(/class="empty-state compact-empty pc-empty"/)
     expect(pageSource).toMatch(/class="empty-state compact-empty pc-empty"[\s\S]*暂无交接记录/)
-    expect(globalStyles).toMatch(/\.sheet-panel \{[^}]*padding: 12px 12px 0/)
+    expect(globalStyles).toMatch(/\.sheet-panel \{[^}]*padding: var\(--space-card\) var\(--space-card\) 0/)
     expect(pageSource).toMatch(/:class="driverStatusTarget\.status === 'active' \? 'danger-button' : 'primary-button'"/)
   })
 
@@ -204,6 +243,9 @@ describe('supplier mobile visual contract', () => {
     expect(template).toContain('route-workbench-status')
     expect(template).toContain('route-bottom-actions')
     expect(pageSource).toContain('invalidateRoutePreview')
+    expect(styles).toMatch(/\.named-route-form \{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
+    expect(styles).toMatch(/\.route-bottom-actions \{[^}]*grid-template-columns:\s*repeat\(2/)
+    expect(styles).not.toContain('min-width: 701px')
   })
 
   it('司机今日任务支持多线路切换并保持紧凑布局', () => {
@@ -212,5 +254,56 @@ describe('supplier mobile visual contract', () => {
     expect(template).toContain('selectDriverRoute')
     expect(styles).toContain('@media (max-width: 390px)')
     expect(styles).toMatch(/\.driver-route-switcher\s*\{[^}]*overflow-x:\s*auto/)
+  })
+
+  it('地图标注走 design-tokens.ts，不写死旧绿', () => {
+    expect(mapSource).toContain('designTokens')
+    expect(mapSource).toContain('colorBrandPrimary')
+    expect(mapSource).toContain('colorInfo')
+    expect(mapSource).not.toContain('#17633f')
+    expect(mapSource).not.toContain('#2f5bb3')
+  })
+
+  it('hover 仅写在 hover 媒体查询里', () => {
+    expect(globalStyles).toMatch(/@media \(hover: hover\)/)
+    expect(styles).toMatch(/@media \(hover: hover\)/)
+  })
+
+  it('异步按钮用 is-loading 转圈，加载态不整页淡出', () => {
+    expect(globalStyles).toMatch(/button\.is-loading::before/)
+    expect(globalStyles).toMatch(/@keyframes\s+button-spin/)
+    expect(globalStyles).toMatch(/button\.is-loading::before\s*\{[^}]*border-radius:\s*50%/)
+    expect(globalStyles).toMatch(/button\.is-loading::before\s*\{[^}]*animation:[^;}]*button-spin/)
+    expect(globalStyles).toMatch(/button\.is-loading:disabled\s*\{[^}]*opacity:\s*1/)
+    expect(template).toMatch(/login-button[^>]*is-loading/)
+    expect(template).toContain("is-loading': routeBusy")
+    expect(template).toContain("is-loading': routePreviewBusy")
+    expect(template).toContain("is-loading': routePublishing")
+    expect(template).toContain("is-loading': busyAction === 'batch-accept'")
+    expect(template).toContain("is-loading': busyAction === action.key")
+    expect(template).toContain("is-loading': busyAction === 'warehouse'")
+    expect(template).toContain("is-loading': busyAction === 'checkin'")
+    expect(template).toContain("is-loading': busyAction === 'save-route'")
+    expect(template).toContain("is-loading': busyAction === 'toggle-product'")
+    expect(template).toContain("is-loading': busyAction === 'save-stock'")
+    expect(template).toContain("is-loading': busyAction === 'submit-product'")
+    expect(template).toContain("is-loading': busyAction === 'mark-handled'")
+    expect(template).toContain("is-loading': busyAction === 'courier'")
+    expect(template).toContain("is-loading': busyAction === 'handover-out'")
+    expect(template).toContain("is-loading': busyAction === 'handover-in'")
+    expect(template).toContain("is-loading': busyAction === 'save-driver'")
+    expect(template).toContain("is-loading': busyAction === 'reset-password'")
+    expect(template).toContain("is-loading': busyAction === 'reset-demo'")
+    expect(pageSource).toContain("const busyAction = ref('')")
+    expect(pageSource).toContain('async function runBusy')
+  })
+
+  it('仓点只填地址并走 geocodeAddress，不展示经纬度', () => {
+    expect(template).toContain('仓点地址')
+    expect(template).not.toContain('经度')
+    expect(template).not.toContain('纬度')
+    expect(pageSource).toContain('geocodeAddress')
+    expect(pageSource).toContain('createGeocodeProviders')
+    expect(globalStyles).toMatch(/\.list-card\s*\{[^}]*padding:\s*var\(--space-card\)/)
   })
 })

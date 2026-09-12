@@ -13,4 +13,5 @@ configureMiniProgramMediaRuntime(createMiniProgramMediaRuntime())
 onLaunch(() => undefined)
 </script>
 
+<style src="../../../packages/ui/src/design-tokens.css"></style>
 <style src="./styles/global.scss" lang="scss"></style>

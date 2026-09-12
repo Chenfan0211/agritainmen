@@ -11,6 +11,8 @@ describe('农家乐商品分类图片', () => {
     expect(page).toContain('productCategoryImage')
     expect(page).not.toContain('categoryIconName')
     expect(page).toMatch(/<BusinessImage\s+class="category-grid-img"\s+:src="productCategoryImage\(item, dictionaryState\)"\s+:fallback="defaultProductCategoryImage\(item\)"\s+:error-fallback="defaultProductCategoryImage\(\)"\s+:show-error="false"/)
+    expect(page).toContain('v-for="item in shopCategories"')
+    expect(page).not.toMatch(/activeTab === 'shop'[\s\S]*v-for="item in categories"/)
   })
 
   it('订阅字典更新并在卸载时释放订阅', () => {

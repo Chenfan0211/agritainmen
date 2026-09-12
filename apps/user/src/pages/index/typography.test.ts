@@ -8,6 +8,6 @@ describe('user portal typography', () => {
   it('uses a readable muted color for small business copy', () => {
     expect(source).toContain('/* Mobile readability contrast */')
     expect(source).toContain('.supplier-name,.stock-text,.order-time')
-    expect(source).toContain('color:#5f6f66')
+    expect(source).toContain('color:var(--color-ink-2)')
   })
 })

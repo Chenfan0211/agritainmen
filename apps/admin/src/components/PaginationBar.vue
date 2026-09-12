@@ -54,7 +54,7 @@ function go(n: number) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: #fafbf8;
+  background: var(--color-card-alt);
   font-size: 13px;
 }
 .pg-total { color: var(--admin-muted); white-space: nowrap; }
@@ -65,8 +65,8 @@ function go(n: number) {
   height: 30px;
   padding: 0 9px;
   border: 1px solid var(--admin-line);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: var(--admin-radius-control);
+  background:var(--color-card);
   color: var(--admin-ink);
   font-size: 13px;
   line-height: 1.35;
@@ -76,9 +76,11 @@ function go(n: number) {
   justify-content: center;
 }
 .pg-btn::after { border: none; }
-.pg-btn:hover:not([disabled]):not(.cur) { background: var(--admin-green-soft); border-color: #c8d8cb; }
-.pg-btn.cur { background: var(--admin-green-soft); border-color: #c9e0cf; color: var(--admin-green-2); font-weight: 600; cursor: default; }
+@media (hover: hover) {
+  .pg-btn:hover:not([disabled]):not(.cur) { background: var(--admin-green-soft); border-color: var(--color-line); }
+}
+.pg-btn.cur { background: var(--admin-green-soft); border-color: var(--color-line); color: var(--admin-green-2); font-weight: 600; cursor: default; }
 .pg-btn[disabled] { opacity: .45; cursor: not-allowed; }
-.pg-btn:focus-visible { outline: 2px solid rgba(29, 107, 68, .34); outline-offset: 2px; }
+.pg-btn:focus-visible { outline: none; box-shadow: var(--admin-focus-ring); }
 .pg-ellipsis { min-width: 20px; text-align: center; color: var(--admin-muted); user-select: none; }
 </style>

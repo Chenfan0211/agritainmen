@@ -1,22 +1,22 @@
 @use "../../../../packages/ui/src/typography.scss";
 
 :root {
-  --admin-green: #153e2c;
-  --admin-green-2: #1d6b44;
-  --admin-green-soft: #e7f1eb;
-  --admin-gold: #b8903f;
-  --admin-bg: #f4f4ef;
-  --admin-panel: #ffffff;
-  --admin-ink: #202820;
-  --admin-muted: #59645b;
-  --admin-line: #dedfd8;
-  --admin-radius-panel: 8px;
-  --admin-radius-control: 6px;
+  --admin-green: var(--color-brand-primary-dark);
+  --admin-green-2: var(--color-brand-primary);
+  --admin-green-soft: var(--color-brand-primary-soft);
+  --admin-gold: var(--color-gold);
+  --admin-bg: var(--color-bg);
+  --admin-panel: var(--color-card);
+  --admin-ink: var(--color-ink);
+  --admin-muted: var(--color-ink-2);
+  --admin-line: var(--color-line);
+  --admin-radius-panel: var(--radius-card);
+  --admin-radius-control: var(--radius-button);
   --admin-control-height: 40px;
   --admin-row-height: 56px;
   --admin-sidebar-width: 220px;
   --admin-sidebar-compact-width: 196px;
-  --admin-focus-ring: 0 0 0 3px rgba(29, 107, 68, .2);
+  --admin-focus-ring: 0 0 0 3px var(--color-focus-ring);
 }
 
 page, body, #app {
@@ -37,16 +37,41 @@ button, input, select, textarea { font: inherit; letter-spacing: 0; }
 button { border: 0; }
 button { transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: translateY(1px); }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="combobox"]:focus-visible {
-  outline: 2px solid rgba(29, 107, 68, .5);
-  outline-offset: 2px;
+button, uni-button, input, select, textarea, [role="combobox"] {
+  outline: none;
+}
+button:focus-visible, uni-button:focus-visible, input:focus-visible,
+select:focus-visible, textarea:focus-visible, [role="combobox"]:focus-visible {
+  outline: none;
   box-shadow: var(--admin-focus-ring);
+}
+
+button.is-loading {
+  gap: 8px;
+  pointer-events: none;
+}
+button.is-loading:disabled {
+  opacity: 1;
+}
+button.is-loading::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: button-spin .7s linear infinite;
+}
+@keyframes button-spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 420px) {
   .uni-sample-toast {
-    top: auto !important;
-    bottom: max(16px, calc(env(safe-area-inset-bottom) + 16px)) !important;
-    transform: translateX(-50%) !important;
+    top: auto;
+    bottom: max(16px, calc(env(safe-area-inset-bottom) + 16px));
+    transform: translateX(-50%);
   }
 }

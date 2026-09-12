@@ -24,10 +24,14 @@ describe('promoter mobile visual contract', () => {
   })
 
   it('uses the shared forest-green and warm-red tokens without decorative gradients', () => {
+    const globalStyles = readFileSync(resolve(import.meta.dirname, '../../styles/global.scss'), 'utf8')
+    expect(globalStyles).toContain('design-tokens.css')
+    expect(globalStyles).toContain('--mobile-brand: var(--color-brand-primary)')
     expect(rule('.app-shell')).toContain('background:var(--mobile-bg)')
-    expect(rule('.promoter-head')).toContain('background:var(--mobile-brand-deep)')
+    expect(rule('.promoter-head')).toContain('background:var(--gradient-brand)')
     expect(rule('.wallet-top strong')).toContain('color:var(--mobile-price)')
     expect(styles).not.toMatch(/(?:linear|radial|conic)-gradient/i)
+    expect(styles).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
 
     for (const retiredColor of ['#c83245', '#fdeef1', '#3a566f', '#243a4f']) {
       expect(styles.toLowerCase(), retiredColor).not.toContain(retiredColor)
@@ -35,9 +39,8 @@ describe('promoter mobile visual contract', () => {
   })
 
   it('keeps cards compact and primary controls touch friendly', () => {
-    const pixelRadii = [...styles.matchAll(/border-radius:\s*(\d+)px/g)].map((match) => Number(match[1]))
-    expect(pixelRadii.length).toBeGreaterThan(0)
-    expect(Math.max(...pixelRadii)).toBeLessThanOrEqual(8)
+    expect(rule('.login-card')).toContain('border-radius:var(--mobile-radius-card)')
+    expect(rule('.primary-button')).toContain('border-radius:var(--mobile-radius-control)')
     expect(rule('.primary-button')).toMatch(/min-height:\s*var\(--mobile-touch-target\)/)
     expect(rule('.login-field input')).toMatch(/height:\s*var\(--mobile-touch-target\)/)
   })
@@ -98,6 +101,11 @@ describe('promoter mobile visual contract', () => {
     expect(rule('.login-body')).toMatch(/padding:\s*16px 12px 18px/)
     expect(styles).not.toMatch(/\.login-icon\{/)
     expect(styles).not.toMatch(/\.login-title\{/)
+  })
+
+  it('does not flatten the shared uploader choose tile', () => {
+    expect(styles).not.toContain('.create-live .business-uploader__choose')
+    expect(rule('.upload-btn')).toContain('var(--mobile-control-compact)')
   })
 
   it('uses the shared compact-control token for secondary sheet actions', () => {

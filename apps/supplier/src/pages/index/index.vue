@@ -8,9 +8,9 @@
         <text class="pc-login-sub">中选科技供应链 · 供应商与司机双角色配送履约</text>
       </view>
       <view class="login-body">
-      <view class="role-tabs">
-        <button :class="{ active: loginRole === 'supplier' }" @click="switchLoginRole('supplier')">供应商</button>
-        <button :class="{ active: loginRole === 'driver' }" @click="switchLoginRole('driver')">司机</button>
+      <view class="role-tabs" role="tablist">
+        <button :class="{ active: loginRole === 'supplier' }" role="tab" :aria-selected="loginRole === 'supplier'" @click="switchLoginRole('supplier')">供应商</button>
+        <button :class="{ active: loginRole === 'driver' }" role="tab" :aria-selected="loginRole === 'driver'" @click="switchLoginRole('driver')">司机</button>
       </view>
       <view class="login-fields">
         <label class="form-field"><text>账号</text><input v-model="loginAccount" placeholder="请输入账号" confirm-type="done" @confirm="submitLogin" /></label>
@@ -18,8 +18,8 @@
       </view>
       <text v-if="store.error" class="form-error login-error">{{ store.error }}</text>
       <text v-else-if="store.loginError" class="form-error login-error">{{ store.loginError }}</text>
-      <button v-if="store.error" class="outline-button login-button" :disabled="store.loading" @click="refreshSharedState">重新加载</button>
-      <button v-else class="primary-button login-button" :disabled="busy || !store.initialized || store.loading" @click="submitLogin">登 录</button>
+      <button v-if="store.error" class="outline-button login-button" :class="{ 'is-loading': store.loading }" :disabled="store.loading" @click="refreshSharedState">重新加载</button>
+      <button v-else class="primary-button login-button" :class="{ 'is-loading': busy || store.loading }" :disabled="busy || !store.initialized || store.loading" @click="submitLogin">登 录</button>
       <text class="login-hint">{{ loginRole === 'supplier' ? '演示供应商：13787366688 / 13787366688（已自动填充）' : '演示司机：driver01 / 123456（已自动填充）' }}</text>
       </view>
     </view>
@@ -31,24 +31,8 @@
     <view v-else-if="store.error" class="page-state pc-error"><text>{{ store.error }}</text><button class="primary-button mini-button state-retry" @click="refreshSharedState">重新加载</button></view>
 
     <template v-else>
-      <!-- 供应商头部 -->
-      <view v-if="store.auth.role === 'supplier' && !secondaryWorkspace" class="hero">
-        <view class="hero-top">
-          <image class="hero-avatar" src="/static/images/bacon.webp" mode="aspectFill" />
-          <view><text class="hero-title">{{ store.currentSupplier?.name || store.auth.name || supplierInfo.name }}</text><view class="hero-sub">{{ store.currentSupplier?.region || supplierInfo.region }} · {{ store.currentSupplier?.category || supplierInfo.category }}</view></view>
-          <button class="hero-logout logout-danger" @click="logout">退出</button>
-        </view>
-        <view class="hero-stats">
-          <view class="hero-stat"><text class="hero-stat-label">今日门店</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.storeCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">今日件数</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.itemCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">待发货件</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.pendingShipItemCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">缺货件数</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.shortageItemCount }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">配送中件</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.deliveringItemCount }}</text></view>
-        </view>
-      </view>
-
       <!-- 司机头部 -->
-      <view v-else-if="store.auth.role === 'driver'" class="hero">
+      <view v-if="store.auth.role === 'driver'" class="hero">
         <view class="hero-top">
           <view class="hero-avatar"><UiIcon name="user-round" :size="22" /></view>
           <view><text class="hero-title">{{ store.auth.name }}</text><view class="hero-sub">司机 · {{ store.auth.account }}</view></view>
@@ -61,51 +45,21 @@
       </view>
       <!-- 供应商模块 -->
       <template v-if="store.auth.role === 'supplier'">
-        <view v-if="active === 'dashboard' && !secondaryWorkspace" class="page-pad" data-visual-view="supplier-dashboard">
-          <view class="section-title">配送订单<text class="section-sub">今日配送 {{ store.todayDeliveryOrders.length }} 单</text></view>
-          <view v-if="store.todayDeliveryOrders.length">
-            <view v-for="order in store.todayDeliveryOrders" :key="order.id" class="list-card" @click="openOrder(order)">
-              <view class="row">
-                <view class="row-main">
-                  <view class="row-top"><text class="order-no">{{ order.id }}</text><span v-if="isCourierOrder(order)" class="tag c-mall-tag">{{ courierSourceLabel(order) }}</span><span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status, order) }}</span></view>
-                  <text class="muted">{{ recipientLabel(order) }} · {{ order.createdAt }}</text>
-                </view>
-                <span v-if="orderShortage(order).length" class="tag danger">缺货 {{ orderShortage(order).length }}</span>
-              </view>
-            </view>
+        <view v-if="active === 'orders' && !secondaryWorkspace" class="page-pad" data-visual-view="supplier-orders">
+          <view class="hero-stats">
+            <view class="hero-stat"><text class="hero-stat-label">今日门店</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.storeCount }}</text></view>
+            <view class="hero-stat"><text class="hero-stat-label">今日件数</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.itemCount }}</text></view>
+            <view class="hero-stat"><text class="hero-stat-label">待发货件</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.pendingShipItemCount }}</text></view>
+            <view class="hero-stat"><text class="hero-stat-label">缺货件数</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.shortageItemCount }}</text></view>
+            <view class="hero-stat"><text class="hero-stat-label">配送中件</text><text class="hero-stat-value">{{ store.todayFarmhouseQuantities.deliveringItemCount }}</text></view>
           </view>
-          <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="26" /></view><text>今日暂无配送订单</text></view>
-
-          <view class="section-title">最近交接日志</view>
-          <view v-if="recentHandovers.length">
-            <view v-for="log in recentHandovers" :key="log.id" class="list-card">
-              <view class="row">
-                <view class="row-main">
-                  <view class="row-top"><text class="order-no">{{ log.orderId }}</text><span class="tag" :class="log.type">{{ log.type === 'out' ? '出库交接' : '到店交接' }}</span></view>
-                  <text class="muted">{{ log.operatorName }} · {{ log.operatorRole === 'driver' ? '司机' : '供应商' }}{{ log.shortageCount ? ` · 缺货 ${log.shortageCount} 项` : '' }}</text>
-                </view>
-              </view>
-            </view>
-          </view>
-          <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="list-tree" :size="26" /></view><text>暂无交接日志</text></view>
-          <view class="dashboard-foot">
-            <button class="primary-button mini-button" @click="openProductWorkspace">商品管理</button>
-            <button class="outline-button mini-button" @click="openSecondaryWorkspace('routes')">今日线路</button>
-            <button class="outline-button mini-button" @click="openSecondaryWorkspace('drivers')">司机管理</button>
-            <button class="outline-button mini-button" @click="openSecondaryWorkspace('settlements')">待结算</button>
-            <button class="outline-button mini-button" @click="askResetDemo">重置演示数据</button>
-            <text class="muted">待审核商品 {{ pendingProductCount }} 条</text>
-          </view>
-        </view>
-
-        <view v-else-if="active === 'orders' && !secondaryWorkspace" class="page-pad" data-visual-view="supplier-orders">
           <scroll-view class="order-filter-scroll" scroll-x>
             <view class="chips scroll-x">
               <button v-for="item in orderFilters" :key="item.key" class="chip" :class="{ active: orderFilter === item.key }" @click="orderFilter = item.key">{{ item.label }}<text class="chip-count" data-typography-compact>{{ item.count }}</text></button>
             </view>
           </scroll-view>
           <view class="search-bar"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索单号 / 门店" confirm-type="search" /></view>
-          <button v-if="selectedOrderIds.length" class="primary-button section-action" @click="batchAccept">批量接单（{{ selectedOrderIds.length }}）</button>
+          <button v-if="selectedOrderIds.length" class="primary-button section-action" :class="{ 'is-loading': busyAction === 'batch-accept' }" :disabled="busyAction === 'batch-accept'" @click="batchAccept">批量接单（{{ selectedOrderIds.length }}）</button>
           <view v-if="filteredOrders.length" class="content-stack">
             <view v-for="order in filteredOrders" :key="order.id" class="list-card">
               <view class="row" @click="openOrder(order)">
@@ -118,17 +72,15 @@
                     <span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status, order) }}</span>
                     <span v-if="orderShortage(order).length" class="tag danger">缺货 {{ orderShortage(order).length }}</span>
                   </view>
-                    <text class="muted">{{ isCourierOrder(order) ? `${courierSourceLabel(order)} · ${recipientLabel(order)}` : order.customer }} · {{ order.items?.length || 1 }} 项 · 共 {{ order.quantity }} 件</text>
-                  <view class="row">
-                    <text class="muted">{{ order.createdAt }} · {{ orderFulfillment(order).driverName ? `司机 ${orderFulfillment(order).driverName}` : orderFulfillment(order).trackingNo ? `运单 ${orderFulfillment(order).trackingNo}` : '' }}{{ orderFulfillment(order).deliverDate ? ` · 配送 ${orderFulfillment(order).deliverDate}` : '' }}</text>
-                    <text v-if="routeStatusText(order)" class="route-status-hint">{{ routeStatusText(order) }}</text>
-                    <text class="order-amount">{{ money(order.amount) }}</text>
-                  </view>
+                  <text class="muted">{{ isCourierOrder(order) ? `${courierSourceLabel(order)} · ${recipientLabel(order)}` : order.customer }} · {{ order.items?.length || 1 }} 项 · 共 {{ order.quantity }} 件</text>
+                  <text class="muted">{{ order.createdAt }}{{ orderFulfillment(order).driverName ? ` · 司机 ${orderFulfillment(order).driverName}` : orderFulfillment(order).trackingNo ? ` · 运单 ${orderFulfillment(order).trackingNo}` : '' }}{{ orderFulfillment(order).deliverDate ? ` · 配送 ${orderFulfillment(order).deliverDate}` : '' }}</text>
+                  <text v-if="routeStatusText(order)" class="route-status-hint">{{ routeStatusText(order) }}</text>
+                  <text class="order-amount">{{ money(order.amount) }}</text>
                 </view>
                 <UiIcon name="chevron-right" :size="16" />
               </view>
               <view v-if="orderActions(order).length" class="order-actions">
-                <button v-for="action in orderActions(order)" :key="action.key" class="outline-button mini-button" :class="{ 'primary-button': action.primary }" @click="runAction(action.key, order)">{{ action.label }}</button>
+                <button v-for="action in orderActions(order)" :key="action.key" class="outline-button mini-button" :class="{ 'is-loading': busyAction === action.key, 'primary-button': action.primary }" :disabled="busyAction === action.key" @click="runAction(action.key, order)">{{ action.label }}</button>
               </view>
             </view>
           </view>
@@ -144,9 +96,13 @@
           </view>
           <view class="section-title">业务工作区</view>
         <view class="pc-tile-grid mine-tile-grid">
-          <button v-for="(item, index) in supplierWorkItems" :key="item.key" class="work-link pc-tile" :class="'pc-tile--' + ['green','amber','coral','blue','purple','teal'][index % 6]" data-typography-compact @click="openSecondaryWorkspace(item.key)">
+          <button v-for="(item, index) in supplierWorkItems" :key="item.key" class="work-link pc-tile" :class="'pc-tile--' + ['green','amber','coral','blue','purple'][index % 5]" data-typography-compact @click="openSecondaryWorkspace(item.key)">
             <view class="pc-tile-icon"><UiIcon :name="item.icon" :size="26" /></view><text class="pc-tile-label">{{ item.label }}</text>
           </button>
+        </view>
+        <view class="mine-actions">
+          <button class="outline-button" @click="askResetDemo">重置演示数据</button>
+          <button class="hero-logout logout-danger" @click="logout">退出</button>
         </view>
         </view>
 
@@ -165,14 +121,14 @@
                   <view class="row-top"><text class="driver-name">{{ driver.name }}</text><span class="badge" :class="driver.status">{{ driver.status === 'active' ? '启用' : '停用' }}</span></view>
                   <text class="muted">{{ driver.account }} · {{ driver.phone }}</text>
                   <text class="muted">创建于 {{ driver.createdAt }} · 进行中任务 {{ store.driverTaskCounts[driver.id] || 0 }}</text>
+                  <text class="muted">{{ namedRouteLabelForDriver(driver.id) }}</text>
                 </view>
-                <button class="outline-button mini-button" :class="{ danger: driver.status === 'active' }" @click="askToggle(driver)">{{ driver.status === 'active' ? '停用' : '启用' }}</button>
               </view>
               <view class="driver-actions">
                 <button class="outline-button mini-button" @click="openDriverEdit(driver)">编辑</button>
                 <button class="outline-button mini-button" @click="openReset(driver)">重置密码</button>
+                <button class="outline-button mini-button" :class="{ danger: driver.status === 'active' }" @click="askToggle(driver)">{{ driver.status === 'active' ? '停用' : '启用' }}</button>
               </view>
-              <text class="muted">{{ namedRouteLabelForDriver(driver.id) }}</text>
             </view>
           </view>
           <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="users" :size="26" /></view><text>暂无司机账号，点击「新增司机」开通</text></view>
@@ -228,7 +184,7 @@
           <view class="secondary-body">
           <template v-if="!namedRouteDraft">
             <view class="route-controls">
-              <view class="route-section-intro"><view><text class="eyebrow">配送配置</text><text class="route-section-title">命名线路</text><text class="muted">先固定门店顺序，再为指定日期发布配送任务</text></view><button class="outline-button" :disabled="routeBusy" @click="generateTodayRoutes">按今天补生成</button></view>
+              <view class="route-section-intro"><view><text class="eyebrow">配送配置</text><text class="route-section-title">命名线路</text><text class="muted">先固定门店顺序，再为指定日期发布配送任务</text></view><button class="outline-button" :class="{ 'is-loading': routeBusy }" :disabled="routeBusy" @click="generateTodayRoutes">按今天补生成</button></view>
             </view>
             <view v-if="supplierNamedRoutes.length" class="content-stack">
               <view v-for="route in supplierNamedRoutes" :key="route.id" class="list-card route-template-card">
@@ -253,7 +209,7 @@
             </view>
             </view>
             <view class="route-planning-map">
-              <view class="route-plan-actions"><button class="outline-button" :disabled="routePreviewBusy || !namedRouteDraft.id || !routePlanDriverId" @click="previewNamedRoute"><UiIcon name="navigation" :size="16" />生成路线预览</button><text v-if="!namedRouteDraft.id" class="muted">请先保存线路模板，再生成配送预览</text><text v-else-if="!routePreviewId" class="route-status-hint warning-text">修改线路后请重新生成预览</text></view>
+              <view class="route-plan-actions"><button class="outline-button" :class="{ 'is-loading': routePreviewBusy }" :disabled="routePreviewBusy || !namedRouteDraft.id || !routePlanDriverId" @click="previewNamedRoute"><UiIcon name="navigation" :size="16" />生成路线预览</button><text v-if="!namedRouteDraft.id" class="muted">请先保存线路模板，再生成配送预览</text><text v-else-if="!routePreviewId" class="route-status-hint warning-text">修改线路后请重新生成预览</text></view>
               <view v-if="store.routeDraft && store.routeDraft.id === routePreviewId" class="route-preview">
                 <view class="stat-grid route-metrics"><view><strong>{{ store.routeDraft.stops.length }}</strong><small>门店</small></view><view><strong>{{ store.routeDraft.totalDistanceKm.toFixed(1) }} km</strong><small>总距离</small></view><view><strong>{{ store.routeDraft.estimatedDurationMinutes }} 分钟</strong><small>预计时长</small></view></view>
                 <view class="route-provider"><span class="tag">{{ routeProviderLabel(store.routeDraft.provider) }}</span><text class="muted">{{ store.routeDraft.sourceOrderIds.length }} 单待配送</text></view>
@@ -268,22 +224,15 @@
             </view>
           </view>
           </view>
-          <view class="secondary-foot route-bottom-actions"><template v-if="namedRouteDraft"><text class="muted route-bottom-hint">发布前请确认司机、日期和门店顺序</text><button class="outline-button route-publish" @click="saveNamedRouteDraft">保存线路模板</button><button class="primary-button route-publish" :disabled="!store.routeDraft || store.routeDraft.id !== routePreviewId || routePublishing" @click="publishNamedRoute">发布配送线路</button></template><button v-else class="primary-button section-action" @click="openNamedRouteEditor()">新建线路</button></view>
+          <view class="secondary-foot route-bottom-actions"><template v-if="namedRouteDraft"><text class="muted route-bottom-hint">发布前请确认司机、日期和门店顺序</text><button class="outline-button route-publish" :class="{ 'is-loading': busyAction === 'save-route' }" :disabled="busyAction === 'save-route'" @click="saveNamedRouteDraft">保存线路模板</button><button class="primary-button route-publish" :class="{ 'is-loading': routePublishing }" :disabled="!store.routeDraft || store.routeDraft.id !== routePreviewId || routePublishing" @click="publishNamedRoute">发布配送线路</button></template><button v-else class="primary-button section-action" @click="openNamedRouteEditor()">新建线路</button></view>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'warehouse'" class="page-pad secondary-workspace" data-visual-view="workspace-warehouse">
           <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="arrow-left" :size="20" /></button><text>仓点设置</text></view>
           <view class="secondary-body">
-          <view class="form-fields"><label class="form-field"><text>仓点地址</text><input v-model="warehouseForm.address" placeholder="请输入完整地址" /></label><label class="form-field"><text>经度（GCJ-02）</text><input v-model.number="warehouseForm.longitude" type="number" /></label><label class="form-field"><text>纬度（GCJ-02）</text><input v-model.number="warehouseForm.latitude" type="number" /></label></view>
+          <view class="form-fields"><label class="form-field"><text>仓点地址</text><input v-model="warehouseForm.address" placeholder="请输入完整地址" /></label></view>
           </view>
-          <view class="secondary-foot"><button class="primary-button route-publish" @click="saveWarehouse">保存仓点</button></view>
-        </view>
-
-        <view v-else-if="secondaryWorkspace === 'account'" class="page-pad secondary-workspace" data-visual-view="workspace-account">
-          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeSecondaryWorkspace"><UiIcon name="arrow-left" :size="20" /></button><text>账号信息</text></view>
-          <view class="secondary-body">
-          <view class="list-card account-summary"><text class="order-no">{{ store.currentSupplier?.name }}</text><text class="muted">供应商编号 {{ store.auth.supplierId }}</text><text class="muted">登录账号 {{ store.auth.account }}</text><text class="muted">{{ store.currentSupplier?.region }} · {{ store.currentSupplier?.category }}</text></view>
-          </view>
+          <view class="secondary-foot"><button class="primary-button route-publish" :class="{ 'is-loading': busyAction === 'warehouse' }" :disabled="busyAction === 'warehouse'" @click="saveWarehouse">保存仓点</button></view>
         </view>
       </template>
       <!-- 司机模块 -->
@@ -295,7 +244,7 @@
             <view class="route-driver-summary"><view><text class="eyebrow">当前执行线路</text><text class="section-title">{{ driverRouteName(store.currentDriverRoute) }}</text><text class="muted">{{ store.currentDriverRoute.status === 'completed' ? '今日配送已完成' : store.currentDriverRoute.status === 'stale' ? '任务或配置有变化，按已发布线路执行并联系供应商更新' : '已发布' }}</text><text class="muted">完成 {{ routeCompletedOrderCount }}/{{ routeOrderCount }} · {{ nextRouteStop ? `下一站 ${nextRouteStop.storeName}` : '全部完成' }} · {{ store.currentDriverRoute.stopCount || store.currentDriverRoute.stops.length }} 家农家乐</text></view><view><text class="order-no">{{ store.currentDriverRoute.totalDistanceKm.toFixed(1) }} km</text><text class="muted">约 {{ store.currentDriverRoute.estimatedDurationMinutes }} 分钟</text></view></view>
             <DeliveryRouteMap :origin="store.currentDriverRoute.origin" :stops="store.currentDriverRoute.stops" :polyline="store.currentDriverRoute.polyline" :stop-count="store.currentDriverRoute.stopCount || store.currentDriverRoute.stops.length" :total-distance-km="store.currentDriverRoute.totalDistanceKm" :estimated-duration-minutes="store.currentDriverRoute.estimatedDurationMinutes" />
             <view v-for="(stop, index) in store.currentDriverRoute.stops" :key="stop.storeId" class="list-card route-stop">
-              <view class="route-number">{{ index + 1 }}</view><view class="row-main"><text>{{ stop.storeName }}</text><text class="muted">完成 {{ stop.completedOrderIds?.length || 0 }}/{{ stop.orderIds.length }} 单 · {{ stopItemCount(stop) }} 件 · 预计 {{ stopEstimatedMinutes(store.currentDriverRoute, index) }} 分钟</text><text class="muted">{{ stop.address }}</text><text class="muted">{{ storeInfoOf(stop).contact }} {{ storeInfoOf(stop).phone }}</text><text class="distance-text">分段 {{ stopSegment(store.currentDriverRoute, stop) ?? '待维护' }}{{ stopSegment(store.currentDriverRoute, stop) !== undefined ? ' km' : '' }}</text><text v-if="stop.checkIn" class="muted">已打卡 · {{ stop.checkIn.distanceM }} 米 · {{ stop.checkIn.at.replace('T', ' ').slice(0, 16) }}</text><view class="task-orders"><template v-for="order in stopOrders(stop)" :key="order.id"><button v-if="orderFulfillment(order).status !== 'received'" class="outline-button mini-button" :disabled="orderFulfillment(order).status === 'shipped' || !stop.checkIn" @click="openDriverHandover(order)">{{ order.id }} · {{ orderFulfillment(order).status === 'shipped' ? '待出库' : '到店交接' }}</button></template></view></view><view class="route-actions"><button v-if="!stop.checkIn" class="primary-button mini-button" @click="checkInAtStop(stop)">到店打卡</button><button v-if="!stop.completedAt" class="outline-button mini-button task-nav" @click="navigateToStop(stop)"><UiIcon name="navigation" :size="14" />{{ nextRouteStop?.storeId === stop.storeId ? '下一站' : '导航' }}</button></view>
+              <view class="route-number">{{ index + 1 }}</view><view class="row-main"><text>{{ stop.storeName }}</text><text class="muted">完成 {{ stop.completedOrderIds?.length || 0 }}/{{ stop.orderIds.length }} 单 · {{ stopItemCount(stop) }} 件 · 预计 {{ stopEstimatedMinutes(store.currentDriverRoute, index) }} 分钟</text><text class="muted">{{ stop.address }}</text><text class="muted">{{ storeInfoOf(stop).contact }} {{ storeInfoOf(stop).phone }}</text><text class="distance-text">分段 {{ stopSegment(store.currentDriverRoute, stop) ?? '待维护' }}{{ stopSegment(store.currentDriverRoute, stop) !== undefined ? ' km' : '' }}</text><text v-if="stop.checkIn" class="muted">已打卡 · {{ stop.checkIn.distanceM }} 米 · {{ stop.checkIn.at.replace('T', ' ').slice(0, 16) }}</text><view class="task-orders"><template v-for="order in stopOrders(stop)" :key="order.id"><button v-if="orderFulfillment(order).status !== 'received'" class="outline-button mini-button" :disabled="orderFulfillment(order).status === 'shipped' || !stop.checkIn" @click="openDriverHandover(order)">{{ order.id }} · {{ orderFulfillment(order).status === 'shipped' ? '待出库' : '到店交接' }}</button></template></view></view><view class="route-actions"><button v-if="!stop.checkIn" class="primary-button mini-button" :class="{ 'is-loading': busyAction === 'checkin' }" :disabled="busyAction === 'checkin'" @click="checkInAtStop(stop)">到店打卡</button><button v-if="!stop.completedAt" class="outline-button mini-button task-nav" @click="navigateToStop(stop)"><UiIcon name="navigation" :size="14" />{{ nextRouteStop?.storeId === stop.storeId ? '下一站' : '导航' }}</button></view>
             </view>
             </view>
           </view>
@@ -321,7 +270,12 @@
         </view>
 
         <view v-else class="page-pad driver-mine" data-visual-view="driver-mine">
-          <view class="list-card account-summary"><text class="order-no">{{ store.auth.name }}</text><text class="muted">司机账号 {{ store.auth.account }}</text><text class="muted">所属供应商 {{ store.auth.supplierId }}</text></view>
+          <view class="pc-hero mine-hero">
+            <span class="pc-hero-badge"><UiIcon name="user-round" :size="15" />司机工作台</span>
+            <text class="pc-hero-name">{{ store.auth.name }}</text>
+            <small class="pc-hero-uid">司机账号 {{ store.auth.account }}</small>
+            <view class="pc-hero-data"><view><small>所属供应商</small><strong>{{ store.auth.supplierId || '—' }}</strong></view></view>
+          </view>
           <view class="section-title">交接记录</view>
           <view v-if="store.myHandovers.length">
             <view v-for="log in store.myHandovers" :key="log.id" class="list-card">
@@ -347,7 +301,7 @@
               <view class="supplier-product-main"><BusinessImage class="supplier-product-image" :src="row.product.image" mode="aspectFill" /><view class="row-main"><view class="row-top"><text class="supplier-product-name">{{ row.product.name }}</text><span class="badge" :class="row.status">{{ row.status === 'pending' ? '待审核' : row.status === 'rejected' ? '已驳回' : row.status === 'offline' ? '已下架' : '已上架' }}</span></view><view class="muted product-category-meta"><BusinessImage class="product-category-image" :src="productCategoryImage(row.product.category, productCategoryState)" :fallback="defaultProductCategoryImage(row.product.category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="row.product.category">{{ row.product.category }}</text><text>· {{ row.product.channel === 'store' ? '门店采购' : row.product.channel === 'live' ? '用户商城' : '全渠道' }}</text></view><view class="supplier-product-price"><strong>¥{{ row.product.skus[0]?.retailPrice.toFixed(2) || '0.00' }}</strong><small>{{ row.product.skus.length }} 个规格 · 库存 {{ row.product.skus.reduce((sum, sku) => sum + sku.stock, 0) }}</small></view></view></view>
               <view class="supplier-product-skus"><text v-for="sku in row.product.skus.filter((item) => item.status !== 'retired')" :key="sku.id">{{ sku.name }}<small>¥{{ sku.retailPrice }} · 库存 {{ sku.stock }} · {{ sku.minimumOrderQuantity === 0 ? '无起订限制' : `起订 ${sku.minimumOrderQuantity || 1}` }}</small></text></view>
               <text v-if="row.submission?.reviewNote" class="product-reject-note">驳回原因：{{ row.submission.reviewNote }}</text>
-              <view class="order-actions"><button v-if="row.status === 'rejected'" class="primary-button mini-button" @click="openProductEditor(row.product, row.submission)">重新提交</button><button v-else-if="row.status !== 'pending'" class="outline-button mini-button" @click="openProductEditor(row.product)">编辑</button><button v-if="row.status === 'active' || row.status === 'offline'" class="outline-button mini-button" @click="toggleSupplierProduct(row.product)">{{ row.status === 'active' ? '下架' : '上架' }}</button></view>
+              <view class="order-actions"><button v-if="row.status === 'rejected'" class="primary-button mini-button" @click="openProductEditor(row.product, row.submission)">重新提交</button><button v-else-if="row.status !== 'pending'" class="outline-button mini-button" @click="openProductEditor(row.product)">编辑</button><button v-if="row.status === 'active' || row.status === 'offline'" class="outline-button mini-button" :class="{ 'is-loading': busyAction === 'toggle-product' }" :disabled="busyAction === 'toggle-product'" @click="toggleSupplierProduct(row.product)">{{ row.status === 'active' ? '下架' : '上架' }}</button></view>
             </view>
           </view>
           <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="26" /></view><text>暂无{{ productFilter }}商品</text></view>
@@ -359,7 +313,7 @@
           <text v-if="productFormError" class="form-error">{{ productFormError }}</text>
         </view>
         </view>
-        <view v-if="productEditor" class="product-form-actions"><button class="outline-button" @click="cancelProductEditor">取消</button><button v-if="productEditorFormalId" class="outline-button" @click="saveSupplierProductStock">仅保存库存</button><button class="primary-button" @click="submitSupplierProduct">{{ productEditorFormalId ? '提交资料审核' : '提交审核' }}</button></view>
+        <view v-if="productEditor" class="product-form-actions"><button class="outline-button" @click="cancelProductEditor">取消</button><button v-if="productEditorFormalId" class="outline-button" :class="{ 'is-loading': busyAction === 'save-stock' }" :disabled="busyAction === 'save-stock'" @click="saveSupplierProductStock">仅保存库存</button><button class="primary-button" :class="{ 'is-loading': busyAction === 'submit-product' }" :disabled="busyAction === 'submit-product'" @click="submitSupplierProduct">{{ productEditorFormalId ? '提交资料审核' : '提交审核' }}</button></view>
       </view>
 
       <!-- 底部 tabbar -->
@@ -392,7 +346,7 @@
               <view v-for="item in orderShortage(selectedOrder)" :key="item.skuId" class="shortage-line">
                 <view class="row-main"><text>{{ item.name }}</text><text class="muted">应发 {{ item.ordered }} · 实发 {{ item.actual }}</text></view>
                 <span class="tag" :class="item.handled ? 'out' : 'danger'">{{ item.handled ? '已补发' : '缺 ' + item.shortage }}</span>
-                <button v-if="store.auth.role === 'supplier' && !item.handled" class="outline-button mini-button" @click="markHandled(item.skuId)">标记补发</button>
+                <button v-if="store.auth.role === 'supplier' && !item.handled" class="outline-button mini-button" :class="{ 'is-loading': busyAction === 'mark-handled' }" :disabled="busyAction === 'mark-handled'" @click="markHandled(item.skuId)">标记补发</button>
               </view>
             </view>
             <view class="section-title">交接记录</view>
@@ -406,7 +360,7 @@
             </view>
             </scroll-view>
             <view v-if="orderActions(selectedOrder).length" class="sheet-actions sheet-foot">
-              <button v-for="action in orderActions(selectedOrder)" :key="action.key" class="outline-button" :class="{ 'primary-button': action.primary }" @click="runAction(action.key, selectedOrder)">{{ action.label }}</button>
+              <button v-for="action in orderActions(selectedOrder)" :key="action.key" class="outline-button" :class="{ 'is-loading': busyAction === action.key, 'primary-button': action.primary }" :disabled="busyAction === action.key" @click="runAction(action.key, selectedOrder)">{{ action.label }}</button>
             </view>
           </view>
 
@@ -416,7 +370,7 @@
             <text class="muted">订单 {{ selectedOrder.id }} · {{ recipientLabel(selectedOrder) }}</text>
             </scroll-view>
             <view class="sheet-actions sheet-foot">
-              <button class="primary-button" @click="confirmCourier">确认发货</button>
+              <button class="primary-button" :class="{ 'is-loading': busyAction === 'courier' }" :disabled="busyAction === 'courier'" @click="confirmCourier">确认发货</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
           </view>
@@ -439,7 +393,7 @@
             </view>
             </scroll-view>
             <view class="sheet-actions sheet-foot">
-              <button v-if="!handoverResult" class="primary-button" @click="confirmHandoverOut">确认交接</button>
+              <button v-if="!handoverResult" class="primary-button" :class="{ 'is-loading': busyAction === 'handover-out' }" :disabled="busyAction === 'handover-out'" @click="confirmHandoverOut">确认交接</button>
               <button class="outline-button" @click="closeSheet">{{ handoverResult ? '完 成' : '取 消' }}</button>
             </view>
           </view>
@@ -456,7 +410,7 @@
             <label class="form-field note-field"><text>备注（可选）</text><input v-model="handoverNote" placeholder="交接备注" /></label>
             </scroll-view>
             <view class="sheet-actions sheet-foot">
-              <button class="primary-button" @click="confirmHandoverIn">确认已送达门店</button>
+              <button class="primary-button" :class="{ 'is-loading': busyAction === 'handover-in' }" :disabled="busyAction === 'handover-in'" @click="confirmHandoverIn">确认已送达门店</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
           </view>
@@ -473,7 +427,7 @@
             <text v-if="driverFormError" class="form-error">{{ driverFormError }}</text>
             </scroll-view>
             <view class="sheet-actions sheet-foot">
-              <button class="primary-button" @click="saveDriver">{{ sheet === 'driver-form' ? '创建账号' : '保存' }}</button>
+              <button class="primary-button" :class="{ 'is-loading': busyAction === 'save-driver' }" :disabled="busyAction === 'save-driver'" @click="saveDriver">{{ sheet === 'driver-form' ? '创建账号' : '保存' }}</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
           </view>
@@ -485,7 +439,7 @@
             <text v-if="driverFormError" class="form-error">{{ driverFormError }}</text>
             </scroll-view>
             <view class="sheet-actions sheet-foot">
-              <button class="primary-button" @click="confirmReset">确认重置</button>
+              <button class="primary-button" :class="{ 'is-loading': busyAction === 'reset-password' }" :disabled="busyAction === 'reset-password'" @click="confirmReset">确认重置</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
           </view>
@@ -496,7 +450,7 @@
             <text class="muted">将清空本地订单、司机与交接数据并恢复为初始演示数据（同源下其它端共享数据也会重置为演示集）。</text>
             </scroll-view>
             <view class="sheet-actions sheet-foot">
-              <button class="primary-button" @click="confirmResetDemo">确认重置</button>
+              <button class="primary-button" :class="{ 'is-loading': busyAction === 'reset-demo' }" :disabled="busyAction === 'reset-demo'" @click="confirmResetDemo">确认重置</button>
               <button class="outline-button" @click="closeSheet">取 消</button>
             </view>
           </view>
@@ -533,7 +487,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DriverAccount, Order, PlatformDictionaryState, RouteStop, ShortageItem } from '@agritainment/shared'
 import { PLATFORM_DICTIONARIES_STORAGE_KEY, defaultProductCategoryImage, productCategoryImage, readPlatformDictionaries } from '@agritainment/shared'
-import { PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, configurePlatformProviders, createDrivingRouteOptimizationProvider, createId, installKeyboardButtonSupport, money, subscribePlatformChanges, todayString } from '@agritainment/shared'
+import { PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, configurePlatformProviders, createDrivingRouteOptimizationProvider, createGeocodeProviders, createId, geocodeAddress, installKeyboardButtonSupport, money, subscribePlatformChanges, todayString } from '@agritainment/shared'
 import { BusinessImage, ImageUploader } from '@agritainment/ui'
 import { routeOptimizationWarningText } from '../../delivery-map'
 import DeliveryRouteMap from '../../components/DeliveryRouteMap.vue'
@@ -554,6 +508,7 @@ const refreshSharedState = createSharedRefreshRunner(
   (error) => { store.error = error instanceof Error ? error.message : '数据加载失败' }
 )
 const busy = ref(false)
+const busyAction = ref('')
 const toastMsg = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -561,6 +516,16 @@ function toast(text: string) {
   toastMsg.value = text
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { toastMsg.value = '' }, 2200)
+}
+
+async function runBusy<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
+  if (busyAction.value) return
+  busyAction.value = key
+  try {
+    return await fn()
+  } finally {
+    busyAction.value = ''
+  }
 }
 
 // ---------- 登录（自动填充）----------
@@ -587,7 +552,7 @@ function submitLogin() {
   busy.value = false
   if (ok) {
     toast(loginRole.value === 'supplier' ? '供应商登录成功' : `司机 ${store.auth.name} 登录成功`)
-    active.value = 'dashboard'
+    active.value = 'orders'
     secondaryWorkspace.value = null
     driverTab.value = 'today'
     void store.ensureTodayRoutes()
@@ -600,10 +565,9 @@ function logout() {
 }
 
 // ---------- 底部 tab（按角色）----------
-type SupplierTab = 'dashboard' | 'orders' | 'products' | 'mine'
-const active = ref<SupplierTab>('dashboard')
+type SupplierTab = 'orders' | 'products' | 'mine'
+const active = ref<SupplierTab>('orders')
 const supplierTabs = [
-  { key: 'dashboard' as const, label: '首页', icon: 'layout-dashboard', badge: () => 0 },
   { key: 'orders' as const, label: '订单', icon: 'package', badge: () => store.metrics.toAcceptCount },
   { key: 'products' as const, label: '商品', icon: 'package-check', badge: () => pendingProductCount.value },
   { key: 'mine' as const, label: '我的', icon: 'user-round', badge: () => 0 }
@@ -615,7 +579,7 @@ const driverTabs = [
   { key: 'history' as const, label: '历史任务', icon: 'calendar-check', badge: () => 0 },
   { key: 'mine' as const, label: '我的', icon: 'user-round', badge: () => 0 }
 ]
-type SecondaryWorkspace = 'drivers' | 'routes' | 'settlements' | 'handovers' | 'warehouse' | 'account'
+type SecondaryWorkspace = 'drivers' | 'routes' | 'settlements' | 'handovers' | 'warehouse'
 const secondaryWorkspace = ref<SecondaryWorkspace | null>(null)
 const currentTabs = computed(() => (store.auth.role === 'supplier' ? supplierTabs : driverTabs))
 function isTabActive(key: string) {
@@ -634,7 +598,7 @@ function openSecondaryWorkspace(key: SecondaryWorkspace) {
   secondaryWorkspace.value = key
   if (key === 'warehouse') {
     const warehouse = supplierWarehouseOf(store.auth.supplierId, store.suppliers)
-    Object.assign(warehouseForm, { address: warehouse?.address || '', longitude: warehouse?.longitude, latitude: warehouse?.latitude })
+    warehouseForm.address = warehouse?.address || ''
   }
 }
 function closeSecondaryWorkspace() { secondaryWorkspace.value = null }
@@ -716,7 +680,7 @@ function closeProductWorkspace() {
   productWorkspace.value = false
   productEditor.value = null
   productFormError.value = ''
-  if (active.value === 'products') active.value = 'dashboard'
+  if (active.value === 'products') active.value = 'orders'
 }
 
 function openNewProduct() {
@@ -804,37 +768,42 @@ async function submitSupplierProduct() {
   }
   const error = validateSupplierProduct(draft)
   if (error) { productFormError.value = error; return }
-  const result = await store.submitCatalogProduct(draft)
-  if (!result.ok) { productFormError.value = result.message; return }
-  productEditor.value = null
-  toast('商品已提交审核')
+  await runBusy('submit-product', async () => {
+    const result = await store.submitCatalogProduct(draft)
+    if (!result.ok) { productFormError.value = result.message; return }
+    productEditor.value = null
+    toast('商品已提交审核')
+  })
 }
 
 async function saveSupplierProductStock() {
   if (!productEditor.value || !productEditorFormalId.value) return
   const changes = productEditor.value.skus.filter((sku) => persistedSupplierSkuIds.value.has(sku.id)).map((sku) => ({ skuId: sku.id, stock: Number(sku.stock) }))
-  const result = await store.adjustCatalogProductStock(productEditorFormalId.value, changes)
-  if (!result.ok) { productFormError.value = result.message; return }
-  productEditor.value = null
-  toast('库存已更新')
+  await runBusy('save-stock', async () => {
+    const result = await store.adjustCatalogProductStock(productEditorFormalId.value, changes)
+    if (!result.ok) { productFormError.value = result.message; return }
+    productEditor.value = null
+    toast('库存已更新')
+  })
 }
 
 async function toggleSupplierProduct(product: CatalogProduct) {
-  const result = await store.toggleCatalogProduct(product.id)
-  toast(result.ok ? (product.status === 'active' ? '商品已下架' : '商品已上架') : result.message)
+  await runBusy('toggle-product', async () => {
+    const result = await store.toggleCatalogProduct(product.id)
+    toast(result.ok ? (product.status === 'active' ? '商品已下架' : '商品已上架') : result.message)
+  })
 }
 
 // ---------- 命名线路、每日线路与仓点 ----------
 const pendingProductCount = computed(() => store.myProductSubmissions.filter((item) => item.status === 'pending').length)
 const routeBusy = ref(false)
-const warehouseForm = reactive<{ address: string; longitude?: number; latitude?: number }>({ address: '' })
+const warehouseForm = reactive<{ address: string }>({ address: '' })
 const supplierWorkItems: Array<{ key: SecondaryWorkspace; label: string; icon: string; detail: string }> = [
   { key: 'drivers', label: '司机管理', icon: 'users', detail: '账号与启用状态' },
   { key: 'routes', label: '线路规划', icon: 'navigation', detail: '命名线路、农家乐顺序与派司机' },
   { key: 'settlements', label: '结算账单', icon: 'package-check', detail: '查看账期和关联订单' },
   { key: 'handovers', label: '交接日志', icon: 'list-tree', detail: '出库和到店交接记录' },
-  { key: 'warehouse', label: '仓点设置', icon: 'map-pin', detail: '地址与 GCJ-02 坐标' },
-  { key: 'account', label: '账号信息', icon: 'user-round', detail: '供应商与登录账号' }
+  { key: 'warehouse', label: '仓点设置', icon: 'map-pin', detail: '按地址解析仓点坐标' }
 ]
 const routeOrderCount = computed(() => store.currentDriverRoute?.sourceOrderIds.length || 0)
 const routeCompletedOrderCount = computed(() => store.currentDriverRoute?.stops.reduce((count, stop) => count + (stop.completedOrderIds?.length || 0), 0) || 0)
@@ -901,15 +870,17 @@ function moveNamedRouteStore(index: number, direction: -1 | 1) {
 }
 async function saveNamedRouteDraft() {
   if (!namedRouteDraft.value) return
-  const result = await store.saveNamedRoute({ ...namedRouteDraft.value, driverId: routePlanDriverId.value || namedRouteDraft.value.driverId || undefined })
-  if (!result.ok) { toast(result.message); return }
-  if (result.value) {
-    namedRouteDraft.value = { id: result.value.id, name: result.value.name, storeIds: [...result.value.storeIds], driverId: result.value.driverId }
-    routePlanId.value = result.value.id
-    routePlanDriverId.value = result.value.driverId || ''
-  }
-  invalidateRoutePreview()
-  toast('线路模板已保存')
+  await runBusy('save-route', async () => {
+    const result = await store.saveNamedRoute({ ...namedRouteDraft.value!, driverId: routePlanDriverId.value || namedRouteDraft.value!.driverId || undefined })
+    if (!result.ok) { toast(result.message); return }
+    if (result.value) {
+      namedRouteDraft.value = { id: result.value.id, name: result.value.name, storeIds: [...result.value.storeIds], driverId: result.value.driverId }
+      routePlanId.value = result.value.id
+      routePlanDriverId.value = result.value.driverId || ''
+    }
+    invalidateRoutePreview()
+    toast('线路模板已保存')
+  })
 }
 function setRoutePlanDriver(event: { detail: { value: string | number } }) {
   routePlanDriverId.value = namedRouteDriverOptions.value[Number(event.detail.value)] || ''
@@ -978,16 +949,18 @@ function handoverCheckInText(orderId: string) {
   return checkIn ? `打卡 ${checkIn.distanceM} 米 · ${checkIn.at.replace('T', ' ').slice(0, 16)}` : ''
 }
 async function checkInAtStop(stop: RouteStop) {
-  const locate = () => new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
-    uni.getLocation({ type: 'gcj02', success: (res) => resolve({ latitude: res.latitude, longitude: res.longitude }), fail: reject })
+  await runBusy('checkin', async () => {
+    const locate = () => new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+      uni.getLocation({ type: 'gcj02', success: (res) => resolve({ latitude: res.latitude, longitude: res.longitude }), fail: reject })
+    })
+    try {
+      const location = await locate()
+      const result = await store.checkInStop(stop.storeId, location)
+      toast(result.ok ? `打卡成功，距门店 ${result.value?.distanceM} 米` : result.message)
+    } catch {
+      toast('无法获取定位，请开启定位权限')
+    }
   })
-  try {
-    const location = await locate()
-    const result = await store.checkInStop(stop.storeId, location)
-    toast(result.ok ? `打卡成功，距门店 ${result.value?.distanceM} 米` : result.message)
-  } catch {
-    toast('无法获取定位，请开启定位权限')
-  }
 }
 async function generateTodayRoutes() {
   routeBusy.value = true
@@ -996,8 +969,19 @@ async function generateTodayRoutes() {
   toast(result.ok ? (result.value?.generated ? `已补生成 ${result.value.generated} 条今日线路` : '今日线路已是最新') : result.message)
 }
 async function saveWarehouse() {
-  const result = await store.updateWarehouse({ ...warehouseForm })
-  toast(result.ok ? '仓点已保存' : result.message)
+  const address = warehouseForm.address.trim()
+  if (!address) { toast('请输入仓点地址'); return }
+  await runBusy('warehouse', async () => {
+    const located = await geocodeAddress({ address }, createGeocodeProviders({
+      tencentProxy: String(import.meta.env.VITE_TENCENT_MAP_GATEWAY || '/api/tencent-map/geocode').trim()
+    }))
+    if (located.status !== 'resolved') {
+      toast(located.reason === 'NOT_CONFIGURED' ? '地址解析未配置' : located.reason === 'TIMEOUT' ? '地址解析超时' : located.reason === 'INVALID_COORDINATE' ? '地址解析坐标无效' : '无法解析该地址')
+      return
+    }
+    const result = await store.updateWarehouse({ address, longitude: located.coordinate.longitude, latitude: located.coordinate.latitude })
+    toast(result.ok ? '仓点已保存' : result.message)
+  })
 }
 function stopItemCount(stop: RouteStop) {
   return store.orders.filter((order) => stop.orderIds.includes(order.id)).reduce((sum, order) => sum + (order.items || []).reduce((count, item) => count + item.quantity, 0), 0)
@@ -1079,16 +1063,19 @@ function orderActions(order: Order): Array<{ key: string; label: string; primary
 
 async function runAction(key: string, order: Order) {
   if (key === 'accept') {
-    if (await store.acceptOrder(order.id)) toast('已接单')
-    closeSheet()
+    await runBusy('accept', async () => {
+      if (await store.acceptOrder(order.id)) toast('已接单')
+      closeSheet()
+    })
     return
   }
   if (key === 'courier') { openCourier(order); return }
   if (key === 'handover-out') { openHandoverOut(order); return }
   if (key === 'courier-delivered') {
-    if (await store.markCourierDelivered(order.id)) toast('已确认快递签收')
-    closeSheet()
-    return
+    await runBusy('courier-delivered', async () => {
+      if (await store.markCourierDelivered(order.id)) toast('已确认快递签收')
+      closeSheet()
+    })
   }
 }
 
@@ -1098,9 +1085,11 @@ function toggleSelect(id: string) {
   else selectedOrderIds.value.push(id)
 }
 async function batchAccept() {
-  const count = await store.batchAcceptOrders([...selectedOrderIds.value])
-  selectedOrderIds.value = []
-  toast(`已批量接单 ${count} 单`)
+  await runBusy('batch-accept', async () => {
+    const count = await store.batchAcceptOrders([...selectedOrderIds.value])
+    selectedOrderIds.value = []
+    toast(`已批量接单 ${count} 单`)
+  })
 }
 function openOrder(order: Order) {
   selectedOrder.value = order
@@ -1112,19 +1101,23 @@ function hasUnhandledShortage(order: Order) {
 async function markHandled(skuId: string) {
   const orderId = selectedOrder.value?.id
   if (!orderId) return
-  if (await store.markShortageHandled(orderId, skuId)) {
-    selectedOrder.value = store.orders.find((order) => order.id === orderId) || selectedOrder.value
-    toast('已标记补发')
-  }
+  await runBusy('mark-handled', async () => {
+    if (await store.markShortageHandled(orderId, skuId)) {
+      selectedOrder.value = store.orders.find((order) => order.id === orderId) || selectedOrder.value
+      toast('已标记补发')
+    }
+  })
 }
 function askResetDemo() {
   sheet.value = 'reset-confirm'
 }
 async function confirmResetDemo() {
-  closeSheet()
-  await store.resetDemoData()
-  active.value = 'dashboard'
-  toast('演示数据已重置')
+  await runBusy('reset-demo', async () => {
+    await store.resetDemoData()
+    closeSheet()
+    active.value = 'orders'
+    toast('演示数据已重置')
+  })
 }
 function closeSheet() {
   sheet.value = null
@@ -1147,10 +1140,12 @@ function openCourier(order: Order) {
 }
 async function confirmCourier() {
   if (!selectedOrder.value) return
-  if (await store.shipCourier(selectedOrder.value.id)) {
-    toast('已快递直发')
-    closeSheet()
-  }
+  await runBusy('courier', async () => {
+    if (await store.shipCourier(selectedOrder.value!.id)) {
+      toast('已快递直发')
+      closeSheet()
+    }
+  })
 }
 
 const actuals = reactive<Record<string, number>>({})
@@ -1169,18 +1164,22 @@ function openHandoverOut(order: Order) {
 }
 async function confirmHandoverOut() {
   if (!selectedOrder.value) return
-  const result = await store.handoverOut(selectedOrder.value.id, { ...actuals }, handoverNote.value.trim() || undefined)
-  if (result.ok) {
-    handoverResult.value = { shortages: result.shortages }
-    toast(result.shortages.length ? `交接完成，缺货 ${result.shortages.length} 项` : '出库交接完成')
-  }
+  await runBusy('handover-out', async () => {
+    const result = await store.handoverOut(selectedOrder.value!.id, { ...actuals }, handoverNote.value.trim() || undefined)
+    if (result.ok) {
+      handoverResult.value = { shortages: result.shortages }
+      toast(result.shortages.length ? `交接完成，缺货 ${result.shortages.length} 项` : '出库交接完成')
+    }
+  })
 }
 async function confirmHandoverIn() {
   if (!selectedOrder.value) return
-  if (await store.handoverIn(selectedOrder.value.id, handoverNote.value.trim() || undefined)) {
-    toast('到店交接完成')
-    closeSheet()
-  }
+  await runBusy('handover-in', async () => {
+    if (await store.handoverIn(selectedOrder.value!.id, handoverNote.value.trim() || undefined)) {
+      toast('到店交接完成')
+      closeSheet()
+    }
+  })
 }
 function openDriverHandover(order: Order) {
   selectedOrder.value = order
@@ -1217,18 +1216,20 @@ function openDriverEdit(driver: DriverAccount) {
   sheet.value = 'driver-edit'
 }
 async function saveDriver() {
-  if (sheet.value === 'driver-form') {
-    const result = await store.addDriver({ name: driverForm.name, phone: driverForm.phone, account: driverForm.account, password: driverForm.password })
-    if (!result.ok) { driverFormError.value = result.error || '保存失败'; return }
-    toast(`司机账号已创建：${driverForm.account}`)
-  } else if (editingDriver.value) {
-    if (!store.updateDriver(editingDriver.value.id, { name: driverForm.name, phone: driverForm.phone })) {
-      driverFormError.value = '姓名或手机号格式不正确'
-      return
+  await runBusy('save-driver', async () => {
+    if (sheet.value === 'driver-form') {
+      const result = await store.addDriver({ name: driverForm.name, phone: driverForm.phone, account: driverForm.account, password: driverForm.password })
+      if (!result.ok) { driverFormError.value = result.error || '保存失败'; return }
+      toast(`司机账号已创建：${driverForm.account}`)
+    } else if (editingDriver.value) {
+      if (!store.updateDriver(editingDriver.value.id, { name: driverForm.name, phone: driverForm.phone })) {
+        driverFormError.value = '姓名或手机号格式不正确'
+        return
+      }
+      toast('司机信息已保存')
     }
-    toast('司机信息已保存')
-  }
-  closeSheet()
+    closeSheet()
+  })
 }
 function openReset(driver: DriverAccount) {
   editingDriver.value = driver
@@ -1242,9 +1243,11 @@ function confirmReset() {
     driverFormError.value = '密码需 6-20 位'
     return
   }
-  store.resetDriverPassword(editingDriver.value.id, resetPassword.value)
-  toast('密码已重置')
-  closeSheet()
+  void runBusy('reset-password', async () => {
+    store.resetDriverPassword(editingDriver.value!.id, resetPassword.value)
+    toast('密码已重置')
+    closeSheet()
+  })
 }
 function askToggle(driver: DriverAccount) {
   driverStatusTarget.value = driver
@@ -1324,104 +1327,111 @@ onBeforeUnmount(() => {
 })
 </script>
 <style scoped lang="scss">
-$green: #17633f;
-$green-deep: #0f4a31;
-$green-soft: #e8f3ec;
-$blue: #2f5bb3;
-$amber: #a05a12;
-$red: #b83532;
-$bg: #f4f7f5;
-$panel: #ffffff;
-$ink: #18231d;
-$muted: #66736b;
-$line: #dde5df;
+$green: var(--color-brand-primary);
+$green-deep: var(--color-brand-primary-dark);
+$green-soft: var(--color-brand-primary-soft);
+$blue: var(--color-info);
+$amber: var(--color-warning-dark);
+$red: var(--color-danger);
+$bg: var(--color-bg);
+$panel: var(--color-card);
+$ink: var(--color-ink);
+$muted: var(--color-ink-2);
+$line: var(--color-line);
+$on-brand: var(--color-on-brand);
+$price: var(--color-price);
+$purple: var(--color-purple);
+$info-soft: var(--color-info-soft);
+$warning-soft: var(--color-warning-soft);
+$danger-soft: var(--color-danger-soft);
+$line-light: var(--color-line-light);
+$overlay: var(--color-overlay);
+$radius-card: var(--radius-card);
+$radius-button: var(--radius-button);
+$shadow-card: var(--shadow-card);
+$space-page: var(--space-page);
+$control: var(--control-size);
 
 // ===== 登录页 =====
-.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 8px; background: $bg; }
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: $space-page; background: $bg; }
 /* #ifdef MP-WEIXIN */
 .login-page { padding-top: calc(24px + var(--status-bar-height)); padding-right: 96px; }
 /* #endif */
 /* #ifndef MP-WEIXIN */
 .login-page { padding-top: calc(24px + env(safe-area-inset-top)); }
 /* #endif */
-.login-card { width: 100%; max-width: 340px; background: $panel; border: 1px solid $line; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(19, 43, 29, .08); }
+.login-card { width: 100%; max-width: 340px; background: $panel; border: 1px solid $line; border-radius: $radius-card; overflow: hidden; box-shadow: $shadow-card; }
 .login-card .pc-login-hero { border-radius: 0; }
-.login-body { padding: 16px 12px 18px; }
-.role-tabs { display: flex; gap: 8px; margin: 0 0 16px; }
-.role-tabs button { flex: 1; min-height: 44px; padding: 8px 0; border: 1px solid $line; border-radius: 6px; background: $panel; color: $muted; font-size: 14px; }
-.role-tabs button.active { background: $green; color: #fff; font-weight: 600; }
+.login-body { padding: $space-page; }
+.role-tabs { display: flex; gap: 4px; margin: 0 0 16px; padding: 4px; border-radius: $radius-card; background: $green-soft; }
+.role-tabs button { flex: 1; min-height: $control; padding: 8px 0; border: 0; border-radius: $radius-button; background: transparent; color: $muted; font-size: 14px; }
+.role-tabs button.active { background: $green; color: $on-brand; font-weight: 700; }
 .login-fields { display: flex; flex-direction: column; gap: 12px; }
 .login-button { margin-top: 18px; width: 100%; }
-.login-hint { display: block; margin-top: 12px; text-align: center; font-size: 12px; color: $muted; }
+.login-hint { display: block; margin-top: 12px; text-align: center; font-size: 12px; line-height: 1.55; color: $muted; word-break: keep-all; }
 .state-retry { margin-top: 12px; }
-.section-action { width: 100%; margin-top: 10px; }
-.content-stack { margin-top: 12px; }
+.section-action { width: 100%; margin-top: var(--space-gap); }
+.route-bottom-actions > .section-action { grid-column: 1 / -1; margin-top: 0; }
+.content-stack { margin-top: var(--space-gap); }
 .filter-row { margin-top: 8px; }
 .detail-status-row { margin-bottom: 12px; }
 .note-field { margin-top: 12px; }
 
 // ===== 订单 =====
 .order-check { display: flex; align-items: center; flex: none; }
-.order-check > view { width: 20px; height: 20px; border: 1.5px solid $line; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: #fff; }
+.order-check > view { width: 20px; height: 20px; border: 1.5px solid $line; border-radius: $radius-button; display: flex; align-items: center; justify-content: center; background: $panel; }
 .order-check > view.checked { background: $green; border-color: $green; }
 .order-actions { display: flex; gap: 8px; margin-top: 9px; padding-top: 9px; border-top: 1px solid $line; flex-wrap: wrap; justify-content: flex-end; }
-.outline-button.danger { color: $red; border-color: rgba(185, 28, 28, .4); }
-.dashboard-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid $line; }
-.dashboard-foot > .muted { grid-column: 1 / -1; text-align: right; }
+.outline-button.danger { color: $red; border-color: $red; }
+.mine-actions { display: grid; gap: var(--space-gap); margin-top: var(--space-section); }
+.mine-actions button { width: 100%; margin: 0; }
+.page-pad[data-visual-view="supplier-orders"],
+.mine-page { padding-top: max($space-page, env(safe-area-inset-top)); }
 
 // ===== 司机 =====
-.driver-avatar { width: 40px; height: 40px; border-radius: 50%; background: $green-soft; display: flex; align-items: center; justify-content: center; color: $green; flex: none; }
+.driver-avatar { width: 40px; height: 40px; border-radius: var(--radius-icon); background: $green-soft; display: flex; align-items: center; justify-content: center; color: $green; flex: none; }
 .driver-row { align-items: flex-start; }
-.driver-row .row-main { flex: 1 1 180px; }
-.driver-row > .outline-button { margin-top: 0; }
-.driver-actions { display: flex; gap: 8px; margin-top: 10px; }
-.driver-name { font-size: 15px; font-weight: 600; }
+.driver-row .row-main { flex: 1; }
+.driver-actions { display: flex; gap: 8px; margin-top: var(--space-gap); flex-wrap: wrap; }
+.driver-name { font-size: var(--text-subtitle); font-weight: 600; }
 
 // ===== 任务（司机端）=====
-.task-store { display: flex; align-items: flex-start; gap: 8px; background: #f7faf8; border: 1px solid $line; border-radius: 8px; padding: 10px 11px; margin-top: 9px; }
+.task-store { display: flex; align-items: flex-start; gap: 8px; background: $green-soft; border: 1px solid $line; border-radius: $radius-card; padding: 10px 11px; margin-top: 9px; }
 .distance-text { color: $green; font-size: 12px; margin-top: 4px; }
 .task-nav { display: inline-flex; align-items: center; gap: 4px; flex: none; margin: 0; }
 .task-items { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .task-item { display: flex; align-items: center; gap: 8px; }
-.task-item image { width: 30px; height: 30px; border-radius: 8px; background: $bg; flex: none; }
-.task-item text { font-size: 13px; flex: 1; }
+.task-item image { width: 30px; height: 30px; border-radius: var(--radius-icon); background: $bg; flex: none; }
+.task-item text { font-size: var(--text-body); flex: 1; }
 .task-shortage { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
 // ===== 订单详情 =====
 .steps { display: flex; gap: 6px; margin-bottom: 14px; overflow-x: auto; }
 .step { display: flex; align-items: center; gap: 5px; flex: none; }
 .step-dot { width: 20px; height: 20px; border-radius: 50%; background: $bg; color: $muted; font-size: 12px; display: flex; align-items: center; justify-content: center; }
-.step.done .step-dot { background: $green; color: #fff; }
+.step.done .step-dot { background: $green; color: $on-brand; }
 .step-label { font-size: 12px; color: $muted; white-space: nowrap; flex: none; }
 .order-item-line { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed $line; }
-.order-item-line image { width: 36px; height: 36px; border-radius: 8px; background: $bg; flex: none; }
-.order-item-price { font-size: 13px; font-weight: 700; flex: none; }
-.store-line { display: flex; align-items: flex-start; gap: 8px; background: #f7faf8; border: 1px solid $line; border-radius: 8px; padding: 10px 11px; }
+.order-item-line image { width: 36px; height: 36px; border-radius: var(--radius-icon); background: $bg; flex: none; }
+.order-item-price { font-size: var(--text-body); font-weight: 700; flex: none; }
+.store-line { display: flex; align-items: flex-start; gap: 8px; background: $green-soft; border: 1px solid $line; border-radius: $radius-card; padding: 10px 11px; }
 .shortage-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px dashed $line; }
 .log-list { display: flex; flex-direction: column; gap: 8px; }
 .log-event { display: flex; gap: 10px; align-items: flex-start; }
 .log-dot { width: 8px; height: 8px; border-radius: 50%; background: $green; margin-top: 5px; flex: none; }
 
-// ===== 指派/改派 =====
-.driver-options { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-.driver-option { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 10px; border: 1px solid $line; border-radius: 8px; text-align: left; background: #fff; width: 100%; margin-left: 0; margin-right: 0; }
-.driver-option-name { flex: 1; min-width: 0; overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.driver-option > .muted { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.driver-option.active { border-color: $green; background: $green-soft; }
-.radio-dot { width: 16px; height: 16px; border-radius: 50%; background: $green; flex: none; margin-left: auto; }
-
 // ===== 出库交接 =====
 .actual-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .actual-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px dashed $line; }
 .actual-input { display: flex; align-items: center; gap: 6px; flex: none; }
-.actual-input text { font-size: 13px; color: $muted; }
-.actual-input input { width: 76px; height: 44px; border: 1px solid $line; border-radius: 6px; padding: 0 8px; font-size: 13px; text-align: center; }
-.handover-result { display: flex; flex-direction: column; gap: 6px; background: $green-soft; border: 1px solid #cfe2d5; border-radius: 8px; padding: 12px; margin-top: 12px; }
+.actual-input text { font-size: var(--text-body); color: $muted; }
+.actual-input input { width: 76px; height: $control; border: 1px solid $line; border-radius: $radius-button; padding: 0 8px; font-size: var(--text-body); text-align: center; }
+.handover-result { display: flex; flex-direction: column; gap: 6px; background: $green-soft; border: 1px solid $line; border-radius: $radius-card; padding: 12px; margin-top: 12px; }
 .handover-result text { font-size: 14px; font-weight: 700; color: $green; }
 .handover-result-sub { font-size: 12px; color: $green; }
-.order-amount { margin-left: auto; font-size: 15px; font-weight: 700; flex: none; }
+.order-amount { margin-left: auto; font-size: var(--text-subtitle); font-weight: 700; flex: none; }
 /* Cross-device fulfillment layout guards. */
-.c-mall-tag { background: #eaf3ff; color: #35658f; }
+.c-mall-tag { background: $info-soft; color: $blue; }
 .order-no, .muted, .row-main, .store-line, .task-store, .courier-sheet { min-width: 0; word-break: break-all; }
 .row-top { min-width: 0; }
 .row-top > text, .row-top > .order-no { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1430,7 +1440,7 @@ $line: #dde5df;
 .order-actions .primary-button, .sheet-actions .primary-button { min-width: 104px; }
 .sheet-actions { z-index: 2; }
 .store-line .row-main, .task-store .row-main { flex: 1; }
-.task-item .business-image { width:30px;height:30px;border-radius:8px;flex:none; }.order-item-line .business-image { width:36px;height:36px;border-radius:8px;flex:none; }
+.task-item .business-image { width:30px;height:30px;border-radius:var(--radius-icon);flex:none; }.order-item-line .business-image { width:36px;height:36px;border-radius:var(--radius-icon);flex:none; }
 .task-item > text:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-item > .muted { flex: none; white-space: nowrap; }
 .product-work-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; padding-bottom: calc(var(--mobile-tab-height) + 12px + env(safe-area-inset-bottom)); box-sizing: border-box; background: $bg; color: $ink; }
@@ -1439,55 +1449,64 @@ $line: #dde5df;
 .product-work-head button { margin: 0; }
 .product-work-title { display: block; font-size: 20px; font-weight: 750; }
 .add-product-button { display:flex;align-items:center;gap:4px;white-space:nowrap; }
-.product-summary { display:grid;grid-template-columns:repeat(3,1fr);margin:12px 0 10px;border:1px solid $line;border-radius:8px;background:#fff; }
+.product-summary { display:grid;grid-template-columns:repeat(3,1fr);margin:var(--space-section) 0 var(--space-gap);overflow:hidden;border:1px solid $line;border-radius:$radius-card;background:$green-soft; }
 .product-summary view { padding:14px 6px;text-align:center; }
 .product-summary view+view { border-left:1px solid $line; }
 .product-summary strong,.product-summary small { display:block; }
-.product-summary strong { color:$green;font-size:20px; }.product-summary small{margin-top:4px;color:$muted;font-size:12px}
+.product-summary strong { color:$green-deep;font-size:20px;font-variant-numeric:tabular-nums; }.product-summary small{margin-top:4px;color:$muted;font-size:12px}
 .product-search { margin-top:0; }
 .product-filter-scroll { width:100%;margin:10px 0 12px;white-space:nowrap; }
 .product-filter-scroll,.product-filter-scroll *{scrollbar-width:none}.product-filter-scroll::-webkit-scrollbar,.product-filter-scroll *::-webkit-scrollbar{display:none;width:0;height:0}
 .product-filter-chips { display:inline-flex;gap:4px;padding-right:10px; }
-.product-filter-chips button { position:relative;display:inline-flex;align-items:center;gap:5px;min-height:44px;margin:0;padding:0 10px 8px;border:0;border-radius:0;background:transparent;color:$muted;font-size:13px; }
+.product-filter-chips button { position:relative;display:inline-flex;align-items:center;gap:5px;min-height:44px;margin:0;padding:0 10px 8px;border:0;border-radius:0;background:transparent;color:$muted;font-size:var(--text-body); }
 .product-filter-chips button.active { border:0;background:transparent;color:$green;font-weight:800; }
 .product-filter-chips button.active::after { content:'';position:absolute;left:50%;bottom:2px;width:20px;height:3px;border:none;border-radius:var(--mobile-radius-pill);background:currentColor;transform:translateX(-50%); }
-.product-filter-chips button text{font-size:13px;opacity:.8}
-.supplier-product-list { display: grid; gap: 10px; }
-.supplier-product-card { min-width:0;padding:11px;border:1px solid $line;border-radius:8px;background:#fff;box-shadow:0 1px 2px rgba(19,43,29,.04); }
-.supplier-product-main{display:flex;align-items:flex-start;gap:11px;min-width:0}.supplier-product-image { width: 78px; height: 78px; flex: none; border-radius: 6px; background: #f1f3ef; }
-.supplier-product-name{display:-webkit-box;min-width:0;overflow:hidden;font-size:14px;font-weight:700;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}.supplier-product-price{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:9px}.supplier-product-price strong{color:#b84735;font-size:17px;font-variant-numeric:tabular-nums}.supplier-product-price small{min-width:0;color:$muted;font-size:12px;text-align:right;word-break:break-all}
+.product-filter-chips button text{font-size:var(--text-body);opacity:.8}
+.supplier-product-list { display: grid; gap: var(--space-gap); }
+.supplier-product-card { min-width:0;padding:var(--space-card);border:1px solid $line;border-radius:$radius-card;background:$panel;box-shadow:$shadow-card; }
+.supplier-product-main{display:flex;align-items:flex-start;gap:11px;min-width:0}.supplier-product-image { width: 78px; height: 78px; flex: none; border-radius: $radius-button; background: $line-light; }
+.supplier-product-name{display:-webkit-box;min-width:0;overflow:hidden;font-size:14px;font-weight:700;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}.supplier-product-price{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:9px}.supplier-product-price strong{color:$price;font-size:17px;font-variant-numeric:tabular-nums}.supplier-product-price small{min-width:0;color:$muted;font-size:12px;text-align:right;word-break:break-all}
 .supplier-product-skus { display: grid; gap: 5px; margin-top: 10px;padding-top:9px;border-top:1px solid $line; color: $ink; font-size: 12px; }
 .supplier-product-skus text{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;min-width:0}.supplier-product-skus small{color:$muted;font-size:12px;text-align:right;white-space:nowrap}
-.product-reject-note { display: block; margin-top: 10px; padding: 9px 10px; border-left: 3px solid $red; background: #fff2f2; color: $red; font-size: 12px; }
+.product-reject-note { display: block; margin-top: 10px; padding: 9px 10px; border-left: 3px solid $red; background: $danger-soft; color: $red; font-size: 12px; }
 .supplier-product-form { display: grid; gap: 12px; margin-top: 14px; }
-.form-section{display:grid;gap:12px;padding:14px;border-radius:8px;background:#fff}.form-section-title{display:block;font-size:15px;font-weight:750}.media-field{display:grid;gap:7px}.media-field>text,.sku-image-field>text{color:$muted;font-size:12px}
-.picker-field { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid $line; border-radius: 6px; background: #fff; }
-.checkbox-field { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 13px; }
+.form-section{display:grid;gap:12px;padding:var(--space-card);border:1px solid $line;border-radius:$radius-card;background:$panel;box-shadow:$shadow-card}.form-section-title{display:block;font-size:15px;font-weight:750}.media-field{display:grid;gap:7px}.media-field>text,.sku-image-field>text{color:$muted;font-size:12px}
+.picker-field { display: flex; align-items: center; min-height: $control; padding: 0 12px; border: 1px solid $line; border-radius: $radius-button; background: $panel; transition: border-color .16s ease; }
+.picker-field:active { border-color: $green; }
+.checkbox-field { display: flex; align-items: center; gap: 8px; min-height: $control; font-size: 13px; }
 .supplier-sku-form { overflow:visible; }
-.sku-section-head,.sku-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.sku-section-head>view>small{display:block;margin-top:3px;color:$muted;font-size:12px}.sku-section-head button{display:flex;align-items:center;gap:4px;margin:0}.supplier-sku-fields { display:grid;gap:10px;padding:12px;border:1px solid $line;border-radius:7px;background:#fafbf9; }
-.supplier-sku-fields.retired{opacity:.6}.sku-card-head{font-size:13px;font-weight:700}.sku-card-head button{min-height:40px;margin:0;padding:0 8px;border:0;border-radius:6px;background:transparent;color:$red;font-size:13px}.supplier-sku-fields.retired .sku-card-head button{color:$green}.sku-image-field{display:grid;gap:6px}.sku-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.sku-input-grid label { display: grid; gap: 5px; color: $muted; font-size: 13px; }.sku-input-grid label:first-child{grid-column:1/-1}
-.sku-input-grid input { width: 100%; height: 44px; box-sizing: border-box; padding: 0 9px; border: 1px solid $line; border-radius: 6px; color: $ink;background:#fff }
+.sku-section-head,.sku-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.sku-section-head>view>small{display:block;margin-top:3px;color:$muted;font-size:12px}.sku-section-head button{display:flex;align-items:center;gap:4px;margin:0}.supplier-sku-fields { display:grid;gap:10px;padding:12px;border:1px solid $line;border-radius:$radius-card;background:$green-soft; }
+.supplier-sku-fields.retired{opacity:.6}.sku-card-head{font-size:13px;font-weight:700}.sku-card-head button{min-height:$control;margin:0;padding:0 8px;border:0;border-radius:$radius-button;background:transparent;color:$red;font-size:13px}.supplier-sku-fields.retired .sku-card-head button{color:$green}.sku-image-field{display:grid;gap:6px}.sku-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.sku-input-grid label { display: grid; gap: 5px; color: $muted; font-size: 13px; }.sku-input-grid label:first-child{grid-column:1/-1}
+.sku-input-grid input { width: 100%; height: $control; box-sizing: border-box; padding: 0 9px; border: 1px solid $line; border-radius: $radius-button; color: $ink;background:$panel;transition:border-color .16s ease }
+.sku-input-grid input:focus { border-color: $green; }
 .product-form-actions { display: flex; justify-content: flex-end; gap: 8px; flex: none; flex-wrap: wrap; padding: 12px 0 calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid $line; background: $bg; }
 .product-form-actions button { margin: 0; }
 .app-shell { overflow-x: hidden; }
 .bottom-tab { min-height: 44px; min-width: 0; }
 .bottom-tab text { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mine-page { display: grid; gap: 8px; }
-.mine-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.work-link { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 9px 11px; border: 1px solid $line; border-radius: 8px; background: #fff; color: $ink; text-align: left; }
-.mine-tile-grid .work-link { flex-direction: column; align-items: center; text-align: center; min-height: 64px; padding: 10px 8px; width: auto; }
+.mine-page { display: grid; gap: var(--space-gap); }
+.mine-hero .pc-hero-badge { display: inline-flex; }
+.mine-hero .pc-hero-name,
+.mine-hero .pc-hero-uid { display: block; }
+.mine-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-gap); }
+.mine-tile-grid .pc-tile-icon { color: $green; }
+.mine-tile-grid .pc-tile--amber .pc-tile-icon { color: $amber; }
+.mine-tile-grid .pc-tile--coral .pc-tile-icon { color: $red; }
+.mine-tile-grid .pc-tile--blue .pc-tile-icon { color: $blue; }
+.mine-tile-grid .pc-tile--purple .pc-tile-icon { color: $purple; }
+.mine-tile-grid .pc-tile--teal .pc-tile-icon { color: $green-deep; }
+.work-link { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 9px 11px; border: 1px solid $line; border-radius: $radius-card; background: $panel; color: $ink; text-align: left; box-shadow: $shadow-card; }
+.mine-tile-grid .work-link { flex-direction: column; align-items: center; text-align: center; min-height: 88px; padding: 14px 10px; width: auto; }
 .work-link .row-main { min-width: 0; }
 .work-link .row-main > text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-summary { display: grid; gap: 4px; }
-.account-summary > text { display: block; min-width: 0; word-break: break-all; }
+.driver-mine { display: grid; gap: 8px; }
 .secondary-workspace { position: relative; display: flex; flex-direction: column; overflow: hidden; min-height: calc(100vh - var(--mobile-tab-height)); background: $bg; padding-top: 14px; padding-bottom: 0; }
-.secondary-head { position: relative; top: auto; z-index: 2; flex: none; display: flex; align-items: center; gap: 10px; min-height: 56px; margin: 0; padding: 6px 8px; border-bottom: 1px solid $line; background: rgba(255,255,255,.98); font-size: 17px; font-weight: 700; }
-.secondary-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-top: 12px; }
+.secondary-head { position: relative; top: auto; z-index: 2; flex: none; display: flex; align-items: center; gap: 10px; min-height: 56px; margin: 0 calc(var(--space-page) * -1); padding: 6px $space-page; border-bottom: 1px solid $line; background: $panel; font-size: var(--text-subtitle); font-weight: 700; }
+.secondary-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; padding-top: var(--space-gap); }
 .secondary-foot { flex: none; padding: 10px 0 calc(12px + env(safe-area-inset-bottom)); background: $bg; }
 .secondary-head > text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.scope-editor { display: grid; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed $line; }
 .route-controls { display: grid; gap: 10px; }
-.named-route-form { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 16px; align-items: start; }
+.named-route-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-section); align-items: start; }
 .route-plan-editor { display: grid; gap: 10px; min-width: 0; }
 .route-planning-map { display: grid; gap: 10px; min-width: 0; }
 .route-plan-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -1495,37 +1514,35 @@ $line: #dde5df;
 .route-preview { display: grid; gap: 10px; }
 .route-metrics { margin: 0; }
 .route-provider { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.route-warnings { display: grid; gap: 4px; padding: 9px 10px; border-left: 3px solid #c88a1d; background: #fff8e8; color: #835a14; font-size: 12px; line-height: 18px; }
+.route-warnings { display: grid; gap: 4px; padding: 9px 10px; border-left: 3px solid $amber; background: $warning-soft; color: $amber; font-size: 12px; line-height: 18px; }
 .route-section-intro,.route-workbench-status { display:flex; align-items:center; justify-content:space-between; gap:14px; min-width:0; }
 .route-section-intro > view,.route-workbench-status > view { display:grid; gap:3px; min-width:0; }
 .route-section-intro button { flex:none; }
-.eyebrow { display:block; color:#6c7c72; font-size:11px; font-weight:700; letter-spacing:0; text-transform:uppercase; }
-.route-section-title { display:block; color:#16351f; font-size:18px; font-weight:800; line-height:24px; }
+.eyebrow { display:block; color:$muted; font-size:12px; font-weight:700; letter-spacing:0; text-transform:uppercase; }
+.route-section-title { display:block; color:$green-deep; font-size:18px; font-weight:800; line-height:24px; }
 .route-template-card { display:grid; gap:7px; padding:13px 14px; }
 .route-template-heading { display:flex; align-items:center; gap:8px; min-width:0; }
-.route-template-path { display:block; color:#254b32; font-size:13px; line-height:20px; word-break:break-all; }
-.route-workbench-status { padding:12px; border:1px solid #d9e4db; border-radius:8px; background:#f5f9f5; }
-.warning-tag { background:#fff4d9; color:#8a5b09; }
-.warning-text { color:#8a5b09; }
+.route-template-path { display:block; color:$green-deep; font-size:13px; line-height:20px; word-break:break-all; }
+.route-workbench-status { padding:12px; border:1px solid $line; border-radius:$radius-card; background:$green-soft; }
+.warning-tag { background:$warning-soft; color:$amber; }
+.warning-text { color:$amber; }
 .route-plan-actions button { gap:5px; }
-.route-bottom-actions { position:sticky; bottom:0; z-index:3; display:grid; grid-template-columns:minmax(0,1fr) 160px 180px; align-items:center; gap:10px; margin:0 -12px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid #d9e4db; background:rgba(244,247,245,.97); }
-.route-bottom-actions .route-publish { width:auto; margin:0; }
-.route-bottom-hint { min-width:0; }
+.route-bottom-actions { position:sticky; bottom:0; z-index:3; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:center; gap:10px; margin:0; padding:10px 0 calc(10px + env(safe-area-inset-bottom)); border-top:1px solid $line; background:$bg; }
+.route-bottom-actions .route-publish { width:100%; margin:0; }
+.route-bottom-hint { min-width:0; grid-column:1 / -1; }
 .route-stop-selected { border-color: $green; background: $green-soft; }
-.route-stop-detail { display: grid; gap: 4px; padding: 10px; border: 1px solid #cfe2d5; border-radius: 8px; background: #f3f9f4; }
+.route-stop-detail { display: grid; gap: 4px; padding: 10px; border: 1px solid $line; border-radius: $radius-card; background: $green-soft; }
 .route-status-hint { display: block; margin-top: 3px; color: $green; font-size: 12px; }
-.route-date { width: 100%; height: 44px; padding: 0 12px; border: 1px solid $line; border-radius: 8px; background: #fff; }
-.route-summary { display: grid; gap: 10px; margin-top: 14px; }
+.route-date { width: 100%; height: $control; padding: 0 12px; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
 .route-stop { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-.route-number { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: $green; color: #fff; font-weight: 700; }
+.route-number { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: $green; color: $on-brand; font-weight: 700; }
 .route-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
-.route-actions .icon-button { width: 40px; height: 40px; padding: 0; line-height: 1; }
+.route-actions .icon-button { width: $control; height: $control; padding: 0; line-height: 1; }
 .route-order-button { font-size: 13px; }
 .route-publish { width: 100%; margin-top: 6px; }
 .route-driver-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .route-driver-summary > view { display: grid; gap: 3px; min-width: 0; }
 .route-driver-summary .section-title { margin: 0; }
-.route-summary .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .delivery-route-map { margin-bottom: 10px; }
 .route-stop .row-main > text:first-child { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .driver-hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1534,45 +1551,30 @@ $line: #dde5df;
 .compact-empty { min-height: 96px; padding: 16px 0; }
 .driver-route-switcher { display:flex; gap:8px; overflow-x:auto; padding:2px 0 10px; margin-bottom:10px; scrollbar-width:none; }
 .driver-route-switcher::-webkit-scrollbar { display:none; width:0; height:0; }
-.driver-route-tab { display:grid; gap:3px; flex:0 0 148px; min-height:58px; padding:9px 11px; border:1px solid #d8e3da; border-radius:8px; background:#fff; color:#254b32; text-align:left; }
-.driver-route-tab text { overflow:hidden; font-size:13px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
-.driver-route-tab small { color:#6c7c72; font-size:11px; }
-.driver-route-tab.active { border-color:#2f5bb3; background:#eef4ff; color:#244b97; box-shadow:inset 0 -2px 0 #2f5bb3; }
-.driver-route-tab.completed { color:#6c7c72; }
+.driver-route-tab { display:grid; gap:3px; flex:0 0 148px; min-height:58px; padding:9px 11px; border:1px solid $line; border-radius:$radius-card; background:$panel; color:$green-deep; text-align:left; }
+.driver-route-tab text { overflow:hidden; font-size:var(--text-body); font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+.driver-route-tab small { color:$muted; font-size:12px; }
+.driver-route-tab.active { border-color:$green; background:$green-soft; color:$green-deep; box-shadow:inset 0 -2px 0 $green; }
+.driver-route-tab.completed { color:$muted; }
 .driver-route-active { min-width:0; }
 @media (max-width: 375px) {
-  .page-pad { padding-left: 8px; padding-right: 8px; }
+  .page-pad { padding-left: $space-page; padding-right: $space-page; }
   .task-store { flex-wrap: wrap; }
   .task-store .task-nav { margin-left: 24px; }
   .route-stop { align-items: flex-start; flex-wrap: wrap; }
   .route-stop .row-main { flex: 1 1 calc(100% - 38px); }
   .route-actions { flex-direction: row; width: 100%; padding-left: 38px; }
   .bottom-tab { padding-left: 2px; padding-right: 2px; }
-  .route-summary .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .route-plan-actions { align-items: stretch; flex-direction: column; }
   .route-plan-actions button { width: 100%; }
   .route-section-intro { align-items:stretch; flex-direction:column; }
   .route-section-intro button { width:100%; }
-  .route-bottom-actions { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .route-bottom-hint { grid-column:1/-1; }
-  .route-bottom-actions .route-publish { width:100%; }
 }
 @media (max-width: 390px) {
   .driver-route-tab { flex-basis: 136px; }
   .route-driver-summary { gap: 8px; }
 }
-@media (max-width: 700px) {
-  .named-route-form { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .route-planning-map { order: -1; }
-  .route-workbench-status { align-items:flex-start; }
-  .route-bottom-actions { margin-left:-8px; margin-right:-8px; }
-}
-@media (min-width: 701px) {
-  .secondary-workspace[data-visual-view="workspace-routes"] .secondary-body { padding-left:4px; padding-right:4px; }
-  .secondary-workspace[data-visual-view="workspace-routes"] .named-route-form { min-height:100%; }
-  .secondary-workspace[data-visual-view="workspace-routes"] .route-plan-editor { padding:14px; border:1px solid #d9e4db; border-radius:8px; background:#fff; }
-  .secondary-workspace[data-visual-view="workspace-routes"] .route-planning-map { padding:14px; border:1px solid #d9e4db; border-radius:8px; background:#fbfdfb; }
-}
+.route-workbench-status { align-items:flex-start; }
 /* #ifdef MP-WEIXIN */
 .app-shell { padding-bottom: var(--safe-area-inset-bottom, 0px); }
 .product-work-page { padding-top: 16px; }
@@ -1582,6 +1584,8 @@ $line: #dde5df;
   padding-right: 96px;
 }
 .secondary-workspace { padding-top: 14px; min-height: calc(100vh - var(--mobile-tab-height)); overflow: hidden; }
+.page-pad[data-visual-view="supplier-orders"],
+.mine-page { padding-top: calc(var(--space-page) + var(--status-bar-height)); padding-right: 96px; }
 /* #endif */
 /* #ifndef MP-WEIXIN */
  .product-work-page { padding-top: 16px; }
@@ -1590,24 +1594,30 @@ $line: #dde5df;
 .product-category-meta { display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden; }
 .product-category-meta text { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .product-category-meta text:last-child { flex:none; }
-.product-category-image { width: 22px; height: 22px; flex:none;border-radius:4px;background:#f1f3ef; }
-.category-picker-trigger { width:100%;min-height:44px;margin:0;padding:0 12px;border:1px solid $line;border-radius:6px;background:#fff;color:$ink;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;text-align:left; }
+.product-category-image { width: 22px; height: 22px; flex:none;border-radius:4px;background:$line-light; }
+.category-picker-trigger { width:100%;min-height:$control;margin:0;padding:0 12px;border:1px solid $line;border-radius:$radius-button;background:$panel;color:$ink;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:var(--text-body);text-align:left; transition: border-color .16s ease; }
+.category-picker-trigger:active { border-color: $green; }
 .category-picker-trigger>view { min-width:0;display:flex;align-items:center;gap:8px; }
 .category-picker-trigger>view text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-.category-picker-trigger-image { width: 28px; height: 28px; flex:none;border-radius:5px;background:#f1f3ef; }
-.category-picker-mask { position:fixed;z-index:80;inset:0;display:flex;align-items:flex-end;background:rgba(18,31,22,.48); }
-.category-picker-sheet { width:100%;max-height:80vh;display:flex;flex-direction:column;padding-bottom:0;border-radius:8px 8px 0 0;background:$panel;overflow:hidden; }
+.category-picker-trigger-image { width: 28px; height: 28px; flex:none;border-radius:5px;background:$line-light; }
+.category-picker-mask { position:fixed;z-index:80;inset:0;display:flex;align-items:flex-end;background:$overlay; }
+.category-picker-sheet { width:100%;max-height:80vh;display:flex;flex-direction:column;padding-bottom:0;border-radius:$radius-card $radius-card 0 0;background:$panel;overflow:hidden; }
 .category-picker-sheet > .sheet-head { padding: 6px 12px; flex: none; }
 .category-picker-list { flex: 1 1 auto; min-height: 0; height: auto; max-height: calc(80vh - 56px); padding-bottom: calc(24px + env(safe-area-inset-bottom)); box-sizing: border-box; }
 .category-picker-option { width:100%;min-height:54px;margin:0;padding:8px 18px;border:0;border-bottom:1px solid $line;border-radius:0;background:$panel;color:$ink;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left; }
 .category-picker-option.selected { color:$green;background:$green-soft; }
 .category-picker-option-main { min-width:0;display:flex;align-items:center;gap:11px; }
-.category-picker-option-image { width: 40px; height: 40px; flex:none;border-radius:6px;background:#f1f3ef; }
+.category-picker-option-image { width: 40px; height: 40px; flex:none;border-radius:$radius-button;background:$line-light; }
 .category-picker-option-main>view { min-width:0; }
 .category-picker-option-main>view text,.category-picker-option-main>view small { display:block; }
 .category-picker-option-main>view text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700; }
 .category-picker-option-main>view small { margin-top:3px;color:$muted;font-size:12px; }
 .category-picker-trigger::after,.category-picker-option::after { display:none; }
+@media (hover: hover) {
+  .role-tabs button:not(.active):hover { background: var(--color-hover-bg); }
+  .category-picker-option:hover { background: var(--color-hover-bg); }
+  .work-link:hover { background: var(--color-hover-bg); }
+}
 </style>
 <style lang="scss">
 /* #ifdef MP-WEIXIN */

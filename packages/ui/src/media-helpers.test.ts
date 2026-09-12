@@ -46,7 +46,8 @@ describe('shared media helpers', () => {
     const incoming: MediaReference[] = [{ source: 'asset', assetId: 'A2' }, { source: 'asset', assetId: 'A3' }]
     expect(mergeUploadedMedia(current, incoming, true, 2)).toEqual(current.concat(incoming[0]))
     expect(mergeUploadedMedia(current, incoming, false, 1)).toEqual([incoming[0]])
-    expect(uploaderCanChoose(1, false, 1)).toBe(true)
+    expect(uploaderCanChoose(0, false, 1)).toBe(true)
+    expect(uploaderCanChoose(1, false, 1)).toBe(false)
     expect(uploaderCanChoose(2, true, 2)).toBe(false)
   })
 

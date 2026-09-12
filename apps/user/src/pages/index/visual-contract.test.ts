@@ -14,6 +14,8 @@ function templateOf(source: string) {
 describe('用户端现代零售视觉契约', () => {
   it('两页沿用共享移动主题的品牌、价格和背景变量', () => {
     expect(globalStyle).toContain('packages/ui/src/mobile-theme.scss')
+    expect(globalStyle).toContain('design-tokens.css')
+    expect(globalStyle).toContain('--mobile-brand: var(--color-brand-primary)')
     for (const page of [indexPage, operationsPage]) {
       expect(page).toContain('var(--mobile-brand)')
       expect(page).toContain('var(--mobile-price)')
@@ -21,12 +23,12 @@ describe('用户端现代零售视觉契约', () => {
     }
   })
 
-  it('商品、订单、运营面板卡片圆角不超过 8px', () => {
-    expect(indexPage).toMatch(/\.product-card\s*\{[^}]*border-radius:\s*8px/s)
-    expect(indexPage).toMatch(/\.order-card\s*\{[^}]*border-radius:\s*8px/s)
-    expect(indexPage).toMatch(/\.sheet\s*\{[^}]*border-radius:\s*8px 8px 0 0/s)
-    expect(operationsPage).toMatch(/\.metric-grid[^}]*border-radius:\s*8px/s)
-    expect(operationsPage).toMatch(/\.list-row[^}]*border-radius:\s*8px/s)
+  it('商品、订单、运营面板卡片圆角走 token', () => {
+    expect(indexPage).toMatch(/\.product-card\s*\{[^}]*border-radius:\s*var\(--mobile-radius-card\)/s)
+    expect(indexPage).toMatch(/\.order-card\s*\{[^}]*border-radius:\s*var\(--mobile-radius-card\)/s)
+    expect(indexPage).toMatch(/\.sheet\s*\{[^}]*border-radius:\s*var\(--mobile-radius-card\) var\(--mobile-radius-card\) 0 0/s)
+    expect(operationsPage).toMatch(/\.metric-grid[^}]*border-radius:\s*var\(--mobile-radius-card\)/s)
+    expect(operationsPage).toMatch(/\.list-row[^}]*border-radius:\s*var\(--mobile-radius-card\)/s)
   })
 
   it('主要购买、结算、授权和提现操作具备 44px 触控高度', () => {
@@ -134,7 +136,10 @@ describe('用户端现代零售视觉契约', () => {
     expect(indexPage).toContain('<UiIcon name="plus"')
     expect(indexPage).toContain('>分享<')
     expect(indexPage).toMatch(/\.mall-header,\s*\.page-heading\s*\{[^}]*padding:\s*calc\(12px \+ env\(safe-area-inset-top\)\) 8px 14px/)
-    expect(indexPage).toMatch(/\.theme-head\s*\{[^}]*background:\s*var\(--mobile-brand\)/s)
+    expect(indexPage).toMatch(/\.theme-head\s*\{[^}]*background:\s*var\(--color-brand-primary-dark\)/s)
+    expect(operationsPage).toMatch(/\.operation-header\.theme-head\s*\{[^}]*background:\s*var\(--color-brand-primary-dark\)/s)
+    expect(operationsPage).toMatch(/\.income-hero,\s*\.performance-hero\s*\{[^}]*background:\s*var\(--color-brand-primary-dark\)/s)
+    expect(indexPage).not.toMatch(/\.theme-head\s*\{[^}]*--gradient-brand/s)
     expect(indexPage).toMatch(/\.product-meta\s*\{/)
     expect(indexPage).toMatch(/\.sku-list\s*\{[^}]*flex-wrap:\s*wrap/s)
     expect(indexPage).toMatch(/\.detail-thumb\s*\{[^}]*width:\s*72px/s)
@@ -193,7 +198,7 @@ describe('用户端现代零售视觉契约', () => {
   it('H5 结算栏跟内容流，地址开关圆角不超过 8px', () => {
     expect(indexPage).not.toMatch(/\.cart-checkout\s*\{[^}]*position:\s*sticky/s)
     expect(indexPage).toMatch(/\.cart-checkout\s*\{[^}]*position:\s*relative/s)
-    expect(indexPage).toMatch(/\.toggle\s*\{[^}]*border-radius:\s*8px/s)
+    expect(indexPage).toMatch(/\.toggle\s*\{[^}]*border-radius:\s*var\(--mobile-radius-card\)/s)
     expect(indexPage).toMatch(/\.checkout-line\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto/s)
     expect(indexPage).toMatch(/\/\* #ifdef H5 \*\/[\s\S]*@media \(min-width: 431px\)[\s\S]*\.cart-bar \{ left:50%; right:auto; width:406px; transform:translateX\(-50%\)/)
   })

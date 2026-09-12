@@ -4,16 +4,16 @@ import { readFileSync } from 'node:fs'
 describe('supplier and driver mobile routing navigation', () => {
   const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
 
-  it('uses four supplier tabs and three driver tabs while keeping work areas on back-navigable secondary pages', () => {
+  it('uses three supplier tabs and three driver tabs while keeping work areas on back-navigable secondary pages', () => {
     const supplierTabs = source.match(/const supplierTabs = \[([\s\S]*?)\n\]/)?.[1] || ''
     const driverTabs = source.match(/const driverTabs = \[([\s\S]*?)\n\]/)?.[1] || ''
-    expect([...supplierTabs.matchAll(/label: '([^']+)'/g)].map((match) => match[1])).toEqual(['首页', '订单', '商品', '我的'])
+    expect([...supplierTabs.matchAll(/label: '([^']+)'/g)].map((match) => match[1])).toEqual(['订单', '商品', '我的'])
     expect([...driverTabs.matchAll(/label: '([^']+)'/g)].map((match) => match[1])).toEqual(['今日线路', '历史任务', '我的'])
     expect(source).toMatch(/secondaryWorkspace[\s\S]*返回/)
     expect(source).toMatch(/class="page-back" aria-label="返回"/)
     expect(source).not.toMatch(/<text>返回<\/text>/)
     expect(source).not.toContain('.secondary-workspace { position: fixed')
-    expect(source).toMatch(/v-if="store\.auth\.role === 'supplier' && !secondaryWorkspace"/)
+    expect(source).toContain("active === 'orders'")
     expect(source).toContain("'drivers'")
     expect(source).toContain("'routes'")
     expect(source).toContain("'settlements'")
