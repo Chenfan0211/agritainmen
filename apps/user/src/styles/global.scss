@@ -4,51 +4,60 @@
 
 :root,
 page {
-  --mobile-brand: var(--color-brand-primary);
-  --mobile-brand-deep: var(--color-brand-primary-dark);
-  --mobile-brand-soft: var(--color-brand-primary-soft);
-  --mobile-bg: var(--color-bg);
+  --mobile-brand: var(--color-user-brand);
+  --mobile-brand-deep: var(--color-user-brand-deep);
+  --mobile-brand-soft: var(--color-user-brand-soft);
+  --mobile-bg: var(--color-user-bg);
   --mobile-surface: var(--color-card);
-  --mobile-surface-subtle: var(--color-brand-primary-soft);
-  --mobile-text: var(--color-ink);
-  --mobile-muted: var(--color-ink-2);
-  --mobile-border: var(--color-line);
-  --mobile-price: var(--color-price);
-  --mobile-warning: var(--color-warning-dark);
+  --mobile-surface-subtle: var(--color-user-subtle);
+  --mobile-text: var(--color-user-ink);
+  --mobile-muted: var(--color-user-muted);
+  --mobile-border: var(--color-user-line);
+  --mobile-line-light: var(--color-user-line-light);
+  --mobile-price: var(--color-user-price);
+  --mobile-warning: var(--color-user-warning);
   --mobile-info: var(--color-info);
-  --mobile-danger: var(--color-danger);
-  --mobile-radius-control: var(--radius-button);
+  --mobile-danger: var(--color-user-danger);
+  --mobile-badge: var(--color-user-badge);
+  --mobile-wx: var(--color-user-wx);
+  --mobile-wx-soft: var(--color-user-wx-soft);
+  --mobile-hero-grad: var(--gradient-user);
+  --mobile-login-grad: var(--gradient-user-login);
+  --mobile-radius-control: var(--radius-user-pill);
   --mobile-radius-card: var(--radius-card);
-  --mobile-radius-pill: var(--radius-pill);
+  --mobile-radius-pill: var(--radius-user-pill);
+  --mobile-radius-sheet: var(--radius-user-sheet);
   --mobile-shadow-card: var(--shadow-card);
+  --mobile-shadow-button: var(--shadow-user-button);
+  --mobile-shadow-cart: var(--shadow-user-cart);
   --mobile-control-compact: var(--control-size);
   --mobile-control-primary: var(--control-size);
   --mobile-page-inline: var(--space-page);
   --mobile-section-gap: var(--space-section);
   --mobile-card-gap: var(--space-gap);
   --mobile-card-padding: var(--space-card);
-  --union-red: var(--color-brand-primary);
-  --union-red-deep: var(--color-brand-primary-dark);
-  --union-red-soft: var(--color-brand-primary-soft);
-  --union-green: var(--color-brand-primary);
-  --union-gold: var(--color-warning-dark);
-  --union-bg: var(--color-bg);
+  --union-red: var(--color-user-brand);
+  --union-red-deep: var(--color-user-brand-deep);
+  --union-red-soft: var(--color-user-brand-soft);
+  --union-green: var(--color-user-brand);
+  --union-gold: var(--color-user-warning);
+  --union-bg: var(--color-user-bg);
   --union-panel: var(--color-card);
-  --union-ink: var(--color-ink);
-  --union-muted: var(--color-ink-2);
-  --union-line: var(--color-line);
+  --union-ink: var(--color-user-ink);
+  --union-muted: var(--color-user-muted);
+  --union-line: var(--color-user-line);
 }
 
 .pc-hero,
 .pc-login-hero {
-  background: var(--gradient-brand);
+  background: var(--gradient-user);
 }
 
 page, body, #app {
   min-height: 100%;
   margin: 0;
-  background: var(--color-bg);
-  color: var(--color-ink);
+  background: var(--color-user-bg);
+  color: var(--color-user-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: var(--line-body);
@@ -56,8 +65,8 @@ page, body, #app {
 }
 
 * { box-sizing: border-box; }
-button, input, select, textarea { font: inherit; letter-spacing: 0; }
+button, input, textarea { font: inherit; letter-spacing: 0; }
 button { border: 0; transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: scale(.98); }
 button:disabled { opacity: .48; pointer-events: none; }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--color-brand-primary); outline-offset: 2px; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--color-user-brand); outline-offset: 2px; }

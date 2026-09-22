@@ -1,5 +1,6 @@
 node_modules/
 .pnpm-store/
+.env*.local
 dist/
 apps/*/dist/
 coverage/
@@ -15,3 +16,9 @@ test-results/
 __pycache__/
 *.pyc
 agritainment-deploy-*.zip
+
+# QA / 视觉回归临时产物（本地保留，不提交）
+artifacts/
+qa-*.png
+before-*.png
+target-*.png

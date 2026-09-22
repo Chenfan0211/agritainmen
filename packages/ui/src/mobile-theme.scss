@@ -41,8 +41,7 @@ body,
 
 button,
 input,
-textarea,
-select {
+textarea {
   letter-spacing: 0;
 }
 
@@ -177,10 +176,10 @@ button:not(:disabled):active {
   gap: 12px;
 }
 
-.pc-hero-data small,
-.pc-hero-data strong { display: block; overflow-wrap: anywhere; }
-.pc-hero-data small { font-size: 12px; opacity: .72; }
-.pc-hero-data strong { margin-top: 4px; font-size: 20px; }
+.pc-hero-data .pc-hero-label,
+.pc-hero-data .pc-hero-value { display: block; overflow-wrap: anywhere; }
+.pc-hero-data .pc-hero-label { font-size: 12px; opacity: .72; }
+.pc-hero-data .pc-hero-value { margin-top: 4px; font-size: 20px; }
 
 .pc-hero-action {
   width: 100%;
@@ -242,9 +241,7 @@ button:not(:disabled):active {
 
 .pc-grid-main { min-width: 0; flex: 1; }
 .pc-grid-main text,
-.pc-grid-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-grid-main text { font-size: 13px; font-weight: 800; color: var(--mobile-text); }
-.pc-grid-main small { margin-top: 2px; font-size: 12px; color: var(--mobile-muted); }
 .pc-grid-count { flex: none; font-size: 12px; color: var(--mobile-price); font-weight: 800; }
 
 .pc-list { display: grid; gap: var(--mobile-card-gap); }
@@ -266,9 +263,7 @@ button:not(:disabled):active {
 .pc-row-icon { width: 28px; height: 28px; flex: none; display: grid; place-items: center; color: var(--mobile-brand); }
 .pc-row-main { min-width: 0; flex: 1; }
 .pc-row-main text,
-.pc-row-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-row-main text { font-size: 13px; font-weight: 800; color: var(--mobile-text); }
-.pc-row-main small { margin-top: 2px; font-size: 12px; color: var(--mobile-muted); }
 .pc-row-arrow { flex: none; color: var(--mobile-muted); }
 
 .pc-card {
@@ -360,9 +355,7 @@ button:not(:disabled):active {
 .pc-empty text,
 .pc-loading text,
 .pc-error text { font-size: 14px; font-weight: 800; color: var(--mobile-text); }
-.pc-empty small,
-.pc-loading small,
-.pc-error small { font-size: 12px; color: var(--mobile-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.pc-state-note { font-size: 12px; color: var(--mobile-muted); line-height: 1.5; overflow-wrap: anywhere; }
 .pc-empty .pc-state-action,
 .pc-loading .pc-state-action,
 .pc-error .pc-state-action {

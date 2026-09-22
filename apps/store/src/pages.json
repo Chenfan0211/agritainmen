@@ -2,7 +2,23 @@
   "pages": [
     {
       "path": "pages/index/index",
-      "style": { "navigationStyle": "custom", "enableShareAppMessage": true, "enableShareTimeline": true }
+      "style": {
+        "navigationStyle": "custom",
+        "enableShareAppMessage": true,
+        "enableShareTimeline": true
+      }
+    },
+    {
+      "path": "pages/checkout/index",
+      "style": {
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/order-detail/index",
+      "style": {
+        "navigationStyle": "custom"
+      }
     }
   ],
   "globalStyle": {

@@ -168,11 +168,19 @@ describe('shared mobile visual theme', () => {
     }
   })
 
-  it('uses the shared page background in the user, store and promoter portals', () => {
-    const backgrounds: Record<string, string> = { user: '#f4f7f5', store: '#f7f3ee', promoter: '#f4f7f5' }
+  it('aligns each pages.json background with that portal own --mobile-bg', () => {
+    // pages.json 控制小程序启动底色，必须与该端 --mobile-bg 最终解析值一致，否则启动瞬间会出现色差闪烁。
+    const designTokens = readFileSync(resolve(root, 'packages/ui/src/design-tokens.css'), 'utf8')
+    const tokenOf: Record<string, string | null> = { user: '--color-user-bg', promoter: '--color-bg', store: null }
     for (const app of ownedMobileApps) {
       const pages = JSON.parse(readFileSync(resolve(root, `apps/${app}/src/pages.json`), 'utf8'))
-      expect(pages.globalStyle.backgroundColor, app).toBe(backgrounds[app])
+      const globalStyle = readFileSync(resolve(root, `apps/${app}/src/styles/global.scss`), 'utf8')
+      const token = tokenOf[app]
+      const expected = token
+        ? designTokens.match(new RegExp(`${token}\\s*:\\s*(#[0-9a-fA-F]{3,8})`))?.[1]
+        : globalStyle.match(/--mobile-bg:\s*(#[0-9a-fA-F]{3,8})/)?.[1]
+      expect(expected, `${app} 的 --mobile-bg 未定义`).toBeTruthy()
+      expect(pages.globalStyle.backgroundColor.toLowerCase(), app).toBe(expected!.toLowerCase())
     }
   })
 })

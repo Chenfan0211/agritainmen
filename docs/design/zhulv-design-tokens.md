@@ -117,6 +117,33 @@ Admin **不用** reserved 深色侧栏。参考浅色 SaaS 控制台：白侧栏
 - `--admin-radius-panel` → `--radius-card`（14px）
 - `--admin-radius-control` → `--radius-button`（12px）
 
+### 用户端商城（仅 `apps/user` 消费）
+
+全站主色 `--color-brand-primary` 不动。用户端在 `apps/user/src/styles/global.scss` 把 `--mobile-*` 指到下列别名，对齐商城设计稿。
+
+- `--color-user-brand`: `#17633F`
+- `--color-user-brand-deep`: `#0F4A31`
+- `--color-user-brand-soft`: `#E7F2EB`
+- `--gradient-user`: `linear-gradient(140deg, #3E9B62, #2F7A4D 55%, #17633F)`
+- `--gradient-user-login`: `linear-gradient(168deg, #3E9B62 0%, #2F7A4D 46%, #1E6B45 74%, #14532F 100%)`
+- `--color-user-bg`: `#F4F6F1`
+- `--color-user-ink`: `#1B2620`
+- `--color-user-muted`: `#67756C`
+- `--color-user-line`: `#E2E8E0`
+- `--color-user-line-light`: `#ECF1EA`
+- `--color-user-subtle`: `#EEF3EC`
+- `--color-user-price`: `#E8501E`
+- `--color-user-warning`: `#C77A1E`
+- `--color-user-danger`: `#B83532`
+- `--color-user-badge`: `#D92C20`
+- `--color-user-wx`: `#1B9D55` — 登录微信标
+- `--color-user-wx-soft`: `#E8F5EE`
+- `--radius-user-pill`: `24px` — 主按钮满圆
+- `--radius-user-sheet`: `20px`
+- `--radius-user-login`: `26px`
+- `--shadow-user-button`: `0 10px 20px -8px rgba(23, 99, 63, 0.5)`
+- `--shadow-user-cart`: `0 14px 30px -10px rgba(15, 74, 49, 0.55)`
+
 ## 页面达标
 
 - 标题 / 正文 / 辅助：`--color-ink` / `--color-ink-2` / `--color-ink-3`（后者非必读）
@@ -167,3 +194,4 @@ Admin **不用** reserved 深色侧栏。参考浅色 SaaS 控制台：白侧栏
 | 2026-09-12 | 辅文改为 `#5E6F64` | `#6A7B70` 对比度不够，按规格加深 |
 | 2026-09-12 | Admin 用浅色侧栏 | 用户参考图是浅色 SaaS；reserved 深色侧栏不启用 |
 | 2026-09-12 | Admin 圆角跟 `--radius-card` / `--radius-button` | 旧契约锁 8/6，对不上参考图留白与卡片 |
+| 2026-09-13 | 用户端新增 `--color-user-*` 别名 | 商城设计稿主色更深、价格更橙、主按钮满圆；不改全站主色 |

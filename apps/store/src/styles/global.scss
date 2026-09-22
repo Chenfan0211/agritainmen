@@ -20,6 +20,30 @@
   --mobile-warning: #c77a1e;
   --mobile-bg: #f7f3ee;
   --mobile-surface-subtle: #f3e9df;
+  --mobile-border: #e9ded1;
+  --mobile-radius-card: 14px;
+  --mobile-tab-height: 72px;
+  --store-gradient: linear-gradient(140deg, #f59b2c, #f0810f 55%, #d66a00);
+  --store-login-gradient: linear-gradient(168deg, #f59b2c 0%, #f0810f 46%, #e0740a 74%, #c96200 100%);
+  --store-h5-glow-top: rgba(240, 129, 15, 0.1);
+  --store-h5-glow-bottom: rgba(214, 106, 0, 0.08);
+  --store-back-bg: rgba(255, 255, 255, 0.92);
+  --store-line: #e9ded1;
+  --store-line-light: #f1e8dc;
+  --store-on-brand: #ffffff;
+  --store-ok: #2f7a4d;
+  --store-ok-soft: #e9f3ed;
+  --store-info: #2f6ea7;
+  --store-info-soft: #e8f1f8;
+  --store-mask: rgba(43, 30, 14, 0.45);
+  --store-focus: rgba(240, 129, 15, 0.28);
+  --store-overlay: rgba(24, 25, 23, 0.55);
+  --store-glass: rgba(255, 255, 255, 0.14);
+  --store-glass-line: rgba(255, 255, 255, 0.25);
+  --store-shadow-hero: 0 16px 36px -18px rgba(90, 50, 10, 0.3);
+  --store-shadow-cart: 0 14px 30px -10px rgba(214, 106, 0, 0.55);
+  --store-shadow-float: 0 14px 34px -14px rgba(90, 50, 10, 0.35);
+  --store-disabled: #c9cfc9;
 }
 
 page, body, #app {
@@ -34,8 +58,24 @@ page, body, #app {
 }
 
 * { box-sizing: border-box; }
-button, input, select, textarea { font: inherit; letter-spacing: 0; }
+button, input, textarea { font: inherit; letter-spacing: 0; }
 button { border: 0; transition: background-color .16s ease, color .16s ease, border-color .16s ease, opacity .16s ease, transform .12s ease; }
 button:not(:disabled):active { transform: scale(.98); }
 button:disabled { opacity: .48; pointer-events: none; }
-button:focus-visible, input:focus-visible { outline: 2px solid rgba(240, 129, 15, .3); outline-offset: 2px; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--store-focus); outline-offset: 2px; }
+
+@media (min-width: 431px) {
+  page,
+  body,
+  #app {
+    background:
+      radial-gradient(1000px 620px at 50% -8%, var(--store-h5-glow-top), transparent 62%),
+      radial-gradient(1000px 620px at 50% 108%, var(--store-h5-glow-bottom), transparent 62%),
+      linear-gradient(180deg, var(--mobile-bg), var(--mobile-surface-subtle) 45%, var(--farm-bg));
+  }
+
+  .app-shell {
+    box-shadow: var(--store-shadow-hero);
+    border-inline: 1px solid var(--store-line);
+  }
+}
