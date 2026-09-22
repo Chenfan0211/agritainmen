@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -10,6 +10,10 @@ const pageConfig = readFileSync(resolve(supplierRoot, 'src/pages.json'), 'utf8')
 const tokenCss = readFileSync(resolve(uiRoot, 'design-tokens.css'), 'utf8')
 const tokenTs = readFileSync(resolve(uiRoot, 'design-tokens.ts'), 'utf8')
 const mapSource = readFileSync(resolve(supplierRoot, 'src/components/DeliveryRouteMap.vue'), 'utf8')
+const iconRoot = resolve(supplierRoot, 'src/static/icons')
+const iconNames = readdirSync(iconRoot)
+const svgIconNames = iconNames.filter((name) => name.endsWith('.svg')).map((name) => name.replace(/\.svg$/, ''))
+const pngIconNames = iconNames.filter((name) => name.endsWith('.png')).map((name) => name.replace(/\.png$/, ''))
 const template = pageSource.slice(pageSource.indexOf('<template>'), pageSource.indexOf('<script setup'))
 const styles = pageSource.match(/<style scoped lang="scss">([\s\S]*?)<\/style>/)?.[1] || ''
 const allStyles = `${globalStyles}\n${styles}`
@@ -22,10 +26,12 @@ const visualViews = [
   'supplier-products',
   'supplier-mine',
   'driver-today',
-  'driver-history',
-  'driver-mine',
+  'driver-data',
+  'driver-handovers',
   'workspace-drivers',
   'workspace-routes',
+  'workspace-outbound',
+  'driver-route-detail',
   'workspace-settlements',
   'workspace-handovers',
   'workspace-warehouse'
@@ -188,8 +194,9 @@ describe('supplier mobile visual contract', () => {
     expect(globalStyles).toMatch(/\.hero-logout \{[^}]*background: var\(--color-danger\)/)
   })
 
-  it('我的业务入口两列纵排，空态不再撑满半屏', () => {
-    expect(pageSource).toMatch(/\.mine-tile-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); gap: var\(--space-gap\)/)
+  it('我的业务入口一行三个，空态不再撑满半屏', () => {
+    expect(pageSource).toMatch(/\.mine-tile-grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); gap: var\(--space-gap\)/)
+    expect(pageSource).toContain("label: '出仓交接'")
     expect(pageSource).toMatch(/\.mine-tile-grid \.work-link \{ flex-direction: column/)
     expect(globalStyles).toMatch(/\.empty-state \{[^}]*min-height: 120px/)
     expect(pageSource).toMatch(/class="empty-state compact-empty pc-empty"/)
@@ -248,12 +255,114 @@ describe('supplier mobile visual contract', () => {
     expect(styles).not.toContain('min-width: 701px')
   })
 
-  it('司机今日任务支持多线路切换并保持紧凑布局', () => {
-    expect(template).toContain('driver-route-switcher')
-    expect(template).toContain('store.todayDriverRoutes')
-    expect(template).toContain('selectDriverRoute')
-    expect(styles).toContain('@media (max-width: 390px)')
-    expect(styles).toMatch(/\.driver-route-switcher\s*\{[^}]*overflow-x:\s*auto/)
+  it('出仓交接商品突出展示图片、规格和应发数量', () => {
+    expect(template).toContain('data-visual-state="supplier-outbound-item"')
+    expect(template).toContain('data-visual-state="driver-outbound-item"')
+    expect(template).toContain('data-visual-state="driver-store-item"')
+    expect(template).toContain("规格 {{ item.skuName || '规格待维护' }}")
+    expect(template).toContain('class="outbound-item-image"')
+    expect(template).toContain('mode="aspectFill"')
+    expect(template).not.toMatch(/data-visual-sheet="handover-out"[\s\S]*司机发起/)
+  })
+
+  it('司机今日线路使用状态筛选、摘要卡片并进入独立详情页', () => {
+    expect(template).toContain('filteredTodayDriverRoutes')
+    expect(template).toContain('driverRouteFilterOptions')
+    expect(template).toContain('driver-route-metrics')
+    expect(template).toContain('openDriverRoute(route)')
+    expect(template).toContain('data-visual-view="driver-route-detail"')
+    expect(template).toContain('DeliveryRouteMap')
+    expect(template).toContain('data-visual-state="driver-stop-card"')
+    expect(pageSource).toContain('openDriverStore(stop.storeId)')
+    expect(styles).toMatch(/\.driver-route-card-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3/)
+  })
+
+  it('司机端包含独立打卡、凭证审核、缺货备注和门店排序流程', () => {
+    expect(template).toContain('driverWarehouseView')
+    expect(template).toContain('warehouseDistanceM')
+    expect(template).toContain('ImageUploader')
+    expect(template).toContain('driverHandoverProofs')
+    expect(template).toContain('驳回修改')
+    expect(template).toContain('重新提交出仓交接')
+    expect(template).toContain('driverShortageView')
+    expect(template).toContain('driverShortageNotes')
+    expect(template).toContain('moveDriverStop')
+    expect(template).toContain('地图模式')
+    expect(pageSource).toContain("store.reorderRouteStops(route.id, ids)")
+  })
+
+  it('司机作业页使用细分状态、缺货提醒、配送进度和门店时间轴', () => {
+    expect(pageSource).toContain('driverRouteStageText')
+    expect(pageSource).toContain('driverStopStageText')
+    expect(template).toContain('待标记缺货')
+    expect(template).toContain('本次配送存在缺货')
+    expect(template).toContain('driver-route-progress')
+    expect(template).toContain('driver-timeline')
+    expect(template).toContain('outbound-quantity-grid')
+    expect(styles).toMatch(/\.driver-hero-panel\s*\{/)
+    expect(styles).toMatch(/\.driver-timeline\s*\{/)
+  })
+
+  it('司机二级页隐藏品牌头并统一下一站、门店明细和历史记录', () => {
+    expect(template).toContain("store.auth.role === 'driver' && !driverRouteDetailId")
+    expect(pageSource).toContain('driverNextStop')
+    expect(pageSource).toContain('driverSelectedStopId')
+    expect(pageSource).toContain('expandedOutboundItems')
+    expect(template).toContain('下一站')
+    expect(template).toContain('门店明细')
+    expect(template).toContain('driver-data-route')
+    expect(template).toContain('driver-handover-card')
+    expect(styles).toMatch(/\.driver-timeline-item\.is-selected\b/)
+    expect(styles).toMatch(/\.outbound-store-breakdown\s*\{/)
+    expect(template).not.toContain('待排线路')
+    expect(pageSource).toContain('warehouseAbnormalOptions')
+    expect(pageSource).toContain('checkInWarehouseAbnormal')
+    expect(template).toContain('异常打卡')
+    expect(pageSource).toContain('定位失败')
+    expect(pageSource).toContain('设备异常')
+  })
+
+  it('司机角色使用统一视觉层与交互状态', () => {
+    expect(template).toContain('driver-role-page')
+    expect(styles).toMatch(/\.driver-role-page\s*\{/)
+    expect(styles).toMatch(/\.driver-role-page\s+\.driver-section-card\s*\{/)
+    expect(styles).toMatch(/\.driver-role-page\s+\.driver-action-secondary\s*\{/)
+    expect(styles).toMatch(/\.driver-role-page\s+\.badge\.pending_review\s*\{/)
+    expect(styles).toMatch(/transition:\s*[^;]*160ms/)
+    expect(styles).not.toMatch(/\.driver-role-page[\s\S]*?#[0-9a-fA-F]{3,8}/)
+  })
+
+  it('司机记录页修复顶部拉伸并提升线路卡片可读性', () => {
+    expect(styles).toMatch(/\.driver-aux-page\s*\{[^}]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/s)
+    expect(styles).toMatch(/\.driver-role-page\s+\.driver-route-card\.driver-section-card\s*\{[^}]*padding:\s*0/s)
+    expect(styles).toMatch(/\.driver-route-name\s*\{[^}]*font-size:\s*var\(--text-title\)/s)
+    expect(styles).toMatch(/\.driver-route-metrics small\s*\{[^}]*font-size:\s*var\(--text-body\)/s)
+    expect(styles).toMatch(/\.driver-route-metrics strong\s*\{[^}]*font-size:\s*var\(--text-subtitle\)/s)
+    expect(styles).toMatch(/\.driver-hero-warehouse\s*\{[^}]*color:\s*var\(--color-on-brand\)[^}]*font-size:\s*var\(--text-body\)/s)
+    expect(styles).toMatch(/\.driver-handover-note\s*\{/)
+    const handoverBlock = template.match(/data-visual-view="driver-handovers"[\s\S]*?<\/view>\s*<\/view>/)?.[0] || ''
+    expect(handoverBlock).toContain('driver-handover-note')
+    expect(handoverBlock).not.toContain('store-readonly-note')
+  })
+
+  it('共享主题不引入小程序不支持的裸 select 标签选择器', () => {
+    const mobileTheme = readFileSync(resolve(uiRoot, 'mobile-theme.scss'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(mobileTheme).not.toMatch(/(^|[,{}])\s*select\s*(?=[,{])/m)
+  })
+
+  it('共享主题不引入小程序不支持的 pc-* small 后代标签选择器', () => {
+    const mobileTheme = readFileSync(resolve(uiRoot, 'mobile-theme.scss'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(mobileTheme).not.toMatch(/^\s*\.pc-[\w-]+\s+small\s*(?=[,{])/m)
+    expect(mobileTheme).not.toMatch(/^\s*\.pc-[\w-]+\s+strong\s*(?=[,{])/m)
+  })
+
+  it('供应商图标统一来自 Lucide 且 PNG 均有 Lucide SVG 源', () => {
+    for (const name of pngIconNames) expect(svgIconNames).toContain(name)
+    for (const name of svgIconNames) {
+      const source = readFileSync(resolve(iconRoot, `${name}.svg`), 'utf8')
+      expect(source).toContain('lucide-static')
+      expect(source).toContain('lucide lucide-')
+    }
   })
 
   it('地图标注走 design-tokens.ts，不写死旧绿', () => {

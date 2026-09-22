@@ -32,15 +32,16 @@
 
     <template v-else>
       <!-- 司机头部 -->
-      <view v-if="store.auth.role === 'driver'" class="hero">
+      <view v-if="store.auth.role === 'driver' && !driverRouteDetailId && !driverAuxView" class="hero driver-hero-panel">
         <view class="hero-top">
           <view class="hero-avatar"><UiIcon name="user-round" :size="22" /></view>
-          <view><text class="hero-title">{{ store.auth.name }}</text><view class="hero-sub">司机 · {{ store.auth.account }}</view></view>
+          <view class="driver-hero-identity"><text class="hero-title">{{ store.auth.name }}</text><view class="hero-sub">司机 · {{ store.auth.account }}</view><view class="driver-hero-warehouse"><UiIcon name="map-pin" :size="12" /><text>所属供应商 · {{ currentDriverWarehouse?.contact || '所属供应商待维护' }}</text></view></view>
           <button class="hero-logout logout-danger" @click="logout">退出</button>
         </view>
         <view class="hero-stats driver-hero-stats">
-          <view class="hero-stat"><text class="hero-stat-label">今日任务</text><text class="hero-stat-value">{{ store.myTasks.length }}</text></view>
-          <view class="hero-stat"><text class="hero-stat-label">今日完成</text><text class="hero-stat-value">{{ driverDoneToday }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">今日线路</text><text class="hero-stat-value">{{ driverTodayRouteCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">已完成门店</text><text class="hero-stat-value">{{ driverCompletedStoreCount }}</text></view>
+          <view class="hero-stat"><text class="hero-stat-label">待处理缺货</text><text class="hero-stat-value">{{ driverPendingShortageRouteCount }}</text></view>
         </view>
       </view>
       <!-- 供应商模块 -->
@@ -92,11 +93,11 @@
             <span class="pc-hero-badge"><UiIcon name="store" :size="15" />供应商工作台</span>
             <text class="pc-hero-name">{{ store.currentSupplier?.name || store.auth.name || supplierInfo.name }}</text>
             <small class="pc-hero-uid">{{ store.currentSupplier?.region || supplierInfo.region }} · {{ store.currentSupplier?.category || supplierInfo.category }}</small>
-            <view class="pc-hero-data"><view><small>供应商编号</small><strong>{{ store.auth.supplierId || '—' }}</strong></view><view><small>登录账号</small><strong>{{ store.auth.account }}</strong></view></view>
+            <view class="pc-hero-data"><view><small class="pc-hero-label">供应商编号</small><strong class="pc-hero-value">{{ store.auth.supplierId || '—' }}</strong></view><view><small class="pc-hero-label">登录账号</small><strong class="pc-hero-value">{{ store.auth.account }}</strong></view></view>
           </view>
           <view class="section-title">业务工作区</view>
         <view class="pc-tile-grid mine-tile-grid">
-          <button v-for="(item, index) in supplierWorkItems" :key="item.key" class="work-link pc-tile" :class="'pc-tile--' + ['green','amber','coral','blue','purple'][index % 5]" data-typography-compact @click="openSecondaryWorkspace(item.key)">
+          <button v-for="(item, index) in supplierWorkItems" :key="item.key" class="work-link pc-tile" :class="'pc-tile--' + ['green','amber','blue','purple','coral','teal'][index % 6]" data-typography-compact @click="openSecondaryWorkspace(item.key)">
             <view class="pc-tile-icon"><UiIcon :name="item.icon" :size="26" /></view><text class="pc-tile-label">{{ item.label }}</text>
           </button>
         </view>
@@ -134,6 +135,55 @@
           <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="users" :size="26" /></view><text>暂无司机账号，点击「新增司机」开通</text></view>
           </view>
           <view class="secondary-foot"><button class="primary-button section-action" @click="openDriverForm">新增司机</button></view>
+        </view>
+
+        <view v-else-if="secondaryWorkspace === 'outbound'" class="page-pad secondary-workspace handover-shared-page" data-visual-view="workspace-outbound">
+          <view class="secondary-head">
+            <button class="page-back" aria-label="返回" @click="selectedOutboundRoute ? closeOutboundRoute() : closeSecondaryWorkspace()"><UiIcon name="arrow-left" :size="20" /></button>
+            <text>{{ selectedOutboundRoute ? '出仓交接单' : '出仓交接' }}</text>
+          </view>
+          <view v-if="!selectedOutboundRoute" class="secondary-body">
+            <view class="form-fields outbound-date-field"><label class="form-field"><text>配送日期</text><input v-model="outboundDate" type="date" /></label></view>
+            <view v-if="supplierOutboundRoutes.length" class="content-stack">
+              <button v-for="route in supplierOutboundRoutes" :key="route.id" class="list-card outbound-route-card" @click="openOutboundRoute(route)">
+                <view class="row-top"><text class="driver-name">{{ driverRouteName(route) }} · {{ routeDriverName(route) }} · {{ route.deliveryDate }}</text><span class="badge" :class="route.outboundHandover?.status">{{ outboundStatusText(route) }}</span></view>
+                <view class="outbound-route-metrics"><text>{{ route.stopCount || route.stops.length }} 家门店</text><text>{{ routeGoodsQuantity(route) }} 件</text><text>{{ routeGoodsKinds(route) }} 种</text></view>
+                <text class="muted">{{ route.outboundHandover ? `司机实发 ${route.outboundHandover.items.reduce((sum, item) => sum + item.driverActual, 0)} 件` : '司机尚未发起交接' }}</text>
+              </button>
+            </view>
+            <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="package-check" :size="26" /></view><text>该配送日暂无线路</text></view>
+          </view>
+          <template v-else>
+            <view class="secondary-body">
+              <view class="outbound-summary-card driver-section-card">
+                <view class="row-top"><text class="driver-name">{{ driverRouteName(selectedOutboundRoute) }}</text><span class="badge" :class="selectedOutboundRoute.outboundHandover?.status">{{ outboundStatusText(selectedOutboundRoute) }}</span></view>
+                <view class="outbound-route-metrics"><text>配送日 {{ selectedOutboundRoute.deliveryDate }}</text><text>{{ selectedOutboundRoute.stopCount || selectedOutboundRoute.stops.length }} 家门店</text><text>{{ routeGoodsQuantity(selectedOutboundRoute) }} 件 · {{ routeGoodsKinds(selectedOutboundRoute) }} 种</text></view>
+              </view>
+              <view v-if="selectedOutboundRoute.outboundHandover?.rejectionReason" class="handover-rejection"><text>司机上交版本已驳回</text><text class="handover-result-sub">{{ selectedOutboundRoute.outboundHandover.rejectionReason }}</text></view>
+              <view class="search-bar outbound-search"><UiIcon name="search" :size="16" /><input v-model="outboundKeyword" placeholder="搜索商品名称 / 规格" /></view>
+              <label class="checkbox-field outbound-difference-toggle"><checkbox :checked="outboundShowDifferences" @click="outboundShowDifferences = !outboundShowDifferences" /><text>只看差异商品</text></label>
+              <view class="section-title">商品明细 <span class="section-sub">图片 / 规格 / 应发数量</span></view>
+              <view class="outbound-item-list">
+                <view v-for="item in filteredSelectedOutboundItems" :key="item.skuId" class="outbound-item-card" data-visual-state="supplier-outbound-item">
+                  <BusinessImage class="outbound-item-image" :src="item.image" mode="aspectFill" />
+                  <view class="row-main">
+                    <text class="outbound-item-name">{{ item.name }}</text>
+                    <text class="muted">规格 {{ item.skuName || '规格待维护' }}</text>
+                    <view class="outbound-quantity-grid"><view><small>应发</small><strong>{{ item.expected }}</strong></view><view><small>仓数</small><strong>{{ item.warehouseQuantity ?? '—' }}</strong></view><view><small>实发</small><strong>{{ selectedOutboundRoute.outboundHandover?.status === 'pending_supplier' ? outboundActuals[item.skuId] : outboundItemActual(item) }}</strong></view><view :class="{ danger: item.expected !== outboundItemActual(item) }"><small>差异</small><strong>{{ item.expected - outboundItemActual(item) }}</strong></view></view>
+                    <label v-if="selectedOutboundRoute.outboundHandover?.status === 'pending_supplier'" class="outbound-inline-edit"><text>供应商实发</text><input v-model.number="outboundActuals[item.skuId]" type="number" min="0" :max="item.expected" /></label><button class="outbound-store-toggle" @click="toggleOutboundItem(item.skuId)">{{ isOutboundItemExpanded(item.skuId) ? '收起门店明细' : '门店明细' }}<UiIcon :name="isOutboundItemExpanded(item.skuId) ? 'chevron-left' : 'chevron-right'" :size="13" /></button><view v-if="isOutboundItemExpanded(item.skuId)" class="outbound-store-breakdown"><view v-for="stop in driverItemStores(selectedOutboundRoute, item)" :key="stop.storeId"><view class="row-top"><text>{{ stop.storeName }}</text><span class="tag">应发 {{ outboundItemStoreExpected(selectedOutboundRoute, item, stop) }}</span></view><text class="muted">实发 {{ outboundItemStoreActualText(selectedOutboundRoute, item, stop) }}</text><text v-if="outboundItemStoreNote(selectedOutboundRoute, item, stop)" class="danger">缺货备注：{{ outboundItemStoreNote(selectedOutboundRoute, item, stop) }}</text></view></view>
+                  </view>
+                </view>
+              </view>
+              <view class="outbound-totals"><text>应发 {{ selectedOutboundItems.reduce((sum, item) => sum + item.expected, 0) }} 件</text><text>实发 {{ selectedOutboundItems.reduce((sum, item) => sum + outboundItemActual(item), 0) }} 件</text><text class="danger">差异 {{ selectedOutboundItems.reduce((sum, item) => sum + item.expected - outboundItemActual(item), 0) }} 件</text></view>
+              <view class="section-title">凭证照片</view>
+              <view v-if="selectedOutboundRoute.outboundHandover?.proofImages?.length" class="proof-image-grid"><BusinessImage v-for="image in selectedOutboundRoute.outboundHandover.proofImages" :key="image" class="proof-image" :src="image" mode="aspectFill" /></view>
+              <text v-else class="muted">历史交接单未上传凭证</text>
+              <label class="form-field note-field"><text>审核备注（可选）</text><input v-model="outboundNote" :disabled="selectedOutboundRoute.outboundHandover?.status !== 'pending_supplier'" placeholder="审核备注" /></label>
+              <view v-if="selectedOutboundRoute.outboundHandover?.reviewHistory?.length" class="review-history"><text class="section-title">审核记录</text><view v-for="(review, index) in selectedOutboundRoute.outboundHandover.reviewHistory" :key="index" class="muted">{{ review.action === 'confirmed' ? '确认' : '驳回' }} · {{ review.operatorName }} · {{ review.at.replace('T', ' ').slice(0, 16) }}{{ review.note ? ` · ${review.note}` : '' }}</view></view>
+              <view v-if="supplierRejectMode" class="reject-editor"><label class="form-field"><text>驳回原因</text><input v-model="supplierRejectionReason" placeholder="请填写司机需要修改的内容" /></label><view class="sheet-actions"><button class="danger-button" :class="{ 'is-loading': busyAction === 'reject-outbound' }" :disabled="busyAction === 'reject-outbound'" @click="rejectSupplierOutbound(selectedOutboundRoute)">确认驳回</button><button class="outline-button" @click="supplierRejectMode = false">取消</button></view></view>
+            </view>
+            <view v-if="selectedOutboundRoute.outboundHandover?.status === 'pending_supplier'" class="secondary-foot sheet-actions"><button class="outline-button" @click="supplierRejectMode = true">驳回修改</button><button class="primary-button" :class="{ 'is-loading': busyAction === 'review-outbound' }" :disabled="busyAction === 'review-outbound'" @click="reviewSupplierOutbound(selectedOutboundRoute)">修改并确认交接单</button></view>
+          </template>
         </view>
 
         <view v-else-if="secondaryWorkspace === 'settlements'" class="page-pad secondary-workspace" data-visual-view="workspace-settlements">
@@ -237,56 +287,131 @@
       </template>
       <!-- 司机模块 -->
       <template v-else>
-        <view v-if="driverTab === 'today'" class="page-pad" data-visual-view="driver-today">
-          <view v-if="store.todayDriverRoutes.length" class="driver-route">
-            <view v-if="store.todayDriverRoutes.length > 1" class="driver-route-switcher" aria-label="切换今日线路"><button v-for="route in store.todayDriverRoutes" :key="route.id" class="driver-route-tab" :class="{ active: store.currentDriverRoute?.id === route.id, completed: route.status === 'completed' }" @click="selectDriverRoute(route.id)"><text>{{ driverRouteName(route) }}</text><small>{{ route.stopCount || route.stops.length }} 家 · {{ driverRouteProgress(route) }}</small></button></view>
-            <view v-if="store.currentDriverRoute" class="driver-route-active">
-            <view class="route-driver-summary"><view><text class="eyebrow">当前执行线路</text><text class="section-title">{{ driverRouteName(store.currentDriverRoute) }}</text><text class="muted">{{ store.currentDriverRoute.status === 'completed' ? '今日配送已完成' : store.currentDriverRoute.status === 'stale' ? '任务或配置有变化，按已发布线路执行并联系供应商更新' : '已发布' }}</text><text class="muted">完成 {{ routeCompletedOrderCount }}/{{ routeOrderCount }} · {{ nextRouteStop ? `下一站 ${nextRouteStop.storeName}` : '全部完成' }} · {{ store.currentDriverRoute.stopCount || store.currentDriverRoute.stops.length }} 家农家乐</text></view><view><text class="order-no">{{ store.currentDriverRoute.totalDistanceKm.toFixed(1) }} km</text><text class="muted">约 {{ store.currentDriverRoute.estimatedDurationMinutes }} 分钟</text></view></view>
-            <DeliveryRouteMap :origin="store.currentDriverRoute.origin" :stops="store.currentDriverRoute.stops" :polyline="store.currentDriverRoute.polyline" :stop-count="store.currentDriverRoute.stopCount || store.currentDriverRoute.stops.length" :total-distance-km="store.currentDriverRoute.totalDistanceKm" :estimated-duration-minutes="store.currentDriverRoute.estimatedDurationMinutes" />
-            <view v-for="(stop, index) in store.currentDriverRoute.stops" :key="stop.storeId" class="list-card route-stop">
-              <view class="route-number">{{ index + 1 }}</view><view class="row-main"><text>{{ stop.storeName }}</text><text class="muted">完成 {{ stop.completedOrderIds?.length || 0 }}/{{ stop.orderIds.length }} 单 · {{ stopItemCount(stop) }} 件 · 预计 {{ stopEstimatedMinutes(store.currentDriverRoute, index) }} 分钟</text><text class="muted">{{ stop.address }}</text><text class="muted">{{ storeInfoOf(stop).contact }} {{ storeInfoOf(stop).phone }}</text><text class="distance-text">分段 {{ stopSegment(store.currentDriverRoute, stop) ?? '待维护' }}{{ stopSegment(store.currentDriverRoute, stop) !== undefined ? ' km' : '' }}</text><text v-if="stop.checkIn" class="muted">已打卡 · {{ stop.checkIn.distanceM }} 米 · {{ stop.checkIn.at.replace('T', ' ').slice(0, 16) }}</text><view class="task-orders"><template v-for="order in stopOrders(stop)" :key="order.id"><button v-if="orderFulfillment(order).status !== 'received'" class="outline-button mini-button" :disabled="orderFulfillment(order).status === 'shipped' || !stop.checkIn" @click="openDriverHandover(order)">{{ order.id }} · {{ orderFulfillment(order).status === 'shipped' ? '待出库' : '到店交接' }}</button></template></view></view><view class="route-actions"><button v-if="!stop.checkIn" class="primary-button mini-button" :class="{ 'is-loading': busyAction === 'checkin' }" :disabled="busyAction === 'checkin'" @click="checkInAtStop(stop)">到店打卡</button><button v-if="!stop.completedAt" class="outline-button mini-button task-nav" @click="navigateToStop(stop)"><UiIcon name="navigation" :size="14" />{{ nextRouteStop?.storeId === stop.storeId ? '下一站' : '导航' }}</button></view>
-            </view>
-            </view>
+        <view v-if="driverAuxView" class="page-pad secondary-workspace driver-aux-page driver-role-page">
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="closeDriverAux"><UiIcon name="arrow-left" :size="20" /></button><text>{{ driverAuxView === 'data' ? driverDataTitle : '交接记录' }}</text></view>
+           <view v-if="driverAuxView === 'data'" class="secondary-body" data-visual-view="driver-data">
+             <view class="driver-data-filters">
+               <label class="form-field driver-data-date-field"><text>配送日期</text><view class="driver-data-date-control"><picker class="driver-data-date-picker" mode="date" :value="driverDataDate || todayString()" @change="setDriverDataDate"><view class="picker-field">{{ driverDataDate || '全部日期' }}</view></picker><button class="outline-button mini-button driver-data-date-clear" @click="driverDataDate = ''">全部日期</button></view></label>
+               <view class="search-bar driver-data-search"><UiIcon name="search" :size="16" /><input v-model="driverDataKeyword" placeholder="搜索线路 / 门店 / 订单 / 状态" confirm-type="search" /></view>
+             </view>
+             <view class="driver-data-summary"><view><small>线路数量</small><strong>{{ driverDeliverySummary.routeCount }}</strong></view><view><small>配送门店</small><strong>{{ driverDeliverySummary.storeCount }}</strong></view><view><small>配送件数</small><strong>{{ driverDeliverySummary.itemCount }}</strong></view><view><small>缺货件数</small><strong>{{ driverDeliverySummary.shortageCount }}</strong></view><view><small>线路完成率</small><strong>{{ driverDeliverySummary.completionRate }}%</strong></view></view>
+             <view class="section-title">配送线路<text class="section-sub">{{ filteredDriverDataRoutes.length }} 条线路 · {{ driverDeliveryGroups.length }} 个配送日</text></view>
+             <view v-if="filteredDriverDataRoutes.length" class="content-stack"><view v-for="group in driverDeliveryGroups" :key="group.date" class="driver-data-group"><view class="driver-data-date">{{ group.date }}</view><view v-for="route in group.routes" :key="route.id" class="driver-data-route driver-section-card" @click="openDriverRoute(route)"><view class="row-top"><text>{{ driverRouteName(route) }}</text><span class="badge" :class="driverRouteStage(route)">{{ driverRouteStageText(route) }}</span></view><view class="driver-history-meta"><text>{{ route.stops.length }} 家门店</text><text>{{ routeGoodsQuantity(route) }} 件</text><text>{{ routeGoodsKinds(route) }} 种</text><text>{{ route.totalDistanceKm.toFixed(1) }} km</text></view></view></view></view>
+             <view v-else class="empty-state pc-empty"><text>{{ driverDataEmptyText }}</text></view>
+           </view>
+           <view v-else class="secondary-body" data-visual-view="driver-handovers">
+             <view class="search-bar driver-handover-search"><UiIcon name="search" :size="16" /><input v-model="handoverKeyword" placeholder="搜索订单号 / 门店 / 司机 / 备注" confirm-type="search" /></view>
+             <view class="section-title">交接记录<text class="section-sub">{{ filteredMyHandovers.length }}/{{ store.myHandovers.length }} 条</text></view>
+             <view v-if="filteredMyHandovers.length" class="content-stack"><view v-for="log in filteredMyHandovers" :key="log.id" class="driver-handover-card driver-section-card"><view class="row-top driver-handover-head"><view><text class="driver-history-order">{{ log.orderId }}</text><text class="driver-handover-customer">{{ log.customer }}</text></view><span class="tag" :class="log.type">{{ log.type === 'out' ? '出仓交接' : '到店交接' }}</span></view><view class="driver-handover-meta"><text>{{ log.operatorRole === 'driver' ? '司机' : '供应商' }} · {{ log.operatorName }}</text><text>{{ log.time.replace('T', ' ').slice(0, 16) }}</text><text v-if="log.shortageCount">缺货 {{ log.shortageCount }} 项</text></view><text v-if="log.note" class="driver-handover-note">{{ log.note }}</text></view></view>
+             <view v-else class="empty-state pc-empty"><text>{{ handoverKeyword.trim() ? '没有符合条件的交接记录' : '暂无交接记录' }}</text></view>
+           </view>
           </view>
-          <view v-else class="empty-state compact-empty pc-empty"><view class="pc-state-icon"><UiIcon name="navigation" :size="28" /></view><text>供应商尚未发布今日线路</text></view>
-          <view class="section-title">待排线路<text class="section-sub">{{ store.pendingRouteTasks.length }} 单</text></view>
-          <view v-if="store.pendingRouteTasks.length">
-            <view v-for="order in store.pendingRouteTasks" :key="order.id" class="list-card"><view class="row-top"><text class="order-no">{{ order.id }}</text><span class="badge" :class="orderFulfillment(order).status">{{ statusText(orderFulfillment(order).status) }}</span></view><view class="task-store"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ order.customer }}</text><text class="muted">{{ storeInfoOf(order).address }} · {{ storeInfoOf(order).contact }} {{ storeInfoOf(order).phone }}</text><text class="distance-text">{{ taskDistanceText(order) }}</text></view><button class="outline-button mini-button task-nav" @click="navigateToStore(order)"><UiIcon name="navigation" :size="14" />导航</button></view><button v-if="orderFulfillment(order).status !== 'shipped'" class="primary-button route-publish" @click="openDriverHandover(order)">到店交接</button></view>
-          </view>
-          <view v-else class="empty-state compact-empty pc-empty"><view class="pc-state-icon"><UiIcon name="package-check" :size="28" /></view><text>没有新增待排任务</text></view>
-        </view>
 
-        <view v-else-if="driverTab === 'history'" class="page-pad" data-visual-view="driver-history">
-          <view v-if="store.myHistory.length">
-            <view v-for="order in store.myHistory" :key="order.id" class="list-card">
-              <view class="row-top"><text class="order-no">{{ order.id }}</text><span class="badge received">已收货</span></view>
-              <view class="task-store"><UiIcon name="map-pin" :size="16" /><view class="row-main"><text>{{ order.customer }}</text><text class="muted">{{ order.createdAt }}</text><text v-if="handoverCheckInText(order.id)" class="muted">{{ handoverCheckInText(order.id) }}</text></view></view>
-              <view class="task-items">
-                <view v-for="item in order.items" :key="`${item.productId}-${item.skuId}`" class="task-item"><BusinessImage :src="item.image" mode="aspectFill" /><text>{{ item.name }}</text><text class="muted">×{{ item.quantity }}</text></view>
+        <view v-else-if="driverRouteDetailId && selectedDriverRoute" class="page-pad secondary-workspace driver-route-page driver-role-page" data-visual-view="driver-route-detail">
+          <view class="secondary-head"><button class="page-back" aria-label="返回" @click="driverStoreDetailId ? closeDriverStore() : driverOutboundView ? closeDriverOutbound() : driverWarehouseView ? closeDriverWarehouse() : driverShortageView ? closeDriverShortage() : closeDriverRoute()"><UiIcon name="arrow-left" :size="20" /></button><text>{{ driverWarehouseView ? '到仓打卡' : driverShortageView ? '门店缺货标记' : driverOutboundView ? '出仓交接' : driverStoreDetailId ? '门店商品' : '线路详情' }}</text></view>
+
+          <template v-if="driverWarehouseView">
+            <view class="secondary-body">
+              <view class="outbound-summary-card"><view class="row-top"><text class="driver-name">{{ warehouseName(selectedDriverRoute) }}</text><span class="badge" :class="warehouseCheckInBadgeClass(selectedDriverRoute)">{{ warehouseCheckInStatusText(selectedDriverRoute) }}</span></view><text class="muted">{{ warehouseAddress(selectedDriverRoute) }}</text><text class="muted">{{ selectedDriverRoute.deliveryDate }} · {{ driverRouteName(selectedDriverRoute) }}</text><text v-if="selectedDriverRoute.warehouseCheckIn" class="muted">{{ warehouseCheckInLabel(selectedDriverRoute) }}</text></view>
+              <view v-if="selectedDriverRoute.warehouseCheckIn && isAbnormalWarehouseCheckIn(selectedDriverRoute)" class="handover-rejection"><text>异常打卡已生效</text><text class="handover-result-sub">{{ warehouseReasonLabel(selectedDriverRoute.warehouseCheckIn.reasonCode) }}{{ selectedDriverRoute.warehouseCheckIn.reasonNote ? ' · ' + selectedDriverRoute.warehouseCheckIn.reasonNote : '' }}</text></view>
+              <view v-else class="warehouse-checkin-card driver-section-card"><view class="warehouse-distance-ring" :class="{ 'in-range': warehouseDistanceM !== null && warehouseDistanceM <= 1000 }"><text>距仓库</text><strong>{{ warehouseDistanceM === null ? '--' : warehouseDistanceM }}</strong><small>{{ warehouseDistanceM === null ? '位置待获取' : '米' }}</small></view><text class="warehouse-checkin-tip">{{ selectedDriverRoute.warehouseCheckIn ? '本线路已完成到仓打卡' : '进入 1000 米范围后可打卡' }}</text><text v-if="warehouseLocationError" class="form-error">{{ warehouseLocationError }}</text><button class="primary-button warehouse-checkin-action" :class="{ 'is-loading': busyAction === 'warehouse-checkin' }" :disabled="busyAction === 'warehouse-checkin' || !!selectedDriverRoute.warehouseCheckIn || warehouseDistanceM === null || warehouseDistanceM > 1000" @click="checkInWarehouse(selectedDriverRoute)">{{ selectedDriverRoute.warehouseCheckIn ? '已完成打卡' : '立即打卡' }}</button><button v-if="!selectedDriverRoute.warehouseCheckIn" class="outline-button" @click="warehouseAbnormalMode = !warehouseAbnormalMode">异常打卡</button><button class="outline-button" @click="refreshWarehouseDistance(selectedDriverRoute)">重新定位</button></view>
+              <view v-if="warehouseAbnormalMode && !selectedDriverRoute.warehouseCheckIn" class="warehouse-abnormal-form"><text class="section-title">异常打卡原因</text><view class="warehouse-reason-options"><button v-for="item in warehouseAbnormalOptions" :key="item.value" class="chip" :class="{ active: warehouseAbnormalReason === item.value }" @click="warehouseAbnormalReason = item.value">{{ item.label }}</button></view><label class="form-field"><text>补充说明{{ warehouseAbnormalReason === 'other' ? '（必填）' : '（可选）' }}</text><input v-model="warehouseAbnormalNote" placeholder="请输入异常原因" /></label><button class="danger-button" :class="{ 'is-loading': busyAction === 'warehouse-abnormal-checkin' }" :disabled="busyAction === 'warehouse-abnormal-checkin'" @click="submitAbnormalWarehouseCheckIn(selectedDriverRoute)">确认异常打卡</button></view>
+              <view class="section-title">打卡记录 <span class="section-sub">最近 {{ driverWarehouseHistory.length }} 次</span></view>
+              <view v-if="driverWarehouseHistory.length" class="warehouse-history-timeline"><view v-for="item in driverWarehouseHistory" :key="item.id" class="warehouse-history-item"><view class="warehouse-history-dot"></view><view class="warehouse-history-content"><view class="row-top"><text class="order-no">{{ warehouseName(item) }}</text><span class="badge" :class="item.warehouseCheckIn?.type === 'abnormal' ? 'rejected' : ''">{{ item.warehouseCheckIn?.type === 'abnormal' ? '异常打卡' : `距 ${item.warehouseCheckIn?.distanceM} 米` }}</span></view><text class="muted">{{ item.deliveryDate }} · {{ item.warehouseCheckIn?.at.replace('T', ' ').slice(0, 16) }}</text></view></view></view>
+              <view v-else class="empty-state compact-empty pc-empty"><text>暂无到仓打卡记录</text></view>
+            </view>
+          </template>
+
+          <template v-else-if="driverShortageView">
+            <view class="secondary-body">
+              <view class="outbound-summary-card"><view class="row-top"><text class="driver-name">{{ driverRouteName(selectedDriverRoute) }}</text><span class="badge danger">待标记缺货</span></view><text class="muted">每个商品的缺口必须全部分配到门店，缺货备注可选。</text></view>
+              <view class="outbound-item-list">
+                <view v-for="item in selectedDriverRouteItems.filter((entry) => entry.expected > outboundItemActual(entry))" :key="item.skuId" class="outbound-item-card outbound-item-card--driver" data-visual-state="driver-shortage-item">
+                  <BusinessImage class="outbound-item-image" :src="item.image" mode="aspectFill" />
+                  <view class="row-main"><text class="outbound-item-name">{{ item.name }}</text><text class="muted">规格 {{ item.skuName || '—' }} · 应发 {{ item.expected }} · 实发 {{ outboundItemActual(item) }}</text><view class="shortage-progress"><view class="shortage-progress-head"><text>分配进度</text><text :class="{ danger: driverShortageRemaining(selectedDriverRoute, item) !== 0 }">{{ item.expected - outboundItemActual(item) - driverShortageRemaining(selectedDriverRoute, item) }}/{{ item.expected - outboundItemActual(item) }}</text></view><view class="shortage-progress-track"><view :style="{ width: ((item.expected - outboundItemActual(item) - driverShortageRemaining(selectedDriverRoute, item)) / Math.max(1, item.expected - outboundItemActual(item)) * 100) + '%' }"></view></view></view><view class="shortage-allocate-head"><text>门店缺货分配</text><text :class="{ danger: driverShortageRemaining(selectedDriverRoute, item) !== 0 }">剩余 {{ driverShortageRemaining(selectedDriverRoute, item) }}</text></view><view v-for="stop in driverItemStores(selectedDriverRoute, item)" :key="stop.storeId" class="shortage-allocate-row"><view class="row-main"><text>{{ stop.storeName }}</text><text class="muted">本店应发 {{ storeSkuQuantity(stop, item.skuId) }} 件</text><input v-model="driverShortageNotes[driverAllocationKey(item.skuId, stop.storeId)]" class="shortage-note-input" placeholder="缺货备注（可选）" /></view><input v-model.number="driverShortageDraft[driverAllocationKey(item.skuId, stop.storeId)]" type="number" min="0" :max="storeSkuQuantity(stop, item.skuId)" /></view></view>
+                </view>
               </view>
             </view>
-          </view>
-          <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="package-check" :size="26" /></view><text>暂无历史任务</text></view>
-        </view>
+            <view class="secondary-foot sheet-actions"><button class="primary-button" :class="{ 'is-loading': busyAction === 'mark-outbound-shortages' }" :disabled="busyAction === 'mark-outbound-shortages' || !canDispatchRoute" @click="markDriverShortages(selectedDriverRoute)">保存缺货标记</button></view>
+          </template>
 
-        <view v-else class="page-pad driver-mine" data-visual-view="driver-mine">
-          <view class="pc-hero mine-hero">
-            <span class="pc-hero-badge"><UiIcon name="user-round" :size="15" />司机工作台</span>
-            <text class="pc-hero-name">{{ store.auth.name }}</text>
-            <small class="pc-hero-uid">司机账号 {{ store.auth.account }}</small>
-            <view class="pc-hero-data"><view><small>所属供应商</small><strong>{{ store.auth.supplierId || '—' }}</strong></view></view>
-          </view>
-          <view class="section-title">交接记录</view>
-          <view v-if="store.myHandovers.length">
-            <view v-for="log in store.myHandovers" :key="log.id" class="list-card">
-              <view class="row">
-                <span class="tag" :class="log.type">{{ log.type === 'out' ? '出库交接' : '到店交接' }}</span>
-                <view class="row-main"><text class="order-no">{{ log.orderId }}</text><text class="muted">{{ log.customer }}</text><text class="muted">{{ log.time }}</text></view>
+          <template v-else-if="driverOutboundView">
+            <view class="secondary-body">
+              <view class="outbound-summary-card"><view class="row-top"><text class="driver-name">{{ driverRouteName(selectedDriverRoute) }}</text><span class="badge" :class="selectedDriverRoute.outboundHandover?.status">{{ outboundStatusText(selectedDriverRoute) }}</span></view><view class="outbound-route-metrics"><text>配送日 {{ selectedDriverRoute.deliveryDate }}</text><text>{{ warehouseName(selectedDriverRoute) }}</text><text>{{ routeGoodsQuantity(selectedDriverRoute) }} 件</text></view></view>
+              <view v-if="selectedDriverRoute.outboundHandover?.status === 'rejected'" class="handover-rejection"><text>审核不通过</text><text class="handover-result-sub">{{ selectedDriverRoute.outboundHandover.rejectionReason }}</text></view>
+              <view class="search-bar outbound-search"><UiIcon name="search" :size="16" /><input v-model="outboundKeyword" placeholder="搜索商品名称 / 规格" /></view>
+              <label class="checkbox-field outbound-difference-toggle"><checkbox :checked="outboundShowDifferences" @click="outboundShowDifferences = !outboundShowDifferences" /><text>只看差异商品</text></label>
+              <view class="section-title">商品明细 <span class="section-sub">图片 / 规格 / 应发数量</span></view>
+              <view class="outbound-item-list">
+                <view v-for="item in filteredSelectedDriverRouteItems" :key="item.skuId" class="outbound-item-card outbound-item-card--driver" data-visual-state="driver-outbound-item">
+                  <BusinessImage class="outbound-item-image" :src="item.image" mode="aspectFill" />
+                  <view class="row-main"><text class="outbound-item-name">{{ item.name }}</text><text class="muted">规格 {{ item.skuName || '规格待维护' }}</text><view class="outbound-quantity-grid"><view><small>应发</small><strong>{{ item.expected }}</strong></view><view><small>仓数</small><strong>{{ item.warehouseQuantity ?? '—' }}</strong></view><view><small>实发</small><strong>{{ !selectedDriverRoute.outboundHandover || selectedDriverRoute.outboundHandover.status === 'rejected' ? driverHandoverActuals[item.skuId] : outboundItemActual(item) }}</strong></view><view :class="{ danger: item.expected !== (!selectedDriverRoute.outboundHandover || selectedDriverRoute.outboundHandover.status === 'rejected' ? Number(driverHandoverActuals[item.skuId] ?? item.driverActual) : outboundItemActual(item)) }"><small>差异</small><strong>{{ item.expected - (!selectedDriverRoute.outboundHandover || selectedDriverRoute.outboundHandover.status === 'rejected' ? Number(driverHandoverActuals[item.skuId] ?? item.driverActual) : outboundItemActual(item)) }}</strong></view></view><label v-if="!selectedDriverRoute.outboundHandover || selectedDriverRoute.outboundHandover.status === 'rejected'" class="outbound-inline-edit"><text>司机实发</text><input v-model.number="driverHandoverActuals[item.skuId]" type="number" min="0" :max="item.expected" /></label><button class="outbound-store-toggle" @click="toggleOutboundItem(item.skuId)">{{ isOutboundItemExpanded(item.skuId) ? '收起门店明细' : '门店明细' }}<UiIcon :name="isOutboundItemExpanded(item.skuId) ? 'chevron-left' : 'chevron-right'" :size="13" /></button><view v-if="isOutboundItemExpanded(item.skuId)" class="outbound-store-breakdown"><view v-for="stop in driverItemStores(selectedDriverRoute, item)" :key="stop.storeId"><view class="row-top"><text>{{ stop.storeName }}</text><span class="tag">应发 {{ outboundItemStoreExpected(selectedDriverRoute, item, stop) }}</span></view><text class="muted">实发 {{ outboundItemStoreActualText(selectedDriverRoute, item, stop) }}</text><text v-if="outboundItemStoreNote(selectedDriverRoute, item, stop)" class="danger">缺货备注：{{ outboundItemStoreNote(selectedDriverRoute, item, stop) }}</text></view></view></view>
+                </view>
+              </view>
+              <view class="outbound-totals"><text>应发 {{ selectedDriverRouteItems.reduce((sum, item) => sum + item.expected, 0) }} 件</text><text>实发 {{ selectedDriverRouteItems.reduce((sum, item) => sum + Number(driverHandoverActuals[item.skuId] ?? item.driverActual), 0) }} 件</text><text class="danger">差异 {{ selectedDriverRouteItems.reduce((sum, item) => sum + item.expected - Number(driverHandoverActuals[item.skuId] ?? item.driverActual), 0) }} 件</text></view>
+              <view class="section-title">凭证照片 <span class="section-sub">必传，最多 6 张</span></view>
+              <ImageUploader v-if="!selectedDriverRoute.outboundHandover || selectedDriverRoute.outboundHandover.status === 'rejected'" v-model="driverHandoverProofs" purpose="driver-outbound-proof" profile="normal" multiple :max-count="6" />
+              <view v-else-if="selectedDriverRoute.outboundHandover.proofImages?.length" class="proof-image-grid"><BusinessImage v-for="image in selectedDriverRoute.outboundHandover.proofImages" :key="image" class="proof-image" :src="image" mode="aspectFill" /></view>
+              <label v-if="!selectedDriverRoute.outboundHandover || selectedDriverRoute.outboundHandover.status === 'rejected'" class="form-field note-field"><text>交接备注（可选）</text><input v-model="driverHandoverNote" placeholder="交接备注" /></label>
+              <text v-else-if="selectedDriverRoute.outboundHandover.driverNote" class="muted">备注：{{ selectedDriverRoute.outboundHandover.driverNote }}</text>
+              <view v-if="selectedDriverRoute.outboundHandover?.status === 'pending_supplier'" class="handover-result"><text>已提交，等待供应商审核</text><text class="handover-result-sub">审核后可查看最终实发和需分配的门店缺货。</text></view>
+              <view v-if="selectedDriverRoute.outboundHandover?.status === 'dispatched'" class="handover-result"><text>已发车 · 配送中</text><text class="handover-result-sub">{{ selectedDriverRoute.outboundHandover.dispatchedAt?.replace('T', ' ').slice(0, 16) }}</text></view>
+            </view>
+            <view class="secondary-foot sheet-actions">
+              <button v-if="!selectedDriverRoute.outboundHandover || selectedDriverRoute.outboundHandover.status === 'rejected'" class="primary-button" :class="{ 'is-loading': busyAction === 'submit-outbound' }" :disabled="busyAction === 'submit-outbound'" @click="submitDriverOutbound(selectedDriverRoute)">{{ selectedDriverRoute.outboundHandover?.status === 'rejected' ? '重新提交出仓交接' : '提交出仓交接' }}</button>
+              <template v-else-if="selectedDriverRoute.outboundHandover.status === 'pending_dispatch'">
+                <button v-if="outboundHasShortage(selectedDriverRoute)" class="outline-button" @click="openDriverShortage(selectedDriverRoute)">标记门店缺货</button>
+                <button class="primary-button" :class="{ 'is-loading': busyAction === 'dispatch-route' }" :disabled="busyAction === 'dispatch-route' || !canDispatchRoute" @click="dispatchDriverRoute(selectedDriverRoute)">发车</button>
+              </template>
+            </view>
+          </template>
+
+          <template v-else-if="driverStoreDetailId && selectedDriverStop">
+            <view class="secondary-body">
+              <view class="outbound-summary-card"><view class="row-top"><text class="driver-name">{{ selectedDriverStop.storeName }}</text><span class="badge" :class="selectedDriverStop.completedAt ? 'received' : selectedDriverStop.checkIn ? 'delivering' : 'warning-tag'">{{ selectedDriverStop.completedAt ? '已交接' : selectedDriverStop.checkIn ? '已打卡' : '待打卡' }}</span></view><text class="muted">{{ selectedDriverStop.address }}</text><text class="muted">{{ storeInfoOf(selectedDriverStop).contact }} {{ storeInfoOf(selectedDriverStop).phone }}</text><text class="muted">{{ selectedDriverStopOrders.length }} 单 · {{ stopItemCount(selectedDriverStop) }} 件</text></view>
+              <view class="section-title">门店商品汇总 <span class="section-sub">只读确认</span></view>
+              <view class="outbound-item-list"><view v-for="item in selectedDriverStopItems" :key="item.skuId" class="outbound-item-card" data-visual-state="driver-store-item"><BusinessImage class="outbound-item-image" :src="item.image" mode="aspectFill" /><view class="row-main"><text class="outbound-item-name">{{ item.name }}</text><text class="muted">规格 {{ item.skuName || '规格待维护' }}</text><view class="outbound-quantity-grid"><view><small>应发</small><strong>{{ item.expected }}</strong></view><view><small>实收</small><strong>{{ item.expected - storeSkuShortage(selectedDriverRoute, selectedDriverStop, item.skuId) }}</strong></view><view :class="{ danger: storeSkuShortage(selectedDriverRoute, selectedDriverStop, item.skuId) > 0 }"><small>缺货</small><strong>{{ storeSkuShortage(selectedDriverRoute, selectedDriverStop, item.skuId) }}</strong></view></view><text v-if="storeSkuShortageNote(selectedDriverRoute, selectedDriverStop, item.skuId)" class="store-readonly-note">缺货备注：{{ storeSkuShortageNote(selectedDriverRoute, selectedDriverStop, item.skuId) }}</text></view></view></view>
+            </view>
+            <view class="secondary-foot sheet-actions"><button v-if="!selectedDriverStop.checkIn && selectedDriverRoute.outboundHandover?.status === 'dispatched'" class="primary-button" :class="{ 'is-loading': busyAction === 'checkin' }" :disabled="busyAction === 'checkin'" @click="checkInAtStop(selectedDriverStop)">到店打卡</button><text v-else-if="!selectedDriverStop.checkIn" class="muted store-action-hint">发车后可到店打卡</text><button v-else-if="!selectedDriverStop.completedAt && selectedDriverRoute.outboundHandover?.status === 'dispatched'" class="primary-button" :class="{ 'is-loading': busyAction === 'store-handover' }" :disabled="busyAction === 'store-handover'" @click="handoverDriverStop(selectedDriverRoute, selectedDriverStop)">确认到店交接</button><button v-else class="outline-button" @click="navigateToStop(selectedDriverStop)"><UiIcon name="navigation" :size="14" />导航</button></view>
+          </template>
+
+          <template v-else>
+            <view class="secondary-body">
+              <view class="outbound-summary-card"><view class="row-top"><text class="driver-name">{{ driverRouteName(selectedDriverRoute) }}</text><span class="badge" :class="selectedDriverRoute.outboundHandover?.status || selectedDriverRoute.status">{{ outboundStatusText(selectedDriverRoute) }}</span></view><view class="driver-route-card-grid"><view><small>配送日</small><strong>{{ selectedDriverRoute.deliveryDate }}</strong></view><view><small>司机</small><strong>{{ store.auth.name }}</strong></view><view><small>货物数量</small><strong>{{ routeGoodsQuantity(selectedDriverRoute) }} 件</strong></view><view><small>货物种类</small><strong>{{ routeGoodsKinds(selectedDriverRoute) }} 种</strong></view><view><small>门店数量</small><strong>{{ selectedDriverRoute.stopCount || selectedDriverRoute.stops.length }} 家</strong></view><view><small>预计时间</small><strong>{{ selectedDriverRoute.estimatedDurationMinutes }} 分钟</strong></view></view></view>
+              <view class="warehouse-action-card driver-section-card"><view class="row-main"><text class="driver-name">仓库打卡</text><text class="muted">{{ warehouseCheckInLabel(selectedDriverRoute) }}</text></view><button class="outline-button mini-button" @click="openDriverWarehouse(selectedDriverRoute)">{{ selectedDriverRoute.warehouseCheckIn ? '打卡详情' : '到仓打卡' }}</button></view>
+              <view class="route-mode-tabs"><button :class="{ active: driverRouteDisplayMode === 'list' }" @click="driverRouteDisplayMode = 'list'">列表模式</button><button :class="{ active: driverRouteDisplayMode === 'map' }" @click="driverRouteDisplayMode = 'map'">地图模式</button></view>
+              <DeliveryRouteMap v-if="driverRouteDisplayMode === 'map'" :origin="selectedDriverRoute.origin" :stops="selectedDriverRoute.stops" :polyline="selectedDriverRoute.polyline" :selected-stop-id="driverSelectedStopId" :stop-count="selectedDriverRoute.stopCount || selectedDriverRoute.stops.length" :total-distance-km="selectedDriverRoute.totalDistanceKm" :estimated-duration-minutes="selectedDriverRoute.estimatedDurationMinutes" @select-stop="driverSelectedStopId = $event" />
+              <view v-else class="driver-timeline">
+                <view v-for="(stop, index) in selectedDriverRoute.stops" :key="stop.storeId" class="driver-timeline-item" :class="['is-' + driverStopStage(selectedDriverRoute, stop), { 'is-selected': driverSelectedStopId === stop.storeId, 'is-next': driverNextStop?.storeId === stop.storeId }]" data-visual-state="driver-stop-card">
+                  <view class="driver-timeline-axis"><view class="route-number">{{ index + 1 }}</view><view v-if="index < selectedDriverRoute.stops.length - 1" class="driver-timeline-line"></view></view>
+                  <view class="driver-timeline-card driver-section-card">
+                    <view class="driver-timeline-head" @click="driverSelectedStopId = stop.storeId"><view class="row-main"><text class="driver-timeline-name">{{ stop.storeName }}</text><text class="muted">{{ stop.address }}</text></view><view class="driver-timeline-status"><span v-if="driverNextStop?.storeId === stop.storeId" class="tag next-stop">下一站</span><span class="badge" :class="driverStopStage(selectedDriverRoute, stop)">{{ driverStopStageText(selectedDriverRoute, stop) }}</span></view></view>
+                    <view class="driver-timeline-metrics"><text>{{ stopItemCount(stop) }} 件</text><text>{{ stop.orderIds.length }} 单</text><text>{{ stopSegment(selectedDriverRoute, stop) ?? '距离待维护' }}{{ stopSegment(selectedDriverRoute, stop) !== undefined ? ' km' : '' }}</text></view>
+                    <view class="driver-timeline-contact"><UiIcon name="map-pin" :size="13" /><text>{{ storeInfoOf(stop).contact }} {{ storeInfoOf(stop).phone }}</text></view>
+                    <view class="driver-timeline-actions">
+                      <button class="icon-button route-order-button" aria-label="上移" :disabled="!canMoveDriverStop(selectedDriverRoute, index, -1) || busyAction === 'reorder-stops'" @click.stop="moveDriverStop(selectedDriverRoute, index, -1)"><UiIcon name="chevron-left" :size="14" /></button>
+                      <button class="icon-button route-order-button" aria-label="下移" :disabled="!canMoveDriverStop(selectedDriverRoute, index, 1) || busyAction === 'reorder-stops'" @click.stop="moveDriverStop(selectedDriverRoute, index, 1)"><UiIcon name="chevron-right" :size="14" /></button>
+                      <button class="outline-button mini-button" @click.stop="callStore(storeInfoOf(stop).phone)">联系</button>
+                      <button class="outline-button mini-button" @click.stop="navigateToStop(stop)"><UiIcon name="navigation" :size="13" />导航</button>
+                      <button class="primary-button mini-button" @click.stop="openDriverStore(stop.storeId)">查看商品</button>
+                    </view>
+                  </view>
+                </view>
               </view>
             </view>
-          </view>
-          <view v-else class="empty-state pc-empty"><view class="pc-state-icon"><UiIcon name="list-tree" :size="26" /></view><text>暂无我的交接记录</text></view>
+          </template>
         </view>
+
+        <template v-else>
+        <view class="page-pad driver-role-page driver-today-page" data-visual-view="driver-today">
+          <view class="section-title driver-records-title">作业记录</view>
+          <view class="driver-quick-tools"><button @click="openDriverAux('data')"><view class="driver-quick-icon"><UiIcon name="layout-dashboard" :size="24" /></view><text>配送数据</text></button><button @click="openDriverAux('handovers')"><view class="driver-quick-icon"><UiIcon name="list-tree" :size="24" /></view><text>交接记录</text></button></view>
+          <view class="driver-status-segments"><button v-for="item in driverRouteFilterOptions" :key="item" :class="{ active: driverRouteFilter === item }" @click="driverRouteFilter = item">{{ item }}</button></view>
+          <view v-if="filteredTodayDriverRoutes.length" class="driver-route-list"><view v-for="route in filteredTodayDriverRoutes" :key="route.id" class="driver-route-card driver-section-card" data-visual-state="driver-route-card"><button class="driver-route-card-main" @click="openDriverRoute(route)"><view class="driver-route-card-head"><view><text class="driver-route-name">{{ driverRouteName(route) }}</text><text class="muted">{{ route.deliveryDate }} · {{ routeDriverName(route) }} · {{ warehouseName(route) }}</text></view><span class="badge" :class="driverRouteStage(route)">{{ driverRouteStageText(route) }}</span></view><view class="driver-route-metrics"><view><small>货物数量</small><strong>{{ routeGoodsQuantity(route) }} 件</strong></view><view><small>门店数量</small><strong>{{ route.stopCount || route.stops.length }} 家</strong></view><view><small>货物种类</small><strong>{{ routeGoodsKinds(route) }} 种</strong></view><view><small>距离 / 时间</small><strong>{{ route.totalDistanceKm.toFixed(1) }} km / {{ route.estimatedDurationMinutes }} 分</strong></view></view><view class="driver-route-progress"><view class="driver-route-progress-head"><text>配送进度</text><text>{{ driverRouteProgress(route).completed }}/{{ driverRouteProgress(route).total }} 家门店</text></view><view class="driver-route-progress-track"><view :style="{ width: driverRouteProgress(route).percent + '%' }"></view></view></view></button><view v-if="driverRouteStage(route) === 'pending_shortage'" class="driver-route-warning"><UiIcon name="package-check" :size="15" /><text>本次配送存在缺货，完成门店分配后才能发车</text></view><view class="route-card-actions"><button class="primary-button mini-button" :class="{ 'is-loading': busyAction === 'dispatch-route' && routeActionLabel(route) === '发车' }" :disabled="busyAction === 'dispatch-route' && routeActionLabel(route) === '发车'" @click="openDriverRouteAction(route)">{{ routeActionLabel(route) }}</button><button class="outline-button mini-button driver-action-secondary" @click="openDriverRoute(route)">线路详情</button></view></view></view>
+          <view v-else class="empty-state compact-empty pc-empty"><view class="pc-state-icon"><UiIcon name="navigation" :size="28" /></view><text>当前没有{{ driverRouteFilter }}线路</text></view>
+        </view>
+
+      </template>
       </template>
 
       <view v-if="store.auth.role === 'supplier' && active === 'products' && productWorkspace && !secondaryWorkspace" class="page-pad product-work-page" data-visual-view="supplier-products">
@@ -317,7 +442,7 @@
       </view>
 
       <!-- 底部 tabbar -->
-      <view class="tabbar">
+      <view v-if="store.auth.role === 'supplier' && !secondaryWorkspace && !driverRouteDetailId && !driverAuxView" class="tabbar">
         <button v-for="tab in currentTabs" :key="tab.key" class="tab-item bottom-tab" :class="{ active: isTabActive(tab.key) }" @click="switchTab(tab.key)">
           <UiIcon :name="tab.icon" :size="20" />
           <text>{{ tab.label }}</text>
@@ -485,8 +610,8 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import type { CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DriverAccount, Order, PlatformDictionaryState, RouteStop, ShortageItem } from '@agritainment/shared'
-import { PLATFORM_DICTIONARIES_STORAGE_KEY, defaultProductCategoryImage, productCategoryImage, readPlatformDictionaries } from '@agritainment/shared'
+import type { CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DriverAccount, Order, PlatformDictionaryState, RouteOrigin, RouteOutboundHandoverItem, RouteOutboundShortageAllocation, RouteStop, RouteWarehouseCheckInReason, ShortageItem } from '@agritainment/shared'
+import { PLATFORM_DICTIONARIES_STORAGE_KEY, aggregateRouteOutboundItems, defaultProductCategoryImage, distanceMeters, productCategoryImage, readPlatformDictionaries } from '@agritainment/shared'
 import { PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, configurePlatformProviders, createDrivingRouteOptimizationProvider, createGeocodeProviders, createId, geocodeAddress, installKeyboardButtonSupport, money, subscribePlatformChanges, todayString } from '@agritainment/shared'
 import { BusinessImage, ImageUploader } from '@agritainment/ui'
 import { routeOptimizationWarningText } from '../../delivery-map'
@@ -554,7 +679,6 @@ function submitLogin() {
     toast(loginRole.value === 'supplier' ? '供应商登录成功' : `司机 ${store.auth.name} 登录成功`)
     active.value = 'orders'
     secondaryWorkspace.value = null
-    driverTab.value = 'today'
     void store.ensureTodayRoutes()
   }
 }
@@ -572,26 +696,16 @@ const supplierTabs = [
   { key: 'products' as const, label: '商品', icon: 'package-check', badge: () => pendingProductCount.value },
   { key: 'mine' as const, label: '我的', icon: 'user-round', badge: () => 0 }
 ]
-type DriverTab = 'today' | 'history' | 'mine'
-const driverTab = ref<DriverTab>('today')
-const driverTabs = [
-  { key: 'today' as const, label: '今日线路', icon: 'navigation', badge: () => store.pendingRouteTasks.length },
-  { key: 'history' as const, label: '历史任务', icon: 'calendar-check', badge: () => 0 },
-  { key: 'mine' as const, label: '我的', icon: 'user-round', badge: () => 0 }
-]
-type SecondaryWorkspace = 'drivers' | 'routes' | 'settlements' | 'handovers' | 'warehouse'
+type SecondaryWorkspace = 'drivers' | 'routes' | 'outbound' | 'settlements' | 'handovers' | 'warehouse'
 const secondaryWorkspace = ref<SecondaryWorkspace | null>(null)
-const currentTabs = computed(() => (store.auth.role === 'supplier' ? supplierTabs : driverTabs))
+const currentTabs = supplierTabs
 function isTabActive(key: string) {
-  return store.auth.role === 'supplier' ? active.value === key : driverTab.value === key
+  return active.value === key
 }
 function switchTab(key: string) {
   secondaryWorkspace.value = null
-  if (store.auth.role === 'supplier') {
-    active.value = key as SupplierTab
-    if (key === 'products') openProductWorkspace()
-  }
-  else driverTab.value = key as DriverTab
+  active.value = key as SupplierTab
+  if (key === 'products') openProductWorkspace()
 }
 function openSecondaryWorkspace(key: SecondaryWorkspace) {
   active.value = 'mine'
@@ -801,10 +915,585 @@ const warehouseForm = reactive<{ address: string }>({ address: '' })
 const supplierWorkItems: Array<{ key: SecondaryWorkspace; label: string; icon: string; detail: string }> = [
   { key: 'drivers', label: '司机管理', icon: 'users', detail: '账号与启用状态' },
   { key: 'routes', label: '线路规划', icon: 'navigation', detail: '命名线路、农家乐顺序与派司机' },
+  { key: 'outbound', label: '出仓交接', icon: 'package-check', detail: '司机发起、供应商审核与缺货标记' },
   { key: 'settlements', label: '结算账单', icon: 'package-check', detail: '查看账期和关联订单' },
   { key: 'handovers', label: '交接日志', icon: 'list-tree', detail: '出库和到店交接记录' },
   { key: 'warehouse', label: '仓点设置', icon: 'map-pin', detail: '按地址解析仓点坐标' }
 ]
+const outboundDate = ref(todayString())
+const outboundRouteId = ref('')
+const outboundActuals = reactive<Record<string, number>>({})
+const outboundNote = ref('')
+const driverRouteDetailId = ref('')
+const driverStoreDetailId = ref('')
+const driverOutboundView = ref(false)
+const driverHandoverActuals = reactive<Record<string, number>>({})
+const driverHandoverNote = ref('')
+const driverHandoverProofs = ref<string[]>([])
+const driverShortageDraft = reactive<Record<string, number>>({})
+const driverShortageNotes = reactive<Record<string, string>>({})
+const driverWarehouseView = ref(false)
+const driverShortageView = ref(false)
+type DriverRouteFilter = '待配送' | '配送中' | '已完成'
+type DriverRouteStage = 'pending_checkin' | 'pending_submission' | 'pending_review' | 'rejected' | 'pending_shortage' | 'ready_to_dispatch' | 'delivering' | 'completed'
+type DriverStopStage = 'waiting' | 'in_transit' | 'checked_in' | 'completed'
+const driverRouteFilter = ref<DriverRouteFilter>('待配送')
+const driverRouteFilterOptions = ['待配送', '配送中', '已完成'] as const
+const driverRouteDisplayMode = ref<'list' | 'map'>('list')
+const driverSelectedStopId = ref('')
+const driverAuxView = ref<'data' | 'handovers' | null>(null)
+const driverDataDate = ref(todayString())
+const driverDataKeyword = ref('')
+const warehouseAbnormalMode = ref(false)
+const warehouseAbnormalReason = ref<RouteWarehouseCheckInReason | ''>('')
+const warehouseAbnormalNote = ref('')
+const warehouseAbnormalOptions: Array<{ value: RouteWarehouseCheckInReason; label: string }> = [
+  { value: 'location_failed', label: '定位失败' },
+  { value: 'device_issue', label: '设备异常' },
+  { value: 'warehouse_coordinate_error', label: '仓点坐标错误' },
+  { value: 'other', label: '其他' }
+]
+const expandedOutboundItems = ref<string[]>([])
+const warehouseDistanceM = ref<number | null>(null)
+const warehouseLocationError = ref('')
+const outboundShowDifferences = ref(false)
+const outboundKeyword = ref('')
+const supplierRejectMode = ref(false)
+const supplierRejectionReason = ref('')
+const filteredTodayDriverRoutes = computed(() => store.todayDriverRoutes.filter((route) => routeExecutionStatus(route) === driverRouteFilter.value))
+const driverTodayRouteCount = computed(() => store.todayDriverRoutes.length)
+const driverCompletedStoreCount = computed(() => store.todayDriverRoutes.reduce((sum, route) => sum + driverRouteProgress(route).completed, 0))
+const driverPendingShortageRouteCount = computed(() => store.todayDriverRoutes.filter((route) => driverRouteStage(route) === 'pending_shortage').length)
+const driverWarehouseHistory = computed(() => store.dailyRoutes
+  .filter((route) => route.supplierId === store.auth.supplierId && route.driverId === store.auth.driverId && route.warehouseCheckIn)
+  .sort((left, right) => (right.warehouseCheckIn?.at || '').localeCompare(left.warehouseCheckIn?.at || '')))
+const supplierOutboundRoutes = computed(() => store.dailyRoutes
+  .filter((route) => route.supplierId === store.auth.supplierId && route.deliveryDate === outboundDate.value)
+  .sort((left, right) => {
+    const rank = (route: DailyDeliveryRoute) => route.outboundHandover?.status === 'pending_supplier' ? 0 : route.outboundHandover?.status === 'pending_dispatch' ? 1 : route.status === 'completed' ? 3 : 2
+    return rank(left) - rank(right) || left.id.localeCompare(right.id)
+  }))
+const selectedOutboundRoute = computed(() => store.dailyRoutes.find((route) => route.id === outboundRouteId.value && route.supplierId === store.auth.supplierId) || null)
+const selectedOutboundOrders = computed(() => outboundRouteOrders(selectedOutboundRoute.value))
+const selectedOutboundItems = computed<RouteOutboundHandoverItem[]>(() => {
+  const handover = selectedOutboundRoute.value?.outboundHandover
+  return handover?.items.length ? handover.items : aggregateRouteOutboundItems(selectedOutboundOrders.value)
+})
+const selectedDriverRoute = computed(() => store.dailyRoutes.find((route) => route.id === driverRouteDetailId.value && route.supplierId === store.auth.supplierId && route.driverId === store.auth.driverId) || store.currentDriverRoute)
+const selectedDriverRouteOrders = computed(() => outboundRouteOrders(selectedDriverRoute.value))
+const driverNextStop = computed(() => selectedDriverRoute.value?.stops.find((stop) => !stop.completedAt && stop.completedOrderIds?.length !== stop.orderIds.length) || null)
+const selectedDriverRouteItems = computed<RouteOutboundHandoverItem[]>(() => selectedDriverRoute.value?.outboundHandover?.items.length ? selectedDriverRoute.value.outboundHandover.items : aggregateRouteOutboundItems(selectedDriverRouteOrders.value))
+const selectedDriverStop = computed(() => selectedDriverRoute.value?.stops.find((stop) => stop.storeId === driverStoreDetailId.value) || null)
+const selectedDriverStopOrders = computed(() => selectedDriverStop.value ? stopOrders(selectedDriverStop.value) : [])
+const selectedDriverStopItems = computed(() => aggregateRouteOutboundItems(selectedDriverStopOrders.value))
+const filteredSelectedOutboundItems = computed(() => selectedOutboundItems.value.filter((item) => {
+  const keyword = outboundKeyword.value.trim().toLowerCase()
+  const matchesKeyword = !keyword || `${item.name}${item.skuName}`.toLowerCase().includes(keyword)
+  const matchesDifference = !outboundShowDifferences.value || item.expected !== outboundItemActual(item)
+  return matchesKeyword && matchesDifference
+}))
+const filteredSelectedDriverRouteItems = computed(() => selectedDriverRouteItems.value.filter((item) => {
+  const keyword = outboundKeyword.value.trim().toLowerCase()
+  const matchesKeyword = !keyword || `${item.name}${item.skuName}`.toLowerCase().includes(keyword)
+  const matchesDifference = !outboundShowDifferences.value || item.expected !== outboundItemActual(item)
+  return matchesKeyword && matchesDifference
+}))
+const driverDataRoutes = computed(() => store.dailyRoutes
+  .filter((route) => route.supplierId === store.auth.supplierId && route.driverId === store.auth.driverId && route.status !== 'draft')
+  .sort((left, right) => right.deliveryDate.localeCompare(left.deliveryDate) || (right.publishedAt || right.generatedAt).localeCompare(left.publishedAt || left.generatedAt) || right.id.localeCompare(left.id)))
+const filteredDriverDataRoutes = computed(() => {
+  const keyword = driverDataKeyword.value.trim().toLowerCase()
+  return driverDataRoutes.value.filter((route) => {
+    const matchesDate = !driverDataDate.value || route.deliveryDate === driverDataDate.value
+    const searchable = [
+      driverRouteName(route),
+      route.deliveryDate,
+      driverRouteStageText(route),
+      routeDriverName(route),
+      warehouseName(route),
+      ...route.stops.flatMap((stop) => [stop.storeName, ...stop.orderIds])
+    ].join(' ').toLowerCase()
+    return matchesDate && (!keyword || searchable.includes(keyword))
+  })
+})
+const driverDataTitle = computed(() => driverDataDate.value === todayString()
+  ? '今天配送数据'
+  : driverDataDate.value ? `${driverDataDate.value} 配送数据` : '全部配送数据')
+const driverDataEmptyText = computed(() => driverDataKeyword.value.trim()
+  ? '没有符合条件的配送数据'
+  : driverDataDate.value ? '该配送日暂无配送数据' : '暂无配送数据')
+const driverDeliverySummary = computed(() => {
+  const routes = filteredDriverDataRoutes.value
+  const routeOrders = routes.flatMap((route) => outboundRouteOrders(route))
+  const storeIds = new Set(routes.flatMap((route) => route.stops.map((stop) => stop.storeId)))
+  return {
+    routeCount: routes.length,
+    storeCount: storeIds.size,
+    itemCount: routeOrders.reduce((sum, order) => sum + (order.items || []).reduce((lineSum, item) => lineSum + item.quantity, 0), 0),
+    shortageCount: routes.reduce((sum, route) => sum + (route.outboundHandover?.shortageAllocations || []).reduce((lineSum, item) => lineSum + item.quantity, 0), 0),
+    completionRate: routes.length ? Math.round(routes.filter((route) => route.status === 'completed').length / routes.length * 100) : 0
+  }
+})
+const driverDeliveryGroups = computed(() => {
+  const groups = new Map<string, DailyDeliveryRoute[]>()
+  for (const route of filteredDriverDataRoutes.value) {
+    const list = groups.get(route.deliveryDate) || []
+    list.push(route)
+    groups.set(route.deliveryDate, list)
+  }
+  return [...groups.entries()].map(([date, routes]) => ({ date, routes }))
+})
+const canDispatchRoute = computed(() => {
+  const route = selectedDriverRoute.value
+  const handover = route?.outboundHandover
+  if (!route || !handover || handover.status !== 'pending_dispatch') return false
+  return handover.items.every((item) => driverShortageRemaining(route, item) === 0)
+})
+function resetNumberRecord(record: Record<string, number>) {
+  Object.keys(record).forEach((key) => { delete record[key] })
+}
+function driverRouteStage(route: DailyDeliveryRoute): DriverRouteStage {
+  if (route.status === 'completed') return 'completed'
+  const handover = route.outboundHandover
+  if (!route.warehouseCheckIn) return 'pending_checkin'
+  if (!handover) return 'pending_submission'
+  if (handover.status === 'pending_supplier') return 'pending_review'
+  if (handover.status === 'rejected') return 'rejected'
+  if (handover.status === 'pending_dispatch') return outboundHasShortage(route) ? 'pending_shortage' : 'ready_to_dispatch'
+  return 'delivering'
+}
+function driverRouteStageText(route: DailyDeliveryRoute) {
+  const stage = driverRouteStage(route)
+  return stage === 'pending_checkin' ? '待到仓打卡'
+    : stage === 'pending_submission' ? '待提交交接'
+      : stage === 'pending_review' ? '审核中'
+        : stage === 'rejected' ? '审核不通过'
+          : stage === 'pending_shortage' ? '待标记缺货'
+            : stage === 'ready_to_dispatch' ? '待发车'
+              : stage === 'completed' ? '已完成' : '配送中'
+}
+function driverStopStage(route: DailyDeliveryRoute, stop: RouteStop): DriverStopStage {
+  if (stop.completedAt || stop.completedOrderIds?.length === stop.orderIds.length) return 'completed'
+  if (stop.checkIn) return 'checked_in'
+  return route.outboundHandover?.status === 'dispatched' ? 'in_transit' : 'waiting'
+}
+function driverStopStageText(route: DailyDeliveryRoute, stop: RouteStop) {
+  const stage = driverStopStage(route, stop)
+  return stage === 'completed' ? '已完成' : stage === 'checked_in' ? '已到店' : stage === 'in_transit' ? '配送中' : '待配送'
+}
+function driverRouteProgress(route: DailyDeliveryRoute) {
+  const total = route.stops.length
+  const completed = route.stops.filter((stop) => driverStopStage(route, stop) === 'completed').length
+  return { completed, total, percent: total ? Math.round(completed / total * 100) : 0 }
+}
+function setDriverDataDate(event: { detail: { value: string } }) {
+  driverDataDate.value = event.detail.value
+}
+function saveDriverAuxFilters() {
+  driverAuxFilterSnapshot = { date: driverDataDate.value, dataKeyword: driverDataKeyword.value, handoverKeyword: handoverKeyword.value }
+}
+function restoreDriverAuxFilters() {
+  driverDataDate.value = driverAuxFilterSnapshot.date
+  driverDataKeyword.value = driverAuxFilterSnapshot.dataKeyword
+  handoverKeyword.value = driverAuxFilterSnapshot.handoverKeyword
+}
+function openDriverAux(view: 'data' | 'handovers') {
+  restoreDriverAuxFilters()
+  driverAuxView.value = view
+}
+function closeDriverAux() {
+  saveDriverAuxFilters()
+  driverAuxView.value = null
+}
+function warehouseCheckInLabel(route: DailyDeliveryRoute) {
+  const checkIn = route.warehouseCheckIn
+  if (!checkIn) return '到仓后完成打卡，才能发起出仓交接'
+  if (checkIn.type === 'abnormal') return `异常打卡 · ${warehouseReasonLabel(checkIn.reasonCode)}`
+  return `已打卡 · 距仓点 ${checkIn.distanceM ?? 0} 米`
+}
+function canMoveDriverStop(route: DailyDeliveryRoute, index: number, direction: -1 | 1) {
+  const nextIndex = index + direction
+  if (selectedDriverRoute.value?.outboundHandover?.status !== 'dispatched') return false
+  if (nextIndex < 0 || nextIndex >= route.stops.length) return false
+  const current = route.stops[index]
+  const target = route.stops[nextIndex]
+  return !current.completedAt && !target.completedAt
+}
+function warehouseCheckInBadgeClass(route: DailyDeliveryRoute) {
+  if (isAbnormalWarehouseCheckIn(route)) return 'rejected'
+  return route.warehouseCheckIn ? 'received' : 'warning-tag'
+}
+function warehouseCheckInStatusText(route: DailyDeliveryRoute) {
+  if (isAbnormalWarehouseCheckIn(route)) return '异常打卡'
+  return route.warehouseCheckIn ? '已打卡' : '待打卡'
+}
+function warehouseReasonLabel(reason?: RouteWarehouseCheckInReason) {
+  return warehouseAbnormalOptions.find((item) => item.value === reason)?.label || '异常'
+}
+function isAbnormalWarehouseCheckIn(route: DailyDeliveryRoute) {
+  return route.warehouseCheckIn?.type === 'abnormal'
+}
+function routeExecutionStatus(route: DailyDeliveryRoute): DriverRouteFilter {
+  const stage = driverRouteStage(route)
+  if (stage === 'delivering') return '配送中'
+  if (stage === 'completed') return '已完成'
+  return '待配送'
+}
+function routeWarehouse(route: DailyDeliveryRoute) {
+  return supplierWarehouseOf(route.supplierId, store.suppliers)
+}
+function warehouseName(route: DailyDeliveryRoute) {
+  return routeWarehouse(route)?.contact || store.currentSupplier?.name || '供应商仓库'
+}
+function warehouseAddress(route: DailyDeliveryRoute) {
+  return routeWarehouse(route)?.address || '仓库地址待维护'
+}
+function outboundHasShortage(route: DailyDeliveryRoute) {
+  return (route.outboundHandover?.items || []).some((item) => item.expected > outboundItemActual(item))
+}
+function routeActionLabel(route: DailyDeliveryRoute) {
+  if (!route.warehouseCheckIn) return '到仓打卡'
+  const handover = route.outboundHandover
+  if (!handover) return '提交出仓交接'
+  if (handover.status === 'pending_supplier') return '查看审核'
+  if (handover.status === 'rejected') return '重新提交'
+  if (handover.status === 'pending_dispatch') return outboundHasShortage(route) ? '标记缺货' : '发车'
+  return route.status === 'completed' ? '配送记录' : '配送门店'
+}
+function toggleOutboundItem(skuId: string) {
+  const index = expandedOutboundItems.value.indexOf(skuId)
+  if (index >= 0) expandedOutboundItems.value.splice(index, 1)
+  else expandedOutboundItems.value.push(skuId)
+}
+function isOutboundItemExpanded(skuId: string) {
+  return expandedOutboundItems.value.includes(skuId)
+}
+function outboundItemStoreExpected(route: DailyDeliveryRoute, item: RouteOutboundHandoverItem, stop: RouteStop) {
+  return storeSkuQuantity(stop, item.skuId)
+}
+function outboundItemStoreActualText(route: DailyDeliveryRoute, item: RouteOutboundHandoverItem, stop: RouteStop) {
+  const handover = route.outboundHandover
+  if (!handover) return '待提交'
+  if (handover.status === 'pending_supplier') return '待审核'
+  if (handover.status === 'rejected') return '待重提'
+  const expected = outboundItemStoreExpected(route, item, stop)
+  const shortage = item.expected - outboundItemActual(item)
+  if (shortage <= 0) return String(expected)
+  const allocation = handover.shortageAllocations.find((entry) => entry.skuId === item.skuId && entry.storeId === stop.storeId)
+  return allocation ? String(expected - allocation.quantity) : '待分配'
+}
+function outboundItemStoreNote(route: DailyDeliveryRoute, item: RouteOutboundHandoverItem, stop: RouteStop) {
+  return route.outboundHandover?.shortageAllocations.find((entry) => entry.skuId === item.skuId && entry.storeId === stop.storeId)?.note || ''
+}
+function openDriverRouteAction(route: DailyDeliveryRoute) {
+  if (!route.warehouseCheckIn) { openDriverWarehouse(route); return }
+  const handover = route.outboundHandover
+  if (!handover || handover.status === 'rejected') { openDriverOutbound(route); return }
+  if (handover.status === 'pending_supplier') { openDriverRoute(route); openDriverOutbound(route); return }
+  if (handover.status === 'pending_dispatch') {
+    if (outboundHasShortage(route)) openDriverShortage(route)
+    else void dispatchDriverRoute(route)
+    return
+  }
+  openDriverRoute(route)
+}
+function storeSkuShortage(route: DailyDeliveryRoute, stop: RouteStop, skuId: string) {
+  return (route.outboundHandover?.shortageAllocations || [])
+    .filter((allocation) => allocation.storeId === stop.storeId && allocation.skuId === skuId)
+    .reduce((sum, allocation) => sum + allocation.quantity, 0)
+}
+function storeSkuShortageNote(route: DailyDeliveryRoute, stop: RouteStop, skuId: string) {
+  return (route.outboundHandover?.shortageAllocations || []).find((allocation) => allocation.storeId === stop.storeId && allocation.skuId === skuId)?.note || ''
+}
+function outboundRouteOrders(route: DailyDeliveryRoute | null | undefined) {
+  if (!route) return []
+  const ids = new Set(route.sourceOrderIds)
+  return store.orders.filter((order) => ids.has(order.id))
+}
+function routeGoodsQuantity(route: DailyDeliveryRoute) {
+  return outboundRouteOrders(route).reduce((sum, order) => sum + (order.items || []).reduce((lineSum, item) => lineSum + item.quantity, 0), 0)
+}
+function routeGoodsKinds(route: DailyDeliveryRoute) {
+  return new Set(outboundRouteOrders(route).flatMap((order) => (order.items || []).map((item) => item.skuId))).size
+}
+function routeDriverName(route: DailyDeliveryRoute) {
+  return store.visibleDrivers.find((driver) => driver.id === route.driverId)?.name || route.driverId
+}
+function driverOrderRoute(order: Order) {
+  return store.dailyRoutes.find((route) => route.sourceOrderIds.includes(order.id)) || null
+}
+function driverOrderRouteName(order: Order) {
+  const route = driverOrderRoute(order)
+  return route ? driverRouteName(route) : '配送线路'
+}
+function driverOrderCompletedAt(order: Order) {
+  const route = driverOrderRoute(order)
+  const stop = route?.stops.find((item) => item.orderIds.includes(order.id))
+  return stop?.completedAt?.replace('T', ' ').slice(0, 16) || order.supplierFulfillment?.updatedAt?.replace('T', ' ').slice(0, 16) || ''
+}
+function outboundStatusText(route: DailyDeliveryRoute) {
+  const handover = route.outboundHandover
+  if (!route.warehouseCheckIn) return '待到仓打卡'
+  if (!handover) return '待提交交接'
+  if (handover.status === 'pending_supplier') return '待供应商审核'
+  if (handover.status === 'rejected') return '审核不通过'
+  if (handover.status === 'pending_dispatch') return handover.items.some((item) => item.expected > (item.supplierActual ?? item.driverActual)) ? '待标记缺货' : '待司机发车'
+  return route.status === 'completed' ? '已完成' : '配送中'
+}
+function outboundItemActual(item: RouteOutboundHandoverItem) {
+  return item.supplierActual ?? item.driverActual
+}
+function openOutboundRoute(route: DailyDeliveryRoute) {
+  outboundRouteId.value = route.id
+  outboundNote.value = route.outboundHandover?.supplierNote || route.outboundHandover?.driverNote || ''
+  supplierRejectMode.value = false
+  supplierRejectionReason.value = ''
+  outboundKeyword.value = ''
+  outboundShowDifferences.value = false
+  resetNumberRecord(outboundActuals)
+  const items = route.outboundHandover?.items.length ? route.outboundHandover.items : aggregateRouteOutboundItems(outboundRouteOrders(route))
+  items.forEach((item) => { outboundActuals[item.skuId] = outboundItemActual(item) })
+}
+function closeOutboundRoute() {
+  outboundRouteId.value = ''
+  outboundNote.value = ''
+  supplierRejectMode.value = false
+  supplierRejectionReason.value = ''
+  outboundKeyword.value = ''
+  outboundShowDifferences.value = false
+  resetNumberRecord(outboundActuals)
+}
+function openDriverRoute(route: DailyDeliveryRoute) {
+  driverRouteDetailId.value = route.id
+  driverSelectedStopId.value = route.stops.find((stop) => !stop.completedAt && stop.completedOrderIds?.length !== stop.orderIds.length)?.storeId || ''
+  driverStoreDetailId.value = ''
+  driverOutboundView.value = false
+  driverWarehouseView.value = false
+  driverShortageView.value = false
+  driverRouteDisplayMode.value = 'list'
+  expandedOutboundItems.value = []
+  warehouseDistanceM.value = null
+  warehouseLocationError.value = ''
+  selectDriverRoute(route.id)
+}
+function openDriverStore(storeId: string) {
+  driverStoreDetailId.value = storeId
+}
+function closeDriverStore() { driverStoreDetailId.value = '' }
+function closeDriverRoute() {
+  driverAuxView.value = null
+  driverRouteDetailId.value = ''
+  driverStoreDetailId.value = ''
+  driverOutboundView.value = false
+  driverWarehouseView.value = false
+  driverShortageView.value = false
+  driverSelectedStopId.value = ''
+  expandedOutboundItems.value = []
+  warehouseDistanceM.value = null
+  warehouseLocationError.value = ''
+}
+function driverAllocationKey(skuId: string, storeId: string) {
+  return `${skuId}\u0000${storeId}`
+}
+function stopContainsSku(_route: DailyDeliveryRoute, stop: RouteStop, skuId: string) {
+  return store.orders.some((order) => stop.orderIds.includes(order.id) && (order.items || []).some((item) => item.skuId === skuId))
+}
+function initializeDriverShortageDraft(route: DailyDeliveryRoute) {
+  resetNumberRecord(driverShortageDraft)
+  Object.keys(driverShortageNotes).forEach((key) => { delete driverShortageNotes[key] })
+  const handover = route.outboundHandover
+  if (!handover || handover.status !== 'pending_dispatch') return
+  handover.shortageAllocations.forEach((allocation) => {
+    driverShortageDraft[driverAllocationKey(allocation.skuId, allocation.storeId)] = allocation.quantity
+    if (allocation.note) driverShortageNotes[driverAllocationKey(allocation.skuId, allocation.storeId)] = allocation.note
+  })
+  for (const item of handover.items) {
+    const shortage = item.expected - outboundItemActual(item)
+    if (shortage <= 0) continue
+    const eligible = route.stops.filter((stop) => stopContainsSku(route, stop, item.skuId))
+    if (eligible.length === 1) driverShortageDraft[driverAllocationKey(item.skuId, eligible[0].storeId)] = shortage
+  }
+}
+function openDriverOutbound(route: DailyDeliveryRoute) {
+  driverRouteDetailId.value = route.id
+  driverStoreDetailId.value = ''
+  driverOutboundView.value = true
+  driverWarehouseView.value = false
+  driverShortageView.value = false
+  driverHandoverNote.value = route.outboundHandover?.driverNote || ''
+  driverHandoverProofs.value = [...(route.outboundHandover?.proofImages || [])]
+  outboundKeyword.value = ''
+  outboundShowDifferences.value = false
+  resetNumberRecord(driverHandoverActuals)
+  const items = route.outboundHandover?.items.length ? route.outboundHandover.items : aggregateRouteOutboundItems(outboundRouteOrders(route))
+  items.forEach((item) => { driverHandoverActuals[item.skuId] = outboundItemActual(item) })
+  initializeDriverShortageDraft(route)
+}
+function closeDriverOutbound() {
+  driverOutboundView.value = false
+  driverHandoverNote.value = ''
+  driverHandoverProofs.value = []
+  outboundKeyword.value = ''
+  outboundShowDifferences.value = false
+  resetNumberRecord(driverHandoverActuals)
+}
+function driverShortageRemaining(route: DailyDeliveryRoute, item: RouteOutboundHandoverItem) {
+  const shortage = item.expected - outboundItemActual(item)
+  if (shortage <= 0) return 0
+  const allocated = route.stops.reduce((sum, stop) => sum + Number(driverShortageDraft[driverAllocationKey(item.skuId, stop.storeId)] || 0), 0)
+  return shortage - allocated
+}
+function driverItemStores(route: DailyDeliveryRoute, item: RouteOutboundHandoverItem) {
+  return route.stops.filter((stop) => stopContainsSku(route, stop, item.skuId))
+}
+function storeSkuQuantity(stop: RouteStop, skuId: string) {
+  const ids = new Set(stop.orderIds)
+  return store.orders.filter((order) => ids.has(order.id)).reduce((sum, order) => sum + (order.items || []).filter((item) => item.skuId === skuId).reduce((lineSum, item) => lineSum + item.quantity, 0), 0)
+}
+function getCurrentLocation() {
+  return new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+    uni.getLocation({ type: 'gcj02', success: (res) => resolve({ latitude: res.latitude, longitude: res.longitude }), fail: reject })
+  })
+}
+function openDriverWarehouse(route: DailyDeliveryRoute) {
+  driverRouteDetailId.value = route.id
+  warehouseAbnormalMode.value = false
+  warehouseAbnormalReason.value = ''
+  warehouseAbnormalNote.value = ''
+  driverWarehouseView.value = true
+  driverOutboundView.value = false
+  driverShortageView.value = false
+  driverStoreDetailId.value = ''
+  void refreshWarehouseDistance(route)
+}
+function closeDriverWarehouse() {
+  driverWarehouseView.value = false
+  warehouseAbnormalMode.value = false
+  warehouseDistanceM.value = null
+  warehouseLocationError.value = ''
+}
+function openDriverShortage(route: DailyDeliveryRoute) {
+  driverRouteDetailId.value = route.id
+  driverShortageView.value = true
+  driverOutboundView.value = false
+  driverWarehouseView.value = false
+  driverStoreDetailId.value = ''
+  initializeDriverShortageDraft(route)
+}
+function closeDriverShortage() {
+  driverShortageView.value = false
+  resetNumberRecord(driverShortageDraft)
+  Object.keys(driverShortageNotes).forEach((key) => { delete driverShortageNotes[key] })
+}
+async function refreshWarehouseDistance(route: DailyDeliveryRoute) {
+  warehouseLocationError.value = ''
+  try {
+    const location = await getCurrentLocation()
+    if (!route.origin) { warehouseDistanceM.value = null; warehouseLocationError.value = '仓点坐标待维护'; return }
+    warehouseDistanceM.value = distanceMeters(route.origin, location)
+  } catch {
+    warehouseDistanceM.value = null
+    warehouseLocationError.value = '无法获取定位，请开启定位权限'
+  }
+}
+async function checkInWarehouse(route: DailyDeliveryRoute) {
+  await runBusy('warehouse-checkin', async () => {
+    try {
+      const location = await getCurrentLocation()
+      if (route.origin) warehouseDistanceM.value = distanceMeters(route.origin, location)
+      const result = await store.checkInWarehouse(route.id, location)
+      toast(result.ok ? `到仓打卡成功，距仓点 ${result.value?.distanceM} 米` : result.message)
+    } catch {
+      warehouseLocationError.value = '无法获取定位，请开启定位权限'
+      toast(warehouseLocationError.value)
+    }
+  })
+}
+async function submitAbnormalWarehouseCheckIn(route: DailyDeliveryRoute) {
+  if (!warehouseAbnormalReason.value) { toast('请选择异常打卡原因'); return }
+  if (warehouseAbnormalReason.value === 'other' && !warehouseAbnormalNote.value.trim()) { toast('请填写其他异常原因'); return }
+  await runBusy('warehouse-abnormal-checkin', async () => {
+    let location: RouteOrigin | undefined
+    try { location = await getCurrentLocation() } catch { location = undefined }
+    const result = await store.checkInWarehouseAbnormal(route.id, { reasonCode: warehouseAbnormalReason.value as RouteWarehouseCheckInReason, reasonNote: warehouseAbnormalNote.value.trim() || undefined, location })
+    if (result.ok) {
+      warehouseAbnormalMode.value = false
+      warehouseAbnormalReason.value = ''
+      warehouseAbnormalNote.value = ''
+      toast('异常打卡已提交，可继续出仓交接')
+    } else toast(result.message)
+  })
+}
+async function submitDriverOutbound(route: DailyDeliveryRoute) {
+  if (!driverHandoverProofs.value.length) { toast('请至少上传 1 张出仓凭证'); return }
+  await runBusy('submit-outbound', async () => {
+    const result = await store.submitRouteOutbound(route.id, { actuals: { ...driverHandoverActuals }, proofImages: [...driverHandoverProofs.value], note: driverHandoverNote.value.trim() || undefined })
+    toast(result.ok ? '出仓交接已提交，等待供应商审核' : result.message)
+  })
+}
+async function reviewSupplierOutbound(route: DailyDeliveryRoute) {
+  await runBusy('review-outbound', async () => {
+    const result = await store.reviewRouteOutbound(route.id, { decision: 'confirm', actuals: { ...outboundActuals }, note: outboundNote.value.trim() || undefined })
+    if (result.ok) { toast('交接单已审核锁定'); closeOutboundRoute() }
+    else toast(result.message)
+  })
+}
+async function rejectSupplierOutbound(route: DailyDeliveryRoute) {
+  if (!supplierRejectionReason.value.trim()) { toast('请填写驳回原因'); return }
+  await runBusy('reject-outbound', async () => {
+    const result = await store.reviewRouteOutbound(route.id, { decision: 'reject', reason: supplierRejectionReason.value.trim() })
+    if (result.ok) { toast('已驳回，等待司机重新提交'); closeOutboundRoute() }
+    else toast(result.message)
+  })
+}
+async function markDriverShortages(route: DailyDeliveryRoute) {
+  await runBusy('mark-outbound-shortages', async () => {
+    const allocations: RouteOutboundShortageAllocation[] = []
+    for (const item of route.outboundHandover?.items || []) {
+      for (const stop of driverItemStores(route, item)) {
+        const quantity = Number(driverShortageDraft[driverAllocationKey(item.skuId, stop.storeId)] || 0)
+        if (quantity > 0) {
+          const note = driverShortageNotes[driverAllocationKey(item.skuId, stop.storeId)]?.trim()
+          allocations.push({ skuId: item.skuId, storeId: stop.storeId, quantity, ...(note ? { note } : {}) })
+        }
+      }
+    }
+    const result = await store.markRouteShortages(route.id, allocations)
+    if (result.ok) { toast('门店缺货已标记，可以发车'); closeDriverShortage() }
+    else toast(result.message)
+  })
+}
+async function moveDriverStop(route: DailyDeliveryRoute, index: number, direction: -1 | 1) {
+  const nextIndex = index + direction
+  if (nextIndex < 0 || nextIndex >= route.stops.length) return
+  const current = route.stops[index]
+  const target = route.stops[nextIndex]
+  if (current.completedAt || target.completedAt) { toast('已完成门店不可调整顺序'); return }
+  const ids = route.stops.map((stop) => stop.storeId)
+  ;[ids[index], ids[nextIndex]] = [ids[nextIndex], ids[index]]
+  await runBusy('reorder-stops', async () => {
+    const result = await store.reorderRouteStops(route.id, ids)
+    toast(result.ok ? '门店顺序已更新' : result.message)
+  })
+}
+function callStore(phone?: string) {
+  if (!phone) { toast('门店电话待维护'); return }
+  uni.makePhoneCall({ phoneNumber: phone })
+}
+async function dispatchDriverRoute(route: DailyDeliveryRoute) {
+  await runBusy('dispatch-route', async () => {
+    const result = await store.dispatchRoute(route.id)
+    if (result.ok) { toast('已发车，线路进入配送中'); closeDriverShortage(); closeDriverOutbound() }
+    else toast(result.message)
+  })
+}
+async function handoverDriverStop(route: DailyDeliveryRoute, stop: RouteStop) {
+  await runBusy('store-handover', async () => {
+    const result = await store.handoverRouteStop(route.id, stop.storeId)
+    if (result.ok) { toast('到店交接完成'); closeDriverStore() }
+    else toast(result.message)
+  })
+}
 const routeOrderCount = computed(() => store.currentDriverRoute?.sourceOrderIds.length || 0)
 const routeCompletedOrderCount = computed(() => store.currentDriverRoute?.stops.reduce((count, stop) => count + (stop.completedOrderIds?.length || 0), 0) || 0)
 const nextRouteStop = computed(() => store.currentDriverRoute?.stops.find((stop) => (stop.completedOrderIds?.length || 0) < stop.orderIds.length) || null)
@@ -929,13 +1618,10 @@ function selectDriverRoute(routeId: string) {
   if (!store.selectDriverRoute(routeId)) return
   selectedRouteStopId.value = ''
 }
-function driverRouteName(route: { namedRouteId?: string; id: string }) {
-  return store.namedRoutes.find((item) => item.id === route.namedRouteId)?.name || `线路 ${route.id.split('-').at(-1) || ''}`
-}
-function driverRouteProgress(route: DailyDeliveryRoute) {
-  const total = route.sourceOrderIds.length
-  const completed = route.stops.reduce((sum, stop) => sum + (stop.completedOrderIds?.length || 0), 0)
-  return `${completed}/${total} 单`
+function driverRouteName(route: { namedRouteId?: string; id: string; driverId?: string }) {
+  const named = store.namedRoutes.find((item) => item.id === route.namedRouteId)
+    || (route.driverId ? store.namedRoutes.find((item) => item.supplierId === store.auth.supplierId && item.driverId === route.driverId) : undefined)
+  return named?.name || '今日配送线路'
 }
 function routeStatusText(order: Order) {
   if (isCourierOrder(order)) return ''
@@ -1056,7 +1742,7 @@ function orderActions(order: Order): Array<{ key: string; label: string; primary
   if (status === 'accepted') return [
     ...(isCourierOrder(order) ? [{ key: 'courier', label: '快递直发' }] : [])
   ]
-  if (status === 'shipped') return [{ key: 'handover-out', label: '出库交接', primary: true }]
+  if (status === 'shipped' && shipType === 'courier') return [{ key: 'handover-out', label: '出库交接', primary: true }]
   if (status === 'delivering' && shipType === 'courier') return [{ key: 'courier-delivered', label: '确认快递签收', primary: true }]
   return []
 }
@@ -1277,9 +1963,27 @@ const filteredHandovers = computed(() => store.allHandovers.filter((log) => {
   const matchesDriver = handoverDriverFilter.value === '全部' || log.operatorName === handoverDriverFilter.value
   return matchesType && matchesDriver
 }))
+const handoverKeyword = ref('')
+type DriverAuxFilterSnapshot = { date: string; dataKeyword: string; handoverKeyword: string }
+let driverAuxFilterSnapshot: DriverAuxFilterSnapshot = { date: todayString(), dataKeyword: '', handoverKeyword: '' }
+const filteredMyHandovers = computed(() => {
+  const keyword = handoverKeyword.value.trim().toLowerCase()
+  if (!keyword) return store.myHandovers
+  return store.myHandovers.filter((log) => [
+    log.orderId,
+    log.customer,
+    log.operatorName,
+    log.operatorRole === 'driver' ? '司机' : '供应商',
+    log.type === 'out' ? '出仓交接' : '到店交接',
+    log.time,
+    log.note,
+    log.shortageCount ? `缺货 ${log.shortageCount} 项` : ''
+  ].join(' ').toLowerCase().includes(keyword))
+})
 const recentHandovers = computed(() => store.allHandovers.slice(0, 5))
 
 // ---------- 司机工作区 ----------
+const currentDriverWarehouse = computed(() => supplierWarehouseOf(store.auth.supplierId, store.suppliers))
 const driverDoneToday = computed(() => {
   const today = new Date().toLocaleDateString('zh-CN')
   return store.myHistory.filter((order) => order.supplierFulfillment?.handovers.some((log) => log.type === 'in' && log.time.includes(today))).length
@@ -1488,7 +2192,7 @@ $control: var(--control-size);
 .mine-hero .pc-hero-badge { display: inline-flex; }
 .mine-hero .pc-hero-name,
 .mine-hero .pc-hero-uid { display: block; }
-.mine-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-gap); }
+.mine-tile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-gap); }
 .mine-tile-grid .pc-tile-icon { color: $green; }
 .mine-tile-grid .pc-tile--amber .pc-tile-icon { color: $amber; }
 .mine-tile-grid .pc-tile--coral .pc-tile-icon { color: $red; }
@@ -1496,7 +2200,7 @@ $control: var(--control-size);
 .mine-tile-grid .pc-tile--purple .pc-tile-icon { color: $purple; }
 .mine-tile-grid .pc-tile--teal .pc-tile-icon { color: $green-deep; }
 .work-link { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 9px 11px; border: 1px solid $line; border-radius: $radius-card; background: $panel; color: $ink; text-align: left; box-shadow: $shadow-card; }
-.mine-tile-grid .work-link { flex-direction: column; align-items: center; text-align: center; min-height: 88px; padding: 14px 10px; width: auto; }
+.mine-tile-grid .work-link { flex-direction: column; align-items: center; text-align: center; min-height: 96px; padding: 12px 6px; width: auto; }
 .work-link .row-main { min-width: 0; }
 .work-link .row-main > text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .driver-mine { display: grid; gap: 8px; }
@@ -1613,6 +2317,220 @@ $control: var(--control-size);
 .category-picker-option-main>view text { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700; }
 .category-picker-option-main>view small { margin-top:3px;color:$muted;font-size:12px; }
 .category-picker-trigger::after,.category-picker-option::after { display:none; }
+// ===== 出仓交接与司机线路 =====
+.outbound-date-field { margin-bottom: 12px; }
+.outbound-route-card { width: 100%; display: grid; gap: 8px; text-align: left; border: 1px solid $line; background: $panel; }
+.outbound-route-metrics { display: flex; flex-wrap: wrap; gap: 6px 12px; color: $muted; font-size: 12px; }
+.outbound-summary-card { display: grid; gap: 8px; padding: 12px; border: 1px solid $line; border-radius: $radius-card; background: $green-soft; }
+.outbound-item-list { display: flex; flex-direction: column; gap: 8px; }
+.outbound-item-card { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
+.outbound-item-card--driver { align-items: flex-start; }
+.outbound-item-image { width: 58px; height: 58px; flex: none; border-radius: $radius-button; background: $line-light; }
+.outbound-item-name { display: block; font-size: 15px; font-weight: 700; color: $ink; }
+.outbound-quantity-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.outbound-final-value { flex: none; min-width: 42px; text-align: right; color: $green-deep; font-size: 18px; font-weight: 800; }
+.shortage-allocate-head { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; color: $ink; font-size: 13px; font-weight: 700; }
+.shortage-allocate-head .danger { color: $red; }
+.shortage-allocate-row { display: grid; grid-template-columns: minmax(0, 1fr) 82px; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px dashed $line; }
+.shortage-allocate-row input { width: 82px; height: 40px; padding: 0 8px; border: 1px solid $line; border-radius: $radius-button; background: $panel; color: $ink; text-align: center; }
+.warehouse-action-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 12px 0; padding: 12px; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
+.driver-route-list { display: flex; flex-direction: column; gap: var(--space-gap); }
+.driver-route-page .driver-route-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.driver-route-card { width: 100%; display: grid; gap: 10px; text-align: left; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
+.driver-route-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: 100%; }
+.driver-route-card-grid view { min-width: 0; }
+.driver-route-card-grid small, .driver-route-card-grid strong { display: block; }
+.driver-route-card-grid small { margin-bottom: 3px; color: $muted; font-size: 12px; }
+.driver-route-card-grid strong { overflow: hidden; color: $ink; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.route-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 4px; color: $muted; font-size: 12px; }
+.driver-stop-card { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; text-align: left; border: 1px solid $line; background: $panel; }
+
+// ===== 原司机端流程映射样式 =====
+.outbound-search { margin-top: 12px; }
+.outbound-difference-toggle { margin: 10px 0 2px; }
+.outbound-totals { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 12px; padding: 12px; border-radius: $radius-card; background: $green-soft; color: $ink; font-weight: 700; }
+.proof-image-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.proof-image { width: 100%; height: 88px; border-radius: $radius-button; background: $line-light; }
+.handover-rejection { display: grid; gap: 4px; margin-top: 12px; padding: 12px; border: 1px solid $danger-soft; border-radius: $radius-card; background: $danger-soft; color: $red; }
+.review-history { display: grid; gap: 6px; margin-top: 14px; padding: 12px; border: 1px solid $line; border-radius: $radius-card; background: $bg; }
+.reject-editor { display: grid; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
+.warehouse-checkin-card { display: grid; gap: 10px; padding: 18px; border: 1px solid $line; border-radius: $radius-card; background: $panel; text-align: center; }
+.warehouse-distance { display: grid; gap: 4px; }
+.warehouse-distance text { color: $muted; font-size: 12px; }
+.warehouse-distance strong { color: $green-deep; font-size: 28px; }
+.route-status-filters { margin-bottom: 12px; }
+.route-card-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.route-mode-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 12px 0; padding: 4px; border-radius: $radius-card; background: $green-soft; }
+.route-mode-tabs button { min-height: 40px; border: 0; border-radius: $radius-button; background: transparent; color: $muted; }
+.route-mode-tabs button.active { background: $green; color: $on-brand; font-weight: 700; }
+.route-stop-actions { display: grid; grid-template-columns: repeat(2, $control); gap: 6px; flex: none; }
+.route-stop-actions .primary-button { grid-column: 1 / -1; min-width: 0; width: calc($control * 2 + 6px); padding: 0 6px; }
+.route-contact-button { font-size: 12px; }
+.store-action-hint { align-self: center; padding: 12px; }
+.shortage-allocate-row > input { width: 82px; height: 40px; padding: 0 8px; border: 1px solid $line; border-radius: $radius-button; background: $panel; color: $ink; text-align: center; }
+.shortage-note-input { width: 100%; height: 38px; margin-top: 6px; padding: 0 9px; border: 1px solid $line; border-radius: $radius-button; background: $bg; color: $ink; text-align: left; }
+
+// ===== 司机配送现代化视觉 =====
+.driver-hero-panel { margin: 0 16px 12px; padding: 18px 16px 14px; border-radius: 24px; background: var(--gradient-brand); box-shadow: var(--shadow-card); }
+.driver-hero-panel .hero-top { padding: 0; }
+.driver-hero-panel .hero-avatar { background: rgba(255, 255, 255, .2); color: $on-brand; }
+.driver-hero-panel .hero-title, .driver-hero-panel .hero-sub, .driver-hero-panel .hero-stat-label, .driver-hero-panel .hero-stat-value { color: $on-brand; }
+.driver-hero-identity { display: grid; gap: 3px; min-width: 0; }
+.driver-hero-warehouse { display: flex; align-items: center; gap: 5px; margin-top: 3px; color: var(--color-on-brand); font-size: var(--text-body); font-weight: 600; }
+.driver-hero-panel .hero-stats { margin-top: 14px; border: 0; background: rgba(255, 255, 255, .12); }
+.driver-hero-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border-radius: 14px; overflow: hidden; }
+.driver-hero-stats .hero-stat { border: 0; background: transparent; }
+.driver-status-segments { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-bottom: 14px; padding: 4px; border-radius: $radius-card; background: $green-soft; }
+.driver-status-segments button { min-height: 40px; border: 0; border-radius: $radius-button; background: transparent; color: $muted; font-size: 14px; }
+.driver-status-segments button.active { background: $green; color: $on-brand; font-weight: 700; box-shadow: var(--shadow-button-primary); }
+.driver-route-card { width: 100%; display: grid; gap: 0; padding: 0; border: 1px solid $line; border-radius: 18px; background: $panel; box-shadow: $shadow-card; overflow: hidden; }
+.driver-route-card-main { width: 100%; display: grid; gap: 12px; padding: var(--space-card); border: 0; background: transparent; text-align: left; }
+.driver-route-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.driver-route-card-head > view { display: grid; gap: 3px; min-width: 0; }
+.driver-route-card-head .muted { font-size: var(--text-body); line-height: 1.45; }
+.driver-route-name { display: block; color: $ink; font-size: var(--text-title); font-weight: 800; }
+.driver-route-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; padding: 12px; border-radius: $radius-card; background: $bg; }
+.driver-route-metrics view { display: grid; gap: 2px; min-width: 0; }
+.driver-route-metrics view:last-child strong { overflow: visible; white-space: normal; }
+.driver-route-metrics small { color: $muted; font-size: var(--text-body); }
+.driver-route-metrics strong { overflow: hidden; color: $ink; font-size: var(--text-subtitle); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.driver-route-progress { display: grid; gap: 6px; }
+.driver-route-progress-head { display: flex; justify-content: space-between; gap: 8px; color: $muted; font-size: var(--text-body); }
+.driver-route-progress-track, .shortage-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: $line-light; }
+.driver-route-progress-track > view, .shortage-progress-track > view { height: 100%; border-radius: inherit; background: $green; transition: width .2s ease; }
+.driver-route-warning { display: flex; align-items: center; gap: 7px; margin: 0 15px 12px; padding: 10px 12px; border: 1px solid $warning-soft; border-radius: $radius-button; background: $warning-soft; color: $amber; font-size: 12px; }
+.badge.pending_checkin, .badge.pending_submission { background: $warning-soft; color: $amber; }
+.badge.pending_review { background: $info-soft; color: $blue; }
+.badge.rejected { background: $danger-soft; color: $red; }
+.badge.pending_shortage { background: $danger-soft; color: $red; }
+.badge.ready_to_dispatch { background: $green-soft; color: $green-deep; }
+.badge.delivering { background: $info-soft; color: $blue; }
+.badge.completed, .badge.checked_in { background: $green-soft; color: $green-deep; }
+.badge.waiting { background: $bg; color: $muted; }
+.badge.in_transit { background: $info-soft; color: $blue; }
+.driver-timeline { display: grid; gap: 0; }
+.driver-timeline-item { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; min-width: 0; }
+.driver-timeline-axis { display: flex; flex-direction: column; align-items: center; }
+.driver-timeline-axis .route-number { width: 30px; height: 30px; font-size: 13px; background: $line; color: $muted; }
+.driver-timeline-line { width: 2px; flex: 1; min-height: 18px; background: $line; }
+.driver-timeline-item.is-in_transit .route-number, .driver-timeline-item.is-checked_in .route-number, .driver-timeline-item.is-completed .route-number { background: $green; color: $on-brand; }
+.driver-timeline-item.is-in_transit .driver-timeline-line, .driver-timeline-item.is-checked_in .driver-timeline-line, .driver-timeline-item.is-completed .driver-timeline-line { background: $green-soft; }
+.driver-timeline-card { min-width: 0; margin-bottom: 12px; padding: 14px; border: 1px solid $line; border-radius: $radius-card; background: $panel; box-shadow: var(--shadow-card); }
+.driver-timeline-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.driver-timeline-name { display: block; color: $ink; font-size: 16px; font-weight: 750; }
+.driver-timeline-metrics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.driver-timeline-metrics text { padding: 4px 8px; border-radius: 999px; background: $bg; color: $muted; font-size: 12px; }
+.driver-timeline-contact { display: flex; align-items: center; gap: 5px; margin-top: 9px; color: $muted; font-size: 12px; }
+.driver-timeline-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.driver-timeline-actions .icon-button { width: 40px; height: 40px; min-height: 40px; }
+.driver-timeline-actions .mini-button { flex: 1; min-width: 72px; }
+.warehouse-distance-ring { width: 150px; height: 150px; margin: 6px auto; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 10px solid $line-light; border-radius: 50%; background: $bg; color: $muted; transition: border-color .2s ease, transform .2s ease; }
+.warehouse-distance-ring.in-range { border-color: $green; color: $green-deep; transform: scale(1.02); }
+.warehouse-distance-ring text, .warehouse-distance-ring small { font-size: 12px; }
+.warehouse-distance-ring strong { margin: 3px 0; font-size: 36px; line-height: 1; }
+.warehouse-checkin-tip { font-weight: 700; }
+.warehouse-checkin-action { min-height: 48px; }
+.warehouse-history-timeline { display: grid; gap: 0; margin-top: 8px; }
+.warehouse-history-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; }
+.warehouse-history-dot { width: 10px; height: 10px; margin: 5px auto 0; border: 2px solid $panel; border-radius: 50%; background: $green; box-shadow: 0 0 0 1px $green; }
+.warehouse-history-content { position: relative; padding: 0 0 16px 2px; border-left: 1px solid $line; }
+.warehouse-history-content::before { content: ''; position: absolute; left: -5px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: $green; }
+.outbound-quantity-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.outbound-quantity-grid > view { min-width: 0; padding: 8px 6px; border-radius: $radius-button; background: $bg; text-align: center; }
+.outbound-quantity-grid small, .outbound-quantity-grid strong { display: block; }
+.outbound-quantity-grid small { color: $muted; font-size: 11px; }
+.outbound-quantity-grid strong { margin-top: 3px; color: $ink; font-size: 15px; }
+.outbound-quantity-grid .danger { background: $danger-soft; color: $red; }
+.outbound-inline-edit { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding: 8px 10px; border: 1px solid $green-soft; border-radius: $radius-button; background: $green-soft; color: $green-deep; font-size: 13px; }
+.outbound-inline-edit input { width: 84px; height: 40px; padding: 0 8px; border: 1px solid $line; border-radius: $radius-button; background: $panel; text-align: center; }
+.shortage-progress { display: grid; gap: 6px; margin-top: 10px; }
+.shortage-progress-head { display: flex; justify-content: space-between; color: $muted; font-size: 12px; }
+.store-readonly-note { display: block; margin-top: 8px; padding: 7px 9px; border-radius: $radius-button; background: $danger-soft; color: $red; font-size: 12px; }
+
+// ===== 司机历史与门店明细补充 =====
+.driver-timeline-item.is-selected .driver-timeline-card { border-color: $green; box-shadow: 0 0 0 2px $green-soft, var(--shadow-card); }
+.driver-timeline-item.is-next .driver-timeline-name { color: $green-deep; }
+.driver-timeline-status { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.tag.next-stop { background: $green; color: $on-brand; }
+.outbound-store-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 40px; margin-top: 10px; padding: 0 10px; border: 1px solid $line; border-radius: $radius-button; background: $panel; color: $green-deep; font-size: 13px; font-weight: 700; }
+.outbound-store-breakdown { display: grid; gap: 8px; margin-top: 8px; padding: 10px; border-radius: $radius-card; background: $bg; }
+.outbound-store-breakdown > view { display: grid; gap: 4px; padding: 10px; border: 1px solid $line; border-radius: $radius-button; background: $panel; }
+.driver-history, .driver-mine { display: grid; gap: 12px; }
+.driver-history-card, .driver-handover-card { display: grid; gap: 10px; padding: 14px; border: 1px solid $line; border-radius: 18px; background: $panel; box-shadow: $shadow-card; }
+.driver-history-order { display: block; color: $ink; font-size: 16px; font-weight: 800; }
+.driver-history-meta, .driver-handover-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; color: $muted; font-size: 12px; }
+.driver-history-meta text, .driver-handover-meta text { padding: 4px 8px; border-radius: 999px; background: $bg; }
+.driver-handover-card { gap: 8px; }
+.driver-handover-head { align-items: flex-start; }
+.driver-handover-customer { display: block; margin-top: 3px; color: $muted; font-size: var(--text-body); line-height: 1.4; }
+.driver-handover-meta { display: flex; gap: 4px 12px; padding-top: 8px; border-top: 1px solid $line; color: $muted; font-size: var(--text-caption); }
+.driver-handover-meta text { padding: 0; background: transparent; }
+.driver-handover-note { display: block; padding: 9px 10px; border-left: 3px solid var(--color-info); border-radius: 0 var(--radius-button) var(--radius-button) 0; background: var(--color-info-soft); color: var(--color-info-dark); font-size: var(--text-caption); line-height: 1.5; }
+.driver-history-card .task-items { margin-top: 0; }
+.driver-pending-card { border-radius: 18px; box-shadow: $shadow-card; }
+.driver-pending-card .task-store { margin-top: 10px; }
+
+// ===== 司机单页导航与异常打卡 =====
+.driver-route-metrics { gap: 0; padding: 0; border: 1px solid $line; border-radius: 12px; background: $panel; overflow: hidden; }
+.driver-route-metrics view { min-height: 58px; padding: 10px 12px; border-right: 1px solid $line; border-bottom: 1px solid $line; }
+.driver-route-metrics view:nth-child(2n) { border-right: 0; }
+.driver-route-metrics view:nth-last-child(-n + 2) { border-bottom: 0; }
+.driver-records-title { margin: 0; }
+.driver-quick-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 0; }
+.driver-quick-tools button { display: grid; justify-items: center; gap: 8px; min-height: 96px; padding: 12px 8px; border: 1px solid $line; border-radius: 18px; background: $panel; box-shadow: $shadow-card; }
+.driver-quick-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 15px; background: $green-soft; color: $green-deep; }
+.driver-quick-tools text { color: $ink; font-size: var(--text-subtitle); font-weight: 800; }
+.driver-aux-page { grid-template-rows: auto minmax(0, 1fr); padding-bottom: 20px; }
+.driver-data-filters { display: grid; gap: 10px; margin-bottom: 14px; }
+.driver-data-date-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.driver-data-date-picker, .driver-data-date-control input { min-width: 0; width: 100%; }
+.driver-data-date-clear { min-width: 88px; }
+.driver-data-search { margin-top: 0; }
+.driver-data-search input { height: 40px; }
+.driver-data-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.driver-data-summary > view { display: grid; gap: 3px; padding: 12px; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
+.driver-data-summary small { color: $muted; font-size: 12px; }
+.driver-data-summary strong { color: $green-deep; font-size: 22px; }
+.driver-data-summary > view:last-child { grid-column: 1 / -1; }
+.driver-data-group { display: grid; gap: 8px; margin-bottom: 12px; }
+.driver-data-date { color: $ink; font-size: 15px; font-weight: 800; }
+.driver-data-route { display: grid; gap: 8px; padding: 12px; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
+.warehouse-abnormal-form { display: grid; gap: 12px; padding: 14px; border: 1px solid $line; border-radius: $radius-card; background: $panel; }
+.warehouse-reason-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.warehouse-reason-options .chip { flex: 1 1 42%; }
+
+// ===== 司机角色统一视觉层 =====
+.driver-role-page { display: grid; gap: var(--space-section); padding-bottom: calc(var(--space-page) + env(safe-area-inset-bottom)); color: var(--color-ink); transition: background-color 160ms ease, color 160ms ease; }
+.driver-role-page .driver-section-card { padding: var(--space-card); border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-card); box-shadow: var(--shadow-card); transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.driver-role-page .driver-route-card.driver-section-card { padding: 0; }
+.handover-shared-page .driver-section-card { padding: var(--space-card); border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-card); box-shadow: var(--shadow-card); }
+.driver-role-page .driver-action-secondary { min-height: var(--control-size); border: 1px solid var(--color-line); border-radius: var(--radius-button); background: var(--color-card); color: var(--color-brand-primary-dark); transition: border-color 160ms ease, background-color 160ms ease; }
+.driver-role-page .badge.pending_review { background: var(--color-info-soft); color: var(--color-info-dark); }
+.driver-role-page .badge.pending_shortage, .driver-role-page .badge.rejected { background: var(--color-danger-soft); color: var(--color-danger-dark); }
+.driver-role-page .badge.pending_checkin, .driver-role-page .badge.pending_submission, .driver-role-page .badge.ready_to_dispatch { background: var(--color-warning-soft); color: var(--color-warning-dark); }
+.driver-role-page .driver-route-card-main:active, .driver-role-page .driver-timeline-card:active, .driver-role-page .driver-quick-tools button:active, .driver-role-page .driver-data-route:active { transform: scale(.992); }
+// ===== 布局重设计覆盖层（只动布局，零模板改动）=====
+.login-fields { gap: 12px; padding: 14px; border: 1px solid $line; border-radius: $radius-card; background: $bg; }
+.login-button { min-height: 48px; font-size: 15px; }
+.secondary-head { min-height: 52px; }
+.secondary-head .page-back { width: 34px; height: 34px; min-height: 34px; border: 1px solid $line; border-radius: 50%; background: $panel; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.secondary-foot { border-top: 1px solid $line; }
+.steps { gap: 0; margin-bottom: 16px; }
+.step:not(:last-child)::after { content: ''; width: 16px; height: 1.5px; background: $line; margin: 0 4px; }
+.step.done:not(:last-child)::after { background: $green; }
+.order-item-line { gap: 10px; padding: 9px 10px; border: 1px solid $line; border-radius: $radius-button; background: $panel; margin-bottom: 6px; }
+.shortage-line { padding: 9px 10px; border: 1px solid $line; border-radius: $radius-button; background: $panel; margin-bottom: 6px; }
+.actual-line { padding: 9px 10px; border: 1px solid $line; border-radius: $radius-button; background: $panel; }
+.driver-form-sheet .form-fields { gap: 12px; padding: 14px; border: 1px solid $line; border-radius: $radius-card; background: $bg; }
+.sku-card-head > text { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; background: $green-soft; color: $green-deep; font-size: 12px; font-weight: 700; }
+.supplier-sku-fields { background: $panel; box-shadow: $shadow-card; }
+.order-amount { color: $price; }
+.route-stop-selected { border-left: 3px solid $green; }
+.mine-tile-grid { gap: 10px; }
+.mine-tile-grid .work-link { min-height: 92px; }
+.delivery-route-map { min-height: 200px; }
+.delivery-route-map :deep(.delivery-route-map-canvas) { height: 200px; }
+.delivery-route-map :deep(.delivery-route-map-overlay) { left: 10px; right: auto; max-width: calc(100% - 76px); padding: 6px 12px; border-radius: 999px; box-shadow: $shadow-card; }
 @media (hover: hover) {
   .role-tabs button:not(.active):hover { background: var(--color-hover-bg); }
   .category-picker-option:hover { background: var(--color-hover-bg); }

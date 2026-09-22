@@ -384,8 +384,7 @@ export function seedSupplierDemoRouteOnce(): boolean {
     deliveryDate: today,
     status: 'published',
     stops: [
-      { storeId: f001.storeId, storeName: f001.storeName, address: f001.address, longitude: f001.longitude, latitude: f001.latitude, orderIds: ['SO-S010'] },
-      { storeId: f002.storeId, storeName: f002.storeName, address: f002.address, longitude: f002.longitude, latitude: f002.latitude, orderIds: ['SO-S009'] }
+      { storeId: f001.storeId, storeName: f001.storeName, address: f001.address, longitude: f001.longitude, latitude: f001.latitude, orderIds: ['SO-S003', 'SO-S010'] }
     ],
     origin: { longitude: supplierInfo.longitude, latitude: supplierInfo.latitude },
     stopCount: 2,
@@ -394,9 +393,9 @@ export function seedSupplierDemoRouteOnce(): boolean {
       { longitude: f001.longitude!, latitude: f001.latitude! },
       { longitude: f002.longitude!, latitude: f002.latitude! }
     ],
-    totalDistanceKm: 86.4,
-    estimatedDurationMinutes: 140,
-    sourceOrderIds: ['SO-S009', 'SO-S010'],
+    totalDistanceKm: 43.2,
+    estimatedDurationMinutes: 70,
+    sourceOrderIds: ['SO-S003', 'SO-S010'],
     provider: 'demo-seed',
     generatedAt: now,
     publishedAt: now

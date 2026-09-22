@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs'
 describe('supplier and driver mobile routing navigation', () => {
   const source = readFileSync(new URL('./index.vue', import.meta.url), 'utf8')
 
-  it('uses three supplier tabs and three driver tabs while keeping work areas on back-navigable secondary pages', () => {
+  it('uses three supplier tabs and no driver tabbar while keeping work areas back-navigable', () => {
     const supplierTabs = source.match(/const supplierTabs = \[([\s\S]*?)\n\]/)?.[1] || ''
-    const driverTabs = source.match(/const driverTabs = \[([\s\S]*?)\n\]/)?.[1] || ''
     expect([...supplierTabs.matchAll(/label: '([^']+)'/g)].map((match) => match[1])).toEqual(['订单', '商品', '我的'])
-    expect([...driverTabs.matchAll(/label: '([^']+)'/g)].map((match) => match[1])).toEqual(['今日线路', '历史任务', '我的'])
+    expect(source).not.toContain('const driverTabs')
+    expect(source).toMatch(/store\.auth\.role === 'supplier'[\s\S]*class="tabbar"/)
     expect(source).toMatch(/secondaryWorkspace[\s\S]*返回/)
     expect(source).toMatch(/class="page-back" aria-label="返回"/)
     expect(source).not.toMatch(/<text>返回<\/text>/)
@@ -16,9 +16,31 @@ describe('supplier and driver mobile routing navigation', () => {
     expect(source).toContain("active === 'orders'")
     expect(source).toContain("'drivers'")
     expect(source).toContain("'routes'")
+    expect(source).toContain("'outbound'")
     expect(source).toContain("'settlements'")
     expect(source).toContain("'handovers'")
     expect(source).toContain("'warehouse'")
+  })
+
+  it('puts driver work records first and exposes date, route and handover searches', () => {
+    const todayTemplate = source.match(/<view class="page-pad driver-role-page driver-today-page"[\s\S]*?<\/view>\s*<\/view>/)?.[0] || ''
+    expect(todayTemplate.indexOf('作业记录')).toBeGreaterThan(-1)
+    expect(todayTemplate.indexOf('作业记录')).toBeLessThan(todayTemplate.indexOf('driver-status-segments'))
+    expect(todayTemplate).not.toContain('最近 7 天线路与配送汇总')
+    expect(todayTemplate).not.toContain('出仓与到店交接明细')
+    expect(source).toContain("const driverDataDate = ref(todayString())")
+    expect(source).toContain("const driverDataKeyword = ref('')")
+    expect(source).toContain("const handoverKeyword = ref('')")
+    expect(source).toContain('placeholder="搜索线路 / 门店 / 订单 / 状态"')
+    expect(source).toContain('placeholder="搜索订单号 / 门店 / 司机 / 备注"')
+    expect(source).toContain("driverAuxView === 'data' ? driverDataTitle : '交接记录'")
+  })
+
+  it('keeps driver record filters across aux view switches and searches shortage text', () => {
+    expect(source).toContain('driverAuxFilterSnapshot')
+    expect(source).toMatch(/function openDriverAux[\s\S]*restoreDriverAuxFilters\(\)/)
+    expect(source).toMatch(/function closeDriverAux[\s\S]*saveDriverAuxFilters\(\)/)
+    expect(source).toContain('log.shortageCount ? `缺货 ${log.shortageCount} 项` : \'\'')
   })
 
   it('subscribes to routing collections and includes mobile touch and overflow guards', () => {
@@ -32,22 +54,28 @@ describe('supplier and driver mobile routing navigation', () => {
     expect(source).toMatch(/\.task-store[^{]*\{[^}]*min-width:\s*0/s)
   })
 
-  it('shows contact details on published route stops and only confirms a successful driver status change', () => {
-    const publishedRoute = source.match(/<view v-if="store\.currentDriverRoute"[\s\S]*?供应商尚未发布今日线路/)?.[0] || ''
-    expect(publishedRoute).toContain('storeInfoOf(stop).contact')
-    expect(publishedRoute).toContain('storeInfoOf(stop).phone')
+  it('shows contact details in the driver store detail and only confirms a successful driver status change', () => {
+    const storeDetail = source.match(/<template v-else-if="driverStoreDetailId && selectedDriverStop"[\s\S]*?<view class="secondary-foot sheet-actions">/)?.[0] || ''
+    expect(storeDetail).toContain('storeInfoOf(selectedDriverStop).contact')
+    expect(storeDetail).toContain('storeInfoOf(selectedDriverStop).phone')
     const confirmToggle = source.match(/function confirmToggle\(\)[\s\S]*?\n}/)?.[0] || ''
     expect(confirmToggle).toMatch(/if \(!store\.toggleDriverStatus\(driverStatusTarget\.value\.id\)\) return/)
   })
 
-  it('shows route completion progress and the next stop without offering handover for completed orders', () => {
-    const todayRoute = source.match(/<view v-if="store\.currentDriverRoute"[\s\S]*?供应商尚未发布今日线路/)?.[0] || ''
-    expect(todayRoute).toContain('routeCompletedOrderCount')
-    expect(todayRoute).toContain('routeOrderCount')
-    expect(todayRoute).toContain('nextRouteStop')
-    expect(todayRoute).toContain("orderFulfillment(order).status !== 'received'")
-    expect(todayRoute).toContain('DeliveryRouteMap')
-    expect(todayRoute).toContain('家农家乐')
+  it('shows route summary cards, warehouse handover and store delivery in separate full pages', () => {
+    const todayRoute = source
+    expect(todayRoute).toContain('driver-route-metrics')
+    expect(todayRoute).toContain('routeGoodsQuantity(route)')
+    expect(todayRoute).toContain('routeGoodsKinds(route)')
+    expect(todayRoute).toContain('route.estimatedDurationMinutes')
+    expect(todayRoute).not.toContain('openDriverHandover(order)')
+    expect(todayRoute).not.toContain('待排线路')
+    expect(todayRoute).toContain('配送数据')
+    expect(todayRoute).toContain('交接记录')
+    expect(source).toContain('checkInWarehouse(selectedDriverRoute)')
+    expect(source).toContain('submitDriverOutbound(selectedDriverRoute)')
+    expect(source).toContain('dispatchDriverRoute(selectedDriverRoute)')
+    expect(source).toContain('handoverDriverStop(selectedDriverRoute, selectedDriverStop)')
     expect(source).toContain('按今天补生成')
     expect(source).toContain('到店打卡')
     expect(source).toContain('新建线路')

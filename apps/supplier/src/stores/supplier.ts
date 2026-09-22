@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
-import type { COrder, CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DailyDeliveryRouteState, DriverAccount, DriverStoreScope, DriverStoreScopeState, MockScenario, NamedDeliveryRoute, Order, PlatformAuditLogEntry, PlatformEntities, PlatformJournalEntry, PlatformRecoveryHandlerKey, RouteOptimizationOutput, RouteOrigin, RouteSegment, RouteStop, ShortageItem, Supplier, SupplierAccount, SupplierSettlementRecord, WriteResult } from '@agritainment/shared'
+import type { COrder, CatalogProduct, CatalogProductSubmission, DailyDeliveryRoute, DailyDeliveryRouteState, DriverAccount, DriverStoreScope, DriverStoreScopeState, MockScenario, NamedDeliveryRoute, Order, PlatformAuditLogEntry, PlatformEntities, PlatformJournalEntry, PlatformRecoveryHandlerKey, RouteOptimizationOutput, RouteOrigin, RouteOutboundShortageAllocation, RouteSegment, RouteWarehouseCheckIn, RouteStop, ShortageItem, Supplier, SupplierAccount, SupplierSettlementRecord, WriteResult } from '@agritainment/shared'
 import {
   CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_DRIVER_STORE_SCOPES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_NAMED_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, SUPPLIER_DEMO_ID, acceptSupplierOrder, appendPlatformAuditLog, applyCatalogStockOperation, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, clearPlatformJson, cloneSeed, confirmCourierDelivered, createCatalogProductReviewRecoveryHandlerRegistration, createCatalogProductSubmission, createId,
   deriveSupplierMetrics, deriveTodayFarmhouseQuantities, demoDrivers, demoNamedDeliveryRoutes, driverActiveTaskCounts, ensurePublishedRoutesForDate, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount,
   handoverSupplierIn, handoverSupplierOut, haversineKm, initializePlatformRecoveryHandlers, markShortageHandled, mergeDeliveryOrdersByStore, mergePlatformDrivers, mergePlatformEntities, mergePlatformSupplierAccounts, namedRouteForDriver, namedRoutesForDriver, orderStopsByNamedRoute, readCOrders, readCatalogProductSubmissionState, readCatalogState, readDailyDeliveryRouteState, readDailyDeliveryRoutes, readDriverStoreScopeState, readDriverStoreScopes, readNamedDeliveryRouteState, readNamedDeliveryRoutes, readPlatformAuditLogs, readPlatformCollectionRevision, readPlatformDrivers, readPlatformEntities, readPlatformJson, readPlatformOrders, readPlatformSupplierAccounts, readPlatformSupplierSettlements, saveDailyDeliveryRoute, saveNamedDeliveryRoute, snapshotDailyDeliveryRoute, validateStopCheckIn,
-  createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, getPlatformProviders, reconcilePendingPlatformTransactions, reassignSupplierDriver, resolvePlatformJournal, rollbackPlatformCollectionSnapshot, runLockedPlatformCollectionTask, runLockedPlatformTransaction, runPlatformTransaction, saveCatalogProduct as persistCatalogProduct, shipSupplierCourier, supplierCanLogin, supplierCanReceiveNewOrders, suppliers as supplierSeeds, syncCSubOrderFromSupplier, todayString, upsertPlatformEntity, writeCOrders, writeCatalogState, writePlatformDrivers, writePlatformJson, writePlatformOrder, writePlatformOrders
+  completeRouteStopHandover as completeRouteStopHandoverState, createAbnormalWarehouseCheckIn, createRouteOutboundHandover as createRouteOutboundHandoverState, createStrictSnapshotRecoveryHandlerRegistration, dispatchRouteOutbound as dispatchRouteOutboundState, enqueuePlatformRecovery, getPlatformProviders, reconcilePendingPlatformTransactions, reassignSupplierDriver, rejectRouteOutboundHandover as rejectRouteOutboundHandoverState, reorderRouteStops as reorderRouteStopState, resolvePlatformJournal, reviewRouteOutboundHandover as reviewRouteOutboundHandoverState, rollbackPlatformCollectionSnapshot, runLockedPlatformCollectionTask, runLockedPlatformTransaction, runPlatformTransaction, saveCatalogProduct as persistCatalogProduct, saveRouteOutboundShortages as applyRouteOutboundShortages, shipSupplierCourier, supplierCanLogin, supplierCanReceiveNewOrders, suppliers as supplierSeeds, syncCSubOrderFromSupplier, todayString, upsertPlatformEntity, validateWarehouseCheckIn, writeCOrders, writeCatalogState, writePlatformDrivers, writePlatformJson, writePlatformOrder, writePlatformOrders
 } from '@agritainment/shared'
 import { deliveryDistanceKm, resolveOrderStore, seedSupplierDataOnce, storeDirectory, storeInfoOf, supplierInfo, supplierWarehouseOf } from '../services/repository'
 
@@ -529,6 +529,12 @@ function completeRouteOrderState(current: DailyDeliveryRouteState | null, order:
   return { state: { schemaVersion: 1, revision: current.revision + 1, routes, updatedAt: completedAt }, route: completedRoute }
 }
 
+function persistSupplierRoute(route: DailyDeliveryRoute): WriteResult<DailyDeliveryRoute> {
+  const state = readDailyDeliveryRouteState()
+  const next = snapshotDailyDeliveryRoute({ ...route, generatedAt: timestampAfter(state?.updatedAt) })
+  return saveDailyDeliveryRoute(next, state?.revision ?? 0)
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -753,28 +759,37 @@ function validatedRouteOptimizationOutput(inputStops: readonly RouteStop[], valu
 async function markRoutesStale(supplierId: string, driverIds: readonly string[], deliveryDate?: string): Promise<WriteResult<unknown>> {
   const targets = new Set(driverIds)
   if (!targets.size) return { ok: true }
-  const collections = [PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY]
-  const original = readSupplierRoutingSnapshot(collections)
-  const stale = staleRouteState(original.dailyRoutes, supplierId, [...targets], deliveryDate)
-  if (!stale.stale.length) return { ok: true }
-  const target: SupplierRoutingSnapshot = {
-    ...cloneSeed(original), dailyRoutes: stale.state,
-    auditLogs: routingAuditEntries(original.auditLogs, stale.stale.map((route) => ({ module: 'routing', action: 'route.stale', actorId: supplierId, actorRole: 'system', targetType: 'daily-delivery-route', targetId: route.id, metadata: { driverId: route.driverId, deliveryDate: route.deliveryDate } })))
+  let lastResult: WriteResult<unknown> = { ok: true }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const collections = [PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY]
+    const original = readSupplierRoutingSnapshot(collections)
+    const stale = staleRouteState(original.dailyRoutes, supplierId, [...targets], deliveryDate)
+    if (!stale.stale.length) return { ok: true }
+    const target: SupplierRoutingSnapshot = {
+      ...cloneSeed(original), dailyRoutes: stale.state,
+      auditLogs: routingAuditEntries(original.auditLogs, stale.stale.map((route) => ({ module: 'routing', action: 'route.stale', actorId: supplierId, actorRole: 'system', targetType: 'daily-delivery-route', targetId: route.id, metadata: { driverId: route.driverId, deliveryDate: route.deliveryDate } })))
+    }
+    const revisions = routingRevisionToken(collections)
+    const result = await runLockedPlatformTransaction({
+      operationId: createId('OP-ROUTE-STALE'), collections, original, target,
+      recoveryHandlerKey: SUPPLIER_ROUTING_RECOVERY_HANDLER_KEY, recoverySchema: SUPPLIER_ROUTING_RECOVERY_SCHEMA,
+      revisionChecks: [
+        { key: PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, expectedRevision: revisions[PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY] },
+        { key: PLATFORM_AUDIT_LOG_STORAGE_KEY, expectedRevision: revisions[PLATFORM_AUDIT_LOG_STORAGE_KEY] }
+      ],
+      steps: [
+        { key: 'routes-stale', apply: () => writePlatformJson(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, target.dailyRoutes, revisions[PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY]), rollback: () => rollbackPlatformCollectionSnapshot(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, original.dailyRoutes, target.dailyRoutes) },
+        { key: 'audit', apply: () => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, target.auditLogs, revisions[PLATFORM_AUDIT_LOG_STORAGE_KEY]), rollback: () => rollbackPlatformCollectionSnapshot(PLATFORM_AUDIT_LOG_STORAGE_KEY, original.auditLogs, target.auditLogs) }
+      ]
+    })
+    if (result.ok) return result
+    lastResult = result
+    const latest = readDailyDeliveryRouteState()
+    const stillPublished = stale.stale.some((changed) => latest?.routes.find((route) => route.id === changed.id)?.status === 'published')
+    if (!stillPublished) return { ok: true }
+    if (result.code !== 'revision_conflict') return result
   }
-  const revisions = routingRevisionToken(collections)
-  const result = await runLockedPlatformTransaction({
-    operationId: createId('OP-ROUTE-STALE'), collections, original, target,
-    recoveryHandlerKey: SUPPLIER_ROUTING_RECOVERY_HANDLER_KEY, recoverySchema: SUPPLIER_ROUTING_RECOVERY_SCHEMA,
-    revisionChecks: [
-      { key: PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, expectedRevision: revisions[PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY] },
-      { key: PLATFORM_AUDIT_LOG_STORAGE_KEY, expectedRevision: revisions[PLATFORM_AUDIT_LOG_STORAGE_KEY] }
-    ],
-    steps: [
-      { key: 'routes-stale', apply: () => writePlatformJson(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, target.dailyRoutes, revisions[PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY]), rollback: () => rollbackPlatformCollectionSnapshot(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, original.dailyRoutes, target.dailyRoutes) },
-      { key: 'audit', apply: () => writePlatformJson(PLATFORM_AUDIT_LOG_STORAGE_KEY, target.auditLogs, revisions[PLATFORM_AUDIT_LOG_STORAGE_KEY]), rollback: () => rollbackPlatformCollectionSnapshot(PLATFORM_AUDIT_LOG_STORAGE_KEY, original.auditLogs, target.auditLogs) }
-    ]
-  })
-  return result
+  return lastResult
 }
 
 async function reconcilePublishedRouteInputs(routes: readonly DailyDeliveryRoute[], orders: readonly Order[], suppliers: readonly Supplier[], scopes: readonly DriverStoreScope[]): Promise<WriteResult<unknown>> {
@@ -809,6 +824,7 @@ interface SupplierState {
   initialized: boolean
   loading: boolean
   error: string
+  routeReconcileWarning: string
   mockScenario: MockScenario
   loginError: string
   auth: { isLoggedIn: boolean; role: SupplierRole | null; account: string; name: string; supplierId: string; driverId?: string; credentialUpdatedAt?: string }
@@ -838,6 +854,7 @@ export const useSupplierStore = defineStore('supplier', {
     initialized: false,
     loading: false,
     error: '',
+    routeReconcileWarning: '',
     mockScenario: 'normal',
     loginError: '',
     auth: { isLoggedIn: false, role: null, account: '', name: '', supplierId: SUPPLIER_DEMO_ID },
@@ -1067,7 +1084,7 @@ export const useSupplierStore = defineStore('supplier', {
         const drivers = mergePlatformDrivers(cloneSeed(demoDrivers), readPlatformDrivers())
         const platformOrders = readPlatformOrders()
         const orders = platformOrders
-          ? Object.values(platformOrders).filter((order) => order.channel === 'purchase').map((order) => ({ ...order, supplierFulfillment: order.supplierFulfillment ? { ...order.supplierFulfillment, handovers: [...(order.supplierFulfillment.handovers || [])], shortages: [...(order.supplierFulfillment.shortages || [])] } : undefined }))
+          ? Object.values(platformOrders).filter((order) => order.channel === 'purchase' && order.status !== 'pending-payment').map((order) => ({ ...order, supplierFulfillment: order.supplierFulfillment ? { ...order.supplierFulfillment, handovers: [...(order.supplierFulfillment.handovers || [])], shortages: [...(order.supplierFulfillment.shortages || [])] } : undefined }))
           : []
         orders.forEach((order) => {
           if (!order.supplierFulfillment) order.supplierFulfillment = ensureSupplierFulfillment(order)
@@ -1121,10 +1138,7 @@ export const useSupplierStore = defineStore('supplier', {
     async refreshSharedState() {
       await this.initialize(true)
       const reconciled = await reconcilePublishedRouteInputs(this.dailyRoutes, this.orders, this.suppliers, this.driverScopes)
-      if (!reconciled.ok) {
-        this.error = reconciled.message
-        throw new Error(reconciled.message)
-      }
+      this.routeReconcileWarning = reconciled.ok ? '' : reconciled.message
       const routeState = readDailyDeliveryRouteState()
       this.dailyRoutes = routeState?.routes ?? []
       this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
@@ -1800,6 +1814,181 @@ export const useSupplierStore = defineStore('supplier', {
         return false
       }
       return this.commitOrder(shipSupplierCourier(order, shipment.value.trackingNo.trim(), this.auth.name || supplierInfo.name), operationId)
+    },
+    async commitRouteOrdersAndRoute(nextRoute: DailyDeliveryRoute, nextOrders: Order[]) {
+      const currentRouteState = readDailyDeliveryRouteState()
+      const currentOrders = readPlatformOrders()
+      if (!currentRouteState || !currentOrders) return false
+      const routeUpdatedAt = timestampAfter(currentRouteState.updatedAt)
+      const normalizedRoute = snapshotDailyDeliveryRoute({ ...nextRoute, generatedAt: routeUpdatedAt })
+      const nextRouteState: DailyDeliveryRouteState = {
+        ...currentRouteState,
+        revision: currentRouteState.revision + 1,
+        routes: currentRouteState.routes.map((route) => route.id === normalizedRoute.id ? normalizedRoute : route),
+        updatedAt: routeUpdatedAt
+      }
+      const nextPlatformOrders = { ...currentOrders }
+      const currentCOrders = readCOrders()
+      let nextCOrders: Record<string, COrder> | undefined
+      for (const order of nextOrders) {
+        nextPlatformOrders[order.id] = cloneSeed(order)
+        const link = order.supplierOrderLink
+        if (link?.source !== 'c-mall') continue
+        const sourceOrderId = link.sourceOrderId?.trim()
+        const sourceSubOrderId = link.sourceSubOrderId?.trim()
+        const cOrder = sourceOrderId ? currentCOrders?.[sourceOrderId] : undefined
+        const subOrder = cOrder?.subOrders.find((entry) => entry.id === sourceSubOrderId)
+        if (!currentCOrders || !cOrder || !subOrder) return false
+        if (!nextCOrders) nextCOrders = { ...currentCOrders }
+        const synced = syncCSubOrderFromSupplier(cOrder, subOrder, order)
+        nextCOrders[synced.id] = synced
+      }
+      const collections = [
+        PLATFORM_ORDERS_STORAGE_KEY,
+        ...(nextCOrders ? [PLATFORM_C_ORDERS_STORAGE_KEY] : []),
+        PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY
+      ]
+      const original = {
+        platformOrders: currentOrders,
+        ...(nextCOrders ? { cOrders: currentCOrders } : {}),
+        dailyRoutes: currentRouteState
+      }
+      const target = {
+        platformOrders: nextPlatformOrders,
+        ...(nextCOrders ? { cOrders: nextCOrders } : {}),
+        dailyRoutes: nextRouteState
+      }
+      const revisions = Object.fromEntries(collections.map((key) => [key, readPlatformCollectionRevision(key)]))
+      const result = await runLockedPlatformTransaction({
+        operationId: createId('OP-ROUTE-HANDOVER'),
+        collections,
+        original,
+        target,
+        revisionChecks: collections.map((key) => ({ key, expectedRevision: revisions[key] })),
+        steps: [
+          { key: 'platform-orders', apply: () => writePlatformOrders(target.platformOrders), rollback: () => writePlatformOrders(original.platformOrders) },
+          ...(nextCOrders ? [{ key: 'c-orders', apply: () => writeCOrders(target.cOrders!), rollback: () => writeCOrders(original.cOrders!) }] : []),
+          { key: 'daily-routes', apply: () => writePlatformJson(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, target.dailyRoutes, revisions[PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY]), rollback: () => writePlatformJson(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY, original.dailyRoutes, revisions[PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY]) }
+        ]
+      })
+      if (!result.ok) return false
+      this.orders = this.orders.map((order) => nextPlatformOrders[order.id] || order)
+      this.platformOrdersRevision = readPlatformCollectionRevision(PLATFORM_ORDERS_STORAGE_KEY)
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      if (nextCOrders) this.cOrdersRevision = readPlatformCollectionRevision(PLATFORM_C_ORDERS_STORAGE_KEY)
+      return true
+    },
+    async checkInWarehouse(routeId: string, location: RouteOrigin): Promise<WriteResult<{ distanceM: number }>> {
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return { ok: false, code: 'permission_denied', message: '仅司机可到仓打卡' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId && item.driverId === this.auth.driverId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在或不属于当前司机' }
+      const validated = validateWarehouseCheckIn(route.origin, location)
+      if (!validated.ok) return { ok: false, code: validated.code, message: validated.message }
+      const next = snapshotDailyDeliveryRoute({
+        ...cloneSeed(route),
+        warehouseCheckIn: {
+          at: new Date().toISOString(),
+          type: 'normal' as const,
+          longitude: location.longitude,
+          latitude: location.latitude,
+          distanceM: validated.distanceM
+        }
+      })
+      const saved = persistSupplierRoute(next)
+      if (!saved.ok || !saved.value) return { ok: false, code: saved.ok ? 'write_failed' : saved.code, message: saved.ok ? '仓点打卡保存失败' : saved.message }
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return { ok: true, value: { distanceM: validated.distanceM } }
+    },
+    async checkInWarehouseAbnormal(routeId: string, input: { reasonCode: 'location_failed' | 'device_issue' | 'warehouse_coordinate_error' | 'other'; reasonNote?: string; location?: RouteOrigin }): Promise<WriteResult<RouteWarehouseCheckIn>> {
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return { ok: false, code: 'permission_denied', message: '仅司机可到仓打卡' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId && item.driverId === this.auth.driverId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在或不属于当前司机' }
+      const checkIn = createAbnormalWarehouseCheckIn(input.reasonCode, input.reasonNote, input.location)
+      if (!checkIn) return { ok: false, code: 'invalid_reason', message: input.reasonCode === 'other' ? '请填写其他异常原因' : '异常打卡原因无效' }
+      const next = snapshotDailyDeliveryRoute({ ...cloneSeed(route), warehouseCheckIn: checkIn })
+      const saved = persistSupplierRoute(next)
+      if (!saved.ok || !saved.value) return { ok: false, code: saved.ok ? 'write_failed' : saved.code, message: saved.ok ? '异常打卡保存失败' : saved.message }
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return { ok: true, value: checkIn }
+    },
+    async submitRouteOutbound(routeId: string, input: { actuals: Record<string, number>; proofImages: string[]; note?: string }): Promise<WriteResult<DailyDeliveryRoute>> {
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return { ok: false, code: 'permission_denied', message: '仅司机可发起出仓交接' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId && item.driverId === this.auth.driverId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在或不属于当前司机' }
+      const orders = this.orders.filter((order) => route.sourceOrderIds.includes(order.id))
+      const next = createRouteOutboundHandoverState(route, orders, { id: this.auth.driverId, name: this.auth.name, role: 'driver' }, input)
+      if (!next) return { ok: false, code: 'invalid_handover', message: input.proofImages?.length ? '请先完成到仓打卡并检查实发数量' : '请至少上传 1 张出仓凭证' }
+      const saved = persistSupplierRoute(next)
+      if (!saved.ok || !saved.value) return { ok: false, code: saved.ok ? 'write_failed' : saved.code, message: saved.ok ? '出仓交接保存失败' : saved.message }
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return saved
+    },
+    async reviewRouteOutbound(routeId: string, input: { decision: 'confirm' | 'reject'; actuals?: Record<string, number>; note?: string; reason?: string }): Promise<WriteResult<DailyDeliveryRoute>> {
+      if (this.auth.role !== 'supplier') return { ok: false, code: 'permission_denied', message: '仅供应商可审核出仓交接' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在' }
+      const operator = { id: this.auth.supplierId || SUPPLIER_DEMO_ID, name: this.auth.name || supplierInfo.name, role: 'supplier' as const }
+      const next = input.decision === 'reject'
+        ? rejectRouteOutboundHandoverState(route, input.reason || '', operator)
+        : reviewRouteOutboundHandoverState(route, { actuals: input.actuals || {}, note: input.note }, operator)
+      if (!next) return { ok: false, code: 'invalid_handover', message: input.decision === 'reject' ? '请填写驳回原因' : '交接单已处理、凭证缺失或实发数量无效' }
+      const saved = persistSupplierRoute(next)
+      if (!saved.ok || !saved.value) return { ok: false, code: saved.ok ? 'write_failed' : saved.code, message: saved.ok ? '交接审核保存失败' : saved.message }
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return saved
+    },
+    async markRouteShortages(routeId: string, allocations: RouteOutboundShortageAllocation[]): Promise<WriteResult<DailyDeliveryRoute>> {
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return { ok: false, code: 'permission_denied', message: '仅司机可标记门店缺货' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId && item.driverId === this.auth.driverId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在或不属于当前司机' }
+      const orders = this.orders.filter((order) => route.sourceOrderIds.includes(order.id))
+      const next = applyRouteOutboundShortages(route, orders, allocations)
+      if (!next) return { ok: false, code: 'invalid_shortages', message: '每个商品的缺货数量必须全部分配到门店' }
+      const saved = persistSupplierRoute(next)
+      if (!saved.ok || !saved.value) return { ok: false, code: saved.ok ? 'write_failed' : saved.code, message: saved.ok ? '缺货标记保存失败' : saved.message }
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return saved
+    },
+    async reorderRouteStops(routeId: string, orderedStoreIds: string[]): Promise<WriteResult<DailyDeliveryRoute>> {
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return { ok: false, code: 'permission_denied', message: '仅司机可调整门店顺序' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId && item.driverId === this.auth.driverId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在或不属于当前司机' }
+      if (route.outboundHandover?.status !== 'dispatched') return { ok: false, code: 'not_dispatched', message: '发车后才能调整门店顺序' }
+      const next = reorderRouteStopState(route, orderedStoreIds)
+      if (!next) return { ok: false, code: 'invalid_order', message: '门店顺序数据无效' }
+      const saved = persistSupplierRoute(next)
+      if (!saved.ok || !saved.value) return { ok: false, code: saved.ok ? 'write_failed' : saved.code, message: saved.ok ? '门店顺序保存失败' : saved.message }
+      this.dailyRoutes = readDailyDeliveryRouteState()?.routes ?? []
+      this.dailyRouteRevision = readPlatformCollectionRevision(PLATFORM_DAILY_DELIVERY_ROUTES_STORAGE_KEY)
+      return saved
+    },
+    async dispatchRoute(routeId: string): Promise<WriteResult<{ route: DailyDeliveryRoute; orderIds: string[] }>> {
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return { ok: false, code: 'permission_denied', message: '仅司机可发车' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId && item.driverId === this.auth.driverId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在或不属于当前司机' }
+      const orders = this.orders.filter((order) => route.sourceOrderIds.includes(order.id))
+      const dispatched = dispatchRouteOutboundState(route, orders, { id: this.auth.driverId, name: this.auth.name, role: 'driver' })
+      if (!dispatched) return { ok: false, code: 'not_ready', message: '请先完成供应商审核和全部缺货标记' }
+      const saved = await this.commitRouteOrdersAndRoute(dispatched.route, dispatched.orders)
+      if (!saved) return { ok: false, code: 'write_failed', message: '发车状态保存失败，请刷新后重试' }
+      return { ok: true, value: { route: dispatched.route, orderIds: dispatched.orders.map((order) => order.id) } }
+    },
+    async handoverRouteStop(routeId: string, storeId: string, note?: string): Promise<WriteResult<{ route: DailyDeliveryRoute; orderIds: string[] }>> {
+      if (this.auth.role !== 'driver' || !this.auth.driverId) return { ok: false, code: 'permission_denied', message: '仅司机可完成到店交接' }
+      const route = this.dailyRoutes.find((item) => item.id === routeId && item.supplierId === this.auth.supplierId && item.driverId === this.auth.driverId)
+      if (!route) return { ok: false, code: 'no_route', message: '线路不存在或不属于当前司机' }
+      const orders = this.orders.filter((order) => route.sourceOrderIds.includes(order.id))
+      const completed = completeRouteStopHandoverState(route, orders, storeId, { id: this.auth.driverId, name: this.auth.name, role: 'driver' }, note)
+      if (!completed) return { ok: false, code: 'not_ready', message: '请先到店打卡，并确认门店内订单均为配送中' }
+      const saved = await this.commitRouteOrdersAndRoute(completed.route, completed.orders)
+      if (!saved) return { ok: false, code: 'write_failed', message: '到店交接保存失败，请刷新后重试' }
+      return { ok: true, value: { route: completed.route, orderIds: completed.orders.map((order) => order.id) } }
     },
     async handoverOut(orderId: string, actuals: Record<string, number>, note?: string): Promise<{ ok: boolean; shortages: ShortageItem[] }> {
       if (this.auth.role !== 'supplier') return { ok: false, shortages: [] }

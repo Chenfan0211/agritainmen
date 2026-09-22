@@ -506,14 +506,18 @@ describe('supplier routing workflow', () => {
 
     const restore = failStorageWrites(shared.PLATFORM_AUDIT_LOG_STORAGE_KEY)
     try {
-      await expect(store.refreshSharedState()).rejects.toThrow('线路过期状态保存失败')
+      await expect(store.refreshSharedState()).resolves.toBeUndefined()
+      expect(store.routeReconcileWarning).toContain('线路过期状态保存失败')
+      expect(store.error).toBe('')
     } finally {
       restore()
     }
     expect(shared.readDailyDeliveryRoutes('S002', 'D001')[0]).toMatchObject({ status: 'published' })
 
     await store.refreshSharedState()
+    expect(store.routeReconcileWarning).toBe('')
     expect(shared.readDailyDeliveryRoutes('S002', 'D001')[0]).toMatchObject({ status: 'stale' })
+    await expect(store.refreshSharedState()).resolves.toBeUndefined()
   })
 
   it('merges a warehouse update into the latest persisted supplier instead of overwriting administrator changes from a stale page', async () => {
