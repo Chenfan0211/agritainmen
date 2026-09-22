@@ -13,6 +13,13 @@ function templateOf(source: string) {
 
 describe('用户端商城设计稿视觉契约', () => {
 
+  it('页面样式不引入小程序不支持的裸 em 标签选择器', () => {
+    for (const page of [indexPage, operationsPage]) {
+      const styles = page.match(/<style[^>]*>([\s\S]*?)<\/style>/)?.[1] || ''
+      expect(styles).not.toMatch(/(?:^|[,{}])\s*(?:[.#]?[\w-]+(?:\s+[>.]?[.#]?[\w-]+)*\s+)?em\s*[,{]/m)
+    }
+  })
+
   it('全局样式不引入小程序不支持的裸 select 标签选择器', () => {
     const globalStyles = readFileSync(resolve(import.meta.dirname, '../../styles/global.scss'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
     expect(globalStyles).not.toMatch(/(^|[,{}])\s*select\s*(?=[,{])/m)

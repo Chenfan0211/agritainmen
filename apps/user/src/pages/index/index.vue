@@ -946,7 +946,6 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.product-meta em { font-style: normal; color: var(--mobile-brand); font-weight: 700; }
 .product-foot { display: flex; min-width: 0; align-items: center; margin-top: 8px; }
 .product-price,
 .pv-meta strong,
