@@ -5,7 +5,7 @@ const props = withDefaults(defineProps<{
   page: number
   total: number
   pageSize?: number
-}>(), { pageSize: 20 })
+}>(), { pageSize: 10 })
 
 const emit = defineEmits<{ (e: 'change', page: number): void }>()
 

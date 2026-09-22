@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
 import type { BusinessMediaValue, CAddress, COrder, CProduct, CProductSku, CSubOrder, PaymentAttempt, Product } from '@agritainment/shared'
 import { PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, displayProductTags, installKeyboardButtonSupport, money, normalizeMinimumOrderQuantity, productCategoryImage, readCDistributorProfiles, readCOrders, readPlatformDictionaries, readUserBindings, resolveProductChannels, subscribePlatformChanges, validateCatalogSkuOrderQuantity } from '@agritainment/shared'
@@ -11,9 +11,6 @@ import { projectDistributorOperations } from '../../services/distributor-operati
 import { useUserStore } from '../../stores/user'
 
 const store = useUserStore()
-const dictCache = createPlatformDictionaryCache()
-const dictionaryState = ref(readPlatformDictionaries())
-let disposeDictionaryImages: () => void = () => undefined
 const loading = ref(true)
 const authorizing = ref(false)
 const activeTab = ref<'home' | 'category' | 'cart' | 'me'>('home')
@@ -27,6 +24,7 @@ const liveRoomOpen = ref(false)
 const selectedProduct = ref<CProduct | null>(null)
 const productView = ref(false)
 const selectedSkuId = ref('')
+const selectedQty = ref(1)
 const selectedSubOrder = ref<CSubOrder | null>(null)
 const afterSaleTarget = ref<{ order: COrder; sub: CSubOrder } | null>(null)
 const afterSaleEvidence = ref<BusinessMediaValue[]>([])
@@ -36,6 +34,59 @@ const addressReturnToCheckout = ref(false)
 const launchQuery: Record<string, string | undefined> = {}
 const addressDraft = reactive<Omit<CAddress, 'id' | 'userId'>>({ receiver: '', phone: '', region: '', detail: '', isDefault: true })
 let disposeStorageSync: (() => void) | null = null
+const dictCache = createPlatformDictionaryCache()
+const dictionaryState = ref(readPlatformDictionaries())
+let disposeDictionaryImages: () => void = () => undefined
+
+type CartDeliveryMode = 'pickup' | 'courier'
+const cartDeliveryMode = ref<CartDeliveryMode>('courier')
+const selectedCartLineKeys = reactive(new Set<string>())
+const checkoutLineRefs = ref<Array<{ productId: string; skuId: string; quantity?: number }>>([])
+const cartLineKey = (line: { productId: string; skuId: string }) => `${line.productId}-${line.skuId}`
+const cartLineDeliveryMode = (line: { productId: string }) => {
+  const product = store.cProducts.find((item) => item.id === line.productId)
+  return product && (product.shippingType === 'courier' || product.expressDelivery) ? 'courier' as const : 'pickup' as const
+}
+const cartCategoryItems = computed(() => store.cart.filter((line) => cartLineDeliveryMode(line) === cartDeliveryMode.value))
+const selectedCartItems = computed(() => cartCategoryItems.value.filter((line) => selectedCartLineKeys.has(cartLineKey(line))))
+const selectedCartCount = computed(() => selectedCartItems.value.reduce((sum, line) => sum + line.quantity, 0))
+const selectedCartTotal = computed(() => Math.round(selectedCartItems.value.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0) * 100) / 100)
+const cartCategoryAllSelected = computed(() => !!cartCategoryItems.value.length && cartCategoryItems.value.every((line) => selectedCartLineKeys.has(cartLineKey(line))))
+const cartCategoryHasUnavailable = computed(() => selectedCartItems.value.some((line) => line.unavailable))
+const cartCategoryCount = (mode: CartDeliveryMode) => store.cart.filter((line) => cartLineDeliveryMode(line) === mode).reduce((sum, line) => sum + line.quantity, 0)
+const checkoutItems = computed(() => checkoutLineRefs.value.map((ref) => {
+  const line = store.cart.find((candidate) => candidate.productId === ref.productId && candidate.skuId === ref.skuId)
+  return line ? { ...line, quantity: ref.quantity ?? line.quantity } : null
+}).filter((line): line is typeof store.cart[number] => !!line))
+const checkoutTotal = computed(() => Math.round(checkoutItems.value.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0) * 100) / 100)
+
+function toggleCartLine(line: { productId: string; skuId: string }) {
+  const key = cartLineKey(line)
+  if (selectedCartLineKeys.has(key)) selectedCartLineKeys.delete(key)
+  else selectedCartLineKeys.add(key)
+}
+
+function toggleAllCartLines() {
+  if (cartCategoryAllSelected.value) cartCategoryItems.value.forEach((line) => selectedCartLineKeys.delete(cartLineKey(line)))
+  else cartCategoryItems.value.forEach((line) => selectedCartLineKeys.add(cartLineKey(line)))
+}
+
+function syncSelectedCartLines() {
+  const currentKeys = new Set(store.cart.map(cartLineKey))
+  store.cart.forEach((line) => {
+    const key = cartLineKey(line)
+    if (!selectedCartLineKeys.has(key)) selectedCartLineKeys.add(key)
+  })
+  Array.from(selectedCartLineKeys).forEach((key) => { if (!currentKeys.has(key)) selectedCartLineKeys.delete(key) })
+  if (!store.cart.some((line) => cartLineDeliveryMode(line) === cartDeliveryMode.value)) {
+    cartDeliveryMode.value = store.cart.some((line) => cartLineDeliveryMode(line) === 'courier') ? 'courier' : 'pickup'
+  }
+}
+
+watch(() => store.cart, (cart) => {
+  syncSelectedCartLines()
+  if (!cart.length) { cartDeliveryMode.value = 'courier'; checkoutLineRefs.value = [] }
+}, { deep: true })
 
 onLoad((options) => Object.assign(launchQuery, options || {}))
 
@@ -45,11 +96,8 @@ const visibleProducts = computed(() => store.cProducts.filter((product) => {
   const keyword = searchText.value.trim().toLowerCase()
   return matchesCategory && product.status === 'active' && product.shippingType === 'courier' && product.productType !== 'package' && product.expressDelivery === true && resolveProductChannels(product).live && (!keyword || `${product.name}${product.supplierName}${product.tags.join('')}`.toLowerCase().includes(keyword))
 }))
-const waterfallColumns = computed(() => [
-  visibleProducts.value.filter((_, index) => index % 2 === 0),
-  visibleProducts.value.filter((_, index) => index % 2 === 1)
-])
 const selectedSku = computed(() => selectedProduct.value?.skus.find((sku) => sku.id === selectedSkuId.value) || selectedProduct.value?.skus[0] || null)
+const selectedSubtotal = computed(() => selectedPrice.value * selectedQty.value)
 const selectedPrice = computed(() => selectedSku.value ? store.priceForSku(selectedSku.value) : 0)
 const roleLabel = computed(() => ({ normal: '普通用户', level1: '一级分销商', level2: '二级分销商' }[store.level]))
 const featuredLive = computed(() => store.availableLives.find((item) => item.id === store.liveId) || store.availableLives[0] || null)
@@ -87,12 +135,6 @@ function shareProduct(product: CProduct) {
   uni.setClipboardData({ data: productSharePath(product), success: () => toast('商品分享链接已复制') })
 }
 
-function shareIncome(product: CProduct) {
-  const sku = product.skus[0]
-  if (!sku) return 0
-  return store.level === 'level1' ? sku.level1Commission : sku.level2Commission
-}
-
 function openOperations(type: 'income' | 'fans' | 'orders' | 'performance') {
   uni.navigateTo({ url: `/pages/operations/index?type=${type}` })
 }
@@ -122,9 +164,14 @@ async function authorize() {
   }
 }
 
+function resetSelectedQty(sku?: CProductSku | null) {
+  selectedQty.value = minimumOrderQuantity(sku)
+}
+
 function openProduct(product: CProduct) {
   selectedProduct.value = product
   selectedSkuId.value = product.skus[0]?.id || ''
+  resetSelectedQty(product.skus[0])
   productView.value = true
   sheet.value = null
 }
@@ -132,7 +179,22 @@ function openProduct(product: CProduct) {
 function openSkuSheet(product: CProduct) {
   selectedProduct.value = product
   selectedSkuId.value = product.skus[0]?.id || ''
+  resetSelectedQty(product.skus[0])
   sheet.value = 'detail'
+}
+
+function selectSku(id: string) {
+  selectedSkuId.value = id
+  resetSelectedQty(selectedProduct.value?.skus.find((sku) => sku.id === id))
+}
+
+function changeSelectedQty(delta: number) {
+  const sku = selectedSku.value
+  if (!sku) return
+  const next = selectedQty.value + delta
+  const min = minimumOrderQuantity(sku)
+  if (next < min || next > sku.stock) return
+  selectedQty.value = next
 }
 
 function closeProductView() {
@@ -149,7 +211,7 @@ function addProduct(product: CProduct) {
 
 function addSelectedToCart() {
   if (!selectedProduct.value || !selectedSku.value) return
-  if (store.addToCart(selectedProduct.value.id, selectedSku.value.id)) {
+  if (store.addToCart(selectedProduct.value.id, selectedSku.value.id, selectedQty.value)) {
     sheet.value = null
     toast('已加入购物车')
   } else toast(store.checkoutError || '暂时无法加入购物车')
@@ -160,12 +222,15 @@ function changeLine(productId: string, skuId: string, delta: number) {
 }
 
 function openCheckout() {
-  if (!store.cart.length) return toast('购物车还是空的')
+  if (!selectedCartItems.value.length) return toast('请先选择要结算的商品')
+  checkoutLineRefs.value = selectedCartItems.value.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: line.quantity }))
   sheet.value = 'checkout'
 }
 
 async function submitOrder() {
-  if (!await store.submitOrder()) return toast(store.checkoutError || '请完善订单信息')
+  const selectedKeys = checkoutLineRefs.value.map((ref) => `${ref.productId}-${ref.skuId}`)
+  if (!await store.submitOrder('', selectedKeys)) return toast(store.checkoutError || '请完善订单信息')
+  checkoutLineRefs.value = []
   sheet.value = null
   openMyOrders()
   toast('订单已提交，请模拟支付')
@@ -229,6 +294,11 @@ async function confirmAfterSale() {
   toast(status === 'paid' ? '已提交售后，库存已释放，待结算佣金已撤销' : status === 'shipped' ? '已提交售后，库存不再恢复' : '已提交售后，佣金已冲正')
 }
 function openLogistics(sub: CSubOrder) { selectedSubOrder.value = sub; sheet.value = 'logistics' }
+function copyTrackingNo() {
+  const trackingNo = selectedSubOrder.value?.trackingNo
+  if (!trackingNo) return toast('暂无运单号')
+  uni.setClipboardData({ data: trackingNo, success: () => toast('运单号已复制') })
+}
 async function withdrawCommission() {
   const result = await store.withdrawCommission('微信提现')
   toast(result === 'pending' ? '提现申请已提交' : result === 'duplicate' ? '已有提现申请处理中' : result === 'invalid' ? '暂无可提现佣金' : '提现申请失败')
@@ -243,7 +313,6 @@ async function logout() {
 function openLive() {
   if (!featuredLive.value) return toast('当前直播暂无有效套餐')
   store.liveId = featuredLive.value.id
-  if (!store.liveFarms.length) return toast('当前直播暂无有效套餐')
   liveRoomOpen.value = true
 }
 
@@ -260,7 +329,6 @@ async function buyPackage(item: Product) {
 
 onMounted(async () => {
   installKeyboardButtonSupport()
-  disposeDictionaryImages = dictCache.subscribe((state) => { dictionaryState.value = state })
   Object.assign(launchQuery, uni.getLaunchOptionsSync().query || {})
   store.applyLaunch(launchQuery)
   store.seedDemoData()
@@ -275,12 +343,13 @@ onMounted(async () => {
     disposeStorageSync = () => { window.removeEventListener('storage', onStorage); unsubscribePlatformChanges() }
   }
   loading.value = false
+  disposeDictionaryImages = dictCache.subscribe((state) => { dictionaryState.value = state })
 })
 
 onBeforeUnmount(() => {
+  disposeStorageSync?.(); disposeStorageSync = null
   disposeDictionaryImages()
   dictCache.dispose()
-  disposeStorageSync?.(); disposeStorageSync = null
 })
 </script>
 
@@ -289,29 +358,31 @@ onBeforeUnmount(() => {
     <view v-if="loading" class="loading-state pc-loading">正在准备商城...</view>
 
     <view v-else-if="store.entryRestricted" class="auth-page">
+      <view class="auth-deco auth-deco1"></view>
+      <view class="auth-deco auth-deco2"></view>
+      <view class="auth-brand">
+        <view class="auth-mark"><UiIcon name="shield-check" :size="30" /></view>
+        <text class="auth-brand-name">该入口暂不可访问</text>
+        <text class="auth-brand-sub">请通过有效推客分享链接进入商城</text>
+      </view>
       <view class="auth-card">
-        <view class="pc-login-hero">
-          <view class="pc-login-mark"><UiIcon name="shield-check" :size="26" /></view>
-          <text class="pc-login-brand">该入口暂不可访问</text>
-          <text class="pc-login-sub">请通过有效推客分享链接进入商城</text>
-        </view>
-        <view class="auth-body">
-          <button v-if="!store.auth.isLoggedIn" class="auth-btn" :disabled="authorizing" @click="authorize">{{ authorizing ? '身份识别中...' : '已绑定用户登录' }}</button>
-        </view>
+        <view class="auth-wxbadge"><UiIcon name="message-circle" :size="26" /></view>
+        <button v-if="!store.auth.isLoggedIn" class="auth-btn" :disabled="authorizing" @click="authorize"><UiIcon name="door-open" :size="18" />{{ authorizing ? '身份识别中...' : '已绑定用户登录' }}</button>
       </view>
     </view>
 
     <view v-else-if="!store.auth.isLoggedIn" class="auth-page">
+      <view class="auth-deco auth-deco1"></view>
+      <view class="auth-deco auth-deco2"></view>
+      <view class="auth-brand">
+        <view class="auth-mark"><UiIcon name="shopping-bag" :size="30" /></view>
+        <text class="auth-brand-name">中选科技商城</text>
+        <text class="auth-brand-sub">产地好物，快递直发到家</text>
+      </view>
       <view class="auth-card">
-        <view class="pc-login-hero">
-          <view class="pc-login-mark"><UiIcon name="shopping-bag" :size="26" /></view>
-          <text class="pc-login-brand">中选科技商城</text>
-          <text class="pc-login-sub">产地好物，快递直发到家</text>
-        </view>
-        <view class="auth-body">
-          <button class="auth-btn" :disabled="authorizing" @click="authorize">{{ authorizing ? '授权中...' : '微信一键授权' }}</button>
-          <text class="auth-tip">演示环境，授权后可查看商品与订单</text>
-        </view>
+        <view class="auth-wxbadge"><UiIcon name="message-circle" :size="26" /></view>
+        <button class="auth-btn" :disabled="authorizing" @click="authorize"><UiIcon name="door-open" :size="18" />{{ authorizing ? '授权中...' : '微信一键授权' }}</button>
+        <text class="auth-tip">演示环境，授权后可查看商品与订单</text>
       </view>
     </view>
 
@@ -319,8 +390,16 @@ onBeforeUnmount(() => {
       <view v-if="productView && selectedProduct" class="product-view" data-visual-view="product">
         <view class="page-heading heading-with-back theme-head"><button class="page-back" aria-label="返回" @click="closeProductView"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">商品详情</text><text class="page-sub">产地直发 · 快递到家</text></view></view>
         <view class="page-content product-detail" data-visual-state="user-detail">
-          <view class="detail-content"><view class="detail-head"><BusinessImage class="detail-thumb" :src="selectedProduct.image" mode="aspectFill" /><view><text class="detail-title">{{ selectedProduct.name }}</text><small class="meta-text">{{ selectedProduct.supplierName }}</small><strong class="strong-text detail-price">¥{{ selectedPrice.toFixed(2) }}</strong></view></view><view class="detail-tags"><text v-for="tag in displayProductTags(selectedProduct, 'live')" :key="tag" class="tag">{{ tag }}</text></view><text class="shipping-note"><UiIcon name="truck" :size="14" />快递配送 · 运费 ¥0 · 产地直发</text></view>
-          <view class="product-detail-actions"><button class="outline-btn" @click="shareProduct(selectedProduct)">分享商品</button><button class="primary-btn" :disabled="!canStartProductOrder(selectedProduct)" @click="addProduct(selectedProduct)">加入购物车</button></view>
+          <view class="gallery">
+            <BusinessImage class="gallery-image" :src="selectedProduct.image" mode="aspectFill" />
+            <text class="live-tag">直播平台商品</text>
+            <text class="gallery-dots">1 / 1</text>
+          </view>
+          <text class="pv-name">{{ selectedProduct.name }}</text>
+          <view class="pv-meta"><text class="sup">{{ selectedProduct.supplierName }}</text><strong>¥{{ selectedPrice.toFixed(2) }}</strong></view>
+          <view class="pv-tags"><text v-for="tag in displayProductTags(selectedProduct, 'live').filter((tag) => tag !== '直播平台商品')" :key="tag" class="tag">{{ tag }}</text></view>
+          <view class="shipnote"><UiIcon name="truck" :size="15" />快递配送 · 运费 ¥0 · 产地直发</view>
+          <view class="product-detail-actions"><button class="outline-btn" @click="shareProduct(selectedProduct)"><UiIcon name="link" :size="16" />分享商品</button><button class="primary-btn" :disabled="!canStartProductOrder(selectedProduct)" @click="addProduct(selectedProduct)">加入购物车</button></view>
         </view>
       </view>
       <template v-else>
@@ -333,23 +412,25 @@ onBeforeUnmount(() => {
           <view class="role-chip" @click="activeTab = 'me'"><UiIcon name="user-round" :size="15" />{{ roleLabel }}</view>
         </view>
 
-        <view class="search-box"><UiIcon name="search" :size="17" /><input v-model="searchText" class="search-input" placeholder="搜索商品、供应商或标签" /></view>
-        <view v-if="featuredLive" class="live-card" @click="openLive">
-          <BusinessImage class="live-card-video" :src="featuredLive.image" :fallback="LIVE_VIDEO_POSTER" mode="aspectFill" />
-          <view class="live-card-overlay">
-            <view class="live-card-main"><text class="live-card-status"><text></text>{{ featuredLive.status === 'live' ? '直播中' : '预告' }}</text><text class="live-card-title">{{ featuredLive.title }}</text><text class="live-card-sub">{{ featuredLive.host }} · {{ featuredLive.viewers.toLocaleString('zh-CN') }} 人关注</text></view>
-            <view class="live-card-enter"><UiIcon name="play" :size="16" />进入直播间</view>
+        <view class="search-box"><UiIcon name="search" :size="16" /><input v-model="searchText" class="search-input" placeholder="搜索商品、供应商或标签" /></view>
+        <view class="live-banner" @click="openLive">
+          <BusinessImage v-if="featuredLive" class="live-banner-cover" :src="featuredLive.image" :fallback="LIVE_VIDEO_POSTER" mode="aspectFill" />
+          <view>
+            <text class="banner-kicker">产地直播</text>
+            <text class="banner-title">{{ featuredLive ? featuredLive.title : '暂无有效直播' }}</text>
+            <text class="banner-sub">{{ featuredLive ? `${featuredLive.host} · ${featuredLive.viewers.toLocaleString('zh-CN')} 人关注` : '新鲜好物持续上新' }}</text>
           </view>
+          <view class="banner-play"><UiIcon name="play" :size="17" /></view>
         </view>
-        <view v-else class="mall-banner"><view><text class="banner-kicker">产地直播</text><text class="banner-title">暂无有效直播</text><text class="banner-sub">新鲜好物持续上新</text></view><view class="banner-play"><UiIcon name="play" :size="18" /></view></view>
 
         <view class="section-line"><text>推荐好物</text><small class="meta-text">{{ visibleProducts.length }} 件</small></view>
         <view class="waterfall-grid">
-          <view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column">
-          <view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)">
-            <BusinessImage class="product-image" :src="product.image" mode="aspectFill" />
-            <view class="product-body"><view class="tag-row"><text v-for="tag in displayProductTags(product, 'live').slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text></view><text class="product-name">{{ product.name }}</text><text class="product-meta">{{ product.supplierName }} · 产地直发<template v-if="store.currentDistributor"> · 分享赚 ¥{{ shareIncome(product).toFixed(2) }}</template></text><view class="product-foot"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><button class="product-action" :class="{ share: !!store.currentDistributor }" :aria-label="store.currentDistributor ? `分享${product.name}` : `加入${product.name}到购物车`" @click.stop="store.currentDistributor ? shareProduct(product) : addProduct(product)"><template v-if="store.currentDistributor">分享</template><UiIcon v-else name="plus" :size="16" /></button></view></view>
-          </view>
+          <view v-for="product in visibleProducts" :key="product.id" class="product-card" @click="openProduct(product)">
+            <view class="product-image-wrap">
+              <BusinessImage class="product-image" :src="product.image" mode="aspectFill" />
+              <text class="live-tag">直播平台商品</text>
+            </view>
+            <view class="product-body"><text class="product-name">{{ product.name }}</text><text class="product-meta">库存 {{ product.skus.reduce((sum, sku) => sum + sku.stock, 0) }}</text><view class="product-foot"><view class="product-price-box"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><del v-if="(product.skus[0]?.basePrice ?? 0) > store.priceForSku(product.skus[0])" class="product-original">¥{{ (product.skus[0]?.basePrice ?? 0).toFixed(2) }}</del></view><button class="product-action" :aria-label="`加入${product.name}到购物车`" :disabled="!canStartProductOrder(product)" @click.stop="addProduct(product)"><UiIcon name="plus" :size="15" /></button></view></view>
           </view>
         </view>
         <view v-if="!visibleProducts.length" class="empty-block pc-empty"><view class="pc-state-icon"><UiIcon name="search" :size="24" /></view><text>没有找到匹配的商品</text></view>
@@ -357,29 +438,59 @@ onBeforeUnmount(() => {
 
       <view v-else-if="activeTab === 'category'" class="page-content category-page" data-visual-view="user-category">
         <view class="page-heading theme-head"><text class="page-title">商品分类</text><text class="page-sub">产地好物 · 按品类挑选</text></view>
-        <view class="search-box"><UiIcon name="search" :size="17" /><input v-model="searchText" class="search-input" placeholder="搜索商品、供应商或标签" /></view>
+        <view class="search-box"><UiIcon name="search" :size="16" /><input v-model="searchText" class="search-input" placeholder="搜索商品、供应商或标签" /></view>
         <view class="category-grid"><button v-for="category in categories" :key="category" class="category-grid-item" :class="{ active: activeCategory === category }" :aria-label="category" :title="category" @click="activeCategory = category"><BusinessImage class="category-grid-img" :src="productCategoryImage(category, dictionaryState)" :fallback="defaultProductCategoryImage(category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ category }}</text></button></view>
-        <view class="waterfall-grid compact-feed"><view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column"><view v-for="product in column" :key="product.id" class="product-card" @click="openProduct(product)"><BusinessImage class="product-image" :src="product.image" mode="aspectFill" /><view class="product-body"><view class="tag-row"><text v-for="tag in product.tags.slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text></view><text class="product-name">{{ product.name }}</text><text class="product-meta">{{ product.supplierName }}</text><view class="product-foot"><view class="product-price-box"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><del v-if="(product.skus[0]?.basePrice ?? 0) > store.priceForSku(product.skus[0])" class="product-original">¥{{ (product.skus[0]?.basePrice ?? 0).toFixed(2) }}</del></view><button class="product-action" :aria-label="`加入${product.name}到购物车`" @click.stop="addProduct(product)"><UiIcon name="plus" :size="16" /></button></view></view></view></view></view>
+        <view class="section-line"><text>全部商品</text><small class="meta-text">{{ visibleProducts.length }} 件</small></view>
+        <view class="waterfall-grid compact-feed">
+          <view v-for="product in visibleProducts" :key="product.id" class="product-card" @click="openProduct(product)">
+            <view class="product-image-wrap"><BusinessImage class="product-image" :src="product.image" mode="aspectFill" /></view>
+            <view class="product-body"><text class="product-name">{{ product.name }}</text><text class="product-meta">库存 {{ product.skus.reduce((sum, sku) => sum + sku.stock, 0) }}</text><view class="product-foot"><view class="product-price-box"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><del v-if="(product.skus[0]?.basePrice ?? 0) > store.priceForSku(product.skus[0])" class="product-original">¥{{ (product.skus[0]?.basePrice ?? 0).toFixed(2) }}</del></view><button class="product-action" :aria-label="`加入${product.name}到购物车`" :disabled="!canStartProductOrder(product)" @click.stop="addProduct(product)"><UiIcon name="plus" :size="15" /></button></view></view>
+          </view>
+        </view>
         <view v-if="!visibleProducts.length" class="empty-block pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-bag" :size="24" /></view><text>该分类暂无商品</text></view>
       </view>
 
       <view v-else-if="activeTab === 'cart'" class="page-content cart-page" data-visual-view="user-cart">
-        <view class="page-heading theme-head"><text class="page-title">购物车</text><text class="page-sub">已选 {{ store.cartCount }} 件商品</text></view>
-        <view class="cart-content cart-page-content"><view v-if="!store.cart.length" class="empty-block large pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>购物车还是空的</text><button class="outline-btn" @click="activeTab = 'home'">去逛逛</button></view><view v-for="line in store.cart" :key="line.productId + line.skuId" class="cart-line" :class="{ unavailable: line.unavailable }"><BusinessImage :src="line.image" mode="aspectFill" /><view class="cart-line-main"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} · 库存充足</small><small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small><view class="cart-line-foot"><strong class="strong-text">¥{{ line.unitPrice.toFixed(2) }}</strong><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view></view><button class="cart-remove" @click="store.removeFromCart(line.productId, line.skuId)">删除</button></view></view>
-        <view v-if="store.cart.length" class="cart-checkout"><view><text>合计</text><strong>¥{{ store.cartTotal.toFixed(2) }}</strong></view><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="openCheckout">去结算</button></view>
+        <view class="page-heading cart-heading theme-head"><view><text class="page-title">购物车</text><text class="page-sub">共 {{ store.cartCount }} 件 · 产地好物</text></view></view>
+        <view class="cart-content cart-page-content">
+          <view v-if="!store.cart.length" class="empty-block large pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>购物车还是空的</text><button class="outline-btn" @click="activeTab = 'home'">去逛逛</button></view>
+          <template v-else>
+            <view class="cart-category-tabs cart-page-tabs"><button :class="{ active: cartDeliveryMode === 'pickup' }" @click="cartDeliveryMode = 'pickup'">到店自提 · {{ cartCategoryCount('pickup') }} 件</button><button :class="{ active: cartDeliveryMode === 'courier' }" @click="cartDeliveryMode = 'courier'">快递直发 · {{ cartCategoryCount('courier') }} 件</button></view>
+            <view class="cart-page-card">
+              <button class="cart-select-all" @click="toggleAllCartLines"><span class="cart-check" :class="{ checked: cartCategoryAllSelected }"><UiIcon v-if="cartCategoryAllSelected" name="check" :size="12" /></span><text>{{ cartDeliveryMode === 'courier' ? '快递商品' : '普通商品' }} · {{ cartCategoryItems.length }} 款</text><small @click.stop="toggleAllCartLines">{{ cartCategoryAllSelected ? '取消全选' : '全选' }}</small></button>
+              <view v-if="!cartCategoryItems.length" class="empty cart-category-empty"><view class="pc-state-icon"><UiIcon :name="cartDeliveryMode === 'courier' ? 'truck' : 'store'" :size="25" /></view><text>{{ cartDeliveryMode === 'courier' ? '暂无快递直发商品' : '暂无到店自提商品' }}</text></view>
+              <view v-for="line in cartCategoryItems" :key="line.productId + line.skuId" class="cart-line cart-page-line" :class="{ unavailable: line.unavailable }">
+                <button class="cart-line-check" :aria-label="selectedCartLineKeys.has(cartLineKey(line)) ? `取消选择${line.name}` : `选择${line.name}`" @click="toggleCartLine(line)"><span class="cart-check" :class="{ checked: selectedCartLineKeys.has(cartLineKey(line)) }"><UiIcon v-if="selectedCartLineKeys.has(cartLineKey(line))" name="check" :size="12" /></span></button>
+                <BusinessImage :src="line.image" mode="aspectFill" />
+                <view class="cart-line-main">
+                  <view class="cart-line-head"><text>{{ line.name }}</text><text class="cart-stock">剩余库存 {{ line.stock }}</text></view>
+                  <small class="meta-text">{{ line.skuName }}</small>
+                  <small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small>
+                  <view class="cart-line-foot"><strong class="strong-text">¥{{ line.unitPrice.toFixed(2) }}</strong><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view>
+                </view>
+              </view>
+            </view>
+          </template>
+        </view>
+        <view v-if="store.cart.length" class="cart-checkout cart-page-checkout">
+          <button class="cart-select-all" @click="toggleAllCartLines"><span class="cart-check" :class="{ checked: cartCategoryAllSelected }"><UiIcon v-if="cartCategoryAllSelected" name="check" :size="12" /></span><text>全选</text></button>
+          <view class="cart-checkout-total"><text>合计：</text><strong>¥{{ selectedCartTotal.toFixed(2) }}</strong></view>
+          <button class="cart-delete-btn" :disabled="!selectedCartItems.length" @click="selectedCartItems.forEach((line) => store.removeFromCart(line.productId, line.skuId))">删除</button>
+          <button class="primary-btn" :disabled="!selectedCartItems.length || cartCategoryHasUnavailable" @click="openCheckout">结算({{ selectedCartCount }})</button>
+        </view>
       </view>
 
       <view v-else-if="activeTab === 'me' && meSection === 'orders'" class="page-content orders-page" data-visual-view="user-orders">
         <view class="page-heading heading-with-back theme-head"><button class="page-back" aria-label="返回我的" @click="meSection = 'main'"><UiIcon name="arrow-left" :size="20" /></button><view><text class="page-title">我的订单</text><text class="page-sub">每个供应商独立发货</text></view></view>
         <view v-if="!store.orders.length" class="empty-block large pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="26" /></view><text>还没有订单</text><button class="outline-btn" @click="activeTab = 'home'">去逛逛</button></view>
         <view v-for="order in store.orders" :key="order.id" class="order-card">
-          <view class="order-head"><view><view class="order-id-line"><text class="order-id">{{ order.id }}</text><text v-if="isDemoOrderId(order.id)" class="demo-badge">演示订单</text></view><text class="order-time">{{ formatDate(order.createdAt) }}</text></view><text class="order-status">{{ orderStatusLabel(order.status) }}</text></view>
-          <view v-for="sub in order.subOrders" :key="sub.id" class="sub-order"><view class="sub-head"><text>{{ sub.supplierName }}</text><text>{{ subStatusLabel(sub.status) }}</text></view><view v-for="item in sub.items" :key="item.skuId" class="order-item"><BusinessImage :src="item.image" mode="aspectFill" /><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skuName }} × {{ item.quantity }}</small></view><strong class="strong-text">¥{{ (item.unitPrice * item.quantity).toFixed(2) }}</strong></view><view v-if="sub.trackingNo" class="tracking-row"><UiIcon name="truck" :size="14" />{{ sub.courier }} {{ sub.trackingNo }}</view><view class="sub-actions"><text v-if="sub.status === 'paid'" class="waiting-copy">{{ isDemoOrderId(order.id) ? '演示订单不参与真实履约' : '等待供应商发货' }}</text><button v-if="!isDemoOrderId(order.id) && sub.status === 'shipped'" class="primary-small" @click="receive(order, sub)">确认收货</button><button v-if="sub.status === 'after_sale'" class="outline-small" disabled>售后处理中</button><button v-if="!isDemoOrderId(order.id) && (sub.status === 'paid' || sub.status === 'shipped' || sub.status === 'received')" class="outline-small" @click="afterSale(order, sub)">申请售后</button><button v-if="sub.status !== 'cancelled'" class="outline-small" @click="openLogistics(sub)">查看物流</button></view></view>
+          <view class="order-head"><view><view class="order-id-line"><text class="order-id">{{ order.id }}</text><text v-if="isDemoOrderId(order.id)" class="demo-badge">演示订单</text></view><text class="order-time">{{ formatDate(order.createdAt) }}</text></view><text class="order-status" :class="{ 'is-done': order.status === 'received' }">{{ orderStatusLabel(order.status) }}</text></view>
+          <view v-for="sub in order.subOrders" :key="sub.id" class="sub-order"><view class="sub-head"><text>{{ sub.supplierName }}</text><text>{{ subStatusLabel(sub.status) }}</text></view><view v-for="item in sub.items" :key="item.skuId" class="order-item"><BusinessImage :src="item.image" mode="aspectFill" /><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skuName }} × {{ item.quantity }}</small></view><strong class="strong-text">¥{{ (item.unitPrice * item.quantity).toFixed(2) }}</strong></view><view v-if="sub.trackingNo" class="tracking-row"><UiIcon name="truck" :size="13" />{{ sub.courier }} <text class="tracking-code">{{ sub.trackingNo }}</text></view><view class="sub-actions"><text v-if="sub.status === 'paid'" class="waiting-copy">{{ isDemoOrderId(order.id) ? '演示订单不参与真实履约' : '等待供应商发货' }}</text><button v-if="!isDemoOrderId(order.id) && sub.status === 'shipped'" class="primary-small" @click="receive(order, sub)">确认收货</button><button v-if="sub.status === 'after_sale'" class="outline-small" disabled>售后处理中</button><button v-if="!isDemoOrderId(order.id) && (sub.status === 'paid' || sub.status === 'shipped' || sub.status === 'received')" class="outline-small" @click="afterSale(order, sub)">申请售后</button><button v-if="sub.status !== 'cancelled'" class="outline-small" @click="openLogistics(sub)">查看物流</button></view></view>
           <view class="order-bottom"><text>共 {{ order.items.reduce((sum, item) => sum + item.quantity, 0) }} 件</text><strong class="strong-text">实付 ¥{{ order.amount.toFixed(2) }}</strong></view>
           <view v-if="!isDemoOrderId(order.id) && order.status === 'pending_payment' && paymentConfirmationPending(order)" class="payment-confirmation">支付结果确认中</view>
           <view v-if="!isDemoOrderId(order.id)" class="order-actions"><button v-if="order.status === 'pending_payment' && !paymentConfirmationPending(order)" class="primary-small" @click="pay(order)">模拟支付</button><button v-if="order.status === 'pending_payment' && paymentConfirmationQueryable(order)" class="primary-small" @click="pay(order)">查询支付结果</button><button v-if="order.status === 'pending_payment' && !paymentConfirmationPending(order)" class="outline-small" @click="cancelPendingOrder(order)">取消订单</button></view>
         </view>
-        <view v-if="store.vouchers.length" class="order-card voucher-card"><view class="order-head"><view><text class="order-id">券订单</text><text class="order-time">直播 / 门店套餐</text></view><text class="order-status">共 {{ store.vouchers.length }} 张</text></view><view v-for="voucher in store.vouchers" :key="voucher.id" class="order-item"><view class="voucher-thumb"><UiIcon name="badge-percent" :size="20" /></view><view><text>{{ voucher.id }}</text><small class="meta-text">数量 {{ voucher.quantity }} · ¥{{ voucher.amount.toFixed(2) }} · {{ voucher.status === 'paid' ? '待核销' : voucher.status === 'redeemed' ? '已核销' : '已退款' }}</small></view><strong class="strong-text">¥{{ voucher.amount.toFixed(2) }}</strong></view></view>
+        <view v-if="store.vouchers.length" class="order-card voucher-card"><view class="order-head"><view><text class="order-id">券订单</text><text class="order-time">直播 / 门店套餐</text></view><text class="order-status muted">共 {{ store.vouchers.length }} 张</text></view><view v-for="voucher in store.vouchers" :key="voucher.id" class="vrow"><view class="voucher-thumb"><UiIcon name="badge-percent" :size="19" /></view><view class="vrow-main"><text>{{ voucher.id }}</text><small class="meta-text">数量 {{ voucher.quantity }} · ¥{{ voucher.amount.toFixed(2) }} · {{ voucher.status === 'paid' ? '待核销' : voucher.status === 'redeemed' ? '已核销' : '已退款' }}</small></view><strong class="strong-text">¥{{ voucher.amount.toFixed(2) }}</strong></view></view>
       </view>
 
       <view v-else class="page-content me-page" data-visual-view="user-me">
@@ -407,23 +518,112 @@ onBeforeUnmount(() => {
 
       <view v-if="store.cart.length && activeTab !== 'cart'" class="cart-bar" @click="activeTab = 'cart'"><view class="cart-bar-icon"><UiIcon name="shopping-cart" :size="19" /><small>{{ store.cartCount }}</small></view><view class="cart-bar-total"><text>购物车合计</text><strong>¥{{ store.cartTotal.toFixed(2) }}</strong></view><button @click.stop="activeTab = 'cart'">去购物车</button></view>
       </template>
-      <view class="bottom-tabs"><view class="tab-item" :class="{ active: activeTab === 'home' }" @click="activeTab = 'home'"><UiIcon name="house" :size="19" /><text>首页</text></view><view class="tab-item" :class="{ active: activeTab === 'category' }" @click="activeTab = 'category'"><UiIcon name="layout-dashboard" :size="19" /><text>分类</text></view><view class="tab-item" :class="{ active: activeTab === 'cart' }" @click="activeTab = 'cart'"><view class="tab-icon-wrap"><UiIcon name="shopping-cart" :size="19" /><small v-if="store.cartCount">{{ store.cartCount }}</small></view><text>购物车</text></view><view class="tab-item" :class="{ active: activeTab === 'me' }" @click="activeTab = 'me'; meSection = 'main'"><UiIcon name="user-round" :size="19" /><text>我的</text></view></view>
+      <view v-if="!productView && !liveRoomOpen" class="bottom-tabs">
+        <view class="tab-item" :class="{ active: activeTab === 'home' }" @click="activeTab = 'home'"><view class="tab-icon"><UiIcon name="house" :size="20" /></view><text>首页</text></view>
+        <view class="tab-item" :class="{ active: activeTab === 'category' }" @click="activeTab = 'category'"><view class="tab-icon"><UiIcon name="layout-dashboard" :size="20" /></view><text>分类</text></view>
+        <view class="tab-item" :class="{ active: activeTab === 'cart' }" @click="activeTab = 'cart'"><view class="tab-icon tab-icon-wrap"><UiIcon name="shopping-cart" :size="20" /><small v-if="store.cartCount">{{ store.cartCount }}</small></view><text>购物车</text></view>
+        <view class="tab-item" :class="{ active: activeTab === 'me' }" @click="activeTab = 'me'; meSection = 'main'"><view class="tab-icon"><UiIcon name="user-round" :size="20" /></view><text>我的</text></view>
+      </view>
     </template>
 
     <view v-if="liveRoomOpen && featuredLive" class="live-room" data-visual-state="user-live-room">
-      <view class="live-room-video-wrap"><video class="live-room-video" :src="LIVE_VIDEO_URL" :poster="LIVE_VIDEO_POSTER" autoplay controls object-fit="cover" /><view class="live-room-top"><text class="live-card-status"><text></text>直播中</text><button aria-label="关闭直播间" @click="closeLiveRoom"><UiIcon name="x" :size="20" /></button></view><view class="live-room-meta"><text class="live-room-title">{{ featuredLive.title }}</text><small>{{ featuredLive.host }} · {{ featuredLive.viewers.toLocaleString('zh-CN') }} 人关注</small></view></view>
-      <view class="live-room-body"><view v-if="!store.liveFarms.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="24" /></view><text>当前直播暂无有效套餐</text></view><view v-for="group in store.liveFarms" :key="group.farm!.id" class="live-package-group"><text class="sku-label">{{ group.farm!.name }}</text><view v-for="item in group.packages" :key="item.id" class="live-package-row"><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skus.filter((sku) => canStartOrder(sku)).length }} 个可售规格</small><small v-if="!item.skus.some((sku) => canStartOrder(sku))" class="stock-warning">库存不足或购买数量未达要求</small></view><view class="live-package-actions"><strong class="strong-text">¥{{ item.price.toFixed(2) }}</strong><button class="outline-btn live-buy-btn" :disabled="!item.skus.some((sku) => canStartOrder(sku))" @click="buyPackage(item)">立即购买</button></view></view></view></view>
+      <view class="live-room-video-wrap">
+        <video class="live-room-video" :src="LIVE_VIDEO_URL" :poster="LIVE_VIDEO_POSTER" autoplay controls object-fit="cover" />
+        <view class="live-room-play"><UiIcon name="play" :size="26" /></view>
+        <view class="live-room-top"><text class="live-badge">直播中</text><button aria-label="关闭直播间" @click="closeLiveRoom"><UiIcon name="x" :size="18" /></button></view>
+      </view>
+      <view class="live-room-body">
+        <view v-if="!store.liveFarms.length" class="live-empty">
+          <view class="pc-state-icon"><UiIcon name="package" :size="28" /></view>
+          <text>当前直播暂无有效套餐</text>
+          <small>主播正在准备下一场产地直播<br>开播后可在此直接购买直播套餐</small>
+          <button class="outline-btn" @click="closeLiveRoom"><UiIcon name="house" :size="15" />返回商城逛逛</button>
+        </view>
+        <view v-for="group in store.liveFarms" :key="group.farm!.id" class="live-package-group"><text class="sku-label">{{ group.farm!.name }}</text><view v-for="item in group.packages" :key="item.id" class="live-package-row"><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skus.filter((sku) => canStartOrder(sku)).length }} 个可售规格</small><small v-if="!item.skus.some((sku) => canStartOrder(sku))" class="stock-warning">库存不足或购买数量未达要求</small></view><view class="live-package-actions"><strong class="strong-text">¥{{ item.price.toFixed(2) }}</strong><button class="outline-btn live-buy-btn" :disabled="!item.skus.some((sku) => canStartOrder(sku))" @click="buyPackage(item)">立即购买</button></view></view></view>
+      </view>
     </view>
 
     <view v-if="sheet" class="sheet-mask" @click.self="sheet = null"><view class="sheet">
-      <view class="sheet-handle"></view>
-      <view class="sheet-head"><text>{{ sheet === 'detail' ? '选择规格' : sheet === 'cart' ? '购物车' : sheet === 'checkout' ? '确认订单' : sheet === 'address' ? '收货地址' : sheet === 'logistics' ? '物流详情' : sheet === 'after-sale' ? '申请售后' : '直播活动' }}</text><button aria-label="关闭" @click="sheet = null"><UiIcon name="x" :size="18" /></button></view>
+      <view class="sheet-head"><text>{{ sheet === 'detail' ? '选择规格' : sheet === 'cart' ? '购物车结算' : sheet === 'checkout' ? '确认订单' : sheet === 'address' ? '收货地址' : sheet === 'logistics' ? '物流详情' : sheet === 'after-sale' ? '申请售后' : '直播活动' }}</text><button aria-label="关闭" @click="sheet = null"><UiIcon name="x" :size="16" /></button></view>
       <scroll-view class="sheet-scroll" scroll-y>
-      <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="detail-content product-detail" data-visual-state="user-detail"><text class="sku-label">选择规格</text><view class="sku-list"><view v-for="sku in selectedProduct.skus" :key="sku.id" class="sku-option" :class="{ active: selectedSkuId === sku.id }" @click="selectedSkuId = sku.id"><text>{{ sku.name }}</text></view></view></view>
-      <view v-else-if="sheet === 'cart'" class="cart-content" data-visual-state="user-cart"><view v-if="!store.cart.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="24" /></view><text>购物车为空</text></view><view v-for="line in store.cart" :key="line.productId + line.skuId" class="cart-line" :class="{ unavailable: line.unavailable }"><BusinessImage :src="line.image" mode="aspectFill" /><view class="cart-line-main"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} · 库存充足</small><small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small><view class="cart-line-foot"><strong class="strong-text">¥{{ line.unitPrice.toFixed(2) }}</strong><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view></view><button class="cart-remove" @click="store.removeFromCart(line.productId, line.skuId)">删除</button></view></view>
-      <view v-else-if="sheet === 'checkout'" class="checkout-content" data-visual-state="user-checkout"><view class="address-select" @click="openAddressManager(true)"><view><text>{{ store.defaultAddress ? store.defaultAddress.receiver + ' ' + store.defaultAddress.phone : '请选择收货地址' }}</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region + ' ' + store.defaultAddress.detail : '至少设置一条地址才能提交订单' }}</small></view><UiIcon name="chevron-right" :size="17" /></view><view class="checkout-payment-fixed"><UiIcon name="message-circle" :size="19" /><view><text>微信支付</text><small>当前端仅支持微信支付</small></view><span>已选</span></view><view class="checkout-items"><view v-for="line in store.cart" :key="line.productId + line.skuId" class="checkout-line"><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} × {{ line.quantity }}</small><strong class="strong-text">¥{{ (line.unitPrice * line.quantity).toFixed(2) }}</strong></view></view><view class="fee-row"><text>商品金额</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view><view class="fee-row"><text>快递配送</text><strong class="strong-text">¥0.00</strong></view><view class="checkout-total"><text>应付金额</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view></view>
-      <view v-else-if="sheet === 'address'" class="address-content" data-visual-state="user-address"><view v-if="!addressEditing" class="address-list"><view v-if="!store.addresses.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="map-pin" :size="24" /></view><text>还没有收货地址</text></view><view v-for="address in store.addresses" :key="address.id" class="address-row" @click="chooseAddress(address.id)"><view><text>{{ address.receiver }} {{ address.phone }}</text><small class="meta-text">{{ address.region }} {{ address.detail }}</small></view><view class="address-actions"><text v-if="address.isDefault" class="default-label" data-typography-compact>默认</text><button class="outline-small" @click.stop="editAddressFromContext(address)">编辑</button><button class="outline-small" @click.stop="removeAddress(address.id)">删除</button></view></view></view><view v-else class="address-form"><input v-model="addressDraft.receiver" placeholder="收货人姓名" /><input v-model="addressDraft.phone" type="number" placeholder="手机号码" /><input v-model="addressDraft.region" placeholder="所在地区" /><input v-model="addressDraft.detail" placeholder="详细地址" /><view class="default-line" @click="toggleDefault"><text>设为默认地址</text><view class="toggle" :class="{ on: addressDraft.isDefault }"><view></view></view></view></view></view>
-      <view v-else-if="sheet === 'logistics' && selectedSubOrder" class="logistics-content" data-visual-state="user-logistics"><view class="logistics-summary"><text>{{ selectedSubOrder.supplierName }}</text><small class="meta-text">{{ selectedSubOrder.courier || '快递配送' }} · {{ selectedSubOrder.trackingNo || '暂无运单号' }}</small></view><view v-if="!selectedSubOrder.logistics.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="truck" :size="24" /></view><text>暂无物流信息</text></view><view v-for="event in selectedSubOrder.logistics" :key="event.time + event.title" class="logistics-event"><view class="event-dot"></view><view><text>{{ event.title }}</text><small class="meta-text">{{ formatDate(event.time) }} · {{ event.detail }}</small></view></view></view>
+      <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="detail-content product-detail" data-visual-state="user-detail">
+        <view class="sku-sum">
+          <BusinessImage :src="selectedProduct.image" mode="aspectFill" />
+          <view>
+            <text class="sku-sum-name">{{ selectedProduct.name }}</text>
+            <text class="sku-sum-price">¥{{ selectedPrice.toFixed(2) }}</text>
+            <text class="sku-sum-meta">库存 {{ selectedSku.stock }} · 已选：{{ selectedSku.name }}</text>
+          </view>
+        </view>
+        <text class="sku-label">选择规格</text>
+        <view class="sku-list">
+          <view v-for="sku in selectedProduct.skus" :key="sku.id" class="sku-option" :class="{ active: selectedSkuId === sku.id }" @click="selectSku(sku.id)">
+            <text>{{ sku.name }}</text>
+            <small>¥{{ store.priceForSku(sku).toFixed(2) }} · 库存 {{ sku.stock }}</small>
+          </view>
+        </view>
+        <view class="qty-row">
+          <view class="qty-copy"><text>购买数量</text><small>起订 {{ minimumOrderQuantity(selectedSku) }} 件 · 当前库存 {{ selectedSku.stock }}</small></view>
+          <view class="stepper"><button @click="changeSelectedQty(-1)">−</button><text>{{ selectedQty }}</text><button @click="changeSelectedQty(1)">+</button></view>
+        </view>
+        <view class="pv-sum">当前小计<strong>¥{{ selectedSubtotal.toFixed(2) }}</strong></view>
+      </view>
+      <view v-else-if="sheet === 'cart'" class="cart-content cart-sheet-list" data-visual-state="user-cart">
+        <view v-if="!store.cart.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="24" /></view><text>购物车为空</text></view>
+        <template v-else>
+          <view class="cart-category-tabs cart-channel-segment"><button :class="{ active: cartDeliveryMode === 'pickup' }" @click="cartDeliveryMode = 'pickup'">到店自提 · {{ cartCategoryCount('pickup') }} 件</button><button :class="{ active: cartDeliveryMode === 'courier' }" @click="cartDeliveryMode = 'courier'">快递直发 · {{ cartCategoryCount('courier') }} 件</button></view>
+          <view class="cart-group-card">
+            <button class="cart-select-all" @click="toggleAllCartLines"><span class="cart-check" :class="{ checked: cartCategoryAllSelected }"><UiIcon v-if="cartCategoryAllSelected" name="check" :size="12" /></span><text>{{ cartDeliveryMode === 'courier' ? '快递商品' : '普通商品' }} · {{ cartCategoryItems.length }} 款</text><small>{{ cartCategoryAllSelected ? '取消全选' : '全选' }}</small></button>
+            <view v-if="!cartCategoryItems.length" class="empty cart-category-empty"><view class="pc-state-icon"><UiIcon :name="cartDeliveryMode === 'courier' ? 'truck' : 'store'" :size="25" /></view><text>{{ cartDeliveryMode === 'courier' ? '暂无快递直发商品' : '暂无到店自提商品' }}</text><small>{{ cartDeliveryMode === 'courier' ? '支持快递的商品会显示在这里' : '普通商品请到农家乐自提' }}</small></view>
+            <view v-for="line in cartCategoryItems" :key="line.productId + line.skuId" class="cart-line" :class="{ unavailable: line.unavailable }">
+              <button class="cart-line-check" :aria-label="selectedCartLineKeys.has(cartLineKey(line)) ? `取消选择${line.name}` : `选择${line.name}`" @click="toggleCartLine(line)"><span class="cart-check" :class="{ checked: selectedCartLineKeys.has(cartLineKey(line)) }"><UiIcon v-if="selectedCartLineKeys.has(cartLineKey(line))" name="check" :size="12" /></span></button>
+              <BusinessImage :src="line.image" mode="aspectFill" />
+              <view class="cart-line-main">
+                <text>{{ line.name }}</text>
+                <small class="meta-text">{{ line.skuName }} · <span class="cart-fulfillment-tag" :class="cartLineDeliveryMode(line)">{{ cartLineDeliveryMode(line) === 'courier' ? '快递直发' : '到店自提' }}</span></small>
+                <small v-if="line.unavailable" class="stock-warning">库存不足或购买数量未达要求</small>
+                <view class="cart-line-foot"><strong class="strong-text">¥{{ line.unitPrice.toFixed(2) }}</strong><view class="stepper"><button @click="changeLine(line.productId, line.skuId, -1)">−</button><text>{{ line.quantity }}</text><button @click="changeLine(line.productId, line.skuId, 1)">+</button></view></view>
+              </view>
+              <button class="cart-remove" @click="store.removeFromCart(line.productId, line.skuId)">删除</button>
+            </view>
+          </view>
+          <text class="cart-hint">到店自提满 ¥99 免配送费 · 快递直发按重量计费</text>
+          <text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text>
+        </template>
+      </view>
+      <view v-else-if="sheet === 'checkout'" class="checkout-content" data-visual-state="user-checkout">
+        <view v-if="!store.defaultAddress" class="warnrow" @click="openAddressManager(true)">
+          <UiIcon name="map-pin" :size="20" />
+          <view><text>请选择收货地址</text><small>至少设置一条地址才能提交订单</small></view>
+          <text class="warnrow-act">去新增</text>
+        </view>
+        <view v-else class="address-select" @click="openAddressManager(true)"><view><text>{{ store.defaultAddress.receiver }} {{ store.defaultAddress.phone }}</text><small class="meta-text">{{ store.defaultAddress.region }} {{ store.defaultAddress.detail }}</small></view><UiIcon name="chevron-right" :size="17" /></view>
+        <view class="payrow"><UiIcon name="credit-card" :size="20" /><view><text>微信支付</text><small>当前端仅支持微信支付</small></view><text class="payrow-sel">已选择</text></view>
+        <text class="sku-label">已选商品</text>
+        <view class="checkout-items"><view v-for="line in checkoutItems" :key="line.productId + line.skuId" class="order-item"><BusinessImage :src="line.image" mode="aspectFill" /><view><text>{{ line.name }}</text><small class="meta-text">{{ line.skuName }} × {{ line.quantity }}</small></view><strong class="strong-text">¥{{ (line.unitPrice * line.quantity).toFixed(2) }}</strong></view></view>
+        <view class="kv">
+          <view class="kvrow"><text>商品金额</text><text>¥{{ checkoutTotal.toFixed(2) }}</text></view>
+          <view class="kvrow"><text>快递配送</text><text>¥0.00</text></view>
+          <view class="kvrow kvrow-total"><text>应付金额</text><strong>¥{{ checkoutTotal.toFixed(2) }}</strong></view>
+        </view>
+      </view>
+      <view v-else-if="sheet === 'address'" class="address-content" data-visual-state="user-address"><view v-if="!addressEditing" class="address-list"><view v-if="!store.addresses.length" class="empty-sheet"><view class="pc-state-icon"><UiIcon name="map-pin" :size="28" /></view><text>还没有收货地址</text><small>新增地址后即可提交订单<br>产地好物将快递直发到家</small></view><view v-for="address in store.addresses" :key="address.id" class="address-row" @click="chooseAddress(address.id)"><view><text>{{ address.receiver }} {{ address.phone }}</text><small class="meta-text">{{ address.region }} {{ address.detail }}</small></view><view class="address-actions"><text v-if="address.isDefault" class="default-label" data-typography-compact>默认</text><button class="outline-small" @click.stop="editAddressFromContext(address)">编辑</button><button class="outline-small" @click.stop="removeAddress(address.id)">删除</button></view></view></view><view v-else class="address-form"><input v-model="addressDraft.receiver" placeholder="收货人姓名" /><input v-model="addressDraft.phone" type="number" placeholder="手机号码" /><input v-model="addressDraft.region" placeholder="所在地区" /><input v-model="addressDraft.detail" placeholder="详细地址" /><view class="default-line" @click="toggleDefault"><text>设为默认地址</text><view class="toggle" :class="{ on: addressDraft.isDefault }"><view></view></view></view></view></view>
+      <view v-else-if="sheet === 'logistics' && selectedSubOrder" class="logistics-content" data-visual-state="user-logistics">
+        <view class="ship-head">
+          <BusinessImage :src="selectedSubOrder.items[0]?.image" mode="aspectFill" />
+          <view><text>{{ selectedSubOrder.items[0]?.name || selectedSubOrder.supplierName }} × {{ selectedSubOrder.items[0]?.quantity || 1 }}</text><small class="meta-text">{{ selectedSubOrder.courier || '快递配送' }} · {{ subStatusLabel(selectedSubOrder.status) }}</small></view>
+          <view class="ship-sup"><text>{{ selectedSubOrder.supplierName }}</text><small>快递配送</small></view>
+        </view>
+        <view class="kv">
+          <view class="kvrow"><text>承运快递</text><text>{{ selectedSubOrder.courier || '快递配送' }}</text></view>
+          <view class="kvrow"><text>运单号</text><text>{{ selectedSubOrder.trackingNo || '暂无运单号' }}</text></view>
+        </view>
+        <view v-if="!selectedSubOrder.logistics.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="truck" :size="24" /></view><text>暂无物流信息</text></view>
+        <view v-else class="steps2">
+          <view v-for="(event, index) in selectedSubOrder.logistics" :key="event.time + event.title" class="step" :class="{ on: index === 0 }"><text>{{ event.title }}</text><small>{{ formatDate(event.time) }} · {{ event.detail }}</small></view>
+        </view>
+        <view class="notecard"><UiIcon name="headset" :size="14" />每个供应商独立发货，物流信息以子订单为单位更新</view>
+      </view>
       <view v-else-if="sheet === 'after-sale' && afterSaleTarget" class="after-sale-content" data-visual-state="user-after-sale">
         <view class="after-sale-order"><text>{{ afterSaleTarget.sub.supplierName }}</text><small class="meta-text">申请售后：{{ afterSaleTarget.sub.items[0]?.name || afterSaleTarget.sub.supplierName }}</small></view>
         <view class="after-sale-reason"><text>售后原因</text><view class="after-sale-chips"><button v-for="reason in ['运输破损', '质量问题', '少发漏发', '七天无理由', '其他']" :key="reason" :class="{ active: afterSaleReason === reason }" @click="afterSaleReason = reason">{{ reason }}</button></view></view>
@@ -431,10 +631,11 @@ onBeforeUnmount(() => {
         <text class="after-sale-tip">提交后客服将结合凭证审核</text>
       </view>
       </scroll-view>
-      <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="product-detail-actions sheet-foot"><button class="primary-btn" :disabled="!canStartOrder(selectedSku)" @click="addSelectedToCart">加入购物车</button></view>
-      <view v-else-if="sheet === 'cart' && store.cart.length" class="sheet-foot"><view class="sheet-total"><text>身份价格已锁定</text><strong class="strong-text">¥{{ store.cartTotal.toFixed(2) }}</strong></view><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="openCheckout">去结算</button></view>
+      <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="product-detail-actions sheet-foot"><button class="primary-btn" :disabled="!canStartOrder(selectedSku)" @click="addSelectedToCart"><UiIcon name="shopping-cart" :size="16" />加入购物车</button></view>
+      <view v-else-if="sheet === 'cart' && store.cart.length" class="sheet-foot cart-sheet-foot"><view class="sheet-total"><text>{{ cartDeliveryMode === 'courier' ? '快递直发' : '到店自提' }} · 已选 {{ selectedCartCount }} 件</text><strong class="strong-text">¥{{ selectedCartTotal.toFixed(2) }}</strong></view><button class="primary-btn" :disabled="!selectedCartItems.length || cartCategoryHasUnavailable" @click="openCheckout">去结算</button></view>
       <view v-else-if="sheet === 'checkout'" class="sheet-foot"><button class="primary-btn" :disabled="store.cartHasUnavailable" @click="submitOrder">提交订单</button></view>
-      <view v-else-if="sheet === 'address'" class="sheet-foot"><button v-if="!addressEditing" class="primary-btn" @click="editAddressFromContext()">新增地址</button><button v-else class="primary-btn" @click="saveAddress">保存地址</button></view>
+      <view v-else-if="sheet === 'address'" class="sheet-foot"><button v-if="!addressEditing" class="primary-btn" @click="editAddressFromContext()"><UiIcon name="plus" :size="16" />新增地址</button><button v-else class="primary-btn" @click="saveAddress">保存地址</button></view>
+      <view v-else-if="sheet === 'logistics' && selectedSubOrder" class="sheet-foot"><button class="outline-btn" @click="copyTrackingNo">复制运单号</button></view>
       <view v-else-if="sheet === 'after-sale' && afterSaleTarget" class="sheet-foot"><button class="primary-btn" @click="confirmAfterSale">提交售后申请</button></view>
     </view></view>
   </view>
@@ -474,83 +675,133 @@ onBeforeUnmount(() => {
 }
 
 .auth-page {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 32px 8px;
-  padding-top: calc(24px + env(safe-area-inset-top));
-  background: var(--mobile-bg);
+  overflow: hidden;
+  background: var(--mobile-login-grad);
+}
+
+.auth-deco {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.auth-deco1 {
+  top: -90px;
+  right: -110px;
+  width: 340px;
+  height: 340px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-on-brand) 12%, transparent), transparent 68%);
+}
+.auth-deco2 {
+  top: 220px;
+  left: -120px;
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-on-brand) 8%, transparent), transparent 68%);
+}
+
+.auth-brand {
+  position: relative;
+  padding: calc(150px + env(safe-area-inset-top)) 24px 0;
   text-align: center;
 }
+.auth-mark {
+  display: grid;
+  width: 66px;
+  height: 66px;
+  margin: 0 auto 16px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-on-brand) 32%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-on-brand) 18%, transparent);
+  color: var(--color-on-brand);
+}
+.auth-brand-name { display: block; color: var(--color-on-brand); font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+.auth-brand-sub { display: block; margin-top: 10px; color: color-mix(in srgb, var(--color-on-brand) 85%, transparent); font-size: 13px; }
 
 .auth-card {
-  width: 100%;
-  max-width: 340px;
-  overflow: hidden;
-  border: 1px solid var(--mobile-border);
-  border-radius: var(--mobile-radius-card);
+  position: relative;
+  margin-top: auto;
+  padding: 30px 24px 34px;
+  border-radius: var(--radius-user-login) var(--radius-user-login) 0 0;
   background: var(--mobile-surface);
-  box-shadow: var(--mobile-shadow-card);
+  box-shadow: 0 -18px 50px color-mix(in srgb, var(--mobile-brand-deep) 25%, transparent);
+  text-align: center;
 }
-.auth-card .pc-login-hero { border-radius: 0; }
-
-.auth-body {
-  padding: 16px 12px 18px;
+.auth-wxbadge {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mobile-wx-soft);
+  color: var(--mobile-wx);
 }
-
-.auth-tip { display: block; margin-top: 10px; color: var(--mobile-muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
-
 .auth-btn {
+  display: flex;
   width: 100%;
-  min-height: 44px;
-  margin-top: 0;
+  min-height: 50px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
   border: 0;
-  border-radius: var(--mobile-radius-card);
-  background: var(--mobile-brand);
+  border-radius: var(--mobile-radius-pill);
+  background: var(--mobile-hero-grad);
+  box-shadow: var(--mobile-shadow-button);
   color: var(--color-on-brand);
-  font-size: 14px;
+  font-size: 15.5px;
   font-weight: 800;
 }
+.auth-tip { display: block; margin-top: 16px; color: var(--mobile-muted); font-size: 12px; }
 
 .mall-header,
 .page-heading {
+  position: relative;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: calc(12px + env(safe-area-inset-top)) 8px 14px;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 28px;
 }
 
-.page-heading { display: block; padding-bottom: 18px; }
+.page-heading { display: block; }
 .theme-head {
-  background: var(--color-brand-primary-dark);
+  background: var(--mobile-hero-grad);
   color: var(--color-on-brand);
+}
+.theme-head::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 22px;
+  border-radius: 22px 22px 0 0;
+  background: var(--mobile-bg);
 }
 .theme-head .page-sub,
-.theme-head .eyebrow { color: color-mix(in srgb, var(--color-on-brand) 82%, transparent); }
-.theme-head .role-chip {
-  border-color: color-mix(in srgb, var(--color-on-brand) 35%, transparent);
-  background: color-mix(in srgb, var(--color-on-brand) 12%, transparent);
-  color: var(--color-on-brand);
-}
-.eyebrow { display: block; color: var(--mobile-warning); font-size: 12px; font-weight: 800; letter-spacing: 0; }
+.theme-head .eyebrow { color: color-mix(in srgb, var(--color-on-brand) 85%, transparent); }
+.eyebrow { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 2.5px; }
 .mall-title,
-.page-title { display: block; margin-top: 4px; font-size: 20px; font-weight: 900; line-height: 1.25; }
-.page-sub { display: block; margin-top: 5px; color: var(--mobile-muted); font-size: 12px; }
+.page-title { display: block; margin-top: 3px; font-size: 21px; font-weight: 800; line-height: 1.25; }
+.page-sub { display: block; margin-top: 4px; font-size: 12px; }
 
 .role-chip {
-  display: flex;
+  display: inline-flex;
   flex: none;
   align-items: center;
   gap: 5px;
-  min-height: var(--mobile-control-compact);
-  padding: 0 10px;
-  border: 1px solid var(--mobile-border);
-  border-radius: var(--mobile-radius-card);
-  background: var(--mobile-surface);
-  color: var(--mobile-brand);
+  height: 32px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--color-on-brand) 28%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-on-brand) 16%, transparent);
+  color: var(--color-on-brand);
   font-size: 12px;
   font-weight: 700;
 }
@@ -558,487 +809,760 @@ onBeforeUnmount(() => {
 .search-box {
   display: flex;
   align-items: center;
-  gap: 9px;
-  height: 44px;
-  margin: 0 8px 14px;
-  padding: 0 13px;
-  border: 0;
+  gap: 8px;
+  height: 42px;
+  margin: 12px 16px 0;
+  padding: 0 14px;
+  border: 1px solid var(--mobile-border);
   border-radius: var(--mobile-radius-pill);
-  background: var(--mobile-surface-subtle);
+  background: var(--mobile-surface);
   color: var(--mobile-muted);
-  box-shadow: none;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--mobile-brand-deep) 4%, transparent);
 }
+.search-input { min-width: 0; flex: 1; height: 100%; color: var(--mobile-text); font-size: 13px; }
 
-.search-input { min-width: 0; flex: 1; height: 100%; color: var(--mobile-text); font-size: 14px; }
-
-.live-card {
+.live-banner {
   position: relative;
-  height: 188px;
-  margin: 0 8px 20px;
-  overflow: hidden;
-  border-radius: var(--mobile-radius-card);
-  background: var(--mobile-brand-deep);
-  color: var(--color-on-brand);
-  box-shadow: var(--mobile-shadow-card);
-}
-
-.live-card-video { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
-.live-card-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 14px; background: color-mix(in srgb, var(--color-ink) 52%, transparent); }
-.live-card-main { min-width: 0; }
-
-.live-card-status,
-.live-status { display: flex; align-items: center; gap: 6px; color: var(--color-gold-soft); font-size: 12px; font-weight: 800; }
-.live-card-status > text,
-.live-status > text { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--mobile-price); }
-
-.live-card-title {
-  display: -webkit-box;
-  overflow: hidden;
-  margin-top: 7px;
-  font-size: 16px;
-  font-weight: 900;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.live-card-sub { display: block; overflow: hidden; margin-top: 5px; color: var(--color-line); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.live-card-enter { display: flex; align-items: center; align-self: flex-start; gap: 6px; min-height: var(--mobile-control-compact); padding: 0 11px; border: 1px solid color-mix(in srgb, var(--color-on-brand) 38%, transparent); border-radius: var(--mobile-radius-card); background: color-mix(in srgb, var(--color-ink) 48%, transparent); color: var(--color-on-brand); font-size: 12px; font-weight: 800; }
-
-.mall-banner {
   display: flex;
+  overflow: hidden;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  min-height: 118px;
-  margin: 0 8px 20px;
-  padding: 18px;
-  border-radius: var(--mobile-radius-card);
-  background: var(--mobile-brand-deep);
+  margin: 12px 16px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--mobile-hero-grad);
   color: var(--color-on-brand);
 }
-
+.live-banner::after {
+  content: "";
+  position: absolute;
+  top: -70px;
+  right: -50px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-on-brand) 14%, transparent), transparent 70%);
+}
+.live-banner-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .28; }
+.live-banner > view:not(.banner-play) { position: relative; z-index: 1; min-width: 0; flex: 1; }
 .banner-kicker,
 .banner-title,
 .banner-sub { display: block; }
-.banner-kicker,
-.banner-sub { color: color-mix(in srgb, var(--color-on-brand) 82%, var(--color-brand-primary-dark)); font-size: 12px; }
-.banner-title { margin: 6px 0; font-size: 16px; font-weight: 900; }
-.banner-play { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: var(--mobile-radius-card); background: var(--color-brand-primary-soft); color: var(--mobile-brand-deep); }
+.banner-kicker { color: color-mix(in srgb, var(--color-on-brand) 75%, transparent); font-size: 11px; letter-spacing: 1px; }
+.banner-title { margin-top: 3px; font-size: 16.5px; font-weight: 800; }
+.banner-sub { margin-top: 3px; color: color-mix(in srgb, var(--color-on-brand) 85%, transparent); font-size: 11.5px; }
+.banner-play {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-on-brand) 32%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-on-brand) 20%, transparent);
+  color: var(--color-on-brand);
+}
 
 .section-line {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  padding: 0 8px 11px;
-  font-size: 16px;
-  font-weight: 900;
+  align-items: baseline;
+  margin: 16px 16px 10px;
+  font-size: 15.5px;
+  font-weight: 800;
 }
+.section-line .meta-text { margin-left: auto; color: var(--mobile-muted); font-size: 12px; font-weight: 400; }
 
-.section-line .meta-text { flex: none; color: var(--mobile-muted); font-size: 12px; font-weight: 400; }
-.waterfall-grid { display: flex; align-items: flex-start; gap: 8px; padding: 0 8px; }
-.waterfall-column { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 8px; }
+.waterfall-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 0 16px;
+}
 
 .product-card {
-  min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--mobile-border);
   border-radius: var(--mobile-radius-card);
   background: var(--mobile-surface);
-  box-shadow: var(--mobile-shadow-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--mobile-brand-deep) 5%, transparent);
 }
-
-.product-image { display: block; width: 100%; height: auto; min-height: 160px; aspect-ratio: 1 / 1; background: var(--mobile-surface-subtle); object-fit: cover; }
+.product-image-wrap { position: relative; }
+.product-image { display: block; width: 100%; aspect-ratio: 1 / 1; background: var(--mobile-surface-subtle); object-fit: cover; }
+.live-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-on-brand) 94%, transparent);
+  color: var(--mobile-brand);
+  font-size: 11px;
+  font-weight: 800;
+}
 
 .product-body {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
-  padding: 9px;
+  padding: 9px 10px 11px;
 }
-
 .tag-row,
-.detail-tags { display: flex; gap: 5px; overflow: hidden; flex-wrap: nowrap; }
-.tag { max-width: 96px; overflow: hidden; padding: 3px 6px; border-radius: 4px; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-size: 11px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; flex: none; }
-
+.pv-tags { display: flex; flex-wrap: wrap; gap: 4px; overflow: hidden; }
+.tag {
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--mobile-brand-soft);
+  color: var(--mobile-brand-deep);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .product-name {
-  width: 100%;
-  min-width: 0;
   display: -webkit-box;
   overflow: hidden;
-  color: var(--mobile-text);
-  font-size: 13px;
+  margin-top: 6px;
+  font-size: 13.5px;
   font-weight: 800;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-
 .supplier-name,
-.product-meta { display: block; min-width: 0; overflow: hidden; margin-top: 3px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.product-foot { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; gap: 6px; margin-top: 8px; min-height: 0; }
-.product-foot > view { min-width: 0; }
-
+.product-meta {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--mobile-muted);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.product-meta em { font-style: normal; color: var(--mobile-brand); font-weight: 700; }
+.product-foot { display: flex; min-width: 0; align-items: center; margin-top: 8px; }
 .product-price,
-.detail-price,
-.checkout-total .strong-text,
-.sheet-total .strong-text,
-.cart-checkout strong,
-.commission-row .strong-text { color: var(--mobile-price); font-variant-numeric: tabular-nums; }
-
-.product-price { display: inline; font-size: 18px; font-weight: 900; }
-.product-price-box { display: inline-flex; align-items: baseline; gap: 4px; }
-.product-original { font-size: 13px; color: var(--mobile-muted); }
-.share-income { display: block; overflow: hidden; margin-top: 2px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pv-meta strong,
+.sku-sum-price,
+.commission-row .strong-text,
+.cart-checkout strong { color: var(--mobile-price); font-variant-numeric: tabular-nums; }
+.product-price { flex: 1; font-size: 17px; font-weight: 800; }
+.product-price-box { display: inline-flex; min-width: 0; flex: 1; align-items: baseline; gap: 4px; }
+.product-original { color: var(--mobile-muted); font-size: 11px; }
 
 .product-action {
-  min-width: 32px;
-  width: 32px;
-  min-height: 32px;
-  height: 32px;
+  display: inline-flex;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 44px;
   flex: none;
-  align-self: flex-end;
+  align-items: center;
+  justify-content: center;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--mobile-brand);
+  background: var(--mobile-hero-grad);
+  box-shadow: var(--mobile-shadow-button);
   color: var(--color-on-brand);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
-
+.product-action:disabled { opacity: .45; transform: none; }
 .product-action .ui-icon { filter: brightness(0) invert(1); }
-.product-action.share {
-  min-width: 52px;
-  width: auto;
-  padding: 0 10px;
-  border: 1px solid var(--mobile-price);
-  border-radius: var(--mobile-radius-pill);
-  background: var(--mobile-surface);
-  color: var(--mobile-price);
-}
-.compact-feed { padding-bottom: 28px; }
 
-.category-row {
+.category-grid {
   display: flex;
-  gap: 8px;
+  gap: 12px 2px;
   overflow-x: auto;
-  padding: 0 8px 16px;
-  white-space: nowrap;
-  overscroll-behavior-x: contain;
+  padding: 12px 16px 0;
+  scrollbar-width: none;
 }
-
-.category-row{scrollbar-width:none}
-.category-row::-webkit-scrollbar{display:none}
-.category-tabs { padding-bottom: 18px; }
-
-.category-item {
-  position: relative;
-  display: inline-flex;
-  min-height: var(--mobile-control-compact);
+.category-grid::-webkit-scrollbar { display: none; }
+.category-grid .category-grid-item {
+  min-width: 0;
   flex: none;
-  align-items: center;
-  gap: 7px;
-  margin: 0;
-  padding: 6px 10px 8px;
-  border: 0;
-  border-radius: 0;
+  padding: 0;
   background: transparent;
-  color: var(--mobile-muted);
-  font-size: 12px;
-  line-height: normal;
 }
-
-.category-item::after { border: 0; background: none; }
-.category-item.active { border: 0; background: transparent; color: var(--mobile-brand); font-weight: 800; }
-.category-item.active::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  width: 20px;
-  height: 3px;
-  border: none;
-  border-radius: var(--mobile-radius-pill);
-  background: currentColor;
-  transform: translateX(-50%);
-}
-
-.category-image {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  border-radius: 5px;
+.category-grid .category-grid-img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   background: var(--mobile-surface-subtle);
 }
-
-.category-label { max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.category-grid .category-grid-label {
+  height: calc(12px * 1.25 * 2);
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--mobile-muted);
+  word-break: keep-all;
+}
+.category-grid .category-grid-item.active .category-grid-img {
+  box-shadow: 0 0 0 2px var(--mobile-brand);
+}
+.category-grid .category-grid-item.active .category-grid-label {
+  color: var(--mobile-brand);
+  font-weight: 800;
+}
 
 .empty-block {
   display: flex;
+  min-height: 150px;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  min-height: 150px;
   padding: 24px;
   color: var(--mobile-muted);
   font-size: 13px;
-  line-height: 1.5;
   text-align: center;
 }
-
 .empty-block.large { min-height: 160px; flex-direction: column; }
 .empty-block.compact { min-height: 96px; flex-direction: column; }
+.empty-sheet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 0 10px;
+  text-align: center;
+}
+.empty-sheet text { font-size: 14.5px; font-weight: 800; color: var(--mobile-text); }
+.empty-sheet small { color: var(--mobile-muted); font-size: 11.5px; line-height: 1.7; }
 
 .order-card {
-  margin: 0 8px 8px;
-  padding: 10px 11px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--mobile-radius-card);
+  margin: 10px 16px 0;
+  padding: 13px 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 16px;
   background: var(--mobile-surface);
-  box-shadow: var(--mobile-shadow-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--mobile-brand-deep) 4%, transparent);
 }
-
 .order-head,
 .sub-head,
 .order-bottom,
-.fee-row,
-.checkout-total,
-.sheet-total,
-.live-info-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; }
-
-.order-head > view,
-.sub-head > text:first-child { min-width: 0; }
+.sheet-total { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; }
 .order-id-line { display: flex; min-width: 0; align-items: center; gap: 6px; }
-.order-id { display: block; min-width: 0; word-break: break-all; color: var(--mobile-text); font-size: 12px; font-weight: 800; }
-.order-time { display: block; margin-top: 4px; color: var(--mobile-muted); font-size: 12px; }
-.order-status { flex: none; color: var(--mobile-price); font-size: 12px; font-weight: 800; }
-
+.order-id { display: block; min-width: 0; word-break: break-all; font-size: 12.5px; font-weight: 800; }
+.order-time { display: block; margin-top: 3px; color: var(--mobile-muted); font-size: 11px; }
+.order-status { flex: none; color: var(--mobile-warning); font-size: 12.5px; font-weight: 800; }
+.order-status.is-done { color: var(--color-success); }
+.order-status.muted { color: var(--mobile-muted); }
 .demo-badge,
-.default-label { flex: none; padding: 2px 6px !important; border-radius: 4px; background: var(--mobile-brand-soft); color: var(--mobile-brand-deep) !important; font-size: 11px !important; font-weight: 700; }
-
-.sub-order { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--mobile-border); }
-.sub-head { font-size: 12px; font-weight: 800; }
-.sub-head > text:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub-head text:last-child { flex: none; color: var(--mobile-muted); font-weight: 400; }
+.default-label { flex: none; padding: 0 6px; border-radius: 5px; background: var(--mobile-surface-subtle); color: var(--mobile-muted); font-size: 10px; font-weight: 700; }
+.sub-order { margin-top: 11px; padding: 11px 12px; border-radius: 12px; background: var(--mobile-surface-subtle); }
+.sub-head { font-size: 12.5px; font-weight: 800; }
+.sub-head text:last-child { margin-left: auto; color: var(--mobile-muted); font-size: 11.5px; font-weight: 700; }
 
 .order-item {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 10px;
-  margin-top: 6px;
+  gap: 9px;
+  margin-top: 9px;
 }
-
-.order-item .business-image,
-.cart-line .business-image { width: 54px; height: 54px; flex: none; border-radius: 6px; background: var(--mobile-surface-subtle); }
+.order-item .business-image { width: 46px; height: 46px; flex: none; border-radius: 9px; background: var(--mobile-surface); object-fit: cover; }
 .order-item > view:not(.voucher-thumb) { min-width: 0; flex: 1; }
-
 .order-item text,
+.cart-line-main > text { display: block; color: var(--mobile-text); font-size: 12.5px; font-weight: 800; }
 .order-item .meta-text,
-.cart-line-main text,
-.cart-line-main .meta-text { display: block; }
-
-.order-item text,
-.cart-line-main > text { overflow-wrap: break-word; word-break: normal; color: var(--mobile-text); font-size: 13px; font-weight: 700; line-height: 1.4; }
-
-.order-item .meta-text,
-.cart-line-main .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.4; }
-.order-item > .strong-text { flex: none; color: var(--mobile-text); font-size: 12px; }
-
-.tracking-row { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 11px; padding: 9px 10px; border-radius: var(--mobile-radius-card); background: var(--color-info-soft); color: var(--mobile-info); font-size: 12px; overflow-wrap: break-word; word-break: normal; }
-.order-bottom { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--mobile-border); color: var(--mobile-muted); font-size: 12px; }
-.order-bottom .strong-text { color: var(--mobile-text); font-size: 14px; }
-
+.cart-line-main .meta-text { display: block; margin-top: 2px; color: var(--mobile-muted); font-size: 10.5px; }
+.order-item > .strong-text { flex: none; color: var(--mobile-price); font-size: 13px; font-weight: 800; }
+.tracking-row { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 9px; color: var(--mobile-muted); font-size: 11px; }
+.tracking-code { padding: 2px 6px; border: 1px solid var(--mobile-border); border-radius: 6px; background: var(--mobile-surface); color: var(--mobile-text); font-size: 10.5px; font-weight: 700; }
+.order-bottom { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--mobile-border); color: var(--mobile-muted); font-size: 11.5px; }
+.order-bottom .strong-text { color: var(--mobile-price); font-size: 14px; font-weight: 800; }
 .sub-actions,
-.order-actions { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 11px; }
-.sub-actions { padding-top: 10px; border-top: 1px solid var(--mobile-border); }
-.waiting-copy { min-width: 120px; flex: 1; margin-right: auto; color: var(--mobile-muted); font-size: 12px; word-break: break-all; }
+.order-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.waiting-copy { min-width: 120px; flex: 1; margin-right: auto; color: var(--mobile-muted); font-size: 11px; }
 .payment-confirmation { margin-top: 10px; color: var(--mobile-warning); font-size: 12px; font-weight: 700; }
+
+.vrow { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
+.vrow-main { min-width: 0; flex: 1; }
+.vrow-main text { display: block; font-size: 12.5px; font-weight: 800; }
+.voucher-thumb {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--mobile-brand-soft);
+  color: var(--mobile-brand);
+}
 
 .primary-small,
 .outline-small,
-.outline-btn { min-height: var(--mobile-control-compact); margin: 0; padding: 0 12px; border-radius: var(--mobile-radius-pill); font-size: 13px; line-height: var(--mobile-control-compact); }
-.primary-small { border: 1px solid var(--mobile-brand); background: var(--mobile-surface); color: var(--mobile-brand); }
-.primary-btn { border: 0; background: var(--mobile-brand); color: var(--color-on-brand); }
+.outline-btn {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 14px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.primary-small {
+  border: 0;
+  background: var(--mobile-hero-grad);
+  box-shadow: var(--mobile-shadow-button);
+  color: var(--color-on-brand);
+}
 .outline-small,
-.outline-btn { border: 1px solid var(--mobile-border); background: var(--mobile-surface); color: var(--mobile-text); }
+.outline-btn {
+  border: 1.5px solid var(--mobile-border);
+  background: var(--mobile-surface);
+  color: var(--mobile-muted);
+}
+
+.primary-btn {
+  display: flex;
+  width: 100%;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 16px;
+  border: 0;
+  border-radius: var(--mobile-radius-pill);
+  background: var(--mobile-hero-grad);
+  box-shadow: var(--mobile-shadow-button);
+  color: var(--color-on-brand);
+  font-size: 14.5px;
+  font-weight: 800;
+}
 
 .role-switch {
-  display: flex;
-  gap: 8px;
-  margin: 0 8px 12px;
-  padding: 3px;
-  border-radius: var(--mobile-radius-card);
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  margin: 10px 16px 0;
+  padding: 4px;
+  border-radius: 12px;
   background: var(--mobile-surface-subtle);
-  border: 1px solid var(--mobile-border);
 }
 .role-switch button {
-  flex: 1;
-  min-height: 40px;
-  padding: 6px 4px;
-  border-radius: var(--mobile-radius-control);
+  height: 36px;
+  min-height: 44px;
+  border-radius: 9px;
   color: var(--mobile-muted);
   font-size: 13px;
   font-weight: 700;
-  text-align: center;
 }
 .role-switch button.active {
   background: var(--mobile-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--mobile-brand-deep) 10%, transparent);
   color: var(--mobile-brand);
   font-weight: 800;
-  box-shadow: var(--shadow-card);
 }
+
 .profile-panel {
   display: flex;
   align-items: center;
-  gap: 11px;
-  margin: 0 8px 12px;
-  padding: 11px 12px;
-  border-radius: var(--mobile-radius-card);
-  background: var(--mobile-brand-deep);
-  color: var(--color-on-brand);
-  box-shadow: var(--mobile-shadow-card);
+  gap: 12px;
+  margin: 12px 16px 0;
+  padding: 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 16px;
+  background: var(--mobile-surface);
 }
-
-.avatar { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border: 1px solid color-mix(in srgb, var(--color-on-brand) 35%, transparent); border-radius: var(--mobile-radius-card); background: var(--color-brand-primary-soft); color: var(--mobile-brand-deep); font-weight: 900; }
+.avatar {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mobile-hero-grad);
+  color: var(--color-on-brand);
+  font-size: 19px;
+  font-weight: 800;
+}
 .profile-main { min-width: 0; flex: 1; }
-.profile-role,
-.profile-id { display: block; }
-.profile-role { font-size: 15px; font-weight: 900; }
-.profile-id,
-.profile-state { color: color-mix(in srgb, var(--color-on-brand) 80%, var(--color-brand-primary-dark)); font-size: 12px; }
-.profile-id { overflow: hidden; margin-top: 4px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-role { display: block; font-size: 15.5px; font-weight: 800; }
+.profile-id { display: block; overflow: hidden; margin-top: 3px; color: var(--mobile-muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.profile-state {
+  display: flex;
+  height: 24px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: var(--mobile-brand-soft);
+  color: var(--mobile-brand-deep);
+  font-size: 11px;
+  font-weight: 800;
+}
 
 .operations-hero,
 .operations-grid,
 .order-entry,
 .normal-summary,
 .referral-panel,
-.settings-list { margin: 0 8px 12px; border: 1px solid var(--color-line); border-radius: var(--mobile-radius-card); background: var(--mobile-surface); box-shadow: var(--mobile-shadow-card); }
-
-.operations-hero { padding: 15px; }
-.operations-hero > text { display: block; font-size: 15px; font-weight: 900; }
-.operations-hero > view { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 13px; border-top: 1px solid var(--mobile-border); border-left: 1px solid var(--mobile-border); }
-.operations-hero > view > view { min-width: 0; padding: 12px 8px; border-right: 1px solid var(--mobile-border); border-bottom: 1px solid var(--mobile-border); text-align: center; }
+.settings-list { margin: 10px 16px 0; border: 1px solid var(--mobile-border); border-radius: 16px; background: var(--mobile-surface); }
+.operations-hero { padding: 14px; }
+.operations-hero > text { display: block; margin-bottom: 12px; font-size: 13.5px; font-weight: 800; }
+.operations-hero > view { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 8px; }
+.operations-hero > view > view { min-width: 0; padding: 11px 12px; border-radius: 12px; background: var(--mobile-surface-subtle); }
 .operations-hero strong,
 .operations-hero small { display: block; }
-.operations-hero strong { overflow: hidden; color: var(--mobile-price); font-size: 17px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
-.operations-hero small { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; }
+.operations-hero strong { color: var(--mobile-price); font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.operations-hero small { margin-top: 3px; color: var(--mobile-muted); font-size: 11px; }
 
-.operations-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 14px 4px; }
-.operations-grid > view { display: flex; min-width: 0; min-height: 66px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; }
-.operations-grid > view > text { max-width: 100%; overflow: hidden; color: var(--mobile-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.operation-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--mobile-radius-card); color: var(--color-on-brand); }
-.operation-icon.coral { background: var(--mobile-price); }
-.operation-icon.blue { background: var(--mobile-info); }
-.operation-icon.green { background: var(--mobile-brand); }
-.operation-icon.gold { background: var(--mobile-warning); }
+.operations-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0; border: 0; background: transparent; }
+.operations-grid .pc-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 4px 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 14px;
+  background: var(--mobile-surface);
+  color: var(--mobile-text);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.operations-grid .pc-tile-icon { width: 40px; height: 40px; border-radius: 13px; }
+.operations-grid .pc-tile-label {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100%;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+.pc-tile-badge { background: var(--mobile-badge); }
+.pc-tile--coral .pc-tile-icon { background: var(--color-danger-soft); color: var(--color-user-danger); }
+.pc-tile--blue .pc-tile-icon { background: var(--color-info-soft); color: var(--color-info-dark); }
+.pc-tile--green .pc-tile-icon { background: var(--color-user-brand-soft); color: var(--color-user-brand); }
+.pc-tile--amber .pc-tile-icon { background: var(--color-gold-soft); color: var(--color-gold-dark); }
 
 .order-entry,
 .normal-summary,
-.referral-panel { display: flex; min-height: 64px; align-items: center; gap: 10px; padding: 13px 14px; }
+.referral-panel { display: flex; min-height: 64px; align-items: center; gap: 10px; padding: 13px 14px; border-radius: 14px; }
 .order-entry { justify-content: space-between; }
-.order-entry > view,
-.normal-summary > view,
-.referral-panel > view { min-width: 0; flex: 1; }
-
-.order-entry text,
-.order-entry small,
-.normal-summary text,
-.normal-summary small,
-.referral-panel text,
-.referral-panel .meta-text { display: block; }
-
 .order-entry text,
 .normal-summary text,
-.referral-panel text { font-size: 13px; font-weight: 800; }
-
+.referral-panel text { display: block; font-size: 13.5px; font-weight: 800; }
 .order-entry small,
 .normal-summary small,
-.referral-panel .meta-text { overflow: hidden; margin-top: 4px; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.referral-panel .meta-text { display: block; overflow: hidden; margin-top: 2px; color: var(--mobile-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
-.commission-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px; padding: 13px 0; border-bottom: 1px solid var(--mobile-border); }
-.commission-row > view { min-width: 0; flex: 1; }
-.commission-row text,
-.commission-row .meta-text { display: block; }
-.commission-row text { word-break: break-all; font-size: 13px; font-weight: 700; }
-.commission-row .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.45; }
-.commission-row .strong-text { flex: none; font-size: 14px; }
-.commission-row .strong-text.reversed { color: var(--mobile-muted); }
-
-.settings-list { margin-top: 16px; overflow: hidden; }
-.settings-list > view { display: flex; min-height: 56px; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--mobile-border); }
-.settings-list > view:last-child { border-bottom: 0; }
-.settings-list text { flex: none; font-size: 13px; }
-.settings-list .meta-text { min-width: 0; flex: 1; overflow: hidden; color: var(--mobile-muted); font-size: 12px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-
-.cart-page { display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; }
-.cart-page-content { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 0; }
-.cart-line {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) auto;
-  grid-template-rows: auto;
-  align-items: stretch;
-  gap: 6px 10px;
-  min-width: 0;
-  margin: 0 8px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--mobile-border);
-}
-
-.cart-line.unavailable { opacity: .64; }
-.cart-line .business-image { width: 72px; height: 72px; grid-column: 1; grid-row: 1; border-radius: var(--mobile-radius-card); }
-.cart-line-main {
-  min-width: 0;
+.commission-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  grid-column: 2;
-  grid-row: 1;
-}
-.cart-line-main > text {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.4;
-}
-.cart-line > .strong-text { grid-column: 3; grid-row: 1; color: var(--mobile-text); font-size: 12px; text-align: right; }
-.cart-line-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
-.cart-line-foot .strong-text { color: var(--mobile-price); font-size: 15px; font-weight: 800; }
-.cart-line-foot .stepper { margin-top: 0; gap: 0; overflow: hidden; border: 1px solid var(--color-line); border-radius: var(--mobile-radius-card); }
-.cart-line-foot .stepper button { width: var(--mobile-control-compact); height: var(--mobile-control-compact); border: 0; border-radius: 0; line-height: var(--mobile-control-compact); }
-.cart-line-foot .stepper text { min-width: var(--mobile-control-compact); line-height: var(--mobile-control-compact); border-left: 1px solid var(--color-line); border-right: 1px solid var(--color-line); }
-.cart-remove { grid-column: 3; grid-row: 1; align-self: center; display: inline-flex; margin-top: 0; padding: 0; border: 0; background: transparent; color: var(--mobile-muted); font-size: 12px; }
-.stepper { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
-.stepper button { display: grid; place-items: center; width: var(--mobile-control-compact); height: var(--mobile-control-compact); margin: 0; padding: 0; border: 1px solid var(--color-line); border-radius: var(--mobile-radius-control); background: var(--mobile-surface); color: var(--mobile-brand-deep); line-height: var(--mobile-control-compact); }
-.stepper text { min-width: 18px; text-align: center; }
-
-.cart-checkout {
-  position: relative;
-  bottom: auto;
-  flex: none;
-  display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 0;
-  padding: 10px 12px;
-  border: 0;
-  border-top: 1px solid var(--mobile-border);
-  border-radius: 0;
+  margin: 8px 16px 0;
+  padding: 11px 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 13px;
   background: var(--mobile-surface);
+}
+.commission-row > view { min-width: 0; flex: 1; }
+.commission-row text,
+.commission-row .meta-text { display: block; }
+.commission-row text { font-size: 13px; font-weight: 800; }
+.commission-row .meta-text { margin-top: 2px; color: var(--mobile-muted); font-size: 11px; }
+.commission-row .strong-text { flex: none; color: var(--color-user-brand); font-size: 15px; }
+.commission-row .strong-text.reversed { color: var(--mobile-muted); }
+
+.settings-list { overflow: hidden; border-radius: 14px; }
+.settings-list > view { display: flex; min-height: 56px; align-items: center; gap: 10px; padding: 13px 14px; border-bottom: 1px solid var(--mobile-line-light); }
+.settings-list > view:last-child { border-bottom: 0; }
+.settings-list text { flex: none; font-size: 13.5px; font-weight: 800; }
+.settings-list .meta-text { min-width: 0; flex: 1; overflow: hidden; color: var(--mobile-muted); font-size: 11px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+
+.logout-button {
+  width: calc(100% - 32px);
+  min-height: 46px;
+  margin: 14px 16px 16px;
+  border: 1.5px solid var(--color-danger-soft);
+  border-radius: 23px;
+  background: var(--color-danger-soft);
+  color: var(--color-user-danger);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.cart-page { display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; }
+.page-content.cart-page:has(.cart-checkout) {
+  padding-bottom: calc(var(--mobile-tab-height) + var(--mobile-action-bar-height) + 16px + var(--mobile-bottom-safe));
+}
+.cart-page-content { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow-y: auto; padding: 0; }
+.cart-line {
+  display: flex;
+  gap: 11px;
+  min-width: 0;
+  margin: 10px 16px 0;
+  padding: 11px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 14px;
+  background: var(--mobile-surface);
+}
+.cart-line.unavailable { opacity: .64; }
+.cart-line .business-image { width: 74px; height: 74px; flex: none; border-radius: 11px; object-fit: cover; }
+.cart-line-main { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.cart-line-main > text { overflow: hidden; font-size: 13.5px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.cart-line-foot { display: flex; align-items: center; margin-top: auto; }
+.cart-line-foot .strong-text { color: var(--mobile-price); font-size: 16px; font-weight: 800; }
+.cart-remove { margin-left: auto; padding: 0; border: 0; background: transparent; color: var(--mobile-muted); font-size: 11px; }
+
+.cart-sheet-list { padding-top: 6px; }
+.cart-category-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--mobile-surface-subtle);
+}
+.cart-category-tabs button {
+  height: 36px;
+  min-height: 44px;
+  border-radius: 9px;
+  color: var(--mobile-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.cart-category-tabs button.active {
+  background: var(--mobile-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--mobile-brand-deep) 10%, transparent);
+  color: var(--mobile-brand);
+  font-weight: 800;
+}
+.cart-group-card {
+  margin: 0 16px 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+}
+.cart-select-all {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--mobile-line-light);
+  border-radius: 0;
+  background: transparent;
+  color: var(--mobile-text);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+.cart-select-all text { flex: 1; }
+.cart-select-all small { color: var(--mobile-muted); font-size: 11px; font-weight: 600; }
+.cart-check {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  border: 1.5px solid var(--mobile-border);
+  border-radius: 50%;
+  background: var(--mobile-surface);
+  color: var(--color-on-brand);
+}
+.cart-check.checked {
+  border-color: var(--mobile-brand);
+  background: var(--mobile-brand);
+}
+.cart-line-check {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.cart-line-check .cart-check { width: 18px; height: 18px; }
+.cart-fulfillment-tag {
+  display: inline-flex;
+  height: 17px;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--mobile-brand-soft);
+  color: var(--mobile-brand-deep);
+  font-size: 10px;
+  font-weight: 700;
+}
+.cart-fulfillment-tag.courier {
+  background: var(--color-info-soft);
+  color: var(--color-info-dark);
+}
+.cart-hint {
+  display: block;
+  margin: 0 16px 10px;
+  color: var(--mobile-muted);
+  font-size: 11px;
+}
+.cart-error {
+  display: block;
+  margin: 0 16px 10px;
+  color: var(--mobile-danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+.cart-category-empty {
+  min-height: 120px;
+  flex-direction: column;
+  padding: 18px 0 8px;
+}
+.cart-category-empty text { margin-top: 8px; font-size: 13px; font-weight: 800; color: var(--mobile-text); }
+.cart-category-empty small { color: var(--mobile-muted); font-size: 11px; }
+.cart-sheet-foot .sheet-total { margin-bottom: 10px; }
+.cart-sheet-foot .sheet-total text { display: block; color: var(--mobile-muted); font-size: 11px; }
+.cart-sheet-foot .sheet-total strong { display: block; margin-top: 2px; font-size: 19px; }
+
+.cart-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: var(--mobile-price);
+}
+.cart-heading.theme-head::after { background: var(--mobile-bg); }
+.cart-heading .page-title,
+.cart-heading .page-sub { color: var(--color-on-brand); }
+.cart-heading .page-sub { opacity: .85; }
+.cart-page-tabs { margin: 12px 16px 0; }
+.cart-page-card {
+  margin: 12px 16px 16px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+}
+.cart-page-line { margin: 0 0 10px; }
+.cart-page-line:last-child { margin-bottom: 0; }
+.cart-line-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cart-line-head text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cart-stock {
+  flex: none;
+  margin-left: 8px;
+  color: var(--mobile-price);
+  font-size: 11px;
+  font-weight: 700;
+}
+.cart-page-checkout {
+  gap: 8px;
+  padding: 10px 12px;
+}
+.cart-page-checkout .cart-select-all {
+  width: auto;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 6px;
+}
+.cart-page-checkout .cart-select-all text { flex: none; font-size: 12px; color: var(--mobile-muted); }
+.cart-checkout-total {
+  display: flex;
+  align-items: baseline;
+  flex: 1;
+  min-width: 0;
+}
+.cart-checkout-total text { color: var(--mobile-muted); font-size: 12px; }
+.cart-checkout-total strong { color: var(--mobile-price); font-size: 17px; font-weight: 800; }
+.cart-delete-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 18px;
+  background: var(--mobile-surface);
+  color: var(--mobile-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.cart-page-checkout .primary-btn {
+  min-height: 36px;
+  margin: 0;
+  padding: 0 16px;
+  border-radius: 18px;
+  background: var(--mobile-price);
+  box-shadow: 0 8px 16px -8px color-mix(in srgb, var(--mobile-price) 45%, transparent);
+  color: var(--color-on-brand);
+  font-size: 13px;
+  font-weight: 800;
+}
+.cart-page-checkout .primary-btn:disabled { opacity: .5; }
+
+.stepper {
+  display: flex;
+  overflow: hidden;
+  align-items: center;
+  margin-left: auto;
+  border: 1px solid var(--mobile-border);
+  border-radius: 15px;
+}
+.stepper button {
+  display: grid;
+  width: 28px;
+  height: 26px;
+  min-height: 44px;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mobile-muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+.stepper text { min-width: 28px; text-align: center; font-size: 12.5px; font-weight: 800; }
+
+.cart-checkout {
+  position: fixed;
+  z-index: 8;
+  right: 12px;
+  bottom: calc(var(--mobile-tab-height) + env(safe-area-inset-bottom) + 10px);
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 406px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 18px;
+  background: var(--mobile-surface);
+  box-shadow: 0 14px 34px -14px color-mix(in srgb, var(--mobile-brand-deep) 35%, transparent);
+}
+.cart-checkout text { color: var(--mobile-muted); font-size: 12px; }
+.cart-checkout strong { margin-left: 4px; font-size: 17px; font-weight: 800; }
+.cart-checkout button {
+  width: auto;
+  min-height: 38px;
+  margin: 0 0 0 auto;
+  padding: 0 20px;
+  border-radius: 19px;
+  font-size: 13.5px;
 }
 
 .cart-bar {
@@ -1048,55 +1572,136 @@ onBeforeUnmount(() => {
   bottom: calc(var(--mobile-tab-height) + env(safe-area-inset-bottom) + 10px);
   left: 12px;
   display: flex;
-  min-height: 58px;
   align-items: center;
   gap: 10px;
   max-width: 406px;
   margin: 0 auto;
-  padding: 8px 10px;
+  padding: 9px 10px;
   box-sizing: border-box;
-  border: 1px solid var(--mobile-border);
-  border-radius: var(--mobile-radius-card);
-  background: color-mix(in srgb, var(--color-card) 98%, transparent);
-  box-shadow: var(--mobile-shadow-float);
-}
-.cart-bar-icon { position: relative; display: grid; width: 38px; height: 38px; flex: none; place-items: center; border-radius: var(--mobile-radius-card); color: var(--color-on-brand); background: var(--mobile-brand); }
-.cart-bar-icon small { position: absolute; top: -6px; right: -6px; display: grid; min-width: 16px; height: 16px; padding: 0 3px; place-items: center; border-radius: var(--mobile-radius-card); color: var(--color-on-brand); background: var(--mobile-price); font-size: 10px; line-height: 16px; }
-.cart-bar-total { min-width: 0; flex: 1; }
-.cart-bar-total text, .cart-bar-total strong { display: block; }
-.cart-bar-total text { color: var(--mobile-muted); font-size: 12px; }
-.cart-bar-total strong { margin-top: 2px; color: var(--mobile-price); font-size: 18px; font-variant-numeric: tabular-nums; }
-.cart-bar > button { width: 98px; min-height: 44px; flex: none; margin: 0; border: 0; border-radius: var(--mobile-radius-card); color: var(--color-on-brand); background: var(--mobile-brand); font-size: 13px; font-weight: 800; }
-
-.cart-checkout text,
-.cart-checkout strong { display: block; }
-.cart-checkout text { color: var(--mobile-muted); font-size: 12px; }
-.cart-checkout strong { margin-top: 2px; font-size: 20px; }
-
-.cart-checkout button {
-  width: 112px;
-  min-height: 44px;
-  margin: 0;
-  border: 0;
-  border-radius: var(--mobile-radius-card);
-  background: var(--mobile-brand);
+  border-radius: 24px;
+  background: var(--mobile-brand-deep);
+  box-shadow: var(--mobile-shadow-cart);
   color: var(--color-on-brand);
-  font-size: 14px;
+}
+.cart-bar-icon {
+  position: relative;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-on-brand) 18%, transparent);
+  color: var(--color-on-brand);
+}
+.cart-bar-icon small {
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  padding: 0 4px;
+  border: 1.5px solid var(--mobile-brand-deep);
+  border-radius: 9px;
+  background: var(--mobile-badge);
+  color: var(--color-on-brand);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.cart-bar-total { min-width: 0; flex: 1; }
+.cart-bar-total text,
+.cart-bar-total strong { display: block; }
+.cart-bar-total text { color: color-mix(in srgb, var(--color-on-brand) 85%, transparent); font-size: 11px; }
+.cart-bar-total strong { font-size: 16px; font-weight: 800; color: var(--color-on-brand); }
+.cart-bar > button {
+  height: 36px;
+  min-height: 36px;
+  flex: none;
+  margin: 0 0 0 auto;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--color-on-brand);
+  color: var(--mobile-brand-deep);
+  font-size: 13.5px;
   font-weight: 800;
 }
 
-.product-view { min-height: calc(100vh - var(--mobile-tab-height)); background: var(--mobile-bg); }
-.product-view .product-detail { padding: 12px var(--mobile-page-inline) 20px; }
-.product-detail-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 9px; margin-top: 16px; }
-.product-detail-actions.sheet-foot { margin-top: 0; display: flex; }
+.product-view { position: relative; min-height: 100vh; background: var(--mobile-bg); }
+.product-view .product-detail,
+.app-shell.has-cart-bar .product-view .page-content {
+  padding: 0 0 calc(70px + env(safe-area-inset-bottom));
+}
+.gallery {
+  position: relative;
+  overflow: hidden;
+  margin: 12px 16px 0;
+  aspect-ratio: 1 / 0.82;
+  border: 1px solid var(--mobile-border);
+  border-radius: 18px;
+}
+.gallery-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gallery .live-tag { top: 10px; left: 10px; height: 24px; padding: 0 9px; border-radius: 7px; font-size: 11.5px; }
+.gallery-dots {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  height: 20px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mobile-brand-deep) 50%, transparent);
+  color: var(--color-on-brand);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.pv-name {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 12px 16px 0;
+  font-size: 17px;
+  font-weight: 800;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.pv-meta { display: flex; min-width: 0; align-items: baseline; margin: 6px 16px 0; }
+.pv-meta .sup { min-width: 0; overflow: hidden; color: var(--mobile-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pv-meta strong { margin-left: auto; font-size: 20px; font-weight: 800; }
+.pv-tags { margin: 9px 16px 0; gap: 6px; }
+.shipnote {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--mobile-brand-soft);
+  color: var(--mobile-brand-deep);
+  font-size: 12px;
+  font-weight: 700;
+}
+.product-detail-actions {
+  position: fixed;
+  z-index: 8;
+  right: 12px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 12px;
+  display: flex;
+  gap: 9px;
+  max-width: 406px;
+  margin: 0 auto;
+}
 .product-detail-actions .outline-btn,
-.product-detail-actions .primary-btn { margin: 0; min-height: 44px; }
+.product-detail-actions .primary-btn { flex: 1; min-height: 46px; margin-top: 0; border-radius: 23px; }
+.product-detail-actions.sheet-foot { position: static; display: flex; margin-top: 0; }
 
-.heading-with-back { display: flex; align-items: center; gap: 10px; }
+.heading-with-back { display: flex; align-items: center; gap: 8px; }
+.page-back,
 .sheet-head button,
-.live-room-top button { display: grid; place-items: center; width: 44px; height: 44px; flex: none; margin: 0; padding: 0; border: 0; }
-.heading-with-back > view { min-width: 0; }
-.logout-button { width: 100%; min-height: var(--mobile-touch-target); margin: 14px 0 4px; border-radius: var(--mobile-radius-control); font-size: 13px; font-weight: 700; }
+.live-room-top button { display: grid; width: 44px; height: 44px; flex: none; place-items: center; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; }
 
 .bottom-tabs {
   position: fixed;
@@ -1104,57 +1709,104 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 0;
   left: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   height: calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));
-  padding-bottom: env(safe-area-inset-bottom);
-  border-top: 1px solid var(--mobile-border);
+  padding: 7px 0 18px;
+  padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--mobile-line-light);
   box-sizing: border-box;
   background: var(--mobile-surface);
-  box-shadow: var(--shadow-card);
+}
+.tab-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: var(--mobile-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.tab-item.active { color: var(--mobile-brand); font-weight: 800; }
+.tab-icon {
+  display: grid;
+  width: 42px;
+  height: 26px;
+  place-items: center;
+  border-radius: 13px;
+}
+.tab-item.active .tab-icon { background: var(--mobile-brand-soft); }
+.tab-icon-wrap { position: relative; }
+.tab-icon-wrap > small {
+  position: absolute;
+  top: -7px;
+  right: 2px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  padding: 0 4px;
+  border: 1.5px solid var(--color-on-brand);
+  border-radius: 9px;
+  background: var(--mobile-badge);
+  color: var(--color-on-brand);
+  font-size: 10.5px;
+  font-weight: 800;
 }
 
-.tab-item { display: flex; min-width: 0; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--mobile-muted); font-size: 13px; }
-.tab-item.active { color: var(--mobile-brand); font-weight: 800; }
-.tab-icon-wrap { position: relative; }
-.tab-icon-wrap > small { position: absolute; top: -7px; right: -12px; display: grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--mobile-radius-card); background: var(--mobile-price); color: var(--color-on-brand); font-size: 10px; }
-
 .sheet-mask { position: fixed; z-index: 20; inset: 0; display: flex; align-items: flex-end; background: var(--color-overlay); }
-
 .sheet {
+  display: flex;
   width: 100%;
   max-width: 100%;
   max-height: var(--mobile-sheet-max-height);
-  display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-bottom: 0;
-  border-radius: var(--mobile-radius-card) var(--mobile-radius-card) 0 0;
+  border-radius: var(--mobile-radius-sheet) var(--mobile-radius-sheet) 0 0;
   background: var(--mobile-surface);
-  box-shadow: var(--mobile-shadow-float);
 }
-
-.sheet-handle {
-  width: 38px;
-  height: 4px;
-  margin: 8px auto 0;
-  border-radius: 2px;
-  background: var(--mobile-border);
-}
-
 .sheet-scroll {
   width: 100%;
-  flex: 1 1 auto;
   min-height: 0;
+  flex: 1 1 auto;
   height: auto;
   max-height: calc(80vh - var(--mobile-sheet-header-height));
   padding-bottom: calc(20px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
+.sheet-foot {
+  flex: none;
+  padding: 12px 16px 22px;
+  border-top: 1px solid var(--mobile-line-light);
+  background: var(--mobile-surface);
+}
 .sheet-foot .primary-btn { width: 100%; margin-top: 0; }
 .sheet-foot .sheet-total { margin-top: 0; margin-bottom: 10px; }
-
-.sheet-head { position: relative; z-index: 2; top: auto; display: flex; min-height: var(--mobile-sheet-header-height); align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid var(--mobile-border); background: var(--mobile-surface); font-size: 16px; font-weight: 900; }
-.sheet-head button { border-radius: var(--mobile-radius-card); background: transparent; color: var(--mobile-text); }
+.sheet-foot .outline-btn { width: 100%; min-height: 46px; border-radius: 23px; color: var(--mobile-text); }
+.sheet-head {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-height: var(--mobile-sheet-header-height);
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--mobile-line-light);
+  background: var(--mobile-surface);
+  font-size: 16px;
+  font-weight: 800;
+}
+.sheet-head button {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--mobile-surface-subtle);
+  color: var(--mobile-muted);
+}
 
 .detail-content,
 .cart-content,
@@ -1162,162 +1814,295 @@ onBeforeUnmount(() => {
 .address-content,
 .address-form,
 .logistics-content,
-.after-sale-content,
-.live-content { padding: 12px; }
+.after-sale-content { padding: 14px 16px 20px; }
 
-.detail-image,
-.live-image { display: block; width: 100%; min-height: 180px; height: auto; aspect-ratio: 4 / 3; border-radius: var(--mobile-radius-card); background: var(--mobile-surface-subtle); object-fit: cover; }
-.detail-head { display: flex; gap: 12px; align-items: flex-start; }
-.detail-thumb { width: 72px; height: 72px; flex: none; display: block; border-radius: var(--mobile-radius-card); background: var(--mobile-surface-subtle); }
-.checkout-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--mobile-border); }
-.checkout-line text { min-width: 0; font-size: 13px; font-weight: 700; }
-.checkout-line .meta-text { grid-column: 1; margin-top: 0; }
-.checkout-line .strong-text { grid-column: 2; grid-row: 1 / span 2; font-size: 13px; }
-.checkout-payment-fixed { min-height: 54px; margin: 10px 0; padding: 9px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--mobile-border); border-radius: var(--mobile-radius-card); background: var(--mobile-surface-subtle); }
-.checkout-payment-fixed view { min-width: 0; }
-.checkout-payment-fixed text, .checkout-payment-fixed small { display: block; }
-.checkout-payment-fixed text { font-size: 13px; font-weight: 800; }
-.checkout-payment-fixed small { margin-top: 2px; color: var(--mobile-muted); font-size: 11px; }
-.checkout-payment-fixed span { color: var(--mobile-brand-deep); font-size: 11px; font-weight: 800; white-space: nowrap; }
-
-.detail-title-row { display: flex; flex-direction: column; min-width: 0; justify-content: flex-start; gap: 8px; margin-top: 14px; }
-.detail-title-row > view { min-width: 0; width: 100%; }
-.detail-title { display: -webkit-box; width: 100%; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: break-word; word-break: normal; font-size: 17px; font-weight: 900; line-height: 1.4; }
-.detail-title-row .meta-text,
-.live-content > .meta-text { display: block; margin-top: 5px; color: var(--mobile-muted); font-size: 12px; }
-.detail-price { flex: none; font-size: 21px; font-weight: 900; }
-.detail-tags { max-height: none; margin-top: 11px; }
-.shipping-note { display: flex; align-items: center; gap: 7px; margin-top: 14px; padding: 10px 11px; border: 1px solid var(--color-line); border-radius: var(--mobile-radius-card); background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-size: 12px; }
-.sku-label { display: block; margin-top: 17px; font-size: 13px; font-weight: 900; }
-.sku-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
-
-.sku-option { display: flex; min-width: 0; min-height: 36px; flex-direction: column; align-items: flex-start; justify-content: center; padding: 6px 12px; border: 1px solid var(--mobile-border); border-radius: var(--mobile-radius-card); background: var(--mobile-surface); font-size: 13px; }
-.sku-option .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.4; }
-.sku-option.active { border-color: var(--mobile-brand); background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); }
-
-.primary-btn {
-  width: 100%;
-  min-height: 44px;
-  margin-top: 16px;
-  border-radius: var(--mobile-radius-card);
-  font-size: 14px;
-  font-weight: 800;
+.sku-sum {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--mobile-line-light);
+  border-radius: 14px;
+  background: var(--mobile-brand-soft);
 }
+.sku-sum .business-image { width: 72px; height: 72px; flex: none; border-radius: 12px; object-fit: cover; }
+.sku-sum-name { display: block; font-size: 14.5px; font-weight: 800; line-height: 1.35; }
+.sku-sum-price { display: block; margin-top: 4px; color: var(--mobile-price); font-size: 19px; font-weight: 800; }
+.sku-sum-meta { display: block; margin-top: 4px; color: var(--mobile-muted); font-size: 11.5px; }
+.sku-label { display: block; margin: 14px 0 0; font-size: 12px; font-weight: 800; }
+.sku-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.sku-option {
+  padding: 10px 12px;
+  border: 1.5px solid var(--mobile-border);
+  border-radius: 11px;
+  background: var(--mobile-surface);
+  font-size: 13px;
+  font-weight: 700;
+}
+.sku-option small { display: block; margin-top: 3px; color: var(--mobile-muted); font-size: 11px; font-weight: 600; }
+.sku-option.active { border-color: var(--mobile-brand); background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); }
+.qty-row {
+  display: flex;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mobile-line-light);
+}
+.qty-copy { flex: 1; }
+.qty-copy text { display: block; font-size: 13.5px; font-weight: 800; }
+.qty-copy small { display: block; margin-top: 3px; color: var(--mobile-muted); font-size: 11px; }
+.pv-sum {
+  display: flex;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--mobile-line-light);
+  color: var(--mobile-muted);
+  font-size: 13px;
+}
+.pv-sum strong { margin-left: auto; color: var(--mobile-price); font-size: 18px; font-weight: 800; }
+.product-detail-actions.sheet-foot { position: static; display: flex; margin-top: 0; }
+.product-detail-actions.sheet-foot .primary-btn { flex: 1; min-height: 46px; }
 
-.sheet-total { margin-top: 16px; color: var(--mobile-muted); font-size: 12px; }
-.sheet-total .strong-text { font-size: 19px; }
-
+.warnrow,
+.payrow,
 .address-select,
-.logistics-summary,
-.after-sale-order { padding: 10px 11px; border: 1px solid var(--mobile-border); border-radius: var(--mobile-radius-card); background: var(--mobile-surface); }
-
-.address-select { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 10px; }
+.after-sale-order {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 11px 13px;
+  border-radius: 12px;
+}
+.warnrow { border: 1.5px dashed var(--color-user-danger); background: var(--color-danger-soft); color: var(--color-user-danger); }
+.warnrow text,
+.payrow text { display: block; font-size: 13.5px; font-weight: 800; }
+.warnrow small,
+.payrow small { display: block; margin-top: 2px; font-size: 11px; opacity: .75; }
+.warnrow-act {
+  margin-left: auto;
+  height: 32px;
+  flex: none;
+  padding: 0 12px;
+  border-radius: 16px;
+  background: var(--color-user-danger);
+  color: var(--color-on-brand);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 32px;
+}
+.payrow { border: 1.5px solid var(--mobile-brand); background: var(--mobile-brand-soft); }
+.payrow-sel { margin-left: auto; color: var(--mobile-brand); font-size: 12px; font-weight: 800; }
+.address-select { justify-content: space-between; border: 1px solid var(--mobile-border); background: var(--mobile-surface-subtle); }
 .address-select > view { min-width: 0; flex: 1; }
-
 .address-select text,
+.after-sale-order text { display: block; font-size: 13px; font-weight: 800; }
 .address-select .meta-text,
-.logistics-summary text,
-.logistics-summary .meta-text,
-.after-sale-order text,
-.after-sale-order .meta-text { display: block; }
+.after-sale-order .meta-text { display: block; margin-top: 5px; color: var(--mobile-muted); font-size: 12px; }
 
-.address-select text,
-.logistics-summary text,
-.after-sale-order text { word-break: break-all; font-size: 13px; font-weight: 800; }
-
-.address-select .meta-text,
-.logistics-summary .meta-text,
-.after-sale-order .meta-text { margin-top: 5px; color: var(--mobile-muted); font-size: 13px; line-height: 1.45; }
-
-.checkout-items { margin-top: 12px; padding: 10px 0; border-top: 1px solid var(--mobile-border); border-bottom: 1px solid var(--mobile-border); }
-.checkout-items view { display: flex; min-width: 0; justify-content: space-between; gap: 12px; margin: 7px 0; color: var(--color-ink-2); font-size: 12px; }
-.checkout-items text { min-width: 0; word-break: break-all; }
-.checkout-items .strong-text,
-.fee-row .strong-text { flex: none; color: var(--mobile-text); }
-.fee-row { margin-top: 12px; color: var(--mobile-muted); font-size: 12px; }
-.fee-row text { min-width: 0; }
-.fee-row .strong-text { flex: none; white-space: nowrap; }
-.checkout-total { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--mobile-border); font-size: 13px; font-weight: 800; }
-.checkout-total .strong-text { font-size: 20px; }
+.kv {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--mobile-surface-subtle);
+}
+.kvrow { display: flex; align-items: center; font-size: 13px; }
+.kvrow text:first-child { color: var(--mobile-muted); }
+.kvrow text:last-child,
+.kvrow strong { margin-left: auto; font-weight: 800; }
+.kvrow-total { font-weight: 800; }
+.kvrow-total strong { color: var(--mobile-price); font-size: 16px; }
+.checkout-items { margin-top: 8px; }
+.sheet-total { color: var(--mobile-muted); font-size: 12px; }
+.sheet-total .strong-text { font-size: 19px; color: var(--mobile-price); }
 
 .address-list { display: grid; gap: 9px; }
-.address-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 9px 10px; border: 1px solid var(--mobile-border); border-radius: var(--mobile-radius-card); background: var(--mobile-surface); }
-.address-row > view:first-child { min-width: 0; }
-.address-row text,
-.address-row .meta-text { display: block; }
-.address-row text { word-break: break-all; font-size: 13px; font-weight: 800; }
-.address-row .meta-text { margin-top: 5px; color: var(--mobile-muted); font-size: 12px; line-height: 1.45; }
+.address-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+}
+.address-row text { display: block; font-size: 13px; font-weight: 800; }
+.address-row .meta-text { display: block; margin-top: 5px; color: var(--mobile-muted); font-size: 12px; }
 .address-actions { display: flex; max-width: 112px; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; }
-
-.address-form input { display: block; width: 100%; height: 44px; margin-bottom: 10px; padding: 0 12px; border: 1px solid var(--mobile-border); border-radius: var(--mobile-radius-card); box-sizing: border-box; background: var(--mobile-surface); font-size: 14px; }
-.default-line { display: flex; min-height: 44px; align-items: center; justify-content: space-between; color: var(--color-ink-2); font-size: 13px; }
-
-.toggle { position: relative; width: 42px; height: 24px; flex: none; border-radius: var(--mobile-radius-card); background: var(--color-line); transition: background-color .16s ease; }
-.toggle > view { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--color-card); transition: transform .16s ease; }
+.address-form input {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  box-sizing: border-box;
+  background: var(--mobile-surface);
+  font-size: 14px;
+}
+.default-line { display: flex; min-height: 44px; align-items: center; justify-content: space-between; color: var(--mobile-muted); font-size: 13px; }
+.toggle { position: relative; width: 42px; height: 24px; flex: none; border-radius: var(--mobile-radius-card); background: var(--color-line); }
+.toggle > view { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--color-card); }
 .toggle.on { background: var(--mobile-brand); }
 .toggle.on > view { transform: translateX(18px); }
 
-.logistics-summary { border-left: 3px solid var(--mobile-info); }
-.logistics-event {
+.ship-head {
   display: flex;
-  min-width: 0;
-  gap: 9px;
-  padding: 9px 4px;
-  border-bottom: 1px solid var(--mobile-border);
-  overflow-wrap: break-word;
-  word-break: normal;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--mobile-surface-subtle);
 }
-
-.logistics-event > view:last-child { min-width: 0; flex: 1; }
-.logistics-event text,
-.logistics-event .meta-text { display: block; }
-.logistics-event text { font-size: 13px; font-weight: 800; }
-.logistics-event .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.45; }
-.event-dot { width: 9px; height: 9px; flex: none; margin-top: 4px; border: 2px solid var(--color-info-soft); border-radius: 50%; background: var(--mobile-info); }
+.ship-head .business-image { width: 56px; height: 56px; flex: none; border-radius: 11px; object-fit: cover; }
+.ship-head text { display: block; font-size: 13.5px; font-weight: 800; }
+.ship-head small { display: block; margin-top: 3px; color: var(--mobile-muted); font-size: 11px; }
+.ship-sup { margin-left: auto; text-align: right; }
+.ship-sup text { font-size: 12.5px; }
+.steps2 { position: relative; margin-top: 16px; padding-left: 24px; }
+.steps2::before { content: ""; position: absolute; top: 8px; bottom: 14px; left: 7px; width: 2px; background: var(--mobile-border); }
+.step { position: relative; padding-bottom: 18px; }
+.step:last-child { padding-bottom: 0; }
+.step::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: -22px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--mobile-surface);
+  border-radius: 50%;
+  background: var(--mobile-border);
+}
+.step.on::before { background: var(--mobile-brand); box-shadow: 0 0 0 3px var(--mobile-brand-soft); }
+.step text { display: block; font-size: 13.5px; font-weight: 800; }
+.step small { display: block; margin-top: 3px; color: var(--mobile-muted); font-size: 11px; line-height: 1.6; }
+.notecard {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: var(--mobile-surface-subtle);
+  color: var(--mobile-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
 
 .after-sale-reason,
 .after-sale-evidence { margin-top: 10px; }
 .after-sale-reason > text,
 .after-sale-evidence > text { display: block; font-size: 13px; font-weight: 900; }
 .after-sale-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.after-sale-chips { gap: 6px; margin-top: 8px; }
-.after-sale-chips button { min-height: 32px; margin: 0; padding: 0 10px; border: 1px solid var(--mobile-border); border-radius: var(--mobile-radius-control); background: var(--mobile-surface); color: var(--mobile-muted); font-size: 13px; }
+.after-sale-chips button {
+  min-height: 32px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: 16px;
+  background: var(--mobile-surface);
+  color: var(--mobile-muted);
+  font-size: 13px;
+}
 .after-sale-chips button.active { border-color: var(--mobile-brand); background: var(--mobile-brand-soft); color: var(--mobile-brand-deep); font-weight: 800; }
 .after-sale-tip { display: block; margin-top: 12px; color: var(--mobile-muted); font-size: 12px; }
-.stock-warning { display: block; margin-top: 4px; color: var(--mobile-danger); font-size: 12px; line-height: 1.4; }
+.stock-warning { display: block; margin-top: 4px; color: var(--mobile-danger); font-size: 12px; }
 
-.live-room { position: fixed; z-index: 40; top: 0; height: 100vh; overflow: auto; background: var(--color-ink); }
-.live-room-video-wrap { position: relative; width: 100%; height: 44vh; min-height: 300px; background: var(--color-ink); }
-.live-room-video { display: block; width: 100%; height: 100%; object-fit: cover; }
-.live-room-top { position: absolute; z-index: 20; top: 0; right: 0; left: 0; display: flex; align-items: center; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 12px 10px; padding-right: 96px; color: var(--color-on-brand); }
-.live-room-top button { border-radius: var(--mobile-radius-card); background: color-mix(in srgb, var(--color-ink) 48%, transparent); color: var(--color-on-brand); }
-.live-room-meta { position: absolute; right: 14px; bottom: 14px; left: 14px; color: var(--color-on-brand); }
-.live-room-title { display: -webkit-box; overflow: hidden; font-size: 17px; font-weight: 900; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.live-room-meta small { display: block; margin-top: 5px; color: var(--color-line); font-size: 12px; }
-.live-room-body { min-height: 56vh; padding: 8px; background: var(--mobile-bg); }
-.live-package-group { margin-bottom: 18px; }
-
-.live-package-row { display: flex; min-width: 0; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 9px; padding: 10px; border: 1px solid var(--mobile-border); border-radius: var(--mobile-radius-card); background: var(--mobile-surface); }
+.live-room { position: fixed; z-index: 40; top: 0; display: flex; height: 100vh; flex-direction: column; overflow: auto; background: var(--mobile-brand-deep); }
+.live-room-video-wrap { position: relative; width: 100%; height: min(560px, 52vh); min-height: 240px; background: var(--mobile-hero-grad); }
+.live-room-video { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .55; }
+.live-room-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 68px;
+  height: 68px;
+  place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--color-on-brand) 40%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-on-brand) 16%, transparent);
+  color: var(--color-on-brand);
+  transform: translate(-50%, -50%);
+}
+.live-room-top {
+  position: absolute;
+  z-index: 20;
+  top: 52px;
+  right: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  padding-right: 96px;
+  color: var(--color-on-brand);
+}
+.live-badge {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--mobile-badge) 92%, transparent);
+  color: var(--color-on-brand);
+  font-size: 11.5px;
+  font-weight: 800;
+}
+.live-room-top button {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--color-on-brand) 28%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-on-brand) 14%, transparent);
+  color: var(--color-on-brand);
+}
+.live-room-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin-top: -22px;
+  padding: 18px 16px;
+  border-radius: 22px 22px 0 0;
+  background: var(--mobile-surface);
+}
+.live-empty { display: flex; flex-direction: column; align-items: center; padding-top: 26px; }
+.live-empty text { margin-top: 14px; font-size: 15px; font-weight: 800; }
+.live-empty small { margin-top: 8px; color: var(--mobile-muted); font-size: 12px; line-height: 1.7; }
+.live-empty .outline-btn { margin-top: 22px; height: 44px; padding: 0 34px; border-radius: 22px; color: var(--mobile-text); }
+.live-package-group { width: 100%; margin-bottom: 18px; text-align: left; }
+.live-package-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 9px;
+  padding: 10px;
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--mobile-radius-card);
+  background: var(--mobile-surface);
+}
 .live-package-row > view:first-child { min-width: 0; flex: 1 1 100%; }
-.live-package-row text,
-.live-package-row .meta-text { display: block; }
-.live-package-row text { word-break: break-all; font-size: 13px; font-weight: 800; }
-.live-package-row .meta-text { margin-top: 4px; color: var(--mobile-muted); font-size: 12px; line-height: 1.4; }
-.live-package-actions { display: flex; width: 100%; flex: none; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.live-package-row text { display: block; font-size: 13px; font-weight: 800; }
+.live-package-row .meta-text { display: block; margin-top: 4px; color: var(--mobile-muted); font-size: 12px; }
+.live-package-actions { display: flex; width: 100%; flex: none; align-items: center; justify-content: space-between; gap: 8px; }
 .live-package-actions .strong-text { color: var(--mobile-price); font-size: 15px; }
 .live-buy-btn { min-height: var(--mobile-control-compact); margin-left: auto; padding: 0 11px; }
 
-.voucher-thumb { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: var(--mobile-radius-card); background: var(--mobile-brand); color: var(--color-on-brand); }
-
 /* Mobile readability contrast */
 .supplier-name,.stock-text,.order-time {
-  color:var(--color-ink-2);
+  color:var(--mobile-muted);
 }
 
 /* #ifdef H5 */
 @media (min-width: 431px) {
   body,
-  #app { background: var(--color-bg); }
+  #app { background: var(--color-user-bg); }
 
   .app-shell,
   .bottom-tabs,
@@ -1332,6 +2117,8 @@ onBeforeUnmount(() => {
   .sheet-mask,
   .live-room { right: auto; left: 50%; transform: translateX(-50%); }
   .cart-bar { left:50%; right:auto; width:406px; transform:translateX(-50%); }
+  .cart-checkout { left: 50%; right: auto; width: 406px; transform: translateX(-50%); }
+  .product-detail-actions { left:50%; right:auto; width:406px; transform:translateX(-50%); }
   .sheet { width: 100%; max-width: 430px; }
 }
 /* #endif */
@@ -1348,26 +2135,13 @@ onBeforeUnmount(() => {
 .sheet-mask,
 .live-room,
 .sheet { left: 0; right: 0; width: 100%; max-width: none; transform: none; }
-.cart-checkout { position: relative; bottom: auto; }
 /* #endif */
 
-@media (max-width: 390px) {
-  .product-card { grid-template-columns: 116px minmax(0, 1fr); }
-  .product-image { width: 116px; }
-  .product-body { padding: 11px; }
-  .product-action.share { min-width: 58px; padding: 0 10px; }
-  .operations-grid { padding-right: 2px; padding-left: 2px; }
-  .operations-grid > view > text { font-size: 12px; }
-}
-
 @media (max-width: 375px) {
-  .product-card { grid-template-columns: 110px minmax(0, 1fr); }
-  .product-image { width: 110px; }
-  .product-price { font-size: 17px; }
-  .tag { max-width: 74px; }
   .address-row { grid-template-columns: 1fr; }
   .address-actions { max-width: none; width: 100%; justify-content: flex-start; }
   .waiting-copy { width: 100%; flex-basis: 100%; }
   .sub-actions { flex-wrap: wrap; justify-content: flex-end; }
 }
+
 </style>

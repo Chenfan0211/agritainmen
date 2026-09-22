@@ -85,7 +85,7 @@ describe('farmhouse store interactions', () => {
     const source = readFileSync(resolve(import.meta.dirname, '../pages/index/index.vue'), 'utf8')
     expect(source).toContain('minimumOrderQuantity(')
     expect(source).toContain('库存不足或购买数量未达要求')
-    expect(source).toContain(':disabled="!canStartOrder(selectedSku)"')
+    expect(source).toMatch(/:disabled="!selectedSku \|\| !canStartOrder\(selectedSku\) \|\| !validateCatalogSkuOrderQuantity\(selectedSku, detailQuantity\)\.ok"/)
     expect(source).toContain('shortage: item.unavailable')
     expect(source).toContain(':disabled="!selectedCartItems.length || cartCategoryHasUnavailable"')
   })
@@ -467,6 +467,30 @@ describe('farmhouse store interactions', () => {
     expect(store.submitBooking(booking)).toBe(false)
   })
 
+  it('blocks a room for the whole day after any active session is booked', () => {
+    const store = useFarmhouseStore()
+    store.bookings = []
+    const lunch = { type: 'room' as const, name: '观溪雅间', date: '明天', session: '午市 11:00', people: 4 }
+    const dinner = { ...lunch, session: '晚市 17:30' }
+
+    expect(store.submitBooking(lunch)).toBe(true)
+    expect(store.isRoomBooked('观溪雅间', '明天')).toBe(true)
+    expect(store.submitBooking(dinner)).toBe(false)
+    expect(store.submitBooking({ ...lunch, date: '后天' })).toBe(true)
+
+    expect(store.cancelBooking(store.bookings.find((item) => item.date === '明天')!.id)).toBe(true)
+    expect(store.isRoomBooked('观溪雅间', '明天')).toBe(false)
+    expect(store.submitBooking(dinner)).toBe(true)
+  })
+
+  it('matches room occupancy across supported booking date formats', () => {
+    const store = useFarmhouseStore()
+    store.bookings = [{ id: 'B-DATE-FORMAT', type: 'room', name: '观溪雅间', date: '今天 9/15', session: '晚市 17:30', people: 4, status: 'reserved' }]
+
+    expect(store.isRoomBooked('观溪雅间', '今天 9月15日')).toBe(true)
+    expect(store.submitBooking({ type: 'room', name: '观溪雅间', date: '今天 9月15日', session: '午市 11:00', people: 4 })).toBe(false)
+  })
+
   it('persists submitted bookings to the shared booking store', () => {
     const store = useFarmhouseStore()
     store.bookings = []
@@ -482,8 +506,23 @@ describe('farmhouse store interactions', () => {
       date: booking.date,
       session: booking.session,
       people: booking.people,
+      bookingType: 'room',
+      resourceName: '观溪雅间',
       status: 'submitted'
     })
+  })
+
+  it('restores room identity from shared bookings and keeps legacy fallback data readable', async () => {
+    const store = useFarmhouseStore()
+    const room = { id: 'B-SHARED-ROOM', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U1', source: 'farmhouse' as const, date: '2026-09-16', session: '午市 11:00', people: 4, bookingType: 'room' as const, resourceName: '竹林包厢', status: 'submitted' as const, createdAt: '2026-09-15T08:00:00.000Z' }
+    const legacy = { id: 'B-LEGACY-PACKAGE', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U2', source: 'farmhouse' as const, date: '2026-09-17', session: '晚市 17:30', people: 2, status: 'confirmed' as const, createdAt: '2026-09-15T09:00:00.000Z' }
+    expect(writePlatformBooking(room)).toBe(true)
+    expect(writePlatformBooking(legacy)).toBe(true)
+
+    await store.initialize(true, 'F001')
+
+    expect(store.bookings.find((item) => item.id === room.id)).toMatchObject({ type: 'room', name: '竹林包厢', status: 'reserved' })
+    expect(store.bookings.find((item) => item.id === legacy.id)).toMatchObject({ type: 'package', name: '石板溪农家乐', status: 'confirmed' })
   })
 
   it('does not mutate local bookings when shared booking persistence fails', () => {
@@ -858,7 +897,7 @@ describe('farmhouse courier fulfillment', () => {
 
   it('checks out only the explicitly selected delivery category and keeps the rest of the cart', async () => {
     const courierProduct = catalogProduct({ id: 'SELECTED-COURIER', name: '快递选中商品', expressDelivery: true })
-    const pickupProduct = catalogProduct({ id: 'SELECTED-PICKUP', name: '社区团购商品', expressDelivery: false })
+    const pickupProduct = catalogProduct({ id: 'SELECTED-PICKUP', name: '到店自提商品', expressDelivery: false })
     seedCatalog([courierProduct, pickupProduct])
     for (const product of [courierProduct, pickupProduct]) {
       expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: product.id, listed: true, retailPrice: product.skus[0].retailPrice })).toBe(true)
@@ -930,6 +969,69 @@ describe('farmhouse courier fulfillment', () => {
     ] })).toBe(false)
     expect(store.checkoutError).toContain('同一配送方式')
     expect(store.cart).toHaveLength(2)
+  })
+
+  it('records only-refund choice for a completed storefront order', async () => {
+    const store = useFarmhouseStore()
+    await initializeWithLegacyProducts(store, cloneSeed(products.slice(0, 1)))
+    store.$patch({ member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
+    store.addToCart(store.products[0], store.products[0].skus[0].id)
+    expect(await store.checkout()).toBe(true)
+    const order = store.orders[0]
+    order.status = '已完成'
+    persistStorefrontOrderStatus(order.id, '已完成')
+
+    expect(await store.requestStorefrontAfterSale(order.id, 'refund')).toBe(true)
+    expect(readPlatformAfterSales()?.[`AS-${order.id}`]).toMatchObject({
+      orderId: order.id,
+      type: 'refund',
+      refundMethod: 'only'
+    })
+  })
+
+  it('requires a return tracking number for courier return-refund requests', async () => {
+    const store = useFarmhouseStore()
+    await initializeWithLegacyProducts(store, cloneSeed(products.slice(0, 1)))
+    store.$patch({ member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
+    const address = createCheckoutAddress(store, '退货寄回地址 6 号')
+    store.addToCart(store.products[0], store.products[0].skus[0].id)
+    expect(await store.checkout({ deliveryMode: 'courier', addressId: address.id, payMethod: 'wechat' })).toBe(true)
+    const order = store.orders[0]
+    order.status = '已完成'
+    persistStorefrontOrderStatus(order.id, '已完成')
+    const beforeOrder = cloneSeed(order)
+
+    expect(await store.requestStorefrontAfterSale(order.id, 'return')).toBe(false)
+    expect(store.checkoutError).toContain('退货运单号')
+    expect(store.orders.find((item) => item.id === order.id)).toEqual(beforeOrder)
+    expect(readPlatformAfterSales()).toBeNull()
+
+    expect(await store.requestStorefrontAfterSale(order.id, 'return', undefined, 'SF-RETURN-001')).toBe(true)
+    expect(readPlatformAfterSales()?.[`AS-${order.id}`]).toMatchObject({
+      orderId: order.id,
+      type: 'return',
+      refundMethod: 'return',
+      returnTrackingNo: 'SF-RETURN-001'
+    })
+  })
+
+  it('allows pickup return-refund requests without a return tracking number', async () => {
+    const store = useFarmhouseStore()
+    await initializeWithLegacyProducts(store, cloneSeed(products.slice(0, 1)))
+    store.$patch({ member: { ...cloneSeed(members[0]), balance: 500 }, cart: [], orders: [], balanceEntries: [] })
+    store.addToCart(store.products[0], store.products[0].skus[0].id)
+    expect(await store.checkout()).toBe(true)
+    const order = store.orders[0]
+    order.status = '已完成'
+    persistStorefrontOrderStatus(order.id, '已完成')
+
+    expect(await store.requestStorefrontAfterSale(order.id, 'return')).toBe(true)
+    expect(readPlatformAfterSales()?.[`AS-${order.id}`]).toMatchObject({
+      orderId: order.id,
+      type: 'return',
+      refundMethod: 'return'
+    })
+    expect(readPlatformAfterSales()?.[`AS-${order.id}`]?.returnTrackingNo).toBeUndefined()
   })
 })
 
@@ -1260,7 +1362,8 @@ describe('farmhouse after-sale transactions', () => {
     const order = store.orders[0]
     order.status = '已完成'
     persistStorefrontOrderStatus(order.id, '已完成')
-    expect(await store.requestStorefrontAfterSale(order.id, type)).toBe(true)
+    const returnTrackingNo = type === 'return' ? 'SF-RETURN-TRANSACTION-001' : undefined
+    expect(await store.requestStorefrontAfterSale(order.id, type, undefined, returnTrackingNo)).toBe(true)
     store.role = 'manager'
     return { store, order }
   }

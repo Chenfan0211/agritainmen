@@ -189,10 +189,10 @@ describe('admin supplier and RBAC page', () => {
   it('renders product review filters as searchable dropdowns and keeps commission tabs visible', () => {
     expect(source).not.toContain('product-review-tabs')
     expect(source).toContain('SearchableSelect v-model="productReviewFilter"')
-    expect(source).toMatch(/class="goods-tools"><view class="module-search"><SearchableSelect v-model="productReviewFilter"/)
+    expect(source).toMatch(/class="goods-tools"><view class="filter-bar">[\s\S]*SearchableSelect v-model="productReviewFilter"/)
     expect(source).toContain('productReviewFilters')
     expect(source).toContain('productSupplierFilter')
-    expect(source).toContain('placeholder="搜索商品名称"')
+    expect(source).toContain('placeholder="请输入商品名称"')
     expect(source).not.toContain('搜索商品名称 / 供应商')
     expect(source).toContain('class="filter-chips commission-filter-tabs"')
     expect(source).toContain('v-for="item in commissionTabOptions"')
@@ -233,12 +233,9 @@ describe('admin supplier and RBAC page', () => {
   })
 
   it('keeps the compact desktop topbar account readable', () => {
-    const mediaStart = source.lastIndexOf('@media(max-width:1180px)')
-    const compactDesktop = source.slice(mediaStart, source.indexOf('@media(max-width:768px)', mediaStart))
-
-    expect(compactDesktop).toContain('.operator-meta{display:none}')
-    expect(compactDesktop).toContain('.operator .logout-button text{display:none}')
-    expect(compactDesktop).toContain('.operator .logout-button{width:32px')
+    expect(source).toMatch(/@media\(max-width:1180px\)[\s\S]*\.operator-meta\{display:none\}/)
+    expect(source).toMatch(/@media\(max-width:1180px\)[\s\S]*\.operator \.logout-button text\{display:none\}/)
+    expect(source).toMatch(/@media\(max-width:1180px\)[\s\S]*\.operator \.logout-button\{width:32px/)
   })
 
   it('keeps mobile toast above the bottom safe area', () => {
@@ -259,7 +256,7 @@ describe('admin supplier and RBAC page', () => {
     expect(source).toContain('.booking-table-scroll{overflow-x:auto')
     expect(source).toContain('.booking-grid{grid-template-columns:')
     expect(source).toContain('env(safe-area-inset-bottom)')
-    expect(source).toContain('.drawer{width:min(440px,100vw)')
+    expect(source).toContain('.drawer{width:min(var(--admin-drawer-width),100vw)')
     expect(source).toContain('max-width:100vw')
   })
 
@@ -278,9 +275,9 @@ describe('admin supplier and RBAC page', () => {
   it('adds required image models and uploaders only to product category forms', () => {
     expect(source).toContain('categoryImage: null as BusinessMediaValue | null')
     expect(source).toContain('dictImage: null as BusinessMediaValue | null')
-    expect(source).toContain('v-if="form.categoryType === \'product\'" class="field"')
+    expect(source).toContain('v-if="form.categoryType === \'product\'" class="field full"')
     expect(source).toContain('v-model="form.categoryImage" purpose="product-category"')
-    expect(source).toContain('v-if="dictTypeTab === \'productCategory\'" class="field"')
+    expect(source).toContain('v-if="dictTypeTab === \'productCategory\'" class="field full"')
     expect(source).toContain('v-model="form.dictImage" purpose="product-category"')
     expect(source).not.toContain('v-model="form.categoryImage" purpose="supplier-category"')
   })
@@ -291,5 +288,100 @@ describe('admin supplier and RBAC page', () => {
     expect(source).toContain("store.addCategory(form.value.name, 'product', categoryImage)")
     expect(source).toContain('image: dictImage')
     expect(source).toContain("store.categories.filter((item) => item.type !== 'product')")
+  })
+
+  it('filters roles, admin accounts, price policies and store accounts by local keywords', () => {
+    const roles = [{ name: '运营', code: 'ops', enabled: true }, { name: '财务', code: 'finance', enabled: false }]
+    const accounts = [{ account: 'ops01', name: '李运营', roleId: 'AR-OPS', enabled: true }, { account: 'fin01', name: '王财务', roleId: 'AR-FIN', enabled: false }]
+    const policies = [{ name: '周末团购', scope: '全部农家乐', type: 'group' }, { name: '会员价', scope: '试点门店', type: 'member' }]
+    const storeAccounts = [{ name: '店主张三', account: 'store01', farmId: 'F001' }, { name: '店员李四', account: 'staff02', farmId: 'F002' }]
+    const match = (haystack: string, keyword: string) => !keyword || haystack.toLowerCase().includes(keyword.toLowerCase())
+
+    expect(roles.filter((item) => match(`${item.name}${item.code}`, '运营')).map((item) => item.code)).toEqual(['ops'])
+    expect(accounts.filter((item) => match(`${item.account}${item.name}`, 'fin01')).map((item) => item.account)).toEqual(['fin01'])
+    expect(policies.filter((item) => match(`${item.name}${item.scope}${item.type}`, '会员')).map((item) => item.name)).toEqual(['会员价'])
+    expect(storeAccounts.filter((item) => match(`${item.name}${item.account}`, 'staff02')).map((item) => item.account)).toEqual(['staff02'])
+
+    expect(source).toContain('const roleKeyword = ref')
+    expect(source).toContain('const accountKeyword = ref')
+    expect(source).toContain('const policyKeyword = ref')
+    expect(source).toContain('const storeAccountKeyword = ref')
+    expect(source).toContain('v-for="role in filteredRoles"')
+    expect(source).toContain('v-for="account in filteredAdminAccounts"')
+    expect(source).toContain('policyKeyword.value')
+    expect(source).toContain('storeAccountKeyword.value')
+    expect(source).toContain('roleStatusFilter')
+    expect(source).toContain('accountRoleFilter')
+    expect(source).toContain('accountStatusFilter')
+  })
+
+  it('filters after-sale settlement records by order id and supplier dropdown', () => {
+    const records = [
+      { id: 'ST20260806', kind: 'supplier', orderIds: ['NJ202608110842'], items: [{ supplierId: 'S001', supplierName: '靖州杨梅专业合作社', orderIds: ['NJ202608110842'] }] },
+      { id: 'ST20260720', kind: 'supplier', orderIds: ['NJ202607201000'], items: [{ supplierId: 'S002', supplierName: '溆浦脐橙合作社', orderIds: ['NJ202607201000'] }] },
+      { id: 'CS20260801', kind: 'commission', items: [{ promoterName: '李推客' }] }
+    ]
+    const match = (item: typeof records[number], keyword: string, supplierId: string) => {
+      const q = keyword.trim().toLowerCase()
+      const orders = [
+        ...('orderIds' in item && item.orderIds ? item.orderIds : []),
+        ...item.items.flatMap((row) => 'orderIds' in row && row.orderIds ? row.orderIds : [])
+      ]
+      const matchesOrder = !q || orders.some((id) => id.toLowerCase().includes(q))
+      const matchesSupplier = !supplierId || item.items.some((row) => 'supplierId' in row && row.supplierId === supplierId)
+      return matchesOrder && matchesSupplier
+    }
+
+    expect(records.filter((item) => match(item, 'NJ202608110842', '')).map((item) => item.id)).toEqual(['ST20260806'])
+    expect(records.filter((item) => match(item, '', 'S002')).map((item) => item.id)).toEqual(['ST20260720'])
+    expect(records.filter((item) => match(item, '靖州', '')).map((item) => item.id)).toEqual([])
+
+    expect(source).toContain('const settlementKeyword = ref')
+    expect(source).toContain('const settlementSupplierFilter = ref')
+    expect(source).toContain('v-model="settlementKeyword"')
+    expect(source).toContain('v-model="settlementSupplierFilter"')
+    expect(source).toContain('placeholder="请输入订单号"')
+    expect(source).toContain('filteredSettlementRecords')
+    expect(source).toMatch(/afterTab === '结算流水'[\s\S]*class="filter-bar"[\s\S]*请输入订单号[\s\S]*settlementSupplierFilter/)
+  })
+
+  it('filters after-sale tickets, store accounts, promoters and dictionary items by status dropdown', () => {
+    const tickets = [
+      { id: 'AS1', status: 'processing' },
+      { id: 'AS2', status: 'refunded' },
+      { id: 'AS3', status: 'rejected' }
+    ]
+    const storeAccounts = [
+      { account: 'store01', enabled: true },
+      { account: 'staff02', enabled: false }
+    ]
+    const promoters = [
+      { name: '李推客', settled: false },
+      { name: '张主播', settled: true }
+    ]
+    const dictItems = [
+      { code: 'CITY-A', enabled: true },
+      { code: 'CITY-B', enabled: false }
+    ]
+    const matchEnabled = (enabled: boolean, status: string) => status === '全部' || (status === '启用' ? enabled : !enabled)
+    const matchSettled = (settled: boolean, status: string) => status === '全部' || (status === '已结算') === settled
+
+    expect(tickets.filter((item) => item.status === 'processing').map((item) => item.id)).toEqual(['AS1'])
+    expect(storeAccounts.filter((item) => matchEnabled(item.enabled, '停用')).map((item) => item.account)).toEqual(['staff02'])
+    expect(promoters.filter((item) => matchSettled(!!item.settled, '已结算')).map((item) => item.name)).toEqual(['张主播'])
+    expect(dictItems.filter((item) => matchEnabled(item.enabled, '停用')).map((item) => item.code)).toEqual(['CITY-B'])
+
+    expect(source).toContain('const afterStatusFilter = ref')
+    expect(source).toContain('const storeAccountStatusFilter = ref')
+    expect(source).toContain('const promoterSettleFilter = ref')
+    expect(source).toContain('const dictStatusFilter = ref')
+    expect(source).toContain('v-model="afterStatusFilter"')
+    expect(source).toContain('v-model="storeAccountStatusFilter"')
+    expect(source).toContain('v-model="promoterSettleFilter"')
+    expect(source).toContain('v-model="dictStatusFilter"')
+    expect(source).toMatch(/afterTab === '售后工单'[\s\S]*class="filter-bar"[\s\S]*afterStatusFilter/)
+    expect(source).toMatch(/storeAccountKeyword[\s\S]*storeAccountStatusFilter/)
+    expect(source).toMatch(/promoterKeyword[\s\S]*promoterSettleFilter/)
+    expect(source).toMatch(/dictKeyword[\s\S]*dictStatusFilter/)
   })
 })

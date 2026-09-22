@@ -7,7 +7,7 @@ import type { FarmLocation } from './geocoding'
 export type Role = 'customer' | 'staff' | 'manager'
 export type ProductSource = 'platform' | 'farmhouse'
 export type ProductStatus = 'active' | 'pending' | 'offline' | 'rejected'
-export type OrderStatus = 'pending' | 'shipping' | 'delivered' | 'after-sale' | 'paid-cancelled' | 'unpaid-cancelled'
+export type OrderStatus = 'pending-payment' | 'pending' | 'shipping' | 'delivered' | 'after-sale' | 'paid-cancelled' | 'unpaid-cancelled'
 export type AfterSaleStatus = 'processing' | 'rejected' | 'refund-pending' | 'return-pending' | 'refunded' | 'refund-failed'
 export type PurchaseStatus = 'submitted' | 'accepted' | 'shipped' | 'delivering' | 'received' | 'completed' | 'cancelled'
 export type MockScenario = 'normal' | 'empty' | 'failure'
@@ -390,6 +390,57 @@ export interface RouteOptimizationOutput {
   polyline?: RouteOrigin[]
 }
 
+export type RouteOutboundHandoverStatus = 'pending_supplier' | 'rejected' | 'pending_dispatch' | 'dispatched'
+
+export interface RouteOutboundHandoverItem {
+  skuId: string
+  productId: string
+  name: string
+  skuName: string
+  image: string
+  expected: number
+  warehouseQuantity?: number
+  driverActual: number
+  supplierActual?: number
+}
+
+export interface RouteOutboundShortageAllocation {
+  skuId: string
+  storeId: string
+  quantity: number
+  note?: string
+}
+
+export interface RouteOutboundHandover {
+  status: RouteOutboundHandoverStatus
+  items: RouteOutboundHandoverItem[]
+  driverId: string
+  driverName: string
+  driverSubmittedAt: string
+  driverNote?: string
+  proofImages?: string[]
+  rejectionReason?: string
+  supplierId?: string
+  supplierName?: string
+  supplierReviewedAt?: string
+  supplierNote?: string
+  reviewHistory?: Array<{ action: 'confirmed' | 'rejected'; at: string; operatorId: string; operatorName: string; note?: string }>
+  shortageAllocations: RouteOutboundShortageAllocation[]
+  dispatchedAt?: string
+}
+
+export type RouteWarehouseCheckInReason = 'location_failed' | 'device_issue' | 'warehouse_coordinate_error' | 'other'
+
+export interface RouteWarehouseCheckIn {
+  at: string
+  type?: 'normal' | 'abnormal'
+  reasonCode?: RouteWarehouseCheckInReason
+  reasonNote?: string
+  longitude?: number
+  latitude?: number
+  distanceM?: number
+}
+
 export interface DailyDeliveryRoute {
   id: string
   supplierId: string
@@ -407,6 +458,8 @@ export interface DailyDeliveryRoute {
   origin?: RouteOrigin
   scopeStoreIds?: string[]
   baselineRevisions?: { routes: number; orders: number; scopes: number; entities: number; namedRoutes?: number; drivers?: number }
+  warehouseCheckIn?: RouteWarehouseCheckIn
+  outboundHandover?: RouteOutboundHandover
   stopCount?: number
   polyline?: RouteOrigin[]
   generatedAt: string
@@ -1489,6 +1542,7 @@ export interface AfterSale {
   refundAmount?: number
   refundMethod?: 'return' | 'only'
   refundMode?: 'full' | 'ratio' | 'custom'
+  returnTrackingNo?: string
   history?: Array<{ time: string; action: string; operator: string }>
   sourcePortal?: string
   masterOrderId?: string
@@ -3504,7 +3558,7 @@ export function mergePlatformAfterSales(defaults: AfterSale[], published: Record
 }
 
 export const ORDER_STATUS_TEXT: Record<OrderStatus, string> = {
-  pending: '待发货', shipping: '已发货', delivered: '已完成', 'after-sale': '已完成',
+  'pending-payment': '待付款', pending: '待发货', shipping: '已发货', delivered: '已完成', 'after-sale': '已完成',
   'paid-cancelled': '已支付取消', 'unpaid-cancelled': '未支付取消'
 }
 
@@ -5088,6 +5142,295 @@ export function validateStopCheckIn(stop: Pick<RouteStop, 'latitude' | 'longitud
   return { ok: true, distanceM }
 }
 
+export function validateWarehouseCheckIn(origin: RouteOrigin | undefined, location: RouteOrigin): { ok: true; distanceM: number } | { ok: false; code: string; message: string; distanceM?: number } {
+  if (!origin || !coordinateIsValid(origin.longitude, origin.latitude)) {
+    return { ok: false, code: 'warehouse_coordinates_missing', message: '仓点缺少坐标，无法打卡' }
+  }
+  if (!coordinateIsValid(location.longitude, location.latitude)) {
+    return { ok: false, code: 'location_unavailable', message: '无法获取定位，请开启定位权限' }
+  }
+  const distanceM = distanceMeters(origin, location)
+  if (distanceM > DRIVER_CHECK_IN_MAX_METERS) {
+    return { ok: false, code: 'too_far', message: `距离仓点 ${distanceM} 米，超过 ${DRIVER_CHECK_IN_MAX_METERS} 米不能打卡`, distanceM }
+  }
+  return { ok: true, distanceM }
+}
+
+export function createAbnormalWarehouseCheckIn(reasonCode: RouteWarehouseCheckInReason, reasonNote: string | undefined, location?: RouteOrigin, now = new Date().toISOString()): RouteWarehouseCheckIn | null {
+  const reasons: RouteWarehouseCheckInReason[] = ['location_failed', 'device_issue', 'warehouse_coordinate_error', 'other']
+  if (!reasons.includes(reasonCode)) return null
+  const note = String(reasonNote || '').trim()
+  if (reasonCode === 'other' && !note) return null
+  const hasLocation = !!location && coordinateIsValid(location.longitude, location.latitude)
+  return {
+    at: now,
+    type: 'abnormal',
+    reasonCode,
+    ...(note ? { reasonNote: note } : {}),
+    ...(hasLocation ? { longitude: location!.longitude, latitude: location!.latitude } : {})
+  }
+}
+
+export function reorderRouteStops(route: DailyDeliveryRoute, orderedStoreIds: readonly string[]): DailyDeliveryRoute | null {
+  if (!route || !Array.isArray(orderedStoreIds)) return null
+  const currentIds = route.stops.map((stop) => stop.storeId)
+  const nextIds = [...new Set(orderedStoreIds.map((storeId) => storeId?.trim()).filter(Boolean))]
+  if (nextIds.length !== currentIds.length || currentIds.some((storeId) => !nextIds.includes(storeId))) return null
+  if (route.stops.some((stop, index) => (stop.completedAt || stop.completedOrderIds?.length === stop.orderIds.length) && nextIds[index] !== stop.storeId)) return null
+  const byId = new Map(route.stops.map((stop) => [stop.storeId, stop]))
+  const stops = nextIds.map((storeId) => cloneSeed(byId.get(storeId)!))
+  const origin = route.origin
+  if (!origin || stops.some((stop) => stop.longitude === undefined || stop.latitude === undefined)) {
+    return cloneSeed({ ...route, stops })
+  }
+  let previous: RouteOrigin = origin
+  let totalDistanceKm = 0
+  const segments: RouteSegment[] = []
+  for (let index = 0; index < stops.length; index += 1) {
+    const stop = stops[index]
+    const destination = { longitude: stop.longitude!, latitude: stop.latitude! }
+    const distanceKm = distanceMeters(previous, destination) / 1000
+    totalDistanceKm += distanceKm
+    segments.push({ fromId: index === 0 ? 'origin' : stops[index - 1].storeId, toStoreId: stop.storeId, distanceKm })
+    previous = destination
+  }
+  const roundedDistanceKm = Math.round(totalDistanceKm * 10) / 10
+  const originalTravelMinutes = Math.max(0, route.estimatedDurationMinutes - route.stops.length * 5)
+  const averageSpeedKmh = route.totalDistanceKm > 0 && originalTravelMinutes > 0 ? route.totalDistanceKm / (originalTravelMinutes / 60) : 30
+  const estimatedDurationMinutes = Math.max(1, Math.round(roundedDistanceKm / Math.max(1, averageSpeedKmh) * 60 + stops.length * 5))
+  return cloneSeed({
+    ...route,
+    stops,
+    segments,
+    totalDistanceKm: roundedDistanceKm,
+    estimatedDurationMinutes,
+    polyline: [origin, ...stops.map((stop) => ({ longitude: stop.longitude!, latitude: stop.latitude! }))]
+  })
+}
+
+export function aggregateRouteOutboundItems(orders: readonly Order[]): RouteOutboundHandoverItem[] {
+  const grouped = new Map<string, RouteOutboundHandoverItem>()
+  for (const order of Array.isArray(orders) ? orders : []) {
+    for (const line of order.items || []) {
+      if (!line?.skuId?.trim() || !Number.isInteger(line.quantity) || line.quantity <= 0) continue
+      const current = grouped.get(line.skuId)
+      if (current) {
+        current.expected += line.quantity
+        current.driverActual += line.quantity
+        if (!current.image && line.image) current.image = line.image
+        if (!current.name && line.name) current.name = line.name
+        if (!current.skuName && line.skuName) current.skuName = line.skuName
+        continue
+      }
+      grouped.set(line.skuId, {
+        skuId: line.skuId,
+        productId: line.productId,
+        name: line.name,
+        skuName: line.skuName,
+        image: line.image || '',
+        expected: line.quantity,
+        driverActual: line.quantity
+      })
+    }
+  }
+  return [...grouped.values()]
+}
+
+function routeOutboundActualsValid(items: readonly RouteOutboundHandoverItem[], actuals: Record<string, number>, fallback: (item: RouteOutboundHandoverItem) => number): Record<string, number> | null {
+  if (!actuals || typeof actuals !== 'object' || Array.isArray(actuals)) return null
+  const bySku = new Map(items.map((item) => [item.skuId, item]))
+  if (Object.keys(actuals).some((skuId) => !bySku.has(skuId))) return null
+  const normalized: Record<string, number> = {}
+  for (const item of items) {
+    const value = actuals[item.skuId] === undefined ? fallback(item) : Number(actuals[item.skuId])
+    if (!Number.isInteger(value) || value < 0 || value > item.expected) return null
+    normalized[item.skuId] = value
+  }
+  return normalized
+}
+
+export interface RouteOutboundHandoverInput {
+  actuals: Record<string, number>
+  proofImages: string[]
+  note?: string
+}
+
+export function createRouteOutboundHandover(route: DailyDeliveryRoute, orders: readonly Order[], operator: { id: string; name: string; role: 'supplier' | 'driver' }, input: RouteOutboundHandoverInput, now = new Date().toISOString()): DailyDeliveryRoute | null {
+  if (!route || route.status === 'completed' || operator.role !== 'driver' || operator.id !== route.driverId || !route.warehouseCheckIn) return null
+  if (route.outboundHandover && route.outboundHandover.status !== 'pending_supplier' && route.outboundHandover.status !== 'rejected') return null
+  const proofImages = [...new Set((Array.isArray(input?.proofImages) ? input.proofImages : []).map((image) => image?.trim()).filter(Boolean))]
+  if (!proofImages.length || proofImages.length > 6) return null
+  const items = aggregateRouteOutboundItems(orders)
+  const normalized = routeOutboundActualsValid(items, input.actuals, (item) => item.expected)
+  if (!normalized) return null
+  const previousQuantities = new Map((route.outboundHandover?.items || []).map((item) => [item.skuId, item.warehouseQuantity]))
+  return cloneSeed({
+    ...route,
+    outboundHandover: {
+      status: 'pending_supplier' as const,
+      items: items.map((item) => ({
+        ...item,
+        ...(previousQuantities.get(item.skuId) !== undefined ? { warehouseQuantity: previousQuantities.get(item.skuId) } : {}),
+        driverActual: normalized[item.skuId]
+      })),
+      driverId: operator.id,
+      driverName: operator.name,
+      driverSubmittedAt: now,
+      ...(input.note?.trim() ? { driverNote: input.note.trim() } : {}),
+      proofImages,
+      ...(route.outboundHandover?.reviewHistory?.length ? { reviewHistory: cloneSeed(route.outboundHandover.reviewHistory) } : {}),
+      shortageAllocations: []
+    }
+  })
+}
+
+export function reviewRouteOutboundHandover(route: DailyDeliveryRoute, input: { actuals: Record<string, number>; note?: string }, operator: { id: string; name: string; role: 'supplier' | 'driver' }, now = new Date().toISOString()): DailyDeliveryRoute | null {
+  const handover = route?.outboundHandover
+  if (!handover || handover.status !== 'pending_supplier' || operator.role !== 'supplier') return null
+  if (!handover.proofImages?.length) return null
+  const normalized = routeOutboundActualsValid(handover.items, input.actuals, (item) => item.driverActual)
+  if (!normalized) return null
+  const reviewHistory = [...(handover.reviewHistory || []), { action: 'confirmed' as const, at: now, operatorId: operator.id, operatorName: operator.name, ...(input.note?.trim() ? { note: input.note.trim() } : {}) }]
+  return cloneSeed({
+    ...route,
+    outboundHandover: {
+      ...handover,
+      status: 'pending_dispatch' as const,
+      items: handover.items.map((item) => ({ ...item, supplierActual: normalized[item.skuId] })),
+      supplierId: operator.id,
+      supplierName: operator.name,
+      supplierReviewedAt: now,
+      ...(input.note?.trim() ? { supplierNote: input.note.trim() } : {}),
+      reviewHistory,
+      shortageAllocations: []
+    }
+  })
+}
+
+export function rejectRouteOutboundHandover(route: DailyDeliveryRoute, reason: string, operator: { id: string; name: string; role: 'supplier' | 'driver' }, now = new Date().toISOString()): DailyDeliveryRoute | null {
+  const handover = route?.outboundHandover
+  const rejectionReason = String(reason || '').trim()
+  if (!handover || handover.status !== 'pending_supplier' || operator.role !== 'supplier' || !rejectionReason) return null
+  const reviewHistory = [...(handover.reviewHistory || []), { action: 'rejected' as const, at: now, operatorId: operator.id, operatorName: operator.name, note: rejectionReason }]
+  return cloneSeed({
+    ...route,
+    outboundHandover: {
+      ...handover,
+      status: 'rejected' as const,
+      rejectionReason,
+      reviewHistory,
+      shortageAllocations: []
+    }
+  })
+}
+
+function routeStoreExpected(orders: readonly Order[], route: DailyDeliveryRoute, storeId: string, skuId: string): number {
+  const stop = route.stops.find((item) => item.storeId === storeId)
+  if (!stop) return 0
+  return orders
+    .filter((order) => stop.orderIds.includes(order.id))
+    .reduce((sum, order) => sum + (order.items || []).filter((line) => line.skuId === skuId).reduce((lineSum, line) => lineSum + line.quantity, 0), 0)
+}
+
+function routeShortageAllocationValid(route: DailyDeliveryRoute, orders: readonly Order[], allocations: readonly RouteOutboundShortageAllocation[]): RouteOutboundShortageAllocation[] | null {
+  const handover = route?.outboundHandover
+  if (!handover || handover.status !== 'pending_dispatch' || !Array.isArray(allocations)) return null
+  const bySku = new Map(handover.items.map((item) => [item.skuId, item]))
+  const keys = new Set<string>()
+  const normalized: RouteOutboundShortageAllocation[] = []
+  for (const allocation of allocations) {
+    const skuId = allocation?.skuId?.trim()
+    const storeId = allocation?.storeId?.trim()
+    const quantity = Number(allocation?.quantity)
+    const note = typeof allocation?.note === 'string' ? allocation.note.trim() : ''
+    if (!skuId || !storeId || !Number.isInteger(quantity) || quantity < 0) return null
+    const item = bySku.get(skuId)
+    if (!item) return null
+    const key = `${skuId}\u0000${storeId}`
+    if (keys.has(key)) return null
+    keys.add(key)
+    if (quantity === 0) continue
+    const shortage = item.expected - (item.supplierActual ?? item.driverActual)
+    const storeExpected = routeStoreExpected(orders, route, storeId, skuId)
+    if (shortage <= 0 || storeExpected <= 0 || quantity > storeExpected) return null
+    normalized.push({ skuId, storeId, quantity, ...(note ? { note } : {}) })
+  }
+  for (const item of handover.items) {
+    const shortage = item.expected - (item.supplierActual ?? item.driverActual)
+    const allocated = normalized.filter((entry) => entry.skuId === item.skuId).reduce((sum, entry) => sum + entry.quantity, 0)
+    if (shortage < 0 || allocated !== shortage) return null
+  }
+  return normalized.sort((left, right) => left.skuId.localeCompare(right.skuId) || left.storeId.localeCompare(right.storeId))
+}
+
+export function saveRouteOutboundShortages(route: DailyDeliveryRoute, orders: readonly Order[], allocations: readonly RouteOutboundShortageAllocation[]): DailyDeliveryRoute | null {
+  const normalized = routeShortageAllocationValid(route, orders, allocations)
+  if (!normalized) return null
+  return cloneSeed({ ...route, outboundHandover: { ...route.outboundHandover!, shortageAllocations: normalized } })
+}
+
+export function dispatchRouteOutbound(route: DailyDeliveryRoute, orders: readonly Order[], operator: { id: string; name: string; role: 'supplier' | 'driver' }, now = new Date().toISOString()): { route: DailyDeliveryRoute; orders: Order[] } | null {
+  const handover = route?.outboundHandover
+  if (!handover || handover.status !== 'pending_dispatch' || !route.warehouseCheckIn || operator.role !== 'driver' || operator.id !== route.driverId) return null
+  const allocations = routeShortageAllocationValid(route, orders, handover.shortageAllocations)
+  if (!allocations) return null
+  const assigned = new Map<string, number>()
+  for (const allocation of allocations) {
+    const stop = route.stops.find((item) => item.storeId === allocation.storeId)
+    if (!stop) return null
+    const candidates = orders
+      .filter((order) => stop.orderIds.includes(order.id) && (order.items || []).some((line) => line.skuId === allocation.skuId))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+    let remaining = allocation.quantity
+    for (const order of candidates) {
+      const capacity = (order.items || []).filter((line) => line.skuId === allocation.skuId).reduce((sum, line) => sum + line.quantity, 0)
+      const count = Math.min(remaining, capacity)
+      if (count > 0) assigned.set(`${order.id}\u0000${allocation.skuId}`, count)
+      remaining -= count
+      if (remaining === 0) break
+    }
+    if (remaining !== 0) return null
+  }
+  const supplier = { id: handover.supplierId || 'supplier', name: handover.supplierName || '供应商', role: 'supplier' as const }
+  const nextOrders: Order[] = []
+  for (const order of orders) {
+    const actuals: Record<string, number> = {}
+    for (const line of order.items || []) {
+      actuals[line.skuId] = line.quantity - (assigned.get(`${order.id}\u0000${line.skuId}`) || 0)
+    }
+    const next = handoverSupplierOut(order, actuals, supplier, handover.supplierNote)
+    if (!next) return null
+    nextOrders.push(next)
+  }
+  return {
+    route: cloneSeed({ ...route, outboundHandover: { ...handover, status: 'dispatched' as const, dispatchedAt: now } }),
+    orders: nextOrders
+  }
+}
+
+export function completeRouteStopHandover(route: DailyDeliveryRoute, orders: readonly Order[], stopId: string, operator: { id: string; name: string; role: 'supplier' | 'driver' }, note?: string, now = new Date().toISOString()): { route: DailyDeliveryRoute; orders: Order[] } | null {
+  if (!route || route.outboundHandover?.status !== 'dispatched' || operator.role !== 'driver' || operator.id !== route.driverId) return null
+  const stop = route.stops.find((item) => item.storeId === stopId)
+  if (!stop?.checkIn) return null
+  const stopOrders = orders.filter((order) => stop.orderIds.includes(order.id))
+  if (!stopOrders.length || stopOrders.some((order) => !['delivering', 'received'].includes(order.supplierFulfillment?.status || ''))) return null
+  const updatedById = new Map<string, Order>()
+  for (const order of stopOrders) {
+    if (order.supplierFulfillment?.status === 'received') continue
+    const updated = handoverSupplierIn(order, operator, note)
+    if (!updated) return null
+    updatedById.set(order.id, updated)
+  }
+  const nextOrders = orders.map((order) => updatedById.get(order.id) || order)
+  const completedOrderIds = [...stop.orderIds]
+  const stops = route.stops.map((item) => item.storeId === stopId ? { ...item, completedOrderIds, completedAt: item.completedAt || now } : item)
+  const completed = stops.every((item) => item.completedOrderIds?.length === item.orderIds.length)
+  return {
+    route: cloneSeed({ ...route, stops, ...(completed ? { status: 'completed' as const, completedAt: now } : {}) }),
+    orders: nextOrders
+  }
+}
+
 function routePathDistance(origin: RouteOrigin, stops: readonly RouteStop[]): number {
   let previous = origin
   let total = 0
@@ -6135,6 +6478,8 @@ export interface SharedBooking {
   people: number
   amount?: number
   amountConfirmedAt?: string
+  bookingType?: Booking['type']
+  resourceName?: string
   operatorId?: string
   operatorName?: string
   status: 'submitted' | 'confirmed' | 'rejected' | 'cancelled' | 'completed'

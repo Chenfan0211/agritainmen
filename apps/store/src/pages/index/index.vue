@@ -1,11 +1,12 @@
 <template>
   <view v-if="!store.auth.isLoggedIn" class="login-page">
     <view class="login-card">
-      <view class="pc-login-hero">
+      <view class="pc-login-hero login-hero">
         <view class="pc-login-mark"><UiIcon name="shopping-bag" :size="26" /></view>
         <text class="pc-login-brand">中选科技门店订货商城</text>
         <text class="pc-login-sub">中选科技供应链 · 供货价直采 · 中台直配到店</text>
       </view>
+      <view class="login-panel">
       <view class="login-body">
         <view class="login-tabs">
           <button :class="{ active: loginTab === 'password' }" @click="loginTab = 'password'">密码登录</button>
@@ -18,6 +19,7 @@
         </view>
         <button class="login-button" @click="submitLogin">登 录</button>
         <text class="login-hint">演示手机号 13800000001　密码 123456　验证码 123456</text>
+      </view>
       </view>
     </view>
   </view>
@@ -38,13 +40,12 @@
           </swiper>
           <button class="detail-gallery-back" aria-label="返回商品列表" @click="closeProductView"><UiIcon name="arrow-left" :size="21" /></button>
           <template v-if="detailGallery.length > 1">
-            <button class="detail-gallery-arrow detail-gallery-prev" aria-label="上一张商品图" @click="moveDetailGallery(-1)"><UiIcon name="arrow-left" :size="18" /></button>
-            <button class="detail-gallery-arrow detail-gallery-next" aria-label="下一张商品图" @click="moveDetailGallery(1)"><UiIcon name="arrow-right" :size="18" /></button>
             <text class="detail-gallery-count">{{ detailGalleryIndex + 1 }} / {{ detailGallery.length }}</text>
           </template>
           <text v-if="selectedProduct.source === 'platform'" class="detail-source-badge">中台供</text>
         </view>
 
+        <view class="detail-body">
         <view class="detail-summary detail-section" data-visual-state="store-product">
           <view class="detail-price-row">
             <view class="detail-current-price">
@@ -77,7 +78,7 @@
             <view><text>采购数量</text><small>当前规格起订量 {{ detailMinimumQuantity }} 件 · 可加 {{ detailRemainingStock }} 件</small></view>
             <view class="detail-quantity-stepper">
               <button aria-label="减少采购数量" :disabled="detailQuantity <= detailMinimumQuantity" @click="changeDetailQuantity(-1)">−</button>
-              <text>{{ detailQuantity }} 件</text>
+              <input class="detail-quantity-input" type="number" inputmode="numeric" :value="detailQuantityText" @input="onDetailQuantityInput" @blur="commitDetailQuantity" @confirm="commitDetailQuantity" />
               <button aria-label="增加采购数量" :disabled="!selectedSku || detailQuantity >= detailRemainingStock" @click="changeDetailQuantity(1)">+</button>
             </view>
           </view>
@@ -95,18 +96,10 @@
           <text v-if="detailNextTier" class="detail-next-tier">再购 {{ detailNextTier.minQty - detailPricingQuantity }} 件，可享 {{ money(detailNextTier.price) }} / 件</text>
         </view>
 
-        <view class="detail-product-info detail-section">
-          <view class="detail-section-heading"><text>商品信息</text></view>
-          <view class="detail-info-row"><small>商品分类</small><text>{{ selectedProduct.category }}</text></view>
-          <view class="detail-info-row"><small>供应商</small><text>{{ selectedProduct.supplier }}</text></view>
-          <view class="detail-info-row"><small>规格数量</small><text>{{ selectedProduct.skus.length }} 个</text></view>
-          <view class="detail-info-row"><small>当前规格库存</small><text>{{ selectedSku?.stock ?? 0 }} 件</text></view>
-          <view class="detail-info-row"><small>当前规格起订量</small><text>{{ detailMinimumQuantity }} 件</text></view>
-        </view>
-
         <view v-if="detailRichImages.length" class="detail-rich-images detail-section">
           <view class="detail-section-heading"><text>图文详情</text></view>
           <BusinessImage v-for="image in detailRichImages" :key="mediaValueToImage(image)" class="detail-rich-image" :src="image" mode="widthFix" />
+        </view>
         </view>
 
         <view class="product-detail-bar">
@@ -123,13 +116,12 @@
         </view>
         <view class="page-pad">
           <view class="search-bar"><UiIcon name="search" :size="18" /><input v-model="keyword" placeholder="搜索供应链商品 / 供应商" confirm-type="search" /></view>
-          <view class="category-grid">
-            <button v-for="item in homeCategories" :key="item.key" class="category-grid-item" @click="category = item.key"><BusinessImage class="category-grid-img" :src="productCategoryImage(item.key, dictionaryState)" :fallback="defaultProductCategoryImage(item.key)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ item.label }}</text></button>
+          <view class="category-grid cat-card">
+            <button v-for="item in homeCategories" :key="item.key" class="category-grid-item" :class="{ active: category === item.key }" @click="category = item.key"><BusinessImage class="category-grid-img" :src="productCategoryImage(item.key, dictionaryState)" :fallback="defaultProductCategoryImage(item.key)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text class="category-grid-label">{{ item.label }}</text></button>
           </view>
           <view v-if="visibleProducts.length" class="result-count">共 {{ visibleProducts.length }} 款商品 · 中台直配到店</view>
           <view v-if="visibleProducts.length" class="waterfall-grid">
-            <view v-for="(column, columnIndex) in waterfallColumns" :key="columnIndex" class="waterfall-column">
-            <view v-for="product in column" :key="product.id" class="product-card">
+            <view v-for="product in visibleProducts" :key="product.id" class="product-card">
               <button class="product-image product-open" :aria-label="`查看${product.name}`" @click="openProduct(product)">
                 <BusinessImage class="product-emoji" :src="product.image" mode="aspectFill" />
                 <text v-if="product.source === 'platform'" data-typography-compact>中台供</text>
@@ -143,9 +135,8 @@
                 </view>
               </view>
             </view>
-            </view>
           </view>
-          <view v-else class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="search" :size="26" /></view><text>没有找到相关商品</text><small>试试其他关键词或分类</small></view>
+          <view v-else class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="search" :size="26" /></view><text>没有找到相关商品</text><small class="pc-state-note">试试其他关键词或分类</small></view>
         </view>
       </view>
 
@@ -184,10 +175,10 @@
           <text class="mall-hero-sub">共 {{ store.cartCount }} 件 · 供货价直采</text>
         </view>
         <view class="page-pad cart-page-content">
-          <view v-if="!store.cart.length" class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>进货单还是空的</text><small>去首页下一单吧～</small></view>
+          <view v-if="!store.cart.length" class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>进货单还是空的</text><small class="pc-state-note">去首页下一单吧～</small></view>
           <template v-else>
             <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="cart-row" :class="{ unavailable: item.unavailable }">
-              <button class="cart-check" :class="{ on: isCartSelected(item) }" :aria-label="`选择${item.name}`" @click="toggleCartSelect(item)"><UiIcon name="check" :size="14" /></button>
+              <button class="cart-check" :class="{ on: store.isCheckoutSelected(item) }" :aria-label="`选择${item.name}`" @click="store.toggleCheckoutSelection(item)"><UiIcon name="check" :size="14" /></button>
               <BusinessImage class="cart-row-img" :src="item.image" mode="aspectFill" />
               <view class="cart-row-main">
                 <text class="cart-row-name">{{ item.name }}</text>
@@ -195,21 +186,22 @@
                   <small class="cart-row-sub">{{ item.skuName }}</small>
                   <small class="cart-row-stock" :class="{ warn: item.unavailable }">剩余库存 {{ item.stock }}</small>
                 </view>
-                <view class="cart-row-bottom"><strong class="cart-row-price">{{ money(item.price) }}</strong><view class="stepper"><button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button><text>{{ item.quantity }}</text><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button></view></view>
+                <view class="cart-row-bottom"><strong class="cart-row-price">{{ money(item.price) }}</strong><view class="stepper"><button aria-label="减少数量" @click="changeCartQuantity(item, -1)">−</button><input class="cart-quantity-input" type="number" inputmode="numeric" :value="cartQuantityText(item)" @input="onCartQuantityInput(item, $event)" @blur="commitCartQuantity(item)" @confirm="commitCartQuantity(item)" /><button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="changeCartQuantity(item, 1)">+</button></view></view>
               </view>
             </view>
           </template>
         </view>
         <view v-if="store.cart.length" class="cart-footer">
-          <button class="cart-all" @click="toggleCartAll"><span class="cart-all-check" :class="{ on: cartAllSelected }"><UiIcon name="check" :size="14" /></span><text>全选</text></button>
-          <view class="cart-footer-total"><text>合计：</text><strong>{{ money(store.cartTotal) }}</strong></view>
+          <button class="cart-all" @click="toggleCartAll"><span class="cart-all-check" :class="{ on: cartAllSelected }"><UiIcon name="check" :size="14" /></span><text>{{ cartAllSelected ? '取消全选' : '全选' }}</text></button>
+          <view class="cart-footer-total"><text>已选</text><strong class="cart-selected-count">{{ store.checkoutCount }} 件</strong><text>合计</text><strong class="cart-total-amount">{{ money(store.checkoutTotal) }}</strong></view>
           <button class="cart-del" @click="removeSelectedCart">删除</button>
-          <button class="cart-checkout" :disabled="!store.cart.length || store.cartHasUnavailable" @click="goCheckout">结算({{ store.cartCount }})</button>
+          <button class="cart-checkout" :disabled="!store.checkoutCount || store.checkoutHasUnavailable" @click="goCheckout">结算({{ store.checkoutCount }})</button>
         </view>
       </view>
 
-      <view v-else-if="activeTab === 'mine' && mineSection === 'orders'" class="tab-page orders-page page-pad">
+      <view v-else-if="activeTab === 'mine' && mineSection === 'orders'" class="tab-page orders-page">
         <view class="mall-hero heading-with-back"><button class="page-back" aria-label="返回" @click="mineSection = 'main'"><UiIcon name="arrow-left" :size="20" /></button><view><text class="mall-hero-title">我的订货单</text><text class="mall-hero-sub">中选科技供应链中台统一履约 · 直配到店</text></view></view>
+        <view class="page-pad">
         <view class="order-summary">
           <view class="order-stat"><small>共订单</small><strong>{{ store.orders.length }} 单</strong></view>
           <view class="order-stat"><small>待收货</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
@@ -235,7 +227,8 @@
             </view>
           </button>
         </view>
-        <view v-else class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="26" /></view><text>暂无相关订货单</text><small>去商城下一单吧～</small></view>
+        <view v-else class="empty-page pc-empty"><view class="pc-state-icon"><UiIcon name="package" :size="26" /></view><text>暂无相关订货单</text><small class="pc-state-note">去商城下一单吧～</small></view>
+        </view>
       </view>
 
       <view v-else class="tab-page store-page">
@@ -249,12 +242,12 @@
               <small class="store-identity-address">地址 {{ store.info.address }}</small>
             </view>
           </view>
-          <view class="metric-band store-metrics">
-            <view><small>本月进货额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
-            <view><small>订货单数</small><strong>{{ store.orderMetrics.orderCount }}</strong></view>
-            <view><small>待收货</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
-            <view><small>累计节省</small><strong>{{ money(store.orderMetrics.savedAmount) }}</strong></view>
-          </view>
+        </view>
+        <view class="metric-band store-metrics">
+          <view><small>本月进货额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
+          <view><small>订货单数</small><strong>{{ store.orderMetrics.orderCount }}</strong></view>
+          <view><small>待收货</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
+          <view><small>累计节省</small><strong>{{ money(store.orderMetrics.savedAmount) }}</strong></view>
         </view>
         <view class="page-pad store-body">
           <view class="section-head compact"><view><span></span><text>快捷入口</text></view></view>
@@ -274,14 +267,14 @@
             </view>
           </view>
           <button class="logout-button logout-danger" @click="logout">退出登录</button>
-          <view class="member-footer">平台支持 · 湖南省电子商务协会 · 中选科技供应链中台</view>
+          <view class="member-footer">平台支持 · 湖南省电子商务协会 · 中选科技供应链中台 · 中台统一维护商品状态与库存</view>
         </view>
       </view>
 
       <view v-if="(activeTab === 'home' || activeTab === 'category') && store.cartCount" class="cart-bar">
         <button class="cart-count" @click="openCart"><UiIcon name="shopping-cart" :size="21" /><span>{{ store.cartCount }}</span></button>
-        <view><small>合计</small><strong>{{ money(store.cartTotal) }}</strong></view>
-        <button @click="openCart">去下单</button>
+        <view><small>合计</small><strong>{{ money(store.checkoutTotal) }}</strong></view>
+        <button @click="openCart">去结算</button>
       </view>
       </template>
 
@@ -291,7 +284,6 @@
 
       <view v-if="sheet" class="sheet-mask" @click.self="sheet = null">
         <view class="sheet">
-          <view class="sheet-handle"></view>
           <view class="sheet-head">
             <text>{{ sheetTitle }}</text>
             <button aria-label="关闭弹层" @click="sheet = null"><UiIcon name="x" :size="19" /></button>
@@ -299,16 +291,37 @@
           <scroll-view class="sheet-scroll" scroll-y>
 
           <view v-if="sheet === 'product' && selectedProduct" class="product-detail sku-sheet" data-visual-state="store-product">
+            <view class="sku-sum">
+              <BusinessImage class="sku-sum-img" :src="selectedProduct.image" mode="aspectFill" />
+              <view class="sku-sum-main">
+                <text class="sku-sum-name">{{ selectedProduct.name }}</text>
+                <view class="sku-sum-price"><strong>{{ money(selectedSku?.cost ?? selectedProduct.cost) }}</strong><del v-if="(selectedSku?.price ?? selectedProduct.price) > (selectedSku?.cost ?? selectedProduct.cost)">{{ money(selectedSku?.price ?? selectedProduct.price) }}</del></view>
+                <text class="sku-sum-meta">库存 {{ selectedSku?.stock ?? 0 }} · 已选：{{ selectedSku?.name }}</text>
+              </view>
+            </view>
             <text class="sku-label">选择规格</text>
             <view class="sku-options">
-              <button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" @click="selectedSkuId = sku.id">{{ sku.name }}</button>
+              <button v-for="sku in selectedProduct.skus" :key="sku.id" :class="{ active: selectedSkuId === sku.id }" :disabled="!canStartOrder(sku)" @click="selectDetailSku(sku.id)">
+                <text>{{ sku.name }}</text>
+                <small>{{ money(sku.cost) }} · 库存 {{ sku.stock }} · 起订 {{ effectiveMinimumOrderQuantity(sku) }} 件</small>
+              </button>
             </view>
+            <view class="sku-qty-row">
+              <view><text>采购数量</text><small>起订 {{ detailMinimumQuantity }} 件 · 当前库存 {{ selectedSku?.stock ?? 0 }}</small></view>
+              <view class="stepper">
+                <button aria-label="减少采购数量" :disabled="detailQuantity <= detailMinimumQuantity" @click="changeDetailQuantity(-1)">−</button>
+                <input class="detail-quantity-input" type="number" inputmode="numeric" :value="detailQuantityText" @input="onDetailQuantityInput" @blur="commitDetailQuantity" @confirm="commitDetailQuantity" />
+                <button aria-label="增加采购数量" :disabled="!selectedSku || detailQuantity >= detailRemainingStock" @click="changeDetailQuantity(1)">+</button>
+              </view>
+            </view>
+            <view class="sku-sum-total"><text>当前小计</text><strong>{{ money(detailSubtotal) }}</strong></view>
             <small v-if="selectedSku && !canStartOrder(selectedSku)" class="stock-warning">库存不足或数量未达要求</small>
           </view>
 
           <view v-else-if="sheet === 'cart'" class="sheet-list" data-visual-state="store-cart">
             <view v-if="!store.cart.length" class="empty pc-empty"><view class="pc-state-icon"><UiIcon name="shopping-cart" :size="26" /></view><text>进货单还是空的</text></view>
-            <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line" :class="{ shortage: item.unavailable }">
+            <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="sheet-line sheet-line--selectable" :class="{ shortage: item.unavailable, selected: store.isCheckoutSelected(item) }">
+              <button class="cart-check sheet-check" :class="{ on: store.isCheckoutSelected(item) }" :aria-label="`选择${item.name}`" @click.stop="store.toggleCheckoutSelection(item)"><UiIcon name="check" :size="14" /></button>
               <BusinessImage :src="item.image" mode="aspectFill" />
               <view class="sheet-line-main">
                 <text>{{ item.name }}</text>
@@ -317,72 +330,21 @@
                 <view class="sheet-line-foot">
                   <strong>{{ money(item.price) }}</strong>
                   <view class="stepper">
-                    <button aria-label="减少数量" @click="store.changeCart(item.productId, item.skuId, -1)">−</button>
-                    <text>{{ item.quantity }}</text>
-                    <button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="store.changeCart(item.productId, item.skuId, 1)">+</button>
+                    <button aria-label="减少数量" @click="changeCartQuantity(item, -1)">−</button>
+                    <input class="cart-quantity-input" type="number" inputmode="numeric" :value="cartQuantityText(item)" @input="onCartQuantityInput(item, $event)" @blur="commitCartQuantity(item)" @confirm="commitCartQuantity(item)" />
+                    <button aria-label="增加数量" :disabled="item.quantity >= item.stock" @click="changeCartQuantity(item, 1)">+</button>
                   </view>
                 </view>
               </view>
             </view>
             <text v-if="store.checkoutError" class="cart-error">{{ store.checkoutError }}</text>
-            <view v-if="store.cart.length" class="checkout-summary">
-              <view><text>共 {{ store.cartCount }} 件</text><strong>{{ money(store.cartTotal) }}</strong></view>
-            </view>
-          </view>
-
-          <view v-else-if="sheet === 'checkout'" class="checkout-form" data-visual-state="store-checkout">
-            <view class="checkout-store">
-              <view><small>收货门店</small><text>{{ store.info.name }}</text></view>
-              <view><small>收货地址</small><text>{{ store.info.address }}</text></view>
-            </view>
-            <view class="form-group"><text>下单备注（选填）</text><textarea v-model="remark" placeholder="例如：需要周三前送达 / 到货后电话联系" adjust-position /></view>
-            <view class="checkout-payment-fixed"><UiIcon name="message-circle" :size="19" /><view><text>微信支付</text><small>门店订货端仅支持微信支付</small></view><span>已选</span></view>
-            <view class="checkout-items">
-              <view v-for="item in store.cart" :key="`${item.productId}-${item.skuId}`" class="checkout-line">
-                <text>{{ item.name }} ×{{ item.quantity }}</text><strong>{{ money(item.price * item.quantity) }}</strong>
-              </view>
-            </view>
-            <view class="checkout-summary">
-              <view><text>商品金额</text><strong>{{ money(store.cartTotal) }}</strong></view>
-              <view><text>较零售节省</text><strong class="save">{{ money(cartSaved) }}</strong></view>
-              <view><text>配送费</text><strong>¥0</strong></view>
-            </view>
-          </view>
-
-          <view v-else-if="sheet === 'order' && selectedOrder" class="order-detail" data-visual-state="store-order">
-            <view class="order-detail-head"><text>{{ selectedOrder.id }}</text><span class="status-badge" :class="selectedOrder.status">{{ displayStatus(selectedOrder) }}</span></view>
-            <view class="steps">
-              <view v-for="(step, index) in purchaseSteps" :key="step" class="step" :class="{ done: stepIndex >= index, current: step === selectedOrder.status }">
-                <view class="step-dot">{{ index + 1 }}</view><small>{{ statusLabel(step) }}</small>
-              </view>
-            </view>
-            <view class="logistics">
-              <view v-for="event in selectedOrder.logistics" :key="`${event.time}-${event.title}`" class="log-event">
-                <view class="log-dot"></view>
-                <view><text>{{ event.title }}</text><small>{{ event.time }} · {{ event.detail }}</small></view>
-              </view>
-            </view>
-            <view class="order-items">
-              <view v-for="item in selectedOrder.items" :key="`${item.productId}-${item.skuId}`" class="order-item-line">
-                <BusinessImage :src="item.image" mode="aspectFill" />
-                <view><text>{{ item.name }}</text><small>{{ item.skuName }} ×{{ item.quantity }}</small></view>
-                <strong>{{ money(item.price * item.quantity) }}</strong>
-              </view>
-            </view>
-            <view class="checkout-summary">
-              <view><text>商品合计</text><strong>{{ money(selectedOrder.amount) }}</strong></view>
-              <view v-if="selectedOrder.saved"><text>较零售节省</text><strong class="save">{{ money(selectedOrder.saved) }}</strong></view>
-              <view v-if="selectedOrder.remark"><text>备注</text><strong class="remark">{{ selectedOrder.remark }}</strong></view>
-              <view v-if="selectedOrder.trackingNo"><text>运单号</text><strong>{{ selectedOrder.trackingNo }}</strong></view>
-            </view>
-            <view v-if="afterSaleStatus(selectedOrder.id)" class="after-sale-status">售后状态：{{ afterSaleStatus(selectedOrder.id) }}</view>
           </view>
 
           <view v-else-if="sheet === 'contact'" class="contact-sheet" data-visual-state="store-contact">
             <view class="contact-hero">
-              <UiIcon name="headset" :size="30" />
               <text>中选科技供应链 · 门店客服</text>
               <small>统一品控 · 统一履约 · 工作日 {{ store.info.hours }} 在线</small>
+              <view class="contact-phone-mark"><UiIcon name="phone" :size="26" /></view>
             </view>
             <view class="contact-rows">
               <view class="contact-row"><small>客服电话</small><text>{{ store.info.phone }}</text></view>
@@ -405,25 +367,19 @@
             <button class="outline-button" @click="sheet = null">再看看</button>
             <button class="primary-button" :disabled="!canStartOrder(selectedSku)" @click="addSelected">加入进货单</button>
           </view>
-          <view v-else-if="sheet === 'cart' && store.cart.length" class="sheet-foot">
-            <button class="primary-button" :disabled="store.cartHasUnavailable" @click="goCheckout">确认下单</button>
-          </view>
-          <view v-else-if="sheet === 'checkout'" class="sheet-foot">
-            <button class="primary-button" :disabled="store.cartHasUnavailable" @click="submitOrder">提交订单</button>
+          <view v-else-if="sheet === 'cart' && store.cart.length" class="sheet-foot cart-sheet-foot">
+            <view class="cart-sheet-summary">
+              <button class="cart-all" @click="toggleCartAll"><span class="cart-all-check" :class="{ on: cartAllSelected }"><UiIcon name="check" :size="14" /></span><text>{{ cartAllSelected ? '取消全选' : '全选' }}</text></button>
+              <view class="cart-footer-total"><text>已选</text><strong class="cart-selected-count">{{ store.checkoutCount }} 件</strong><text>合计</text><strong class="cart-total-amount">{{ money(store.checkoutTotal) }}</strong></view>
+            </view>
+            <button class="primary-button" :disabled="!store.checkoutCount || store.checkoutHasUnavailable" @click="goCheckout">确认下单</button>
           </view>
           <view v-else-if="sheet === 'contact'" class="contact-actions sheet-foot">
             <button class="primary-button" @click="makePhoneCall"><UiIcon name="phone" :size="18" /><text>拨打电话</text></button>
             <button class="outline-button" @click="copyPhone">复制客服电话</button>
           </view>
           <view v-else-if="sheet === 'address'" class="sheet-foot">
-            <button class="outline-button" @click="copyAddress">复制地址</button>
-          </view>
-          <view v-else-if="sheet === 'order' && selectedOrder" class="order-actions sheet-foot">
-            <button class="outline-button" @click="repeatOrder(selectedOrder.id)">再次下单</button>
-            <button v-if="selectedOrder.status === 'submitted' || selectedOrder.status === 'accepted'" class="outline-button" @click="cancelOrder(selectedOrder.id)">取消订单</button>
-            <button v-if="selectedOrder.status === 'delivering'" class="primary-button" @click="confirmReceipt(selectedOrder.id)">确认收货</button>
-            <button v-if="selectedOrder.status === 'received' || selectedOrder.status === 'completed'" class="primary-button" @click="submitStoreAfterSale(selectedOrder.id)">发起售后</button>
-            <button v-if="selectedOrder.status !== 'completed' && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'received'" class="primary-button" @click="advanceOrder(selectedOrder.id)">推进状态（演示）</button>
+            <button class="primary-button" @click="copyAddress"><UiIcon name="link" :size="16" /><text>复制地址</text></button>
           </view>
         </view>
       </view>
@@ -432,17 +388,19 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { BusinessMediaValue, PriceTier, Product, PurchaseStatus } from '@agritainment/shared'
+import { onLoad, onShow } from '@dcloudio/uni-app'
+import type { BusinessMediaValue, PriceTier, Product } from '@agritainment/shared'
 import { tieredUnitPrice } from '@agritainment/shared'
-import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, installKeyboardButtonSupport, matchesPolicyScope, mediaValueToImage, money, normalizeMinimumOrderQuantity, orderStatusText, productCategoryImage, purchaseSteps, readPlatformAfterSaleStatus, readPlatformDictionaries, readPlatformOrder, subscribePlatformChanges, validateCatalogSkuOrderQuantity, validatePhone } from '@agritainment/shared'
+import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, installKeyboardButtonSupport, matchesPolicyScope, mediaValueToImage, money, normalizeMinimumOrderQuantity, productCategoryImage, readPlatformAfterSaleStatus, readPlatformDictionaries, subscribePlatformChanges, validateCatalogSkuOrderQuantity, validatePhone } from '@agritainment/shared'
 import { BusinessImage } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import { seedDemoStoreCart } from '../../data/demo-cart'
 import { deriveStoreMetrics } from '../../services/repository'
-import { readStorePricePolicies, useStoreStore } from '../../stores/store'
+import { readStorePricePolicies, useStoreStore, type StoreOrderStatus } from '../../stores/store'
+import { storeOrderFilterKeys, storeOrderStatusLabel } from '../../order-status'
 
 type TabKey = 'home' | 'category' | 'cart' | 'mine'
-type SheetKey = 'product' | 'cart' | 'checkout' | 'order' | 'address' | 'contact' | null
+type SheetKey = 'product' | 'cart' | 'address' | 'contact' | null
 
 const store = useStoreStore()
 const dictCache = createPlatformDictionaryCache()
@@ -465,42 +423,68 @@ const activeTab = ref<TabKey>('home')
 const mineSection = ref<'main' | 'orders'>('main')
 const category = ref('全部')
 const keyword = ref('')
-const orderFilter = ref<'all' | PurchaseStatus>('all')
+const orderFilter = ref<'all' | StoreOrderStatus>('all')
 const sheet = ref<SheetKey>(null)
 const selectedProduct = ref<Product | null>(null)
 const productView = ref(false)
 const detailGalleryIndex = ref(0)
 const detailQuantity = ref(1)
-const cartKey = (item: { productId: string; skuId: string }) => `${item.productId}:${item.skuId}`
-const cartSelected = ref<string[]>([])
-const cartAllSelected = computed(() => store.cart.length > 0 && store.cart.every((item) => cartSelected.value.includes(cartKey(item))))
-const isCartSelected = (item: { productId: string; skuId: string }) => cartSelected.value.includes(cartKey(item))
-function toggleCartSelect(item: { productId: string; skuId: string }) {
-  const key = cartKey(item)
-  cartSelected.value = cartSelected.value.includes(key) ? cartSelected.value.filter((k) => k !== key) : [...cartSelected.value, key]
-}
+const detailQuantityText = ref('1')
+const cartQuantityDrafts = ref<Record<string, string>>({})
+const cartLineKey = (item: { productId: string; skuId: string }) => `${item.productId}:${item.skuId}`
+const selectableCartLines = computed(() => store.cart.filter((item) => !item.unavailable))
+const cartAllSelected = computed(() => selectableCartLines.value.length > 0 && selectableCartLines.value.every((item) => store.isCheckoutSelected(item)))
 function toggleCartAll() {
-  cartSelected.value = cartAllSelected.value ? [] : store.cart.map(cartKey)
+  store.toggleAllCheckoutSelection()
+}
+function cartQuantityText(item: { productId: string; skuId: string; quantity: number }) {
+  return cartQuantityDrafts.value[cartLineKey(item)] ?? String(item.quantity)
+}
+function inputEventValue(event: Event) {
+  const payload = event as Event & { detail?: { value?: string }; target?: EventTarget | null }
+  const target = payload.target as { value?: string } | null
+  return String(payload.detail?.value ?? target?.value ?? '')
+}
+function onCartQuantityInput(item: { productId: string; skuId: string }, event: Event) {
+  const raw = inputEventValue(event)
+  cartQuantityDrafts.value[cartLineKey(item)] = raw.replace(/\D/g, '')
+}
+function commitCartQuantity(item: { productId: string; skuId: string; quantity: number; stock: number; minimumOrderQuantity?: number; name: string }) {
+  const key = cartLineKey(item)
+  const raw = cartQuantityDrafts.value[key]
+  if (raw === undefined) return
+  if (!raw || !/^\d+$/.test(raw)) {
+    delete cartQuantityDrafts.value[key]
+    toast('请输入有效的商品数量')
+    return
+  }
+  const parsed = Number(raw)
+  const minimum = Math.max(1, normalizeMinimumOrderQuantity(item.minimumOrderQuantity))
+  const maximum = Math.max(0, item.stock)
+  if (maximum < minimum) {
+    delete cartQuantityDrafts.value[key]
+    toast('该商品库存不足')
+    return
+  }
+  const normalized = Math.min(maximum, Math.max(minimum, parsed))
+  if (normalized !== parsed) toast(parsed < minimum ? `数量不能低于起订量 ${minimum} 件` : `数量不能超过库存 ${maximum} 件`)
+  if (store.setCartQuantity(item.productId, item.skuId, normalized)) cartQuantityDrafts.value[key] = String(normalized)
+  else delete cartQuantityDrafts.value[key]
+}
+function changeCartQuantity(item: { productId: string; skuId: string }, delta: number) {
+  delete cartQuantityDrafts.value[cartLineKey(item)]
+  store.changeCart(item.productId, item.skuId, delta)
 }
 function removeSelectedCart() {
-  if (!cartSelected.value.length) return toast('请先选择要删除的商品')
-  cartSelected.value.forEach((key) => { const [pid, sid] = key.split(':'); store.removeLine(pid, sid) })
-  cartSelected.value = []
+  if (!store.checkoutLineKeys.length) return toast('请先选择要删除的商品')
+  const keys = [...store.checkoutLineKeys]
+  keys.forEach((key) => { const [pid, sid] = key.split(':'); store.removeLine(pid, sid) })
+  cartQuantityDrafts.value = {}
   toast('已删除选中商品')
 }
 const selectedSkuId = ref('')
-const selectedOrderId = ref('')
-const remark = ref('')
 
-const statusLabels: Record<PurchaseStatus, string> = {
-  submitted: '待接单', accepted: '待发货', shipped: '已发货', delivering: '配送中', received: '已收货', completed: '已完成', cancelled: '已取消'
-}
-const statusLabel = (status: PurchaseStatus) => statusLabels[status]
-const displayStatus = (order: { id: string; status: PurchaseStatus }) => {
-  const platform = readPlatformOrder(order.id)
-  if (platform && platform.status !== 'pending') return orderStatusText(platform.status)
-  return statusLabel(order.status)
-}
+const displayStatus = (order: { status: StoreOrderStatus }) => storeOrderStatusLabel(order.status)
 const afterSaleStatus = (orderId: string) => readPlatformAfterSaleStatus(orderId)
 
 const categories = computed(() => {
@@ -524,21 +508,12 @@ const visibleProducts = computed(() => {
 })
 
 const orderFilters = computed(() => {
-  const count = (key: 'all' | PurchaseStatus) => key === 'all' ? store.orders.length : store.orders.filter((order) => order.status === key).length
-  return [
-    { key: 'all' as const, label: '全部', count: count('all') },
-    { key: 'submitted' as const, label: '待接单', count: count('submitted') },
-    { key: 'accepted' as const, label: '待发货', count: count('accepted') },
-    { key: 'shipped' as const, label: '已发货', count: count('shipped') },
-    { key: 'delivering' as const, label: '配送中', count: count('delivering') },
-    { key: 'received' as const, label: '已收货', count: count('received') },
-    { key: 'completed' as const, label: '已完成', count: count('completed') }
-  ]
+  const count = (key: 'all' | StoreOrderStatus) => key === 'all' ? store.orders.length : store.orders.filter((order) => order.status === key).length
+  return storeOrderFilterKeys.map((key) => ({ key, label: key === 'all' ? '全部' : storeOrderStatusLabel(key), count: count(key) }))
 })
 
 const filteredOrders = computed(() => orderFilter.value === 'all' ? store.orders : store.orders.filter((order) => order.status === orderFilter.value))
 
-const selectedOrder = computed(() => store.orders.find((item) => item.id === selectedOrderId.value) || null)
 
 const selectedSku = computed(() => {
   if (!selectedProduct.value) return null
@@ -567,13 +542,6 @@ const detailRichImages = computed(() => {
   return uniqueMedia(selectedProduct.value.images || []).filter((image) => mediaValueToImage(image) !== mainImage)
 })
 
-const stepIndex = computed(() => {
-  if (!selectedOrder.value) return 0
-  return Math.max(0, purchaseSteps.indexOf(selectedOrder.value.status))
-})
-
-const cartSaved = computed(() => Math.round(store.cart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100)
-
 function minimumOrderQuantity(sku: Pick<Product['skus'][number], 'minimumOrderQuantity'> | null | undefined) {
   return normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity)
 }
@@ -594,8 +562,6 @@ const sheetTitle = computed(() => {
   switch (sheet.value) {
     case 'product': return '选择规格'
     case 'cart': return '进货单'
-    case 'checkout': return '确认下单'
-    case 'order': return '订单详情'
     case 'address': return '收货信息'
     case 'contact': return '联系客服'
     default: return ''
@@ -645,11 +611,16 @@ function moveDetailGallery(delta: number) {
   detailGalleryIndex.value = (detailGalleryIndex.value + delta + detailGallery.value.length) % detailGallery.value.length
 }
 
+function syncDetailQuantityText() {
+  detailQuantityText.value = String(detailQuantity.value)
+}
+
 function selectDetailSku(skuId: string) {
   const sku = selectedProduct.value?.skus.find((item) => item.id === skuId)
   if (!sku || !canStartOrder(sku)) return
   selectedSkuId.value = sku.id
   detailQuantity.value = effectiveMinimumOrderQuantity(sku)
+  syncDetailQuantityText()
   detailGalleryIndex.value = 0
 }
 
@@ -658,6 +629,33 @@ function changeDetailQuantity(delta: number) {
   const next = detailQuantity.value + delta
   if (next < detailMinimumQuantity.value || next > detailRemainingStock.value) return
   detailQuantity.value = next
+  syncDetailQuantityText()
+}
+
+function onDetailQuantityInput(event: Event) {
+  detailQuantityText.value = inputEventValue(event).replace(/\D/g, '')
+}
+
+function commitDetailQuantity() {
+  if (!selectedSku.value) return
+  const raw = detailQuantityText.value
+  if (!raw || !/^\d+$/.test(raw)) {
+    syncDetailQuantityText()
+    toast('请输入有效的采购数量')
+    return
+  }
+  const parsed = Number(raw)
+  const minimum = detailMinimumQuantity.value
+  const maximum = detailRemainingStock.value
+  if (maximum < minimum) {
+    syncDetailQuantityText()
+    toast('当前库存不足')
+    return
+  }
+  const normalized = Math.min(maximum, Math.max(minimum, parsed))
+  if (normalized !== parsed) toast(parsed < minimum ? `数量不能低于起订量 ${minimum} 件` : `数量不能超过可采库存 ${maximum} 件`)
+  detailQuantity.value = normalized
+  syncDetailQuantityText()
 }
 
 function totalStock(product: Product) {
@@ -718,6 +716,7 @@ function openProduct(product: Product) {
   const sku = product.skus.find((item) => canStartOrder(item)) || product.skus[0]
   selectedSkuId.value = sku?.id || ''
   detailQuantity.value = effectiveMinimumOrderQuantity(sku)
+  syncDetailQuantityText()
   detailGalleryIndex.value = 0
   productView.value = true
   sheet.value = null
@@ -726,7 +725,10 @@ function openProduct(product: Product) {
 
 function openSkuSheet(product: Product) {
   selectedProduct.value = product
-  selectedSkuId.value = product.skus[0].id
+  const sku = product.skus.find((item) => canStartOrder(item)) || product.skus[0]
+  selectedSkuId.value = sku?.id || product.skus[0].id
+  detailQuantity.value = effectiveMinimumOrderQuantity(sku)
+  syncDetailQuantityText()
   sheet.value = 'product'
 }
 
@@ -761,7 +763,7 @@ function addProduct(product: Product) {
 
 function addSelected() {
   if (!selectedProduct.value) return
-  const result = store.addToCart(selectedProduct.value, selectedSkuId.value)
+  const result = store.addToCart(selectedProduct.value, selectedSkuId.value, detailQuantity.value)
   if (result === 'sku-required') return toast('请先选择商品规格')
   if (result === 'out-of-stock') return toast(store.checkoutError || '该规格库存不足')
   sheet.value = null
@@ -773,62 +775,14 @@ function openCart() {
 }
 
 function goCheckout() {
-  remark.value = ''
-  sheet.value = 'checkout'
-}
-
-async function submitOrder() {
-  if (!await store.submitOrder(remark.value)) return toast(store.checkoutError || '进货单为空')
-  sheet.value = 'order'
-  selectedOrderId.value = store.orders[0].id
-  activeTab.value = 'mine'
-  mineSection.value = 'orders'
-  toast('订单已提交')
+  if (!store.checkoutCount) return toast('请先选择要结算的商品')
+  if (store.checkoutHasUnavailable) return toast('选中商品存在库存不足或起订量限制')
+  sheet.value = null
+  uni.navigateTo({ url: '/pages/checkout/index' })
 }
 
 function openOrder(id: string) {
-  selectedOrderId.value = id
-  sheet.value = 'order'
-}
-
-async function advanceOrder(id: string) {
-  if (!await store.advanceOrder(id)) return toast('订单已全部完成')
-  toast('订单状态已推进')
-}
-
-async function confirmReceipt(id: string) {
-  if (!await store.confirmReceipt(id)) return toast('当前订单状态无法确认收货')
-  toast('已确认收货')
-}
-
-function cancelOrder(id: string) {
-  uni.showModal({
-    title: '取消进货单',
-    content: '确认取消该进货单？取消后中台将标记为未支付取消。',
-    success: async (res) => {
-      if (!res.confirm) return
-      if (!await store.cancelOrder(id)) return toast('当前订单状态不可取消')
-      toast('订单已取消')
-    }
-  })
-}
-
-function submitStoreAfterSale(id: string) {
-  uni.showModal({
-    title: '发起售后',
-    content: '确认对这笔进货单发起售后？平台受理后将进入售后结算处理。',
-    success: (res) => {
-      if (!res.confirm) return
-      if (!store.initiateAfterSale(id)) return toast('该订单已发起售后或状态不可售后')
-      toast('售后已发起，等待平台处理')
-    }
-  })
-}
-
-function repeatOrder(id: string) {
-  if (!store.repeatOrder(id)) return toast(store.checkoutError || '订单商品当前无库存')
-  sheet.value = 'cart'
-  toast('订单商品已加入进货单')
+  uni.navigateTo({ url: `/pages/order-detail/index?id=${encodeURIComponent(id)}` })
 }
 
 function makePhoneCall() {
@@ -869,6 +823,7 @@ function submitLogin() {
   }
   store.cart = seedDemoStoreCart(store.cart, store.products, store.mockScenario)
   store.repriceCart()
+  if (!store.checkoutLineKeys.length) store.toggleAllCheckoutSelection()
   store.saveCurrentTenantSession()
   toast('登录成功')
 }
@@ -881,11 +836,17 @@ let disposeKeyboardButtons: (() => void) | undefined
 let disposePlatformChanges: (() => void) | null = null
 let disposeStorageSync: (() => void) | null = null
 let disposeVisibilitySync: (() => void) | null = null
+let paymentSweepTimer: ReturnType<typeof setInterval> | null = null
 const platformChangeKeys = [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY]
 const refreshSharedState = () => {
   pricePolicyVersion.value += 1
   void store.refreshSharedState()
 }
+onLoad((query) => {
+  if (query?.view === 'orders') { activeTab.value = 'mine'; mineSection.value = 'orders' }
+  if (query?.view === 'cart') activeTab.value = 'cart'
+})
+onShow(() => { cartQuantityDrafts.value = {}; void store.sweepExpiredPaymentOrders() })
 onMounted(async () => {
   disposeKeyboardButtons = installKeyboardButtonSupport()
   disposeDictionaryImages = dictCache.subscribe((state) => { dictionaryState.value = state })
@@ -895,6 +856,7 @@ onMounted(async () => {
   if (store.auth.isLoggedIn) {
     store.cart = seedDemoStoreCart(store.cart, store.products, store.mockScenario)
     store.repriceCart()
+    if (!store.checkoutLineKeys.length) store.toggleAllCheckoutSelection()
     store.saveCurrentTenantSession()
   }
   disposePlatformChanges = subscribePlatformChanges(refreshSharedState, platformChangeKeys)
@@ -904,22 +866,16 @@ onMounted(async () => {
     window.addEventListener('storage', onStorage)
     disposeStorageSync = () => window.removeEventListener('storage', onStorage)
   }
+  paymentSweepTimer = setInterval(() => { void store.sweepExpiredPaymentOrders() }, 30_000)
   if (typeof document !== 'undefined') {
-    const onVisibilityChange = () => { if (document.visibilityState === 'visible') refreshSharedState() }
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') { refreshSharedState(); void store.sweepExpiredPaymentOrders() } }
     document.addEventListener('visibilitychange', onVisibilityChange)
     disposeVisibilitySync = () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }
   if (typeof document !== 'undefined') {
-    document.documentElement.style.setProperty('--farm-green', '#f0810f')
-    document.documentElement.style.setProperty('--farm-green-deep', '#d66a00')
-    document.documentElement.style.setProperty('--farm-green-soft', '#fdebd7')
     document.title = '中选科技门店订货商城'
   }
 })
-const waterfallColumns = computed(() => [
-  visibleProducts.value.filter((_, index) => index % 2 === 0),
-  visibleProducts.value.filter((_, index) => index % 2 === 1)
-])
 onBeforeUnmount(() => {
   disposeKeyboardButtons?.()
   disposeDictionaryImages()
@@ -927,44 +883,49 @@ onBeforeUnmount(() => {
   disposePlatformChanges?.(); disposePlatformChanges = null
   disposeStorageSync?.(); disposeStorageSync = null
   disposeVisibilitySync?.(); disposeVisibilitySync = null
+  if (paymentSweepTimer) clearInterval(paymentSweepTimer)
+  if (codeTimer) clearInterval(codeTimer)
 })
 </script>
 
 <style scoped lang="scss">
-.app-shell { width:100%;min-height:100vh;background:var(--farm-bg);padding-bottom:calc(var(--mobile-tab-height) + 28px + env(safe-area-inset-bottom));overflow-x:hidden; }
-.app-shell.has-cart-bar { padding-bottom:calc(var(--mobile-tab-height) + var(--mobile-action-bar-height) + 28px + env(safe-area-inset-bottom)); }
+.app-shell { width:100%;min-height:100vh;background:var(--farm-bg);overflow-x:hidden; }
 .loading { min-height:100vh;display:grid;place-items:center;color:var(--farm-muted); }
-.page-pad { padding:0 8px; }
+.page-pad { padding:0 16px; }
 .cart-page { display:flex; flex-direction:column; height:100vh; min-height:100vh; box-sizing:border-box; }
-.cart-page-content { flex:1; min-height:0; overflow-y:auto; }
-.tab-page { min-height:100vh;padding-bottom:calc(var(--mobile-tab-height) + 28px + env(safe-area-inset-bottom)); }
-.tab-page.cart-page { padding-bottom:calc(var(--mobile-tab-height) + 8px + env(safe-area-inset-bottom)); }
+.cart-page-content { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; }
+.tab-page { min-height:100vh;padding-bottom:calc(var(--mobile-tab-height) + 12px + env(safe-area-inset-bottom)); }
+.tab-page.cart-page { padding-bottom:calc(var(--mobile-tab-height) + 72px + env(safe-area-inset-bottom)); }
+.tab-page.category-page { padding-bottom:0; }
+.app-shell.has-cart-bar .shop-page { padding-bottom:calc(var(--mobile-tab-height) + var(--mobile-action-bar-height) + 12px + env(safe-area-inset-bottom)); }
 .page-title { display:block;font-size:20px;font-weight:800; }
 .page-sub { display:block;margin-top:5px;color:var(--farm-muted);font-size:12px; }
 
 /* ===== 商城头部 ===== */
-.mall-hero { padding:calc(12px + env(safe-area-inset-top)) 8px 16px;background:var(--farm-green-deep);color:#fff;border-bottom:1px solid rgba(255,255,255,.1); }
-.mall-hero-title { display:block;font-size:20px;font-weight:800; }
-.mall-hero-sub { display:block;margin-top:5px;font-size:12px;opacity:.82; }
+.mall-hero { position:relative;padding:calc(12px + env(safe-area-inset-top)) 16px 36px;background:var(--store-gradient);color:var(--store-on-brand); }
+.mall-hero::after { content:"";position:absolute;left:0;right:0;bottom:0;height:24px;background:var(--farm-bg);border-radius:24px 24px 0 0; }
+.mall-hero-title { display:block;font-size:20px;font-weight:800;position:relative;z-index:1; }
+.mall-hero-sub { display:block;margin-top:5px;font-size:12px;line-height:1.4;word-break:break-word;opacity:.82;position:relative;z-index:1; }
 .mall-hero-meta { display:flex;flex-wrap:wrap;gap:7px 14px;margin-top:11px; }
 .mall-hero-meta>view { min-width:0;display:inline-flex;align-items:center;gap:5px; }
 .mall-hero-meta text { max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;opacity:.9; }
 .mall-hero-meta .ui-icon { opacity:.82; }
 
 /* ===== 商城运营数据条 ===== */
-.shop-metrics view { min-width:0;padding:10px 5px;background:var(--farm-panel);border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);text-align:center;box-shadow:var(--mobile-shadow-card); }
-.shop-metrics small,.shop-metrics strong { display:block; }
-.shop-metrics small { color:var(--farm-muted);font-size:12px; }
-.shop-metrics strong { margin-top:5px;font-size:13px;color:var(--farm-green); }
 .result-count { margin-top:13px;color:var(--farm-muted);font-size:12px; }
 
 /* ===== 搜索 ===== */
-.search-bar { height:var(--mobile-touch-target);margin-top:12px;padding:0 12px;background:var(--mobile-surface-subtle);border:0;border-radius:var(--mobile-radius-pill);display:flex;align-items:center;gap:8px;box-shadow:none; }
+.search-bar { height:42px;margin-top:4px;padding:0 14px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:21px;display:flex;align-items:center;gap:8px;box-shadow:var(--mobile-shadow-card); }
 .search-bar input { flex:1;height:100%;font-size:13px; }
 .search-bar .ui-icon { opacity:.55; }
+.cat-card { margin-top:12px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:16px;padding:12px 6px 8px;box-shadow:var(--mobile-shadow-card); }
+.cat-card.category-grid { gap:12px 2px;margin-bottom:0; }
+.cat-card .category-grid-img { width:44px;height:44px; }
+.cat-card button.active .category-grid-img,
+.cat-card uni-button.active .category-grid-img { border:2px solid var(--farm-green);box-shadow:0 0 0 2px var(--farm-green-soft); }
 
 /* ===== 订单汇总 ===== */
-.order-summary { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0 0;padding:12px 6px;background:var(--farm-panel);border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card); }
+.order-summary { position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:-14px 0 0;padding:13px 0;background:var(--farm-panel);border:1px solid var(--store-line);border-radius:16px;box-shadow:var(--store-shadow-hero); }
 .order-summary .order-stat { min-width:0;display:grid;gap:4px;justify-items:center;text-align:center; }
 .order-summary .order-stat small { color:var(--farm-muted);font-size:12px; }
 .order-summary .order-stat strong { font-size:16px;font-weight:800;color:var(--farm-ink);word-break:break-all; }
@@ -975,229 +936,254 @@ onBeforeUnmount(() => {
 /* ===== 分类 chips ===== */
 .chip-scroll { margin:13px -8px 0;width:calc(100% + 16px);white-space:nowrap;overflow-x:auto;overflow-y:hidden; }
 .chips { width:max-content;padding:0 8px;display:flex;gap:4px; }
+.chips.order-chips { gap:14px; }
 .chips button { position:relative;min-height:var(--mobile-touch-target);padding:0 11px 8px;border-radius:0;background:transparent;border:0;font-size:13px;color:var(--farm-muted); }
 .order-chips button { min-height:var(--mobile-touch-target);padding:0 10px 8px;border-radius:0; }
 .chips button.active { color:var(--farm-green);background:transparent;border:0;font-weight:800; }
-.chips button.active::after { content:'';position:absolute;left:50%;bottom:2px;width:20px;height:3px;border:none;border-radius:var(--mobile-radius-pill);background:currentColor;transform:translateX(-50%); }
+.chips button.active::after { content:'';position:absolute;left:50%;bottom:2px;width:18px;height:3px;border:none;border-radius:var(--mobile-radius-pill);background:currentColor;transform:translateX(-50%); }
 
 /* ===== 商品双列网格 ===== */
-.product-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px; }
-.waterfall-grid { display:flex;align-items:flex-start;gap:8px; }
-.waterfall-column { display:flex;min-width:0;flex:1;flex-direction:column;gap:8px; }
-.product-card { min-width:0;min-height:0;background:var(--farm-panel);border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);overflow:hidden;box-shadow:var(--mobile-shadow-card); }
+.waterfall-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;padding-bottom:12px; }
+.product-card { min-width:0;min-height:0;background:var(--farm-panel);border:1px solid var(--store-line);border-radius:var(--mobile-radius-card);overflow:hidden;box-shadow:var(--mobile-shadow-card); }
 .product-image { height:0;padding-bottom:100%;aspect-ratio:1 / 1;position:relative;width:100%;padding-top:0;border-radius:0;background:var(--mobile-surface-subtle);display:block;overflow:hidden; }
 .product-image::after { display:none; }
 .product-emoji { position:absolute;inset:0;width:100%;height:100%;display:block; }
-.product-image text { position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:3px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:700; }
-.product-body { min-width:0;padding:8px 8px 10px;display:flex;flex-direction:column;gap:4px; }
+.product-image text { position:absolute;left:8px;top:8px;padding:0 8px;height:22px;line-height:22px;border-radius:6px;background:var(--mobile-surface);color:var(--farm-green);font-size:11px;font-weight:800; }
+.product-body { min-width:0;padding:9px 10px 11px;display:flex;flex-direction:column;gap:4px; }
 .item-title { display:-webkit-box;width:100%;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;font-weight:800;line-height:1.4; }
 .muted { display:block;min-width:0;color:var(--farm-muted);font-size:12px;margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .cost-line { display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin-top:0; }
 .cost-prices { display:flex;align-items:baseline;gap:4px;min-width:0;flex-wrap:wrap; }
-.cost-line strong,.cost-prices strong { font-size:16px;font-weight:800;color:var(--farm-red); }
+.cost-line strong,.cost-prices strong { font-size:17px;font-weight:800;color:var(--farm-red); }
 .cost-line del,.cost-prices del { font-size:12px;color:var(--farm-muted); }
-.cost-line span,.cost-prices span { font-size:12px;font-weight:700;color:#fff;background:var(--farm-red);border-radius:4px;padding:1px 5px; }
-.product-foot { min-height:0;margin-top:0;display:flex;align-items:center;justify-content:space-between;gap:8px; }
-.product-divider { height:1px;background:#eef0eb;margin:8px 0; }
+.cost-line span,.cost-prices span { font-size:12px;font-weight:800;color:var(--farm-green);background:var(--farm-green-soft);border-radius:5px;padding:2px 5px; }
+.product-foot { min-height:0;margin-top:8px;display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:8px; }
+.product-divider { height:1px;background:var(--store-line-light);margin:8px 0; }
 .ladder-hint { margin-top:4px;font-size:12px;color:var(--farm-green);font-weight:700; }
-.ladder-table { margin-top:12px;padding:10px 12px;border:1px solid var(--farm-line);border-radius:8px;background:#fffaf0; }
+.ladder-table { margin-top:12px;padding:10px 12px;border:1px solid var(--farm-line);border-radius:8px;background:var(--mobile-surface-subtle); }
 .ladder-table-title { display:block;font-size:12px;font-weight:800;color:var(--farm-ink);margin-bottom:6px; }
 .ladder-tier { display:block;font-size:12px;color:var(--farm-muted);line-height:1.6; }
 .product-stats { display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;flex:1; }
 .product-stats-top { display:flex;align-items:center;gap:4px;min-width:0; }
 .product-stock { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis; }
 .product-stats text { color:var(--farm-muted);font-size:12px;white-space:nowrap; }
-.product-stats .stat-dot { color:#c9cec9; }
-.product-stats .stock-ok { color:var(--farm-green);font-weight:700; }
-.product-stats .stock-low { color:#b8860b;font-weight:700; }
+.product-stats .stat-dot { color:var(--farm-muted); }
+.product-stats .stock-ok { color:var(--store-ok);font-weight:700; }
+.product-stats .stock-low { color:var(--farm-gold);font-weight:700; }
 .product-stats .stock-out { color:var(--farm-red);font-weight:700; }
-.product-foot button { width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:0;border-radius:50%;background:var(--farm-green);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none; }
+.product-foot button { width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:0;border-radius:50%;background:var(--store-gradient);color:var(--store-on-brand);display:inline-flex;align-items:center;justify-content:center;flex:none;box-shadow:var(--store-shadow-cart); }
 .product-foot button .ui-icon { filter:brightness(0) invert(1); }
 .product-foot uni-button[disabled],
-.product-foot button[disabled] { background:#c9cfc9; }
+.product-foot button[disabled] { background:var(--store-disabled);box-shadow:none; }
 
 /* ===== 底部购物车栏 ===== */
-.cart-bar { position:fixed;left:12px;right:12px;bottom:calc(var(--mobile-tab-height) + 8px + env(safe-area-inset-bottom));height:56px;padding:6px 7px 6px 12px;background:var(--farm-green);color:#fff;border-radius:8px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:0 8px 25px rgba(0,0,0,.2); }
-.cart-count { width:44px;height:44px;position:relative;border-radius:var(--mobile-radius-control);background:#fff;display:grid;place-items:center;padding:0; }
-.cart-count span { position:absolute;right:0;top:0;z-index:1;min-width:18px;height:18px;border-radius:8px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:13px; }
+.cart-bar { position:fixed;left:12px;right:12px;bottom:calc(var(--mobile-tab-height) + 8px + env(safe-area-inset-bottom));height:56px;padding:6px 10px;overflow:visible;background:var(--store-gradient);color:var(--store-on-brand);border-radius:24px;z-index:22;display:flex;align-items:center;gap:10px;box-shadow:var(--store-shadow-cart); }
+.cart-count { width:44px;height:44px;position:relative;overflow:visible;border-radius:50%;background:var(--store-glass);color:var(--store-on-brand);display:grid;place-items:center;padding:0; }
+.cart-count span { position:absolute;right:-4px;top:-2px;z-index:1;min-width:17px;height:17px;border-radius:9px;border:1.5px solid var(--store-on-brand);background:var(--farm-red);color:var(--store-on-brand);display:grid;place-items:center;font-size:13px;font-weight:800; }
 .cart-bar>view { flex:1; }
 .cart-bar small,.cart-bar strong { display:block; }
-.cart-bar small { opacity:.7;font-size:12px; }
-.cart-bar strong { font-size:14px; }
-.cart-bar>button:last-child { min-height:var(--mobile-touch-target);padding:0 16px;border-radius:var(--mobile-radius-control);background:#fff;color:var(--farm-green-deep);font-weight:800;font-size:13px;display:inline-flex;align-items:center;justify-content:center; }
+.cart-bar small { opacity:.85;font-size:11px; }
+.cart-bar strong { font-size:16px; }
+.cart-bar>button:last-child { min-height:var(--mobile-touch-target);padding:0 16px;border-radius:var(--mobile-radius-pill);background:var(--store-on-brand);color:var(--farm-green-deep);font-weight:800;font-size:13px;display:inline-flex;align-items:center;justify-content:center; }
 
 /* ===== 底部 tab ===== */
-.tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--mobile-surface);border-top:1px solid var(--farm-line);display:grid;grid-template-columns:repeat(4,1fr);z-index:20; }
-.tabbar button { min-height:var(--mobile-touch-target);background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#7b877f;font-size:13px; }
-.tab-icon-wrap { position:relative;display:grid;place-items:center; }
-.tab-badge { position:absolute;top:-5px;right:-11px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--farm-red);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:800; }
+.tabbar { position:fixed;left:0;right:0;bottom:0;height:calc(var(--mobile-tab-height) + env(safe-area-inset-bottom));padding:10px 0 calc(10px + env(safe-area-inset-bottom));overflow:visible;background:var(--mobile-surface);border-top:1px solid var(--store-line-light);display:grid;grid-template-columns:repeat(4,1fr);z-index:20; }
+.tabbar button { min-height:var(--mobile-touch-target);background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--farm-muted);font-size:11px;font-weight:600; }
+.tab-icon-wrap { position:relative;width:42px;height:32px;border-radius:13px;display:grid;place-items:center; }
+.tab-badge { position:absolute;top:-2px;right:-4px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;border:1.5px solid var(--store-on-brand);background:var(--farm-red);color:var(--store-on-brand);display:grid;place-items:center;font-size:13px;font-weight:800; }
 .tabbar button.active { color:var(--farm-green);font-weight:800; }
+.tabbar button.active .tab-icon-wrap { background:var(--farm-green-soft); }
 .tab-label { display:block;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis; }
 
 /* ===== 弹层 ===== */
-.sheet-mask { position:fixed;inset:0;background:rgba(14,25,19,.52);z-index:40;display:flex;align-items:flex-end; }
-.sheet { width:100%;max-width:100%;max-height:var(--mobile-sheet-max-height);display:flex;flex-direction:column;overflow:hidden;background:#fff;border-radius:var(--mobile-radius-card) var(--mobile-radius-card) 0 0;padding:8px 0 0;box-shadow:var(--mobile-shadow-float); }
-.sheet-scroll { width:100%;flex:1 1 auto;min-height:0;height:auto;max-height:calc(80vh - var(--mobile-sheet-header-height) - 16px);padding:0 12px calc(22px + env(safe-area-inset-bottom));box-sizing:border-box; }
-.sheet-handle { width:38px;height:4px;border-radius:2px;background:#d8dbd4;margin:0 auto 9px; }
-.sheet-head { min-height:var(--mobile-sheet-header-height);display:flex;align-items:center;justify-content:space-between;padding:6px 12px;border-bottom:1px solid #eef0eb; }
-.sheet-head>text { font-size:16px;font-weight:900; }
-.sheet-head button { width:44px;height:44px;background:var(--mobile-surface-subtle);border-radius:var(--mobile-radius-control);display:grid;place-items:center; }
+.sheet-mask { position:fixed;inset:0;background:var(--store-mask);z-index:40;display:flex;align-items:flex-end; }
+.sheet { width:100%;max-width:100%;max-height:var(--mobile-sheet-max-height);display:flex;flex-direction:column;overflow:hidden;background:var(--mobile-surface);border-radius:20px 20px 0 0;padding:0;box-shadow:var(--mobile-shadow-float); }
+.sheet-scroll { width:100%;flex:1 1 auto;min-height:0;height:auto;max-height:calc(80vh - var(--mobile-sheet-header-height) - 16px);padding:14px 16px calc(12px + env(safe-area-inset-bottom));box-sizing:border-box; }
+.sheet-head { position:relative;min-height:var(--mobile-sheet-header-height);display:flex;align-items:center;justify-content:center;padding:10px 14px 12px;border-bottom:1px solid var(--store-line-light); }
+.sheet-head>text { flex:1;text-align:center;font-size:16px;font-weight:800; }
+.sheet-head button { position:absolute;right:7px;top:3px;min-width:44px;min-height:44px;width:44px;height:44px;background:transparent;border-radius:9px;display:grid;place-items:center; }
+.sheet-head button::before { content:"";position:absolute;inset:7px;width:30px;height:30px;border-radius:9px;background:var(--mobile-surface-subtle); }
+.sheet-head button .ui-icon { position:relative;z-index:1; }
 .sheet-head uni-button { margin: 0; }
-.sheet-list { display:grid; }
-.sheet-line { min-height:76px;padding:10px 0;border-bottom:1px solid #eef0eb;display:grid;grid-template-columns:64px minmax(0,1fr);gap:9px;align-items:center; }
+.sheet-list { display:grid;gap:10px; }
+.sheet-line { min-height:76px;padding:11px;border:0;border-radius:14px;background:var(--mobile-surface-subtle);display:grid;grid-template-columns:64px minmax(0,1fr);gap:10px;align-items:center; }
 .sheet-line > view:nth-child(2) { min-width:0; }
+.sheet-line--selectable { grid-template-columns:21px 64px minmax(0,1fr); }
+.sheet-line--selectable .sheet-line-main { min-width:0; }
+.sheet-line--selectable.selected { border:1px solid var(--farm-green); }
 .sheet-line-main { min-width:0; }
-.sheet-line image,.sheet-line .business-image { width:64px;height:64px;border-radius:6px; }
+.sheet-line image,.sheet-line .business-image { width:64px;height:64px;border-radius:10px; }
 .sheet-line text,.sheet-line strong { display:block; }
 .sheet-line text { font-size:13px;font-weight:800;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
 .sheet-line small { display:block;margin-top:4px;color:var(--farm-muted);font-size:12px; }
 .sheet-line-foot { margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px; }
 .sheet-line strong { margin-top:0;color:var(--farm-red);font-size:16px;font-weight:800; }
-.sheet-line.shortage { background:#fff8f2; }
-.stepper { height:32px;display:flex;align-items:center;gap:6px;border:0; }
-.stepper button { width:32px;height:32px;padding:0;border:1px solid var(--farm-line);border-radius:6px;background:#fff;display:grid;place-items:center;font-size:15px;margin:0; }
-.stepper text { min-width:22px;text-align:center;font-size:13px;font-weight:700;border:0;background:transparent; }
-.stepper button:disabled { background:#eef0eb;color:#a3aaa3; }
-.cart-error { display:block;margin:10px 0 0;padding:10px;border-radius:6px;background:#fae8e4;color:var(--farm-red);font-size:12px; }
+.sheet-line.shortage { background:var(--color-danger-soft, var(--mobile-surface-subtle)); }
+.stepper { height:32px;display:flex;align-items:center;gap:0;border:1px solid var(--store-line);border-radius:16px;overflow:hidden; }
+.stepper button { width:30px;height:32px;padding:0;border:0;border-radius:0;background:var(--mobile-surface);display:grid;place-items:center;font-size:15px;margin:0;color:var(--farm-muted); }
+.stepper text { min-width:30px;text-align:center;font-size:13px;font-weight:800;border:0;background:transparent; }
+.stepper button:disabled { background:var(--store-line-light);color:var(--farm-muted); }
+.cart-error { display:block;margin:10px 0 0;padding:10px;border-radius:6px;background:var(--color-danger-soft, var(--mobile-surface-subtle));color:var(--farm-red);font-size:12px; }
 .checkout-summary { padding-top:13px; }
 .checkout-summary>view { display:flex;justify-content:space-between;margin-bottom:9px;font-size:12px; }
 .checkout-summary .primary-button { margin-top:8px; }
-.checkout-summary .save { color:var(--farm-green); }
+.checkout-summary .save { color:var(--store-ok); }
 .checkout-summary .remark { color:var(--farm-muted);font-size:12px;font-weight:600;text-align:right; }
-.stock-list{max-height:320px;overflow-y:auto;border:1px solid var(--farm-line);border-radius:8px;padding:4px 10px;background:#fff}.stock-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid #eef0eb}.stock-row:last-child{border-bottom:0}.stock-main text{font-size:12px;font-weight:800;display:block}.stock-main small{display:block;margin-top:3px;color:var(--farm-muted);font-size:12px}.stock-skus{display:flex;gap:6px;flex-wrap:wrap}.stock-sku{display:flex;align-items:center;gap:4px}.stock-sku text{font-size:12px;color:var(--farm-muted)}.stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:13px}.stock-actions{display:flex;gap:6px;align-items:center}.stock-actions .compact-button{min-height:var(--mobile-control-compact);padding:0 8px;border-radius:var(--mobile-radius-pill);background:var(--farm-panel);color:var(--farm-green);border:1px solid var(--farm-green);font-size:13px;font-weight:700}.stock-actions .compact-button.off{background:var(--farm-panel);color:#687168;border-color:var(--farm-line)}
-.primary-button { width:100%;height:44px;border-radius:6px;background:var(--farm-green);color:#fff;font-weight:800;font-size:13px; }
-.outline-button { width:100%;height:var(--mobile-touch-target);border-radius:var(--mobile-radius-control);background:#fff;color:var(--farm-green);border:1px solid var(--farm-line);font-size:13px;font-weight:700; }
+.stock-list{max-height:320px;overflow-y:auto;border:1px solid var(--farm-line);border-radius:8px;padding:4px 10px;background:var(--mobile-surface)}.stock-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid var(--store-line-light)}.stock-row:last-child{border-bottom:0}.stock-main text{font-size:12px;font-weight:800;display:block}.stock-main small{display:block;margin-top:3px;color:var(--farm-muted);font-size:12px}.stock-skus{display:flex;gap:6px;flex-wrap:wrap}.stock-sku{display:flex;align-items:center;gap:4px}.stock-sku text{font-size:12px;color:var(--farm-muted)}.stock-sku input{width:52px;height:28px;border:1px solid var(--farm-line);border-radius:5px;padding:0 6px;font-size:13px}.stock-actions{display:flex;gap:6px;align-items:center}.stock-actions .compact-button{min-height:var(--mobile-control-compact);padding:0 8px;border-radius:var(--mobile-radius-pill);background:var(--farm-panel);color:var(--farm-green);border:1px solid var(--farm-green);font-size:13px;font-weight:700}.stock-actions .compact-button.off{background:var(--farm-panel);color:var(--farm-muted);border-color:var(--farm-line)}
+.primary-button { width:100%;height:48px;border-radius:var(--mobile-radius-pill);background:var(--store-gradient);color:var(--store-on-brand);font-weight:800;font-size:15px;box-shadow:var(--store-shadow-cart); }
+.outline-button { width:100%;min-height:var(--mobile-touch-target);height:auto;border-radius:var(--mobile-radius-pill);background:var(--mobile-surface);color:var(--farm-ink);border:1.5px solid var(--store-line);font-size:13px;font-weight:700; }
 .empty { padding:28px 0;text-align:center;color:var(--farm-muted);font-size:12px; }
 .empty-page { min-height:132px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--farm-muted); }
+.cart-page-content > .empty-page { flex:1; }
 .empty-page text,.empty-page small { display:block; }
 .empty-page text { margin-top:10px;font-size:12px;font-weight:800; }
 .empty-page small { margin-top:5px;font-size:12px; }
 
 /* ===== 商品详情 ===== */
-.product-view { min-height:100vh;padding-bottom:calc(72px + env(safe-area-inset-bottom));background:var(--farm-bg);overflow-x:hidden;box-sizing:border-box; }
-.detail-gallery-shell { position:relative;width:100%;background:#fff;overflow:hidden; }
+.product-view { min-height:100vh;padding-bottom:calc(96px + env(safe-area-inset-bottom));background:var(--farm-bg);overflow-x:hidden;box-sizing:border-box; }
+.detail-gallery-shell { position:relative;width:100%;background:var(--mobile-surface);overflow:hidden; }
 .detail-gallery { width:100%;height:100vw;max-height:430px;aspect-ratio:1 / 1;background:var(--mobile-surface-subtle); }
 .detail-gallery-image { width:100%;height:100%;display:block; }
-.detail-gallery-back,.detail-gallery-arrow { position:absolute;width:44px;height:44px;margin:0;padding:0;border:1px solid rgba(255,255,255,.58);border-radius:50%;background:rgba(255,255,255,.9);color:var(--farm-ink);display:grid;place-items:center;box-shadow:0 3px 12px rgba(43,34,22,.13);z-index:2; }
-.detail-gallery-back { left:12px;top:calc(10px + env(safe-area-inset-top)); }
-.detail-gallery-arrow { top:50%;transform:translateY(-50%);opacity:.9; }
-.detail-gallery-prev { left:10px; }
-.detail-gallery-next { right:10px; }
-.detail-gallery-count { position:absolute;right:12px;bottom:12px;min-width:48px;height:26px;padding:0 9px;border-radius:13px;background:rgba(38,32,25,.68);color:#fff;font-size:12px;line-height:26px;text-align:center;z-index:2; }
-.detail-source-badge { position:absolute;right:12px;top:calc(12px + env(safe-area-inset-top));padding:5px 8px;border-radius:4px;background:var(--farm-green);color:#fff;font-size:12px;font-weight:800;z-index:2; }
-.detail-section { margin-top:8px;padding:16px 14px;background:#fff;border-top:1px solid rgba(224,218,207,.75);border-bottom:1px solid rgba(224,218,207,.75);box-shadow:0 2px 8px rgba(61,48,30,.035); }
-.detail-summary { margin-top:0;border-top:0; }
-.detail-price-row { display:flex;align-items:center;justify-content:space-between;gap:10px; }
+.detail-gallery-back { position:absolute;width:44px;height:44px;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:var(--farm-ink);display:grid;place-items:center;box-shadow:none;z-index:2;left:12px;top:calc(10px + env(safe-area-inset-top)); }
+.detail-gallery-back::before { content:"";position:absolute;inset:4px;width:36px;height:36px;border-radius:50%;background:var(--store-back-bg);box-shadow:var(--mobile-shadow-card); }
+.detail-gallery-back .ui-icon { position:relative;z-index:1; }
+.detail-gallery-count { position:absolute;right:12px;bottom:28px;min-width:48px;height:22px;padding:0 9px;border-radius:11px;background:var(--store-overlay);color:var(--store-on-brand);font-size:11px;line-height:22px;text-align:center;z-index:2; }
+.detail-source-badge { position:absolute;right:12px;top:calc(12px + env(safe-area-inset-top));padding:0 10px;height:24px;line-height:24px;border-radius:7px;background:var(--farm-green);color:var(--store-on-brand);font-size:11px;font-weight:800;z-index:2; }
+.detail-body { margin-top:-16px;position:relative;z-index:1;padding:14px 16px 20px;border-radius:20px 20px 0 0;background:var(--farm-bg); }
+.detail-body > .detail-section:first-child { margin-top:0; }
+.detail-section { margin-top:12px;padding:12px 16px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:14px;box-shadow:var(--mobile-shadow-card); }
+.detail-summary { position:relative;padding-top:14px; }
+.detail-price-row { display:flex;align-items:flex-end;justify-content:flex-start;gap:8px; }
 .detail-current-price { min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap; }
-.detail-current-price strong { color:var(--farm-red);font-size:27px;font-weight:900;line-height:1.1; }
-.detail-current-price del { color:var(--farm-muted);font-size:12px; }
-.detail-saving { flex:none;padding:4px 7px;border-radius:4px;background:#fff0e8;color:var(--farm-red);font-size:12px;font-weight:800; }
-.detail-retail-price { display:block;margin-top:5px;color:var(--farm-muted);font-size:12px; }
-.detail-product-name { display:-webkit-box;margin-top:12px;overflow:hidden;color:var(--farm-ink);font-size:18px;font-weight:900;line-height:1.42;-webkit-box-orient:vertical;-webkit-line-clamp:2;word-break:break-all; }
-.detail-meta-row { margin-top:10px;display:flex;align-items:center;gap:7px 12px;flex-wrap:wrap;color:var(--farm-muted);font-size:12px; }
-.detail-meta-row .is-in-stock { color:#2f754e;font-weight:700; }
-.detail-tag-row { margin-top:11px;display:flex;gap:6px;flex-wrap:wrap; }
-.detail-tag-row text { padding:3px 7px;border:1px solid #f1cfa8;border-radius:4px;background:#fff8ee;color:var(--farm-green-deep);font-size:12px;font-weight:700; }
-.detail-section-heading { min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px; }
-.detail-section-heading>text { color:var(--farm-ink);font-size:15px;font-weight:900; }
+.detail-current-price strong { color:var(--farm-red);font-size:28px;font-weight:800;line-height:1.1; }
+.detail-current-price del { color:var(--farm-muted);font-size:13px; }
+.detail-saving { flex:none;padding:4px 7px;border-radius:4px;background:var(--farm-green-soft);color:var(--farm-red);font-size:12px;font-weight:800; }
+.detail-retail-price { display:block;margin-top:4px;color:var(--farm-muted);font-size:12px; }
+.detail-product-name { display:-webkit-box;margin-top:8px;overflow:hidden;color:var(--farm-ink);font-size:18px;font-weight:800;line-height:1.42;-webkit-box-orient:vertical;-webkit-line-clamp:2;word-break:break-all; }
+.detail-meta-row { margin-top:6px;display:flex;align-items:center;gap:7px 12px;flex-wrap:wrap;color:var(--farm-muted);font-size:12px; }
+.detail-meta-row .is-in-stock { color:var(--store-ok);font-weight:700; }
+.detail-tag-row { margin-top:9px;display:flex;gap:6px;flex-wrap:wrap; }
+.detail-tag-row text { padding:3px 8px;border:1px solid var(--store-line);border-radius:6px;background:var(--farm-green-soft);color:var(--farm-green-deep);font-size:11px;font-weight:700; }
+.detail-section-heading { min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px; }
+.detail-section-heading>text { color:var(--farm-ink);font-size:14px;font-weight:800; }
 .detail-section-heading>small { color:var(--farm-muted);font-size:12px;text-align:right; }
 .detail-sku-options { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
-.detail-sku-option { min-width:0;min-height:var(--mobile-touch-target);padding:9px 10px;border:1px solid var(--farm-line);border-radius:8px;background:#fff;color:var(--farm-ink);text-align:left;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;line-height:1.35; }
-.detail-sku-option>text { width:100%;font-size:13px;font-weight:800;white-space:normal;word-break:break-all; }
-.detail-sku-option>small { width:100%;margin-top:4px;color:var(--farm-muted);font-size:13px;white-space:normal;word-break:break-all; }
-.detail-sku-option.active { border-color:var(--farm-green);background:var(--farm-green-soft);box-shadow:inset 3px 0 0 var(--farm-green); }
-.detail-sku-option.active>small { color:var(--farm-green-deep); }
-.detail-sku-option:disabled { background:#f1f1ee;color:#969b94;opacity:.72; }
-.detail-quantity-row { min-height:60px;margin-top:14px;padding-top:13px;border-top:1px solid #eeeae3;display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.detail-sku-option { min-width:0;min-height:var(--mobile-touch-target);padding:9px 11px;border:1.5px solid var(--store-line);border-radius:11px;background:var(--mobile-surface);color:var(--farm-ink);text-align:left;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;line-height:1.35; }
+.detail-sku-option>text { width:100%;font-size:13px;font-weight:700;white-space:normal;word-break:break-all; }
+.detail-sku-option>small { width:100%;margin-top:3px;color:var(--farm-muted);font-size:11px;font-weight:600;white-space:normal;word-break:break-all; }
+.detail-sku-option.active { border-color:var(--farm-green);background:var(--farm-green-soft);color:var(--farm-green-deep); }
+.detail-sku-option.active>small { color:var(--farm-muted); }
+.detail-sku-option:disabled { background:var(--store-line-light);color:var(--farm-muted);opacity:.72; }
+.detail-quantity-row { min-height:60px;margin-top:12px;padding-top:11px;border-top:1px solid var(--store-line-light);display:flex;align-items:center;justify-content:space-between;gap:12px; }
 .detail-quantity-row>view:first-child { min-width:0; }
 .detail-quantity-row>view:first-child text,.detail-quantity-row>view:first-child small { display:block; }
 .detail-quantity-row>view:first-child text { font-size:13px;font-weight:800; }
-.detail-quantity-row>view:first-child small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
-.detail-quantity-stepper { width:150px;flex:none;display:grid;grid-template-columns:44px minmax(52px,1fr) 44px;border:1px solid var(--farm-line);border-radius:8px;overflow:hidden;background:#fff; }
-.detail-quantity-stepper button { width:44px;height:44px;margin:0;padding:0;border:0;border-radius:0;background:#fff;color:var(--farm-green-deep);font-size:20px;font-weight:700;display:grid;place-items:center; }
-.detail-quantity-stepper button:disabled { color:#aaa;background:#f1f1ee; }
-.detail-quantity-stepper>text { min-width:0;border-left:1px solid var(--farm-line);border-right:1px solid var(--farm-line);font-size:13px;font-weight:800;line-height:44px;text-align:center;white-space:nowrap; }
-.detail-purchase-total { margin-top:12px;padding-top:11px;border-top:1px solid #eeeae3;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px; }
-.detail-purchase-total strong { color:var(--farm-red);font-size:18px;font-weight:900; }
-.detail-ladder-list { border-top:1px solid #eeeae3; }
-.detail-ladder-row { min-height:45px;padding:0 8px;display:grid;grid-template-columns:minmax(72px,1fr) auto auto;align-items:center;gap:8px;border-bottom:1px solid #eeeae3;font-size:12px; }
+.detail-quantity-row>view:first-child small { margin-top:3px;color:var(--farm-muted);font-size:11px; }
+.detail-quantity-stepper { width:150px;flex:none;display:grid;grid-template-columns:44px minmax(52px,1fr) 44px;border:1px solid var(--store-line);border-radius:16px;overflow:hidden;background:var(--mobile-surface); }
+.detail-quantity-stepper button { width:44px;height:44px;margin:0;padding:0;border:0;border-radius:0;background:var(--mobile-surface);color:var(--farm-green-deep);font-size:20px;font-weight:700;display:grid;place-items:center; }
+.detail-quantity-stepper button:disabled { color:var(--farm-muted);background:var(--store-line-light); }
+.detail-quantity-input { min-width:0;width:100%;height:44px;padding:0 4px;border:0;border-left:1px solid var(--store-line);border-right:1px solid var(--store-line);background:var(--mobile-surface);color:var(--farm-ink);text-align:center;font-size:14px;font-weight:800;box-sizing:border-box; }
+.detail-purchase-total { margin-top:12px;padding-top:11px;border-top:1px solid var(--store-line-light);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:var(--farm-muted); }
+.detail-purchase-total strong { color:var(--farm-red);font-size:18px;font-weight:800; }
+.detail-ladder-list { border-top:1px solid var(--store-line-light); }
+.detail-ladder-row { min-height:45px;padding:0 8px;display:grid;grid-template-columns:minmax(72px,1fr) auto auto;align-items:center;gap:8px;border-bottom:1px solid var(--store-line-light);font-size:12px; }
 .detail-ladder-row>strong { color:var(--farm-red);font-size:13px;white-space:nowrap; }
 .detail-ladder-row>small { color:var(--farm-muted);font-size:12px;white-space:nowrap; }
 .detail-ladder-row.active { background:var(--farm-green-soft);box-shadow:inset 3px 0 0 var(--farm-green); }
 .detail-ladder-row.active>text,.detail-ladder-row.active>small { color:var(--farm-green-deep);font-weight:800; }
 .detail-next-tier { display:block;margin-top:10px;color:var(--farm-green-deep);font-size:12px;font-weight:700; }
-.detail-info-row { min-height:43px;padding:9px 0;display:grid;grid-template-columns:92px minmax(0,1fr);align-items:start;gap:12px;border-bottom:1px solid #eeeae3; }
+.detail-info-row { min-height:36px;padding:8px 0;display:grid;grid-template-columns:92px minmax(0,1fr);align-items:start;gap:12px;border-bottom:1px solid var(--store-line-light); }
 .detail-info-row:last-child { border-bottom:0; }
 .detail-info-row>small { color:var(--farm-muted);font-size:12px; }
 .detail-info-row>text { min-width:0;color:var(--farm-ink);font-size:12px;font-weight:700;text-align:right;word-break:break-all; }
 .detail-rich-images { padding-left:0;padding-right:0;padding-bottom:0;overflow:hidden; }
 .detail-rich-images .detail-section-heading { padding:0 14px; }
 .detail-rich-image { width:100%;display:block; }
-.product-detail-bar { position:fixed;left:0;right:0;bottom:0;z-index:30;min-height:calc(64px + env(safe-area-inset-bottom));padding:8px 10px;padding-bottom:calc(8px + env(safe-area-inset-bottom));box-sizing:border-box;border-top:1px solid var(--farm-line);background:#fff;display:grid;grid-template-columns:54px 62px minmax(0,1fr);align-items:center;gap:6px;box-shadow:0 -5px 18px rgba(48,38,26,.08); }
-.detail-bar-link { position:relative;min-width:0;height:48px;margin:0;padding:0;border:0;background:transparent;color:var(--farm-muted);font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px; }
+.product-detail-bar { position:fixed;left:12px;right:12px;bottom:16px;z-index:30;min-height:58px;padding:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom));box-sizing:border-box;border:1px solid var(--store-line);border-radius:26px;background:var(--mobile-surface);display:grid;grid-template-columns:56px 56px minmax(0,1fr);align-items:center;gap:4px;box-shadow:var(--store-shadow-float); }
+.detail-bar-link { position:relative;min-width:0;height:48px;margin:0;padding:0;border:0;background:transparent;color:var(--farm-muted);font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px; }
 .detail-cart-icon { position:relative; }
-.detail-cart-badge { position:absolute;right:-11px;top:-7px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--farm-red);color:#fff;font-size:12px;font-weight:800;line-height:18px;text-align:center;box-sizing:border-box; }
-.detail-bar-add { min-width:0;height:48px;margin:0;padding:0 16px;border:0;border-radius:8px;background:var(--farm-green);color:#fff;font-size:14px;font-weight:900;white-space:nowrap;display:flex;align-items:center;justify-content:center; }
-.detail-bar-add:disabled { background:#c8c9c4;color:#fff; }
+.detail-cart-badge { position:absolute;right:-6px;top:-2px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;border:1.5px solid var(--store-on-brand);background:var(--farm-red);color:var(--store-on-brand);font-size:12px;font-weight:800;line-height:17px;text-align:center;box-sizing:border-box; }
+.detail-bar-add { min-width:0;height:42px;margin:0 0 0 4px;padding:0 16px;border:0;border-radius:21px;background:var(--store-gradient);color:var(--store-on-brand);font-size:14px;font-weight:800;white-space:nowrap;display:flex;align-items:center;justify-content:center;box-shadow:var(--store-shadow-cart); }
+.detail-bar-add:disabled { background:var(--store-disabled);color:var(--store-on-brand);box-shadow:none; }
 
 /* 列表加购时的规格弹层 */
-.product-detail { padding-top:12px; }
-.sku-label { display:block;margin-top:14px;font-size:13px;font-weight:800; }
-.sku-options { display:flex;flex-wrap:wrap;gap:8px;margin-top:8px; }
-.sku-options button { min-height:36px;padding:6px 12px;border:1px solid #e0e4dd;border-radius:8px;background:#fff;color:#23291f;font-size:13px;font-weight:700; }
-.sku-options button.active { border-color:var(--farm-green);background:var(--farm-green-soft);color:var(--farm-green); }
+.product-detail { padding-top:0; }
+.sku-sum { display:flex;gap:12px;align-items:center;background:var(--mobile-surface-subtle);border-radius:14px;padding:12px; }
+.sku-sum-img { width:72px;height:72px;border-radius:12px;flex:none;overflow:hidden; }
+.sku-sum-main { min-width:0;flex:1; }
+.sku-sum-name { display:block;font-size:14px;font-weight:800;line-height:1.35; }
+.sku-sum-price { margin-top:4px;display:flex;align-items:baseline;gap:6px; }
+.sku-sum-price strong { font-size:19px;font-weight:800;color:var(--farm-red); }
+.sku-sum-price del { font-size:11px;color:var(--farm-muted); }
+.sku-sum-meta { display:block;margin-top:4px;font-size:11px;color:var(--farm-muted); }
+.sku-label { display:block;margin-top:14px;font-size:12px;font-weight:800; }
+.sku-options { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px; }
+.sku-options button { min-height:var(--mobile-touch-target);padding:9px 11px;border:1.5px solid var(--store-line);border-radius:11px;background:var(--mobile-surface);color:var(--farm-ink);font-size:13px;font-weight:700;text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:3px; }
+.sku-options button small { display:block;font-size:11px;color:var(--farm-muted);font-weight:600; }
+.sku-options button.active { border-color:var(--farm-green);background:var(--farm-green-soft);color:var(--farm-green-deep); }
 .sku-options button:disabled { opacity:.5; }
-.product-detail-actions { display:grid;grid-template-columns:1fr 1.6fr;gap:9px;margin-top:0; }
-.product-detail-actions .outline-button { margin:0;height:40px; }
-.product-detail-actions .primary-button { margin:0;height:44px; }
+.sku-qty-row { display:flex;align-items:center;margin-top:12px;padding-top:11px;border-top:1px solid var(--store-line-light);gap:12px; }
+.sku-qty-row>view:first-child { flex:1;min-width:0; }
+.sku-qty-row text,.sku-qty-row small { display:block; }
+.sku-qty-row text { font-size:13px;font-weight:800; }
+.sku-qty-row small { margin-top:3px;font-size:11px;color:var(--farm-muted); }
+.sku-sum-total { display:flex;align-items:center;margin-top:12px;padding-top:11px;border-top:1px solid var(--store-line-light);font-size:13px;color:var(--farm-muted); }
+.sku-sum-total strong { margin-left:auto;font-size:18px;font-weight:800;color:var(--farm-red); }
+.product-detail-actions { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:0; }
+.product-detail-actions .outline-button { margin:0;height:44px; }
+.product-detail-actions .primary-button { margin:0;height:44px;font-size:14px; }
 
 /* ===== 确认下单 ===== */
 .checkout-form { padding-top:12px; }
-.checkout-payment-fixed { min-height:54px; margin:10px 0; padding:9px 10px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:9px; border:1px solid var(--farm-line); border-radius:7px; background:var(--mobile-surface-subtle); }
+.checkout-payment-fixed { min-height:54px; margin:10px 0; padding:11px 13px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:9px; border:1.5px solid var(--farm-green); border-radius:12px; background:var(--farm-green-soft); }
 .checkout-payment-fixed view { min-width:0; }
 .checkout-payment-fixed text,.checkout-payment-fixed small { display:block; }
 .checkout-payment-fixed text { font-size:13px; font-weight:800; }
 .checkout-payment-fixed small { margin-top:2px; color:var(--farm-muted); font-size:11px; }
-.checkout-payment-fixed span { color:var(--farm-green-deep); font-size:11px; font-weight:800; white-space:nowrap; }
-.checkout-store { padding:10px;background:var(--mobile-surface-subtle);border:1px solid var(--farm-line);border-radius:7px;display:grid;gap:9px; }
-.checkout-store view { display:flex;justify-content:space-between;gap:12px; }
-.checkout-store small { color:var(--farm-muted);font-size:12px;flex:none; }
-.checkout-store text { font-size:12px;font-weight:700;text-align:right; }
-.form-group { margin-top:13px; }
-.form-group>text { display:block;margin-bottom:9px;font-size:12px;font-weight:800; }
-.form-group textarea { width:100%;height:76px;padding:10px;border:1px solid var(--farm-line);border-radius:6px;font-size:13px;background:#fff; }
-.checkout-items { margin-top:13px;display:grid;gap:9px; }
-.checkout-line { padding:9px 11px;background:var(--mobile-surface-subtle);border:1px solid var(--farm-line);border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:10px; }
+.checkout-payment-fixed span { color:var(--farm-green); font-size:12px; font-weight:800; white-space:nowrap; }
+.checkout-store { padding:11px 13px;background:var(--mobile-surface-subtle);border:0;border-radius:12px;display:grid;gap:9px; }
+.checkout-store view { display:flex;justify-content:space-between;align-items:center;gap:12px; }
+.checkout-store small { color:var(--farm-muted);font-size:13px;flex:none; }
+.checkout-store text { font-size:13px;font-weight:800;text-align:right; }
+.form-group { margin-top:14px; }
+.form-group>text { display:block;margin-bottom:8px;font-size:12px;font-weight:800; }
+.form-group textarea { width:100%;min-height:64px;padding:11px 13px;border:1px solid var(--store-line);border-radius:12px;font-size:13px;background:var(--mobile-surface);color:var(--farm-muted); }
+.checkout-items { margin-top:10px;display:grid;gap:9px; }
+.checkout-line { padding:10px 13px;background:var(--mobile-surface-subtle);border:0;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px; }
 .checkout-line > text { min-width:0;word-break:break-all;font-size:12px; }
 .checkout-line strong { color:var(--farm-red);font-size:12px;white-space:nowrap; }
 
 /* ===== 订单 ===== */
 .order-chips { padding:0; }
 .order-list { margin-top:10px;display:grid;gap:8px; }
-.order-card { position:relative;display:block;width:100%;padding:10px 11px 9px 15px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);text-align:left;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card);overflow:hidden; }
-.order-accent { position:absolute;left:0;top:0;bottom:0;width:3px;background:#9aa09a; }
-.order-accent.accepted,.order-accent.shipped { background:#2b6a9c; }
-.order-accent.delivering { background:#9a722b; }
-.order-accent.received,.order-accent.completed { background:#6e7368; }
-.order-accent.cancelled { background:#9aa09a; }
+.order-card { position:relative;display:block;width:100%;padding:11px 12px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:var(--mobile-radius-card);text-align:left;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card);overflow:hidden; }
+.order-accent { position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--farm-muted); }
+.order-accent.accepted,.order-accent.shipped { background:var(--store-info); }
+.order-accent.delivering { background:var(--farm-gold); }
+.order-accent.received,.order-accent.completed { background:var(--store-ok); }
+.order-accent.pending-payment { background:var(--farm-gold); }
+.order-accent.paid-cancelled,.order-accent.unpaid-cancelled { background:var(--farm-muted); }
+.order-accent.cancelled { background:var(--farm-muted); }
 .order-head { display:flex;align-items:center;justify-content:space-between;gap:10px; }
-.order-no { font-size:13px;font-weight:800;color:var(--farm-ink);letter-spacing:.2px;white-space:nowrap;flex-shrink:0; }
-.status-badge { flex:none;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700; }
-.status-badge.submitted { background:#f2f3ee;color:#6e7368; }
-.status-badge.accepted { background:#e8f0f7;color:#2b6a9c; }
-.status-badge.shipped { background:#eef0eb;color:#6e7368; }
-.status-badge.delivering { background:#fdf3df;color:#9a722b; }
-.status-badge.received { background:#eef0eb;color:#6e7368; }
-.status-badge.completed { background:#eef0eb;color:#6e7368; }
-.status-badge.cancelled { background:#eef0eb;color:#6e7368; }
-.order-main { margin-top:8px;display:flex;align-items:flex-start;gap:8px; }
-.order-thumb { width:72px;height:72px;border-radius:8px;display:block;flex-shrink:0;overflow:hidden;background:var(--mobile-surface-subtle); }
-.order-info { flex:1;min-width:0;display:grid;gap:4px;align-content:start; }
-.order-title { font-size:14px;font-weight:800;color:var(--farm-ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all; }
-.order-sub { font-size:12px;color:var(--farm-muted); }
-.order-meta { font-size:12px;color:var(--farm-muted);word-break:break-all; }
-.order-bottom { margin-top:8px;padding-top:8px;border-top:1px solid #eef0eb;display:flex;align-items:center;gap:8px; }
-.order-saved { color:var(--farm-green);font-size:12px;white-space:nowrap; }
+.order-no { font-size:12px;font-weight:800;color:var(--farm-ink);letter-spacing:.2px;white-space:nowrap;flex-shrink:0; }
+.status-badge { flex:none;padding:0 8px;height:22px;line-height:22px;border-radius:6px;font-size:11px;font-weight:800; }
+.status-badge.submitted { background:var(--farm-green-soft);color:var(--farm-green-deep); }
+.status-badge.accepted { background:var(--store-info-soft);color:var(--store-info); }
+.status-badge.shipped { background:var(--store-info-soft);color:var(--store-info); }
+.status-badge.delivering { background:var(--farm-green-soft);color:var(--farm-gold); }
+.status-badge.received { background:var(--store-ok-soft);color:var(--store-ok); }
+.status-badge.completed { background:var(--mobile-surface-subtle);color:var(--farm-muted); }
+.status-badge.pending-payment { background:var(--mobile-surface-subtle);color:var(--farm-gold); }
+.status-badge.paid-cancelled,.status-badge.unpaid-cancelled { background:var(--mobile-surface-subtle);color:var(--farm-muted); }
+.status-badge.cancelled { background:var(--mobile-surface-subtle);color:var(--farm-muted); }
+.order-main { margin-top:9px;display:flex;align-items:flex-start;gap:10px; }
+.order-thumb { width:58px;height:58px;border-radius:10px;display:block;flex-shrink:0;overflow:hidden;background:var(--mobile-surface-subtle); }
+.order-info { flex:1;min-width:0;display:grid;gap:3px;align-content:start; }
+.order-title { font-size:13px;font-weight:800;color:var(--farm-ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all; }
+.order-sub { font-size:11px;color:var(--farm-muted); }
+.order-meta { font-size:11px;color:var(--farm-muted);word-break:break-all; }
+.order-bottom { margin-top:10px;padding-top:9px;border-top:1px solid var(--store-line-light);display:flex;align-items:center;gap:8px; }
+.order-saved { color:var(--farm-gold);font-size:11px;font-weight:700;white-space:nowrap; }
 .order-amount { margin-left:auto;display:inline-flex;align-items:baseline;gap:3px;flex-shrink:0;white-space:nowrap; }
 .order-amount small { font-size:12px;color:var(--farm-muted); }
 .order-amount strong { font-size:16px;font-weight:800;color:var(--farm-red); }
@@ -1209,100 +1195,106 @@ onBeforeUnmount(() => {
 .order-detail-head > text { min-width:0;word-break:break-all;font-size:13px;font-weight:900; }
 .steps { margin-top:8px;display:grid;overflow-x:auto;grid-template-columns:repeat(6,minmax(56px,1fr));gap:2px; }
 .step { text-align:center;position:relative; }
-.step::after { content:'';position:absolute;left:50%;top:9px;width:100%;height:2px;background:#dfe2dc; }
+.step::after { content:'';position:absolute;left:50%;top:11px;width:100%;height:2px;background:var(--store-line); }
 .step:last-child::after { display:none; }
-.step.done::after { background:var(--farm-green); }
-.step-dot { width:18px;height:18px;margin:0 auto;border-radius:50%;background:#dfe2dc;color:#fff;font-size:12px;display:grid;place-items:center;position:relative;z-index:1; }
-.step.done .step-dot { background:var(--farm-green); }
-.step.current .step-dot { background:var(--farm-red);box-shadow:0 0 0 3px rgba(169,71,61,.18); }
-.step small { display:block;margin-top:6px;color:var(--farm-muted);font-size:12px;white-space:nowrap; }
-.step.current small { color:var(--farm-red);font-weight:800; }
-.logistics { margin-top:8px;padding:10px;background:var(--mobile-surface-subtle);border:1px solid var(--farm-line);border-radius:8px;display:grid;gap:11px; }
+.step.done::after,.step.current::after { background:var(--farm-green); }
+.step-dot { width:22px;height:22px;margin:0 auto;border-radius:50%;background:var(--mobile-surface-subtle);color:var(--farm-muted);font-size:11px;font-weight:800;display:grid;place-items:center;position:relative;z-index:1;border:2px solid var(--mobile-surface);box-shadow:0 0 0 1px var(--store-line); }
+.step.done .step-dot,.step.current .step-dot { background:var(--farm-green);color:var(--store-on-brand); }
+.step small { display:block;margin-top:6px;color:var(--farm-muted);font-size:10px;white-space:nowrap; }
+.step.current small { color:var(--farm-green);font-weight:800; }
+.logistics { margin-top:8px;padding:11px 13px;background:var(--farm-green-soft);border:0;border-radius:12px;display:grid;gap:11px; }
 .log-event { display:flex;gap:9px; }
-.log-dot { width:7px;height:7px;margin-top:4px;border-radius:50%;background:var(--farm-green);flex:none; }
-.log-event:first-child .log-dot { box-shadow:0 0 0 3px rgba(23,99,63,.16); }
+.log-dot { width:8px;height:8px;margin-top:4px;border-radius:50%;background:var(--farm-green);flex:none; }
+.log-event:first-child .log-dot { box-shadow:none; }
 .log-event text,.log-event small { display:block; }
-.log-event text { font-size:12px;font-weight:800; }
-.log-event small { margin-top:3px;color:var(--farm-muted);font-size:12px;line-height:1.5; }
+.log-event text { font-size:13px;font-weight:800;color:var(--farm-green-deep); }
+.log-event small { margin-top:4px;color:var(--farm-muted);font-size:11px;line-height:1.5; }
 .order-items { margin-top:8px;display:grid;gap:9px; }
-.order-item-line { min-height:56px;padding:8px;background:var(--mobile-surface-subtle);border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:8px;align-items:center; }
-.order-item-line image { width:48px;height:48px;border-radius:5px; }
+.order-item-line { min-height:56px;padding:10px 12px;background:var(--mobile-surface-subtle);border:0;border-radius:12px;display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:10px;align-items:center; }
+.order-item-line image { width:46px;height:46px;border-radius:9px; }
 .order-item-line text,.order-item-line small { display:block; }
-.order-item-line text { font-size:12px;font-weight:800; }
-.order-item-line small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
-.order-item-line strong { font-size:12px;color:var(--farm-red);white-space:nowrap; }
-.order-actions { margin-top:0;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px; }
+.order-item-line text { font-size:13px;font-weight:800; }
+.order-item-line small { margin-top:3px;color:var(--farm-muted);font-size:11px; }
+.order-item-line strong { font-size:14px;color:var(--farm-red);white-space:nowrap; }
+.order-actions { margin-top:0;display:flex;flex-wrap:wrap;justify-content:center;gap:10px; }
 .order-actions .outline-button,
-.order-actions .primary-button { width:auto;height:auto;min-height:var(--mobile-control-compact);padding:0 12px;border-radius:var(--mobile-radius-pill); }
-.order-actions .outline-button { background:#fff;border:1px solid var(--farm-line);color:var(--farm-ink); }
-.order-actions .primary-button { background:#fff;border:1px solid var(--farm-green);color:var(--farm-green); }
-.after-sale-status{margin-top:14px;padding:10px 12px;border-radius:7px;background:#fff3e8;border:1px solid #f2d9b8;color:#9a6b1f;font-size:12px;font-weight:700}
+.order-actions .primary-button { width:auto;height:42px;min-height:42px;padding:0 16px;border-radius:21px; }
+.order-actions .outline-button { background:var(--mobile-surface);border:1.5px solid var(--store-line);color:var(--farm-ink); }
+.order-actions .primary-button { background:var(--farm-green-soft);border:1.5px solid var(--farm-green-soft);color:var(--farm-green-deep);box-shadow:none; }
+.after-sale-status{margin-top:14px;padding:10px 12px;border-radius:7px;background:var(--farm-green-soft);border:1px solid var(--store-line);color:var(--farm-gold);font-size:12px;font-weight:700}
 
 /* ===== 门店工作台 ===== */
-.store-hero { padding:calc(12px + env(safe-area-inset-top)) 8px 16px;background:var(--farm-green-deep);color:#fff;border-bottom:1px solid rgba(255,255,255,.1); }
+.store-hero { position:relative;padding:calc(12px + env(safe-area-inset-top)) 16px 36px;background:var(--store-gradient);color:var(--store-on-brand); }
+.store-hero::after { content:"";position:absolute;left:0;right:0;bottom:0;height:24px;background:var(--farm-bg);border-radius:24px 24px 0 0; }
 .store-hero-top .mall-hero-title,
-.store-hero-top .mall-hero-sub { color:#fff; }
-.store-identity { margin-top:12px;display:flex;align-items:flex-start;gap:11px; }
+.store-hero-top .mall-hero-sub { color:var(--store-on-brand);position:relative;z-index:1; }
+.store-identity { margin:12px 0 8px;padding:12px;display:flex;align-items:flex-start;gap:11px;position:relative;z-index:1;background:var(--store-glass);border:1px solid var(--store-glass-line);border-radius:16px; }
 .store-identity-main { min-width:0;flex:1; }
-.store-emoji { width:48px;height:48px;border-radius:var(--mobile-radius-card);display:block;flex-shrink:0;background:rgba(255,255,255,.12); }
+.store-emoji { width:52px;height:52px;border-radius:12px;display:block;flex-shrink:0;background:var(--store-glass); }
 .store-identity text,.store-identity small { display:block; }
 .store-identity text { font-size:15px;font-weight:800; }
-.store-identity small { margin-top:4px;font-size:12px;opacity:.75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.store-identity small { margin-top:3px;font-size:11px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .store-identity .store-identity-address { overflow:visible;text-overflow:unset;white-space:normal;word-break:break-word; }
-.metric-band { margin-top:14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.13);border-radius:var(--mobile-radius-card); }
-.metric-band view { padding:12px 6px;text-align:center;border-right:1px solid rgba(255,255,255,.14); }
+.metric-band { margin:14px 16px 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:16px;box-shadow:var(--store-shadow-hero); }
+.metric-band view { padding:13px 0;text-align:center;border-right:1px solid var(--store-line-light); }
 .metric-band view:last-child { border:0; }
 .metric-band text,.metric-band small,.metric-band strong { display:block; }
-.metric-band text,.metric-band small { color:rgba(255,255,255,.72);font-size:12px; }
-.metric-band strong { margin-top:5px;font-size:14px; }
-.store-metrics { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.metric-band text,.metric-band small { color:var(--farm-muted);font-size:11px; }
+.metric-band strong { margin-top:5px;font-size:16px;color:var(--farm-ink); }
+.store-metrics { grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:-14px;position:relative;z-index:1; }
+.store-metrics view, .store-metrics strong { min-width:0; word-break:break-word; }
+.store-metrics view:nth-child(3) strong { color:var(--farm-green); }
 .store-body { padding-top:12px; }
 .section-head { padding:0 0 10px;display:flex;align-items:center;justify-content:space-between; }
 .section-head > small { color:var(--farm-muted);font-size:12px; }
 .section-head>view { display:flex;align-items:center;gap:7px; }
 .section-head span { width:3px;height:16px;background:var(--farm-green);border-radius:2px; }
 .section-head text { font-size:15px;font-weight:900; }
-.quick-grid { margin:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px; }
-.quick-grid button { min-width:0;width:100%;min-height:56px;padding:8px 4px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card); }
+.quick-grid { margin:0 0 var(--mobile-section-gap);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px; }
+.quick-grid button { min-width:0;width:100%;min-height:56px;padding:13px 0 11px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:var(--mobile-radius-card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;font-size:12px;color:var(--farm-ink);box-shadow:var(--mobile-shadow-card); }
 .quick-grid .pc-tile-label { font-size:13px; }
+.store-page .pc-tile-icon { width:42px;height:42px;border-radius:12px; }
 .quick-grid button small { display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--farm-muted);font-size:13px;line-height:1.3; }
-.hot-list { display:grid;gap:9px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);padding:12px;box-shadow:var(--mobile-shadow-card); }
-.hot-item { display:grid;grid-template-columns:20px 40px 1fr auto;gap:9px;align-items:center; }
-.hot-rank { width:20px;height:20px;border-radius:6px;background:var(--farm-green-soft);color:var(--farm-green);display:grid;place-items:center;font-size:12px;font-weight:800; }
-.hot-item:nth-child(1) .hot-rank { background:var(--farm-gold);color:#fff; }
-.hot-item:nth-child(2) .hot-rank { background:#d9c78f;color:#fff; }
-.hot-emoji { width:40px;height:40px;border-radius:var(--mobile-radius-card);display:block;flex-shrink:0;background:var(--mobile-surface-subtle); }
+.hot-list { display:grid;gap:0;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:var(--mobile-radius-card);padding:4px 12px;box-shadow:var(--mobile-shadow-card); }
+.hot-item { display:grid;grid-template-columns:22px 44px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--store-line-light); }
+.hot-item:last-child { border-bottom:0; }
+.hot-rank { width:22px;height:22px;border-radius:7px;background:var(--mobile-surface-subtle);color:var(--farm-muted);display:grid;place-items:center;font-size:12px;font-weight:800; }
+.hot-item:nth-child(1) .hot-rank { background:var(--farm-green);color:var(--store-on-brand); }
+.hot-item:nth-child(2) .hot-rank { background:var(--farm-green-soft);color:var(--farm-green-deep); }
+.hot-emoji { width:44px;height:44px;border-radius:9px;display:block;flex-shrink:0;background:var(--mobile-surface-subtle); }
 .hot-main { min-width:0; }
 .hot-main text,.hot-main small { display:block; }
 .hot-main text { font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .hot-main small { margin-top:4px;color:var(--farm-muted);font-size:12px; }
-.hot-item strong { font-size:12px;color:var(--farm-red);white-space:nowrap; }
+.hot-item strong { font-size:13px;color:var(--farm-red);white-space:nowrap; }
 .quick-grid .ui-icon { opacity:.7; }
-.member-footer { margin-top:14px;padding-bottom:calc(8px + var(--mobile-bottom-safe));text-align:center;color:var(--farm-muted);font-size:12px; }
+.member-footer { margin-top:16px;padding-bottom:8px;text-align:center;color:var(--farm-muted);font-size:11px; }
 
 /* ===== 联系客服 ===== */
-.contact-sheet { padding-top:12px; }
-.contact-hero { padding:14px 16px;background:var(--farm-green-deep);border-radius:var(--mobile-radius-card);color:#fff;text-align:center; }
+.contact-sheet { padding-top:2px; }
+.contact-hero { padding:10px 0 4px;background:transparent;border-radius:0;color:var(--farm-ink);text-align:center; }
 .contact-hero .ui-icon { margin:0 auto; }
-.contact-hero text { display:block;margin-top:10px;font-size:15px;font-weight:900; }
-.contact-hero small { display:block;margin-top:6px;font-size:12px;opacity:.75;line-height:1.5; }
-.contact-rows { margin-top:13px;display:grid;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);overflow:hidden;box-shadow:var(--mobile-shadow-card); }
-.contact-row { min-height:46px;padding:0 13px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #eef0eb; }
+.contact-hero text { display:block;margin-top:0;font-size:15px;font-weight:800; }
+.contact-hero small { display:block;margin-top:5px;font-size:11px;opacity:1;color:var(--farm-muted);line-height:1.5; }
+.contact-phone-mark { width:64px;height:64px;margin:12px auto 0;border-radius:50%;background:var(--farm-green-soft);color:var(--farm-green);display:grid;place-items:center; }
+.contact-rows { margin-top:14px;display:grid;background:var(--mobile-surface-subtle);border:0;border-radius:12px;overflow:hidden;padding:11px 13px;gap:9px; }
+.contact-row { min-height:auto;padding:0;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:0; }
 .contact-row:last-child { border:0; }
-.contact-row small { color:var(--farm-muted);font-size:12px;flex:none; }
-.contact-row text { min-width:0;font-size:12px;font-weight:700;text-align:right;word-break:break-all; }
-.contact-actions { margin-top:15px;display:grid;gap:9px; }
+.contact-row small { color:var(--farm-muted);font-size:13px;flex:none; }
+.contact-row text { min-width:0;font-size:13px;font-weight:800;text-align:right;word-break:break-all; }
+.contact-actions { margin-top:0;display:grid;grid-template-columns:1fr 1fr;gap:10px; }
 .contact-actions .primary-button,
 .contact-actions .outline-button { height:44px;margin:0; }
 .contact-actions .primary-button { display:flex;align-items:center;justify-content:center;gap:7px; }
+.contact-actions .outline-button { background:var(--farm-green-soft);border-color:var(--farm-green-soft);color:var(--farm-green-deep); }
 .contact-actions .primary-button .ui-icon { opacity:.9; }
 
 /* ===== 收货地址 ===== */
-.address-sheet { padding-top:12px; }
-.address-card { padding:10px 11px;background:var(--mobile-surface-subtle);border:1px solid var(--farm-line);border-radius:8px;display:grid;gap:6px; }
-.address-card small { color:var(--farm-muted);font-size:12px; }
-.address-card text { font-size:12px;font-weight:800;line-height:1.5; }
-.address-note { display:block;margin:12px 2px;color:var(--farm-muted);font-size:12px;line-height:1.6; }
+.address-sheet { padding-top:2px; }
+.address-card { padding:11px 13px;background:var(--mobile-surface-subtle);border:0;border-radius:12px;display:grid;gap:9px; }
+.address-card small { color:var(--farm-muted);font-size:13px; }
+.address-card text { font-size:13px;font-weight:800;line-height:1.5; }
+.address-note { display:flex;gap:6px;margin:10px 0 0;color:var(--farm-muted);font-size:11px;line-height:1.6; }
 
 /* ===== 状态页 ===== */
 .state-page { min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--farm-muted);text-align:center; }
@@ -1311,7 +1303,7 @@ onBeforeUnmount(() => {
 .chip-scroll { scrollbar-width:none; }
 .chip-scroll::-webkit-scrollbar { display:none; }
 
-.sheet-foot .primary-button { margin-top:0; }
+.sheet-foot .primary-button { margin-top:0;gap:7px; }
 .contact-actions.sheet-foot { margin-top:0; }
 
 @media (max-width: 375px) {
@@ -1333,19 +1325,9 @@ onBeforeUnmount(() => {
 }
 
 /* ===== 键盘可访问 ===== */
-.app-shell button:focus-visible,.app-shell input:focus-visible,.app-shell textarea:focus-visible { outline:3px solid rgba(240,129,15,.28);outline-offset:2px; }
-
-/* #ifdef H5 */
-@media (min-width:431px) {
-  .app-shell { max-width:430px;margin:0 auto;box-shadow:0 0 0 1px #e1e3dc; }
-  .login-page { max-width:430px; margin:0 auto; box-shadow:0 0 0 1px #e1e3dc; }
-  .tabbar { left:50%;right:auto;width:430px;transform:translateX(-50%); }
-  .cart-bar { left:50%;right:auto;width:406px;transform:translateX(-50%); }
-  .sheet { max-width:430px;margin:0 auto; }
-  .sheet-mask { justify-content:center; }
-  .product-detail-bar { left:50%;right:auto;width:430px;transform:translateX(-50%); }
-}
-/* #endif */
+.app-shell button:focus-visible,.app-shell input:focus-visible,.app-shell textarea:focus-visible { outline:3px solid var(--store-focus);outline-offset:2px; }
+.app-shell input[type="number"] { -moz-appearance:textfield;appearance:textfield; }
+.app-shell input[type="number"]::-webkit-outer-spin-button,.app-shell input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none;margin:0; }
 
 /* ===== 按钮文字水平垂直居中（uni-button 默认 display:block 文字顶对齐，导致固定高度按钮文字偏上） ===== */
 .chips uni-button,
@@ -1360,6 +1342,7 @@ onBeforeUnmount(() => {
 /* ===== 圆形/小图标按钮内容居中（uni-button 默认 padding:0 14px 挤压内容，导致图标右偏） ===== */
 .product-foot uni-button,
 .cart-count,
+.page-back,
 .sheet-head uni-button,
 .stepper uni-button,
 .detail-gallery-shell uni-button,
@@ -1374,45 +1357,63 @@ onBeforeUnmount(() => {
 .code-button::after, .login-button::after, .logout-button::after, .quick-grid uni-button::after,
 .detail-gallery-shell uni-button::after, .product-detail-bar uni-button::after, .detail-sku-options uni-button::after { border: none; }
 .chips button.active::after,
-.chips uni-button.active::after { content:'';position:absolute;left:50%;bottom:2px;width:20px;height:3px;border:none;border-radius:var(--mobile-radius-pill);background:currentColor;transform:translateX(-50%); }
+.chips uni-button.active::after { content:'';position:absolute;left:50%;bottom:2px;width:18px;height:3px;border:none;border-radius:var(--mobile-radius-pill);background:currentColor;transform:translateX(-50%); }
 .chips uni-button:active, .quick-grid uni-button:active, .primary-button:active, .outline-button:active { opacity: .88; }
 
 /* ===== 登录页 ===== */
-.login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--farm-bg);padding:8px}
-.login-card{width:100%;max-width:340px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);padding:0;box-shadow:var(--mobile-shadow-card);overflow:hidden}
-.login-card .pc-login-hero{border-radius:0}
-.login-body{padding:16px 12px 18px}
-.login-tabs{display:flex;background:var(--mobile-surface-subtle);border-radius:var(--mobile-radius-control);padding:3px;margin-bottom:18px}
-.login-tabs button{flex:1;min-height:var(--mobile-touch-target);border-radius:6px;font-size:13px;font-weight:700;color:#6b7a70;display:flex;align-items:center;justify-content:center}
-.login-tabs button.active{background:#fff;color:var(--farm-green);box-shadow:var(--mobile-shadow-card)}
-.login-fields{display:flex;flex-direction:column;gap:14px;margin-bottom:20px}
-.login-field{display:flex;flex-direction:column;gap:6px}
-.login-field text{font-size:12px;color:#5a6a60;font-weight:700}
-.login-field input{height:var(--mobile-touch-target);border:1px solid #dfe7e1;border-radius:var(--mobile-radius-control);padding:0 14px;font-size:14px;background:#fafcfb}
-.code-input{display:flex;gap:10px}
+.login-page{position:relative;overflow:hidden;min-height:100vh;display:flex;flex-direction:column;background:var(--store-login-gradient);padding:0}
+.login-page::before,.login-page::after{content:"";position:absolute;pointer-events:none;border-radius:50%;background:var(--store-glass)}
+.login-page::before{width:240px;height:240px;top:-70px;right:-50px}
+.login-page::after{width:200px;height:200px;left:-60px;top:38%}
+.login-card{position:relative;z-index:1;width:100%;min-height:100vh;display:flex;flex-direction:column;background:transparent;border:0;border-radius:0;padding:0;overflow:hidden}
+.login-card .pc-login-hero,.login-hero{flex:1 1 auto;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px 24px;border-radius:0;background:transparent;color:var(--store-on-brand);text-align:center}
+.pc-login-mark{width:64px;height:64px;margin:0 auto 16px;border-radius:18px;background:var(--store-glass);border:1px solid var(--store-glass-line);display:grid;place-items:center;color:var(--store-on-brand)}
+.pc-login-brand{display:block;font-size:23px;font-weight:800;letter-spacing:1px}
+.pc-login-sub{display:block;margin-top:9px;font-size:13px;color:var(--store-on-brand);opacity:.85}
+.login-panel{margin-top:auto;width:100%;background:var(--mobile-surface);border-radius:26px 26px 0 0;box-shadow:var(--store-shadow-hero)}
+.login-body{padding:26px 24px 28px}
+.login-tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--mobile-surface-subtle);border-radius:12px;padding:4px;gap:4px;margin-bottom:0}
+.login-tabs button{flex:1;min-height:var(--mobile-touch-target);height:auto;padding:3px 8px;border-radius:9px;font-size:14px;font-weight:700;color:var(--farm-muted);display:flex;align-items:center;justify-content:center}
+.login-tabs button.active{background:var(--mobile-surface);color:var(--farm-green);box-shadow:var(--mobile-shadow-card);font-weight:800}
+.login-fields{display:flex;flex-direction:column;gap:0;margin-bottom:0}
+.login-field{display:flex;flex-direction:column;gap:8px;margin-top:18px}
+.login-field text{font-size:12px;color:var(--farm-ink);font-weight:800}
+.login-field input{height:48px;border:1.5px solid transparent;border-radius:12px;padding:0 14px;font-size:15px;background:var(--mobile-surface-subtle)}
+.login-field input:focus{border-color:var(--farm-green);background:var(--mobile-surface);box-shadow:0 0 0 3px var(--store-focus)}
+.code-input{display:flex;gap:8px;align-items:center}
 .code-input input{flex:1;min-width:0}
-.code-button{min-height:var(--mobile-touch-target);padding:0 14px;border-radius:var(--mobile-radius-control);background:var(--farm-green);color:#fff;font-size:13px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
+.code-button{min-height:34px;height:34px;padding:0 12px;border-radius:17px;background:var(--farm-green);color:var(--store-on-brand);font-size:12px;font-weight:800;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
 .code-button[disabled]{opacity:.55}
-.login-button{min-height:var(--mobile-touch-target);border-radius:var(--mobile-radius-control);background:var(--farm-green);color:#fff;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center}
-.login-hint{display:block;text-align:center;margin-top:16px;font-size:12px;color:#8a9a90}
-.heading-with-back{display:flex;align-items:center;gap:10px}
-.heading-with-back>view{min-width:0}
-.logout-button{width:100%;min-height:var(--mobile-touch-target);margin:14px 0 4px;border-radius:var(--mobile-radius-control);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.sheet-line .business-image{width:64px;height:64px;border-radius:6px}.order-item-line .business-image{width:48px;height:48px;border-radius:5px}
+.login-button{min-height:48px;margin-top:22px;border-radius:var(--mobile-radius-pill);background:var(--store-gradient);color:var(--store-on-brand);font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:var(--store-shadow-cart)}
+.login-hint{display:block;text-align:center;margin-top:16px;font-size:12px;color:var(--farm-muted);line-height:1.6}
+.heading-with-back{display:flex;align-items:flex-start;gap:10px;position:relative;z-index:1}
+.heading-with-back>view{min-width:0;padding-bottom:4px}
+.page-back{width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--farm-ink);display:grid;place-items:center;flex:none;position:relative;z-index:1}
+.page-back::before{content:"";position:absolute;inset:4px;width:36px;height:36px;border-radius:50%;background:var(--store-back-bg);box-shadow:var(--mobile-shadow-card)}
+.page-back .ui-icon{position:relative;z-index:1}
+.logout-button{width:100%;min-height:var(--mobile-touch-target);margin:20px 0 4px;border-radius:23px;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.logout-danger{background:var(--mobile-danger);color:var(--store-on-brand);box-shadow:var(--store-shadow-cart)}
+.sheet-line .business-image{width:64px;height:64px;border-radius:10px}.order-item-line .business-image{width:46px;height:46px;border-radius:9px}
 .chips button{display:inline-flex;align-items:center;justify-content:center;gap:5px}
-.category-image{width:26px;height:26px;flex:0 0 26px;border-radius:4px;background:#eef2ee}.category-label{max-width:104px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* ===== 商品分类页 ===== */
-.category-layout { margin-top:12px;display:flex;gap:0;align-items:stretch; }
-.category-side { width:84px;flex:none;background:#f3f2ef;border-right:1px solid var(--farm-line);display:flex;flex-direction:column;align-content:start; }
-.side-item { min-width:0;min-height:40px;margin:0;padding:8px 8px 8px 10px;border:0;border-radius:0;background:transparent;font-size:13px;line-height:1.25;color:var(--farm-muted);text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:break-all; }
-.side-item.active { color:var(--farm-green);font-weight:800;background:#fff;box-shadow:inset 3px 0 0 var(--farm-green); }
-.category-main { flex:1;min-width:0;margin-left:12px; }
-.category-products { margin-top:12px;display:grid;gap:11px; }
-.cat-product { display:flex;gap:10px;padding:8px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card); }
-.cat-product-img { width:92px;height:92px;border-radius:8px;flex:none;overflow:hidden;background:var(--mobile-surface-subtle); }
+.category-page { display:flex;flex-direction:column;height:100vh;max-height:100vh;box-sizing:border-box; }
+.category-page .page-pad { flex:1;min-height:0;display:flex;flex-direction:column; }
+.category-layout { margin-top:12px;display:flex;gap:10px;align-items:stretch; }
+.category-page .category-layout { flex:1;min-height:0;overflow:hidden;padding-bottom:calc(var(--mobile-tab-height) + 12px + env(safe-area-inset-bottom)); }
+.app-shell.has-cart-bar .category-page .category-layout { padding-bottom:calc(var(--mobile-tab-height) + var(--mobile-action-bar-height) + 12px + env(safe-area-inset-bottom)); }
+.category-side { width:88px;flex:none;align-self:stretch;max-height:100%;overflow-y:auto;background:transparent;border-right:0;display:grid;gap:4px;align-content:start; }
+.category-page .category-side { max-height:none;min-height:0;clip-path:inset(0); }
+.side-item { position:relative;min-width:0;min-height:40px;margin:0;padding:6px 10px;border:0;border-radius:10px;background:transparent;font-size:13px;line-height:1.25;color:var(--farm-muted);text-align:left;display:flex;align-items:center;overflow:visible;white-space:normal;word-break:break-word; }
+.side-item.active { color:var(--farm-green);font-weight:800;background:var(--mobile-surface); }
+.side-item.active::before { content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;background:var(--farm-green); }
+.category-main { flex:1;min-width:0;min-height:0;overflow-y:auto;margin-left:0; }
+.category-main .search-bar { height:40px;margin-top:0;border-radius:20px; }
+.category-products { margin-top:9px;display:grid;gap:9px; }
+.cat-product { display:flex;gap:10px;padding:9px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:13px;box-shadow:var(--mobile-shadow-card); }
+.cat-product-img { width:82px;height:82px;border-radius:10px;flex:none;overflow:hidden;background:var(--mobile-surface-subtle); }
 .cat-product-body { flex:1;min-width:0;display:flex;flex-direction:column;gap:6px; }
 .cat-product-body .tag-row { display:flex;align-items:center;gap:4px;overflow:hidden; }
-.cat-product-body .tag { font-size:12px;line-height:1.4;border-radius:4px;flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.cat-product-body .tag { font-size:11px;line-height:1.4;border-radius:4px;flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--farm-green-soft);color:var(--farm-green-deep);padding:1px 6px; }
 .cat-product-name { width:100%;font-size:14px;font-weight:800;color:var(--farm-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all;line-height:1.4; }
 
 .cat-stock { font-size:12px;color:var(--farm-muted); }
@@ -1420,19 +1421,19 @@ onBeforeUnmount(() => {
 .cat-price { font-size:15px;font-weight:800;color:var(--farm-red); }
 .cat-price-box { display:inline-flex;align-items:baseline;gap:4px; }
 .cat-original { font-size:12px;color:var(--farm-muted); }
-.cat-add { width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:0;border-radius:50%;background:var(--farm-green);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:none; }
+.cat-add { width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:0;border-radius:50%;background:var(--store-gradient);color:var(--store-on-brand);display:inline-flex;align-items:center;justify-content:center;flex:none; }
 .cat-add .ui-icon { filter:brightness(0) invert(1); }
-.cat-add[disabled] { background:#c9cfc9; }
+.cat-add[disabled] { background:var(--store-disabled); }
 
 /* ===== 购物车页 ===== */
 .cart-page-body { padding-top:0; }
-.cart-row { display:grid;grid-template-columns:20px 72px minmax(0,1fr);gap:10px;align-items:stretch;padding:11px 12px;background:#fff;border:1px solid var(--farm-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card);margin-bottom:9px; }
+.cart-row { display:grid;grid-template-columns:21px 64px minmax(0,1fr);gap:10px;align-items:stretch;padding:11px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:var(--mobile-radius-card);box-shadow:var(--mobile-shadow-card);margin-bottom:10px; }
 .cart-row.unavailable { opacity:.64; }
-.cart-check { width:20px;height:20px;border-radius:50%;border:1px solid #cfd8d2;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#fff;padding:0;align-self:center; }
+.cart-check { width:21px;height:21px;border-radius:50%;border:1.5px solid var(--store-line);background:var(--mobile-surface);display:inline-flex;align-items:center;justify-content:center;color:var(--store-on-brand);padding:0;align-self:center; }
 .cart-check.on { background:var(--farm-green);border-color:var(--farm-green); }
 .cart-check .ui-icon { opacity:0; }
 .cart-check.on .ui-icon { opacity:1; }
-.cart-row-img { width:72px;height:72px;border-radius:8px;overflow:hidden;background:var(--mobile-surface-subtle); }
+.cart-row-img { width:64px;height:64px;border-radius:10px;overflow:hidden;background:var(--mobile-surface-subtle); }
 .cart-row-main { min-width:0;display:flex;flex-direction:column;gap:4px; }
 .cart-row-name { font-size:13px;font-weight:800;color:var(--farm-ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all; }
 .cart-row-meta { display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0; }
@@ -1441,19 +1442,38 @@ onBeforeUnmount(() => {
 .cart-row-stock.warn { color:var(--farm-red); }
 .cart-row-bottom { margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px; }
 .cart-row-price { font-size:15px;font-weight:800;color:var(--farm-red); }
-.cart-row-bottom .stepper { display:flex;align-items:stretch;gap:0;overflow:hidden;border:1px solid var(--farm-line);border-radius:8px; }
-.cart-row-bottom .stepper button { width:var(--mobile-control-compact);height:var(--mobile-control-compact);border:0;border-radius:0;background:#fff;display:grid;place-items:center;padding:0;font-size:15px; }
-.cart-row-bottom .stepper text { min-width:var(--mobile-control-compact);text-align:center;font-size:13px;font-weight:700;line-height:var(--mobile-control-compact);border-left:1px solid var(--farm-line);border-right:1px solid var(--farm-line); }
-.cart-footer { position:relative; flex:none; margin:0; padding:10px 12px; background:#fff; border:0; border-top:1px solid var(--farm-line); border-radius:0; display:flex; align-items:center; gap:10px; }
-.cart-all { display:inline-flex;align-items:center;gap:6px;color:var(--farm-muted);font-size:13px;padding:0; }
-.cart-all-check { width:20px;height:20px;border-radius:50%;border:1px solid #cfd8d2;background:#fff;display:inline-flex;align-items:center;justify-content:center;color:#fff; }
+.cart-row-bottom .stepper { display:flex;align-items:stretch;gap:0;overflow:hidden;border:1px solid var(--store-line);border-radius:16px; }
+.cart-row-bottom .stepper button { width:var(--mobile-control-compact);height:var(--mobile-control-compact);border:0;border-radius:0;background:var(--mobile-surface);display:grid;place-items:center;padding:0;font-size:15px; }
+.cart-row-bottom .stepper input,.sheet-line .stepper input { width:var(--mobile-control-compact);min-width:var(--mobile-control-compact);height:var(--mobile-control-compact);padding:0 2px;border:0;border-left:1px solid var(--store-line);border-right:1px solid var(--store-line);background:var(--mobile-surface);color:var(--farm-ink);text-align:center;font-size:13px;font-weight:800;box-sizing:border-box; }
+.cart-footer { position:fixed;left:12px;right:12px;bottom:calc(var(--mobile-tab-height) + 8px + env(safe-area-inset-bottom));z-index:22;flex:none;margin:0;padding:10px 12px;background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:18px;display:flex;align-items:center;gap:10px;box-shadow:var(--store-shadow-float); }
+.cart-all { display:inline-flex;align-items:center;gap:5px;color:var(--farm-muted);font-size:13px;padding:0;font-weight:700; }
+.cart-all-check { width:18px;height:18px;border-radius:50%;border:1.5px solid var(--store-line);background:var(--mobile-surface);display:inline-flex;align-items:center;justify-content:center;color:var(--store-on-brand); }
 .cart-all-check.on { background:var(--farm-green);border-color:var(--farm-green); }
 .cart-all-check .ui-icon { opacity:0; }
 .cart-all-check.on .ui-icon { opacity:1; }
-.cart-footer-total { flex:1;display:flex;align-items:baseline;gap:4px;color:var(--farm-muted);font-size:12px; }
-.cart-footer-total strong { font-size:17px;font-weight:800;color:var(--farm-red); }
-.cart-del { min-height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--farm-red);color:var(--farm-red);background:#fff;font-size:13px;font-weight:700; }
-.cart-checkout { min-height:40px;padding:0 18px;border-radius:8px;background:var(--farm-green);color:#fff;font-size:13px;font-weight:800; }
+.cart-footer-total { flex:1;min-width:0;display:flex;align-items:baseline;justify-content:center;gap:4px;color:var(--farm-muted);font-size:12px;white-space:nowrap; }
+.cart-footer-total strong { font-size:16px;font-weight:800;color:var(--farm-red); }
+.cart-footer-total .cart-selected-count { color:var(--farm-ink);font-size:13px; }
+.cart-footer-total .cart-total-amount { font-size:19px; }
+.cart-del { min-height:34px;height:34px;padding:0 12px;border-radius:var(--mobile-radius-pill);border:1px solid var(--store-line);color:var(--farm-muted);background:var(--mobile-surface);font-size:13px;font-weight:700;display:inline-flex;align-items:center;justify-content:center; }
+.cart-checkout { min-height:38px;height:38px;padding:0 16px;border-radius:var(--mobile-radius-pill);background:var(--store-gradient);color:var(--store-on-brand);font-size:13px;font-weight:800;box-shadow:var(--store-shadow-cart);display:inline-flex;align-items:center;justify-content:center; }
+.sheet-foot { flex:none;padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--store-line-light);background:var(--mobile-surface); }
+.cart-sheet-summary { min-height:38px;display:flex;align-items:center;gap:12px; }
+.cart-sheet-summary .cart-footer-total { justify-content:flex-end; }
+.cart-sheet-foot .primary-button { margin-top:10px; }
+
+/* #ifdef H5 */
+@media (min-width:431px) {
+  .app-shell { max-width:430px;margin:0 auto;box-shadow:0 0 0 1px var(--store-line); }
+  .login-page { max-width:430px; margin:0 auto; box-shadow:0 0 0 1px var(--store-line); }
+  .tabbar { left:50%;right:auto;width:430px;transform:translateX(-50%); }
+  .cart-bar { left:50%;right:auto;width:406px;transform:translateX(-50%); }
+  .cart-footer { left:50%;right:auto;width:406px;transform:translateX(-50%); }
+  .sheet { max-width:430px;margin:0 auto; }
+  .sheet-mask { justify-content:center; }
+  .product-detail-bar { left:50%;right:auto;width:406px;transform:translateX(-50%); }
+}
+/* #endif */
 
 </style>
 <style lang="scss">
@@ -1479,7 +1499,9 @@ onBeforeUnmount(() => {
   width: 100% !important;
   transform: none !important;
 }
-.cart-bar {
+.cart-bar,
+.cart-footer,
+.product-detail-bar {
   left: 12px !important;
   right: 12px !important;
   width: auto !important;

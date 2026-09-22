@@ -33,9 +33,11 @@ describe('mobile portal visual contract', () => {
   })
 
   it('uses one mobile page background and explicit primary/compact touch targets', () => {
+    // user 端自带 --color-user-bg (#F4F6F1)，其余端沿用全站 --color-bg (#F4F7F2)；
+    // store 端为专属底色 #f7f3ee。pages.json 启动底色须与各端 --mobile-bg 一致。
     const backgrounds: Record<string, string> = {
       farmhouse: '#F4F7F2',
-      user: '#F4F7F2',
+      user: '#F4F6F1',
       store: '#f7f3ee',
       supplier: '#F4F7F2',
       promoter: '#F4F7F2'
@@ -74,25 +76,34 @@ describe('mobile portal visual contract', () => {
     expect(styles).toMatch(/\.tabbar \{[^}]*min-height: var\(--mobile-tab-height\)/)
   })
 
-  it('locks mobile login pages to a shared theme hero', () => {
-    const user = readFileSync(resolve(root, 'apps/user/src/pages/index/index.vue'), 'utf8')
+  it('locks B-side login pages to the shared theme hero', () => {
     const farmhouse = readFileSync(resolve(root, 'apps/farmhouse/src/pages/index/index.vue'), 'utf8')
     const store = readFileSync(resolve(root, 'apps/store/src/pages/index/index.vue'), 'utf8')
     const supplier = readFileSync(resolve(root, 'apps/supplier/src/pages/index/index.vue'), 'utf8')
     const promoter = readFileSync(resolve(root, 'apps/promoter/src/pages/index/index.vue'), 'utf8')
-    expect(user).toContain('class="pc-login-hero"')
-    expect(user).toContain('class="pc-login-mark"')
-    expect(user).not.toContain('class="auth-mark">集<')
-    expect(farmhouse).toContain('class="pc-login-hero"')
+    expect(farmhouse).toMatch(/class="pc-login-hero(?:\s|")/)
     expect(farmhouse).not.toContain('class="login-prompt-icon')
-    expect(store).toContain('class="pc-login-hero"')
+    expect(store).toMatch(/class="pc-login-hero(?:\s|")/)
     expect(store).toContain('class="pc-login-mark"')
     expect(store).not.toContain('class="login-logo"')
-    expect(store).toMatch(/\.login-page\{[^}]*padding:8px/)
-    expect(supplier).toContain('class="pc-login-hero"')
+    expect(store).toMatch(/\.login-page\{[^}]*padding:0/)
+    expect(supplier).toMatch(/class="pc-login-hero(?:\s|")/)
     expect(supplier).not.toContain('class="login-banner"')
-    expect(promoter).toContain('class="pc-login-hero"')
-    expect(promoter).toMatch(/\.login-page\{[^}]*padding:8px/)
+    expect(promoter).toMatch(/class="pc-login-hero(?:\s|")/)
+    expect(promoter).toMatch(/\.login-page\{[^}]*padding:0/)
+  })
+
+  it('keeps the user portal on its dedicated WeChat auth entry', () => {
+    const user = readFileSync(resolve(root, 'apps/user/src/pages/index/index.vue'), 'utf8')
+    expect(user).toContain('class="auth-page"')
+    expect(user).toContain('class="auth-brand"')
+    expect(user).toContain('class="auth-mark"')
+    expect(user).toContain('class="auth-card"')
+    expect(user).toContain('class="auth-btn"')
+    expect(user).toContain('class="auth-wxbadge"')
+    expect(user).toContain('微信一键授权')
+    expect(user).not.toContain('class="pc-login-hero"')
+    expect(user).not.toContain('class="pc-login-mark"')
   })
 
   it('locks the 430px preview frame behind H5 compilation', () => {

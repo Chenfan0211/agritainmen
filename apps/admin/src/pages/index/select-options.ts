@@ -31,6 +31,12 @@ export const orderAfterOptions = options([
 export const afterTypeFilterOptions = options([
   ['全部', '全部类型'], ['reship', '破损补寄'], ['refund', '退货退款'], ['claim', '质量理赔']
 ])
+export const afterStatusFilterOptions = options([
+  ['全部', '全部状态'], ['processing', '售后中'], ['rejected', '售后拒绝'], ['refund-pending', '待退款'], ['return-pending', '待退货'], ['refunded', '已退款'], ['refund-failed', '退款失败']
+])
+export const promoterSettleFilterOptions = options([
+  ['全部', '全部状态'], ['待结算', '待结算'], ['已结算', '已结算']
+])
 export const farmStatusFilterOptions = options([
   ['全部门店', '全部门店'], ['经营中', '经营中'], ['筹备中', '筹备中'], ['已停用', '已停用'], ['试点样板', '试点样板']
 ])

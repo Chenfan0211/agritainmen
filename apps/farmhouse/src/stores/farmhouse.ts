@@ -540,6 +540,16 @@ export function isActiveBookingStatus(status: Booking['status']): boolean {
   return status === 'reserved' || status === 'confirmed'
 }
 
+function normalizeBookingDate(value: string): string {
+  const numeric = value.match(/(\d{1,2})\s*(?:月|\/)\s*(\d{1,2})/)
+  if (numeric) return `${Number(numeric[1])}/${Number(numeric[2])}`
+  const offset = value.includes('今天') ? 0 : value.includes('明天') ? 1 : value.includes('后天') ? 2 : null
+  if (offset === null) return value.trim()
+  const date = new Date()
+  date.setDate(date.getDate() + offset)
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
 export function farmhouseBookingStatusText(status: Booking['status']): string {
   return status === 'reserved' ? '待确认' : status === 'confirmed' ? '已确认' : status === 'completed' ? '已核销' : '已取消'
 }
@@ -761,9 +771,10 @@ export const useFarmhouseStore = defineStore('storefront', {
       for (const shared of Object.values(readPlatformBookings() || {})) {
         if (shared.farmId !== currentFarmId) continue
         const values = { date: shared.date, session: shared.session, people: shared.people, amount: shared.amount, status: mapStatus(shared.status) }
+        const explicitIdentity = shared.bookingType && shared.resourceName ? { type: shared.bookingType, name: shared.resourceName } : {}
         const existing = this.bookings.find((booking) => booking.id === shared.id)
-        if (existing) Object.assign(existing, values)
-        else this.bookings.push({ id: shared.id, type: 'package', name: shared.farmName, ...values })
+        if (existing) Object.assign(existing, values, explicitIdentity)
+        else this.bookings.push({ id: shared.id, type: shared.bookingType || 'package', name: shared.resourceName || shared.farmName, ...values })
       }
     },
     recoverCatalogTransactions() {
@@ -1147,9 +1158,10 @@ export const useFarmhouseStore = defineStore('storefront', {
       this.balanceEntries = cloneSeed(targetLocal[farmId].balanceEntries)
       return true
     },
-    async requestStorefrontAfterSale(id: string, type: 'refund' | 'return', evidenceImages?: BusinessMediaValue[]) {
+    async requestStorefrontAfterSale(id: string, type: 'refund' | 'return', evidenceImages?: BusinessMediaValue[], returnTrackingNo?: string) {
       const memoryOrder = this.orders.find((item) => item.id === id)
       if (!memoryOrder) return false
+      this.checkoutError = ''
       const farmId = this.tenant?.farmId || this.farm?.id || 'F001'
       const variant: FarmhouseCommerceVariant = type === 'refund' ? 'after-sale-request-refund' : 'after-sale-request-return'
       const operationId = `${id}:${variant}`
@@ -1162,6 +1174,11 @@ export const useFarmhouseStore = defineStore('storefront', {
         if (persistedOrder && persistedOrder.status !== '已完成') this.checkoutError = '订单数据已更新，请重试'
         return false
       }
+      const normalizedReturnTrackingNo = returnTrackingNo?.trim()
+      if (type === 'return' && persistedOrder.delivery?.mode === 'courier' && !normalizedReturnTrackingNo) {
+        this.checkoutError = '快递退货请填写退货运单号'
+        return false
+      }
       let target = reusableFarmhouseTarget(operationId, original)
       if (!target) {
         const now = new Date().toLocaleString('zh-CN')
@@ -1170,6 +1187,8 @@ export const useFarmhouseStore = defineStore('storefront', {
           id: `AS-${id}`, orderId: id, productName: first?.name || '特产商品', applicant: this.member.name || '游客',
           type, amount: persistedOrder.amount, status: 'processing', issue: '用户申请售后，平台受理中', quantity: first?.quantity || persistedOrder.itemCount,
           evidenceImages,
+          refundMethod: type === 'return' ? 'return' : 'only',
+          ...(type === 'return' && normalizedReturnTrackingNo ? { returnTrackingNo: normalizedReturnTrackingNo } : {}),
           history: [{ time: now, action: '用户发起售后，平台受理中', operator: this.member.name || '游客' }]
         }
         const nextOrder = { ...cloneSeed(persistedOrder), afterSaleType: type, status: type === 'refund' ? '退款中' as const : '退货中' as const }
@@ -1224,7 +1243,12 @@ export const useFarmhouseStore = defineStore('storefront', {
       }
       return true
     },
+    isRoomBooked(roomName: string, date: string) {
+      const normalizedDate = normalizeBookingDate(date)
+      return this.bookings.some((item) => isActiveBookingStatus(item.status) && item.type === 'room' && item.name === roomName && normalizeBookingDate(item.date) === normalizedDate)
+    },
     submitBooking(payload: Omit<Booking, 'id' | 'status'>) {
+      if (payload.type === 'room' && this.isRoomBooked(payload.name, payload.date)) return false
       const duplicated = this.bookings.some((item) => isActiveBookingStatus(item.status) && item.type === payload.type && item.name === payload.name && item.date === payload.date && item.session === payload.session)
       if (duplicated) return false
       const id = createId('B')
@@ -1241,6 +1265,8 @@ export const useFarmhouseStore = defineStore('storefront', {
         date: payload.date,
         session: payload.session,
         people: payload.people,
+        bookingType: payload.type,
+        resourceName: payload.name,
         ...(payload.amount !== undefined ? { amount: payload.amount } : {}),
         status: 'submitted',
         createdAt

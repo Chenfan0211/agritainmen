@@ -75,7 +75,7 @@ function withdraw() {
   width: 100%;
   min-height: 100vh;
   overflow-x: hidden;
-  padding: calc(10px + env(safe-area-inset-top)) 8px calc(28px + env(safe-area-inset-bottom));
+  padding: calc(10px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
   box-sizing: border-box;
   background: var(--mobile-bg);
   color: var(--mobile-text);
@@ -90,14 +90,38 @@ function withdraw() {
 }
 
 .operation-header.theme-head {
-  margin: calc(-10px - env(safe-area-inset-top)) -8px 0;
-  padding: calc(10px + env(safe-area-inset-top)) 8px 12px;
-  background: var(--color-brand-primary-dark);
+  position: relative;
+  margin: calc(-10px - env(safe-area-inset-top)) -16px 0;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 28px;
+  background: var(--mobile-hero-grad);
   color: var(--color-on-brand);
+}
+
+.operation-header.theme-head::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 18px;
+  border-radius: 22px 22px 0 0;
+  background: var(--mobile-bg);
 }
 
 .operation-header.theme-head text {
   color: var(--color-on-brand);
+}
+
+.page-back {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
 }
 
 .operation-header text {
@@ -114,7 +138,7 @@ function withdraw() {
   margin-top: 16px;
   padding: 16px;
   border-radius: var(--mobile-radius-card);
-  background: var(--color-brand-primary-dark);
+  background: var(--mobile-hero-grad);
   color: var(--color-on-brand);
   box-shadow: var(--mobile-shadow-card);
 }
@@ -142,7 +166,7 @@ function withdraw() {
   min-height: 44px;
   margin: 18px 0 0;
   border: 0;
-  border-radius: var(--mobile-radius-card);
+  border-radius: var(--mobile-radius-pill);
   background: var(--color-card);
   color: var(--mobile-brand-deep);
   font-size: 14px;
@@ -271,31 +295,31 @@ function withdraw() {
   white-space: nowrap;
 }
 
-.fan-avatar {
-  display: grid !important;
+.fan-row .fan-avatar {
+  display: grid;
   place-items: center;
   width: 42px;
   height: 42px;
-  flex: none !important;
+  flex: none;
   border-radius: var(--mobile-radius-card);
   background: var(--mobile-brand-soft);
   color: var(--mobile-brand-deep);
   font-weight: 900;
 }
 
-.bound-tag {
+.fan-row .bound-tag {
   flex: none;
   padding: 4px 7px;
   border-radius: var(--mobile-radius-control);
   background: var(--mobile-brand-soft);
-  color: var(--mobile-brand-deep) !important;
-  font-size: 11px !important;
+  color: var(--mobile-brand-deep);
+  font-size: 11px;
   font-weight: 800;
 }
 
 .empty {
   display: flex;
-  min-height: 200px;
+  min-height: 160px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -306,7 +330,7 @@ function withdraw() {
 }
 
 .no-distributor {
-  min-height: 320px;
+  min-height: 220px;
   padding: 24px 16px;
 }
 
@@ -326,8 +350,9 @@ function withdraw() {
   justify-content: center;
   box-sizing: border-box;
   border: 0;
-  border-radius: var(--mobile-radius-card);
-  background: var(--mobile-brand);
+  border-radius: var(--mobile-radius-pill);
+  background: var(--mobile-hero-grad);
+  box-shadow: var(--mobile-shadow-button);
   color: var(--color-on-brand);
   font-size: 14px;
   font-weight: 800;

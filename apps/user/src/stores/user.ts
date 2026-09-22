@@ -1133,18 +1133,19 @@ export const useUserStore = defineStore('user', {
       this.addresses = saved
       return true
     },
-    async submitOrder(remark = '') {
+    async submitOrder(remark = '', selectedKeys?: string[]) {
       this.checkoutError = ''; const address = this.defaultAddress
+      const checkoutCart = selectedKeys?.length ? this.cart.filter((line) => selectedKeys.includes(`${line.productId}-${line.skuId}`)) : this.cart
       if (this.entryChecked && this.entryRestricted) { this.checkoutError = '请通过有效推客分享链接进入商城'; return false }
-      if (!this.userId || !this.cart.length) { this.checkoutError = '购物车为空'; return false }
+      if (!this.userId || !checkoutCart.length) { this.checkoutError = selectedKeys?.length ? '请先选择要结算的商品' : '购物车为空'; return false }
       if (!address) { this.checkoutError = '请先设置收货地址'; return false }
-      const unavailableSupplier = unavailableSupplierName(this.cart.map((item) => item.supplierId))
+      const unavailableSupplier = unavailableSupplierName(checkoutCart.map((item) => item.supplierId))
       if (unavailableSupplier) { this.checkoutError = `${unavailableSupplier}已暂停接单，请选择其他商品`; return false }
       const catalog = readCatalogState()
       if (!catalog) return this.failStockConflict()
       const revisionChanged = catalog.revision !== this.inventoryRevision
       const products = normalizeCProducts(catalogProductsForAudience(catalog, 'user').map(catalogProductToCProduct))
-      const invalidLine = this.cart.find((line) => {
+      const invalidLine = checkoutCart.find((line) => {
         const product = products.find((item) => item.id === line.productId)
         const sku = product?.skus.find((item) => item.id === line.skuId)
         return !product || product.status !== 'active' || product.shippingType !== 'courier' || !sku || !Number.isFinite(line.unitPrice) || line.unitPrice < 0 || !Number.isFinite(line.basePrice) || line.basePrice < 0 || !Number.isFinite(line.level1Commission) || line.level1Commission < 0 || !Number.isFinite(line.level2Commission) || line.level2Commission < 0 || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
@@ -1162,22 +1163,22 @@ export const useUserStore = defineStore('user', {
         return false
       }
       if (revisionChanged) return this.failStockConflict()
-      const items = this.cart.map(({ stock: _stock, lockedLevel: _level, unavailable: _unavailable, ...item }) => ({ ...item, minimumOrderQuantity: normalizeMinimumOrderQuantity(item.minimumOrderQuantity) }))
+      const items = checkoutCart.map(({ stock: _stock, lockedLevel: _level, unavailable: _unavailable, ...item }) => ({ ...item, minimumOrderQuantity: normalizeMinimumOrderQuantity(item.minimumOrderQuantity) }))
       const id = createId('CO')
       const groups = splitCOrderItems(items)
       const chain = resolveDirectReferralChain(this.referralPromoterId, readCDistributorProfiles() || demoCDistributorProfiles) || {}
-      const checkoutLevel = this.cart[0]?.lockedLevel || this.level
+      const checkoutLevel = checkoutCart[0]?.lockedLevel || this.level
       const subOrders = groups.map((group) => {
         const product = this.cProducts.find((item) => item.supplierId === group.supplierId)
         return { id: createId('CSO'), supplierId: group.supplierId, supplierName: product?.supplierName || group.supplierId, items: group.items, amount: Math.round(group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0) * 100) / 100, status: 'pending_payment' as const, logistics: [{ time: nowString(), title: '订单已提交', detail: '等待模拟支付' }] }
       })
       const commissionAllocations = groups.flatMap((group, index) => (['normal', 'level2', 'level1'] as CUserLevel[]).flatMap((level) => {
-        const levelItems = group.items.filter((item) => this.cart.find((line) => line.productId === item.productId && line.skuId === item.skuId)?.lockedLevel === level)
+        const levelItems = group.items.filter((item) => checkoutCart.find((line) => line.productId === item.productId && line.skuId === item.skuId)?.lockedLevel === level)
         return levelItems.length ? allocateCCommissions(levelItems, chain, level, id, subOrders[index].id) : []
       }))
       const order: COrder = { id, userId: this.userId, level: checkoutLevel, address: cloneSeed(address), amount: Math.round(items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0) * 100) / 100, items, subOrders, distributorChain: [chain.level1Id, chain.level2Id].filter((item): item is string => !!item), commissionAllocations, status: 'pending_payment', createdAt: nowString(), remark: remark.trim() || undefined }
       const operationId = `${order.id}:reserve`
-      const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
+      const inventoryChanges = checkoutCart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
       const bound = readUserBindings()?.[this.userId]
       const payload: UserOrderCatalogTransactionPayload = {
         order,
@@ -1230,7 +1231,9 @@ export const useUserStore = defineStore('user', {
       this.applyCatalogState(targetCatalog)
       this.orders.unshift(order)
       this.commissionRecords = target.commissions!
-      this.cart = []; this.persistSession(); return true
+      const checkedOutKeys = new Set(checkoutCart.map((line) => `${line.productId}-${line.skuId}`))
+      this.cart = this.cart.filter((line) => !checkedOutKeys.has(`${line.productId}-${line.skuId}`))
+      this.persistSession(); return true
     },
     async payOrder(id: string) {
       const order = this.orders.find((item) => item.id === id)

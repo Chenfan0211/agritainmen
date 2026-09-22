@@ -42,14 +42,19 @@ export interface LogisticsEvent {
   detail: string
 }
 
+export type StoreOrderStatus = 'pending-payment' | Exclude<PurchaseStatus, 'cancelled'> | 'paid-cancelled' | 'unpaid-cancelled'
+
 export interface StoreOrder {
   id: string
   amount: number
   saved: number
   itemCount: number
   items: OrderItem[]
-  status: PurchaseStatus
+  status: StoreOrderStatus
   createdAt: string
+  paidAt?: string
+  paymentDeadlineAt?: string
+  cancelledAt?: string
   trackingNo?: string
   logistics: LogisticsEvent[]
   remark?: string
@@ -83,15 +88,18 @@ interface StoreState {
   products: Product[]
   catalogRevision: number
   cart: CartLine[]
+  checkoutLineKeys: string[]
   orders: StoreOrder[]
   checkoutError: string
   auth: StoreAuthState
   tenantSessions: Record<string, StoreTenantSession>
 }
 
-const purchaseToOrderStatus: Record<PurchaseStatus, OrderStatus> = {
-  submitted: 'pending', accepted: 'pending', shipped: 'shipping', delivering: 'shipping', received: 'delivered', completed: 'delivered', cancelled: 'unpaid-cancelled'
+const purchaseToOrderStatus: Record<StoreOrderStatus, OrderStatus> = {
+  'pending-payment': 'pending-payment', submitted: 'pending', accepted: 'pending', shipped: 'shipping', delivering: 'shipping', received: 'delivered', completed: 'delivered', 'paid-cancelled': 'paid-cancelled', 'unpaid-cancelled': 'unpaid-cancelled'
 }
+
+const cartLineKey = (line: Pick<CartLine, 'productId' | 'skuId'>) => `${line.productId}:${line.skuId}`
 
 function toPlatformOrders(order: StoreOrder, products: Product[], info: typeof storeInfo, farmId: string): Order[] {
   const orders = buildSupplierPlatformOrders({
@@ -130,7 +138,10 @@ function nextStorePlatformOrders(order: StoreOrder, products: Product[], info: t
     const current = existing[id]
     const next = projected.find((candidate) => candidate.id === id) || current
     if (!next) return null
-    nextOrders[id] = { ...current, ...next, id, supplierFulfillment: current?.supplierFulfillment, flow: current?.flow, logistics: current?.logistics || next.logistics }
+    const supplierFulfillment = current?.supplierFulfillment && ['paid-cancelled', 'unpaid-cancelled'].includes(order.status)
+      ? { ...current.supplierFulfillment, status: 'cancelled' as const, updatedAt: new Date().toISOString() }
+      : current?.supplierFulfillment
+    nextOrders[id] = { ...current, ...next, id, supplierFulfillment, flow: current?.flow, logistics: current?.logistics || next.logistics }
   }
   return nextOrders
 }
@@ -259,16 +270,18 @@ function queueStoreReturnRecovery(operationId: string): boolean {
   return journalResolved && recoveryQueued
 }
 
-const logisticsEventFor = (status: PurchaseStatus, order: StoreOrder): LogisticsEvent => {
+const logisticsEventFor = (status: StoreOrderStatus, order: StoreOrder): LogisticsEvent => {
   const now = new Date().toLocaleString('zh-CN')
   switch (status) {
+    case 'pending-payment': return { time: now, title: '订单待付款', detail: '请在 15 分钟内完成支付，支付后进入待接单' }
     case 'submitted': return { time: now, title: '订单已提交', detail: '已提交至中选科技供应链中台，等待接单' }
     case 'accepted': return { time: now, title: '中台已接单', detail: '仓库备货中，预计 24 小时内出库' }
     case 'shipped': return { time: now, title: '商品已出库', detail: `顺丰速运 ${order.trackingNo || '待生成'} 揽收，直配到店` }
     case 'delivering': return { time: now, title: '配送中', detail: '已到达中转场，预计 1-2 天送达门店' }
     case 'received': return { time: now, title: '已签收', detail: '门店已收货并验货签收' }
     case 'completed': return { time: now, title: '订单完成', detail: '本单履约完成，期待再次合作' }
-    case 'cancelled': return { time: now, title: '订单已取消', detail: '门店取消进货单，中台已停止履约' }
+    case 'paid-cancelled': return { time: now, title: '订单已取消', detail: '已支付订单取消，平台将按规则处理退款并释放库存' }
+    case 'unpaid-cancelled': return { time: now, title: '订单已取消', detail: '未支付订单已取消，锁定库存已释放' }
   }
 }
 
@@ -451,7 +464,16 @@ function mergeStoreOrders(farmId: string, current: StoreOrder[]): StoreOrder[] {
   const tenantOrders = current.filter((order) => !order.farmId || order.farmId === farmId)
   const customOrders = tenantOrders.filter((order) => !seedIds.has(order.id))
   const mergedSeeds = mergeEntitySeeds(seeds, tenantOrders).filter((order) => seedIds.has(order.id))
-  return [...customOrders, ...mergedSeeds]
+  return [...customOrders, ...mergedSeeds].map((order) => {
+    const rawStatus = String(order.status)
+    const status: StoreOrderStatus = rawStatus === 'cancelled' ? 'unpaid-cancelled' : rawStatus as StoreOrderStatus
+    const cancelled = status === 'paid-cancelled' || status === 'unpaid-cancelled'
+    return {
+      ...order,
+      status,
+      paidAt: order.paidAt || (!cancelled && status !== 'pending-payment' ? order.createdAt : undefined)
+    }
+  })
 }
 
 export const useStoreStore = defineStore('store', {
@@ -464,6 +486,7 @@ export const useStoreStore = defineStore('store', {
     products: [],
     catalogRevision: 0,
     cart: [],
+    checkoutLineKeys: [],
     orders: seedOrders(),
     checkoutError: '',
     auth: { isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null },
@@ -473,6 +496,11 @@ export const useStoreStore = defineStore('store', {
     cartCount: (state) => state.cart.reduce((sum, item) => sum + item.quantity, 0),
     cartTotal: (state) => calcCartTotal(state.cart.map(({ price, quantity }) => ({ price, quantity }))),
     cartHasUnavailable: (state) => state.cart.some((item) => item.unavailable),
+    checkoutLines: (state) => state.cart.filter((item) => state.checkoutLineKeys.includes(cartLineKey(item))),
+    checkoutCount: (state) => state.cart.filter((item) => state.checkoutLineKeys.includes(cartLineKey(item))).reduce((sum, item) => sum + item.quantity, 0),
+    checkoutTotal: (state) => calcCartTotal(state.cart.filter((item) => state.checkoutLineKeys.includes(cartLineKey(item))).map(({ price, quantity }) => ({ price, quantity }))),
+    checkoutSaved: (state) => Math.round(state.cart.filter((item) => state.checkoutLineKeys.includes(cartLineKey(item))).reduce((sum, item) => sum + (item.retail - item.price) * item.quantity, 0) * 100) / 100,
+    checkoutHasUnavailable: (state) => state.cart.filter((item) => state.checkoutLineKeys.includes(cartLineKey(item))).some((item) => item.unavailable),
     orderMetrics: (state) => {
       const now = new Date()
       const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -525,6 +553,10 @@ export const useStoreStore = defineStore('store', {
           const sku = product?.skus.find((item) => item.id === line.skuId) || product?.skus[0]
           if (product && sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, image: product.image })
         }))
+        const cartKeys = this.cart.map(cartLineKey)
+        const availableCartKeys = new Set(cartKeys)
+        this.checkoutLineKeys = this.checkoutLineKeys.length ? this.checkoutLineKeys.filter((key) => availableCartKeys.has(key)) : cartKeys
+        await this.sweepExpiredPaymentOrders()
       } catch (error) {
         this.error = error instanceof Error ? error.message : '数据加载失败'
       } finally {
@@ -534,6 +566,21 @@ export const useStoreStore = defineStore('store', {
     setMockScenario(scenario: MockScenario) {
       this.mockScenario = scenario
       this.initialized = false
+    },
+    setCheckoutSelection(keys: string[]) {
+      const available = new Set(this.cart.map(cartLineKey))
+      this.checkoutLineKeys = [...new Set(keys)].filter((key) => available.has(key))
+    },
+    isCheckoutSelected(line: Pick<CartLine, 'productId' | 'skuId'>) {
+      return this.checkoutLineKeys.includes(cartLineKey(line))
+    },
+    toggleCheckoutSelection(line: Pick<CartLine, 'productId' | 'skuId'>) {
+      const key = cartLineKey(line)
+      this.checkoutLineKeys = this.checkoutLineKeys.includes(key) ? this.checkoutLineKeys.filter((item) => item !== key) : [...this.checkoutLineKeys, key]
+    },
+    toggleAllCheckoutSelection() {
+      const keys = this.cart.filter((line) => !line.unavailable).map(cartLineKey)
+      this.checkoutLineKeys = keys.length > 0 && keys.every((key) => this.checkoutLineKeys.includes(key)) ? [] : keys
     },
     repriceCart() {
       this.cart.forEach((line) => {
@@ -581,8 +628,32 @@ export const useStoreStore = defineStore('store', {
       } else {
         this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, increment), retail: product.price, stock: sku.stock, quantity: increment, minimumOrderQuantity, unavailable: false })
       }
+      const key = cartLineKey({ productId: product.id, skuId: sku.id })
+      if (!this.checkoutLineKeys.includes(key)) this.checkoutLineKeys.push(key)
       this.checkoutError = ''
       return 'added' as const
+    },
+    setCartQuantity(productId: string, skuId: string, quantity: number) {
+      const line = this.cart.find((item) => item.productId === productId && item.skuId === skuId)
+      const product = this.products.find((item) => item.id === productId)
+      const sku = product?.skus.find((item) => item.id === skuId)
+      if (!line || !product || !sku) return false
+      const validation = validateCatalogSkuOrderQuantity(sku, quantity)
+      if (!validation.ok) {
+        this.checkoutError = validation.code === 'invalid_quantity'
+          ? `${line.name}购买数量需为正整数`
+          : validation.code === 'below_minimum_order_quantity'
+            ? `${line.name}购买数量不能低于起订量 ${validation.minimumOrderQuantity} 件`
+            : `${line.name}（${line.skuName}）库存不足`
+        return false
+      }
+      line.quantity = quantity
+      line.price = storeUnitPrice(product, sku, quantity)
+      line.stock = sku.stock
+      line.minimumOrderQuantity = validation.minimumOrderQuantity
+      line.unavailable = false
+      this.checkoutError = ''
+      return true
     },
     changeCart(productId: string, skuId: string, delta: number) {
       const line = this.cart.find((item) => item.productId === productId && item.skuId === skuId)
@@ -594,8 +665,10 @@ export const useStoreStore = defineStore('store', {
         return false
       }
       line.quantity += delta
-      if (line.quantity <= 0) this.cart = this.cart.filter((item) => !(item.productId === productId && item.skuId === skuId))
-      else {
+      if (line.quantity <= 0) {
+        this.cart = this.cart.filter((item) => !(item.productId === productId && item.skuId === skuId))
+        this.checkoutLineKeys = this.checkoutLineKeys.filter((key) => key !== cartLineKey({ productId, skuId }))
+      } else {
         line.stock = sku?.stock ?? 0
         line.minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? line.minimumOrderQuantity)
         line.unavailable = !sku || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
@@ -606,11 +679,14 @@ export const useStoreStore = defineStore('store', {
     },
     removeLine(productId: string, skuId: string) {
       this.cart = this.cart.filter((item) => !(item.productId === productId && item.skuId === skuId))
+      this.checkoutLineKeys = this.checkoutLineKeys.filter((key) => key !== cartLineKey({ productId, skuId }))
       this.checkoutError = ''
     },
     applyCatalogState(state: CatalogState) {
       this.catalogRevision = state.revision
       this.products = catalogProductsForAudience(state, 'ordering').map(catalogProductToProduct)
+      const availableCartKeys = new Set(this.cart.map(cartLineKey))
+      this.checkoutLineKeys = this.checkoutLineKeys.filter((key) => availableCartKeys.has(key))
       this.cart = this.cart.map((line) => {
         const product = this.products.find((item) => item.id === line.productId)
         const sku = product?.skus.find((item) => item.id === line.skuId)
@@ -618,6 +694,8 @@ export const useStoreStore = defineStore('store', {
         if (!product || !sku) return { ...line, stock: 0, minimumOrderQuantity, unavailable: true }
         return { ...line, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, line.quantity), retail: product.price, stock: sku.stock, minimumOrderQuantity, unavailable: !validateCatalogSkuOrderQuantity(sku, line.quantity).ok }
       })
+      const selectableCartKeys = new Set(this.cart.filter((line) => !line.unavailable).map(cartLineKey))
+      this.checkoutLineKeys = this.checkoutLineKeys.filter((key) => selectableCartKeys.has(key))
     },
     refreshCatalog(message = '') {
       const state = readCatalogState()
@@ -653,23 +731,29 @@ export const useStoreStore = defineStore('store', {
       const latest = readCatalogState()
       if (latest && latest.revision !== this.catalogRevision) this.applyCatalogState(latest)
     },
-    async submitOrder(remark = '') {
+    async submitOrder(remark = '', lineKeys?: string[]) {
       this.checkoutError = ''
       if (!this.cart.length) {
         this.checkoutError = '进货单为空'
-        return false
+        return null
+      }
+      const selectedKeys = new Set(lineKeys?.length ? lineKeys : this.cart.map(cartLineKey))
+      const selectedLines = this.cart.filter((line) => selectedKeys.has(cartLineKey(line)))
+      if (!selectedLines.length) {
+        this.checkoutError = '请先选择要结算的商品'
+        return null
       }
       const platformEntitiesRevision = readPlatformCollectionRevision(PLATFORM_ENTITIES_STORAGE_KEY)
-      const unavailableSupplier = unavailableSupplierName(this.cart.map((line) => this.products.find((product) => product.id === line.productId)?.supplierId || ''))
+      const unavailableSupplier = unavailableSupplierName(selectedLines.map((line) => this.products.find((product) => product.id === line.productId)?.supplierId || ''))
       if (unavailableSupplier) {
         this.checkoutError = `${unavailableSupplier}已暂停接单，请选择其他商品`
-        return false
+        return null
       }
       const catalog = readCatalogState()
-      if (!catalog) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
+      if (!catalog) { this.checkoutError = '商品库存已更新，请刷新后重试'; return null }
       const revisionChanged = catalog.revision !== this.catalogRevision
       if (revisionChanged) this.applyCatalogState(catalog)
-      const insufficient = this.cart.find((line) => {
+      const insufficient = selectedLines.find((line) => {
         const product = this.products.find((item) => item.id === line.productId)
         const sku = product?.skus.find((item) => item.id === line.skuId)
         return !product || !sku || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
@@ -678,32 +762,34 @@ export const useStoreStore = defineStore('store', {
         const sku = this.products.find((item) => item.id === insufficient.productId)?.skus.find((item) => item.id === insufficient.skuId)
         const validation = sku ? validateCatalogSkuOrderQuantity(sku, insufficient.quantity) : null
         this.checkoutError = !sku ? `${insufficient.name}（${insufficient.skuName}）规格已失效` : validation && !validation.ok && (validation.code === 'below_minimum_order_quantity' || sku.stock < normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)) ? `${insufficient.name}（${insufficient.skuName}）库存不足或购买数量未达要求` : `${insufficient.name}（${insufficient.skuName}）库存不足`
-        return false
+        return null
       }
-      if (revisionChanged) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
-      const pricedCart = this.cart.map((line) => {
+      if (revisionChanged) { this.checkoutError = '商品库存已更新，请刷新后重试'; return null }
+      const pricedCart = selectedLines.map((line) => {
         const product = this.products.find((item) => item.id === line.productId)!
         const sku = product.skus.find((item) => item.id === line.skuId)!
         return { ...line, price: storeUnitPrice(product, sku, line.quantity) }
       })
       const amount = calcCartTotal(pricedCart.map(({ price, quantity }) => ({ price, quantity })))
       const saved = Math.round(pricedCart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100
-      const itemCount = this.cartCount
+      const itemCount = selectedLines.reduce((sum, line) => sum + line.quantity, 0)
       const orderItems = pricedCart.map((line) => ({ productId: line.productId, skuId: line.skuId, skuName: line.skuName, name: line.name, image: mediaValueToImage(line.image), quantity: line.quantity, price: line.price, minimumOrderQuantity: normalizeMinimumOrderQuantity(line.minimumOrderQuantity) }))
-      const now = new Date().toLocaleString('zh-CN')
+      const nowDate = new Date()
+      const now = nowDate.toLocaleString('zh-CN')
+      const paymentDeadlineAt = new Date(nowDate.getTime() + 15 * 60 * 1000).toISOString()
       const order: StoreOrder = {
-        id: createId('SO'), farmId: this.auth.farmId || 'F001', amount, saved, itemCount, items: orderItems, status: 'submitted', createdAt: now,
-        trackingNo: `SF${String(Date.now()).slice(-10)}`, logistics: [{ time: now, title: '订单已提交', detail: '已提交至中选科技供应链中台，等待接单' }], remark: remark.trim() || undefined
+        id: createId('SO'), farmId: this.auth.farmId || 'F001', amount, saved, itemCount, items: orderItems, status: 'pending-payment', createdAt: now, paymentDeadlineAt,
+        logistics: [{ time: now, title: '订单待付款', detail: '请在 15 分钟内完成支付，支付后进入待接单' }], remark: remark.trim() || undefined
       }
-      const inventoryChanges = this.cart.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
+      const inventoryChanges = selectedLines.map((line) => ({ productId: line.productId, skuId: line.skuId, quantity: -line.quantity }))
       const operationId = `${order.id}:reserve`
       const stable = readStableStoreReturnSnapshot()
-      if (!stable || stable.snapshot.catalog.revision !== catalog.revision) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
+      if (!stable || stable.snapshot.catalog.revision !== catalog.revision) { this.checkoutError = '商品库存已更新，请刷新后重试'; return null }
       const original = stable.snapshot
       const targetCatalog = cloneSeed(original.catalog)
       for (const change of inventoryChanges) {
         const sku = targetCatalog.products.find((product) => product.id === change.productId)?.skus.find((item) => item.id === change.skuId)
-        if (!sku || !validateCatalogSkuOrderQuantity(sku, -change.quantity).ok) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
+        if (!sku || !validateCatalogSkuOrderQuantity(sku, -change.quantity).ok) { this.checkoutError = '商品库存已更新，请刷新后重试'; return null }
         sku.stock += change.quantity
       }
       targetCatalog.revision += 1
@@ -735,18 +821,19 @@ export const useStoreStore = defineStore('store', {
       })
       if (!result.ok) {
         this.checkoutError = result.code === 'revision_conflict' ? '商品或价格信息已更新，请刷新后重试' : result.fatal ? '订单事务恢复失败，请联系平台处理' : '订单处理中，请刷新后重试'
-        return false
+        return null
       }
       this.applyCatalogState(targetCatalog)
       this.orders.unshift(order)
-      this.cart = []
-      return true
+      this.cart = this.cart.filter((line) => !selectedKeys.has(cartLineKey(line)))
+      this.checkoutLineKeys = this.checkoutLineKeys.filter((key) => !selectedKeys.has(key))
+      return order.id
     },
     async advanceOrder(id: string) {
       const order = this.orders.find((item) => item.id === id)
-      if (!order || order.status === 'completed') return false
+      if (!order || !['submitted', 'accepted', 'shipped', 'delivering', 'received'].includes(order.status)) return false
       const nextOrder = cloneSeed(order)
-      nextOrder.status = nextPurchaseStatus(order.status)
+      nextOrder.status = nextPurchaseStatus(order.status as PurchaseStatus) as StoreOrderStatus
       nextOrder.logistics = [...order.logistics, logisticsEventFor(nextOrder.status, nextOrder)]
       const stable = readStableStoreReturnSnapshot()
       if (!stable) return false
@@ -774,9 +861,34 @@ export const useStoreStore = defineStore('store', {
       Object.assign(order, nextOrder)
       return true
     },
-    async cancelOrder(id: string) {
+    async payOrder(id: string) {
       const order = this.orders.find((item) => item.id === id)
-      if (!order || (order.status !== 'submitted' && order.status !== 'accepted')) return false
+      if (!order || order.status !== 'pending-payment') return false
+      if (order.paymentDeadlineAt && Date.parse(order.paymentDeadlineAt) <= Date.now()) {
+        await this.cancelOrder(id, 'timeout')
+        this.checkoutError = '订单已超过 15 分钟支付时限，已自动取消'
+        return false
+      }
+      const supplierId = this.products.find((product) => product.id === order.items[0]?.productId)?.supplierId || ''
+      const unavailableSupplier = supplierId ? unavailableSupplierName([supplierId]) : null
+      if (unavailableSupplier) { this.checkoutError = `${unavailableSupplier}已暂停接单，暂时无法支付`; return false }
+      const stable = readStableStoreReturnSnapshot()
+      if (!stable) return false
+      const nextOrder = cloneSeed(order)
+      nextOrder.status = 'submitted'
+      nextOrder.paidAt = new Date().toISOString()
+      nextOrder.logistics = [...order.logistics, logisticsEventFor('submitted', nextOrder)]
+      const targetPlatformOrders = nextStorePlatformOrders(nextOrder, this.products, this.info, nextOrder.farmId || this.auth.farmId || 'F001', stable.snapshot.platformOrders)
+      if (!targetPlatformOrders) return false
+      const target: StoreReturnSnapshot = { ...cloneSeed(stable.snapshot), platformOrders: targetPlatformOrders }
+      const result = await runLockedPlatformTransaction({ operationId: `${id}:payment`, collections: [PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY], original: stable.snapshot, target, recoveryHandlerKey: STORE_ORDER_RECOVERY_HANDLER_KEY, recoverySchema: STORE_ORDER_RECOVERY_SCHEMA, revisionChecks: [{ key: PLATFORM_CATALOG_STORAGE_KEY, expectedRevision: stable.revisions.catalog }, { key: PLATFORM_AFTERSALES_STORAGE_KEY, expectedRevision: stable.revisions.afterSales }, { key: PLATFORM_ORDERS_STORAGE_KEY, expectedRevision: stable.revisions.platformOrders }], steps: [{ key: 'platform-orders', apply: () => writePlatformOrders(targetPlatformOrders), rollback: () => writePlatformOrders(stable.snapshot.platformOrders) }] })
+      if (!result.ok) return false
+      Object.assign(order, nextOrder)
+      return true
+    },
+    async cancelOrder(id: string, reason: 'manual' | 'timeout' = 'manual') {
+      const order = this.orders.find((item) => item.id === id)
+      if (!order || !['pending-payment', 'submitted', 'accepted'].includes(order.status)) return false
       if (order.inventoryReleased) return false
       const catalog = readCatalogState()
       if (!catalog || catalog.revision !== this.catalogRevision) { this.refreshCatalog('商品库存已更新，请刷新后重试'); return false }
@@ -784,8 +896,12 @@ export const useStoreStore = defineStore('store', {
       if (!stable || stable.snapshot.catalog.revision !== catalog.revision) { this.checkoutError = '商品库存已更新，请刷新后重试'; return false }
       const original = stable.snapshot
       const nextOrder = cloneSeed(order)
-      nextOrder.status = 'cancelled'; nextOrder.inventoryReleased = true
-      nextOrder.logistics.push({ time: new Date().toLocaleString('zh-CN'), title: '订单已取消', detail: '门店取消进货单' })
+      nextOrder.status = order.status === 'pending-payment' ? 'unpaid-cancelled' : 'paid-cancelled'
+      nextOrder.inventoryReleased = true
+      nextOrder.cancelledAt = new Date().toISOString()
+      nextOrder.logistics.push(reason === 'timeout'
+        ? { time: new Date().toLocaleString('zh-CN'), title: '支付超时自动取消', detail: '超过 15 分钟未支付，订单已自动取消并释放库存' }
+        : logisticsEventFor(nextOrder.status, nextOrder))
       const inventoryChanges = order.items.map((item) => ({ productId: item.productId, skuId: item.skuId, quantity: item.quantity }))
       const operationId = `${order.id}:release`
       const targetCatalog = cloneSeed(original.catalog)
@@ -805,6 +921,15 @@ export const useStoreStore = defineStore('store', {
       this.applyCatalogState(targetCatalog)
       Object.assign(order, nextOrder)
       return true
+    },
+    async sweepExpiredPaymentOrders() {
+      const now = Date.now()
+      const expired = this.orders.filter((order) => order.status === 'pending-payment' && !!order.paymentDeadlineAt && Date.parse(order.paymentDeadlineAt) <= now)
+      let count = 0
+      for (const order of expired) {
+        if (await this.cancelOrder(order.id, 'timeout')) count += 1
+      }
+      return count
     },
     initiateAfterSale(orderId: string, type: 'refund' | 'return' = 'refund') {
       const order = this.orders.find((item) => item.id === orderId)
@@ -924,6 +1049,7 @@ export const useStoreStore = defineStore('store', {
         this.orders = seedOrders(account.farmId)
       }
       this.repriceCart()
+      this.checkoutLineKeys = this.cart.map(cartLineKey)
       const principal: PlatformPrincipal = { actorType: 'store', actorId: account.id, tenantId: account.farmId, status: 'active' }
       this.auth = {
         isLoggedIn: true,
@@ -959,6 +1085,7 @@ export const useStoreStore = defineStore('store', {
     },
     logout() {
       this.saveCurrentTenantSession()
+      this.checkoutLineKeys = []
       this.auth = { isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null }
     }
   }

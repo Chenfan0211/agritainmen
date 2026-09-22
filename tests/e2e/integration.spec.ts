@@ -565,7 +565,7 @@ test('supplier submission audit, listing, MOQ checkout and update draft stay con
     return catalog.products?.find((item: { name: string }) => item.name === name)?.status
   }, originalName)).toBe('offline')
   await page.locator('.nav-item').filter({ hasText: '操作日志' }).click()
-  await page.locator('.module-search input').fill('product.audit')
+  await page.locator('.filter-bar .filter-control input').fill('product.audit')
   await expect(page.locator('.audit-grid').filter({ hasText: 'product.audit' })).toHaveCount(1)
   await page.locator('.logout-button').click()
 
@@ -1012,14 +1012,14 @@ test('all-channel product shares one SKU stock across farmhouse, ordering and us
       formal: catalog.products?.some((item: { name: string }) => item.name === name) || false
     }
   }, productName)).toEqual({ pending: true, formal: false })
-  const reviewChannel = page.locator('.data-panel > .searchable-select')
+  const reviewChannel = page.locator('.goods-tools .searchable-select').first()
   await reviewChannel.locator('.searchable-select__trigger').click()
   await page.getByRole('option', { name: '待审核', exact: true }).click()
   const createdSubmission = page.locator('.product-submission-card').filter({ hasText: productName })
   await createdSubmission.locator('.row-actions uni-button').filter({ hasText: '通过' }).click()
   await reviewChannel.locator('.searchable-select__trigger').click()
   await page.getByRole('option', { name: '正式商品', exact: true }).click()
-  await page.locator('.goods-tools .search-box input').fill(productName)
+  await page.locator('.goods-tools .filter-control input').fill(productName)
   const createdFormalProduct = page.locator('.unified-product-grid').filter({ hasText: productName })
   await expect(createdFormalProduct).toContainText('已下架')
   await createdFormalProduct.locator('.row-actions uni-button').filter({ hasText: '上架' }).click()
@@ -1142,7 +1142,7 @@ test('admin supplier certification, cooperation and account freeze form a cross-
 
   await page.goto('/admin/')
   await page.locator('.nav-item').filter({ hasText: '供应商管理' }).click()
-  await page.locator('.module-search .search-box input').fill(supplierName)
+  await page.locator('.filter-bar .filter-control input').fill(supplierName)
   const updatedRow = page.locator('.supplier-grid').filter({ hasText: supplierName })
   await updatedRow.locator('.row-actions uni-button').filter({ hasText: '账号信息' }).click()
   const accountPage = page.locator('.work-page')
@@ -1164,7 +1164,7 @@ test('admin supplier certification, cooperation and account freeze form a cross-
 
   await page.goto('/admin/')
   await page.locator('.nav-item').filter({ hasText: '供应商管理' }).click()
-  await page.locator('.module-search .search-box input').fill(supplierName)
+  await page.locator('.filter-bar .filter-control input').fill(supplierName)
   const statusRow = page.locator('.supplier-grid').filter({ hasText: supplierName })
   await statusRow.locator('.row-actions uni-button').filter({ hasText: '暂停合作' }).click()
   const pauseDialog = page.getByRole('dialog')
@@ -1192,7 +1192,7 @@ test('admin supplier certification, cooperation and account freeze form a cross-
 
   await page.goto('/admin/')
   await page.locator('.nav-item').filter({ hasText: '供应商管理' }).click()
-  await page.locator('.module-search .search-box input').fill(supplierName)
+  await page.locator('.filter-bar .filter-control input').fill(supplierName)
   const freezeRow = page.locator('.supplier-grid').filter({ hasText: supplierName })
   await freezeRow.locator('.row-actions uni-button').filter({ hasText: '账号信息' }).click()
   const freezePage = page.locator('.work-page')
@@ -1216,7 +1216,7 @@ test('admin supplier certification, cooperation and account freeze form a cross-
 
   await page.goto('/admin/')
   await page.locator('.nav-item').filter({ hasText: '供应商管理' }).click()
-  await page.locator('.module-search .search-box input').fill(supplierName)
+  await page.locator('.filter-bar .filter-control input').fill(supplierName)
   const recoveryRow = page.locator('.supplier-grid').filter({ hasText: supplierName })
   await recoveryRow.locator('.row-actions uni-button').filter({ hasText: '账号信息' }).click()
   const recoveryPage = page.locator('.work-page')
@@ -1229,7 +1229,7 @@ test('admin supplier certification, cooperation and account freeze form a cross-
     const accounts = JSON.parse(localStorage.getItem('agritainment-platform-supplier-accounts') || '[]') as Array<{ account: string; enabled: boolean }>
     return accounts.find((item) => item.account === account)?.enabled
   }, nextAccount)).toBe(true)
-  await page.locator('.module-search .search-box input').fill(supplierName)
+  await page.locator('.filter-bar .filter-control input').fill(supplierName)
   await page.locator('.supplier-grid').filter({ hasText: supplierName }).locator('.row-actions uni-button').filter({ hasText: '恢复合作' }).click()
 
   await page.goto('/supplier/')
@@ -1238,9 +1238,9 @@ test('admin supplier certification, cooperation and account freeze form a cross-
 
   await page.goto('/admin/')
   await page.locator('.nav-item').filter({ hasText: '操作日志' }).click()
-  await page.locator('.module-search input').fill('supplier.account.freeze')
+  await page.locator('.filter-bar .filter-control input').fill('supplier.account.freeze')
   await expect(page.locator('.audit-grid').filter({ hasText: 'supplier.account.freeze' })).toHaveCount(1)
-  await page.locator('.module-search input').fill('supplier.pause')
+  await page.locator('.filter-bar .filter-control input').fill('supplier.pause')
   await expect(page.locator('.audit-grid').filter({ hasText: 'supplier.pause' })).toHaveCount(1)
   await assertNoPageOverflow(page)
   monitor.assertClean()

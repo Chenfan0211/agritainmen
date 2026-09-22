@@ -84,7 +84,12 @@ describe('promoter account isolation', () => {
     expect(store.promoter?.id).toBe('T002')
     expect(store.myLives.map((item) => item.id)).toContain('LIVE-T002')
     expect(store.myLives.map((item) => item.id)).not.toContain('LIVE-T001')
-    expect(store.myBoundUsers.map((item) => item.userId)).toEqual(['U-T002'])
+    // seedPlatformDemoData() 会注入 T002 的演示绑定（U9011/U9012），因此不锁条数，改锁隔离语义：
+    // 自己写入的必须在，且所有结果都归属 T002，不得出现 T001 的用户。
+    const boundUsers = store.myBoundUsers
+    expect(boundUsers.map((item) => item.userId)).toContain('U-T002')
+    expect(boundUsers.every((item) => item.promoterId === 'T002')).toBe(true)
+    expect(boundUsers.map((item) => item.userId)).not.toContain('U-T001')
   })
 
   it('rejects unknown credentials instead of accepting any phone', () => {

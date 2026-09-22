@@ -8,11 +8,13 @@ import { BusinessImage, ImageUploader, UI_TYPOGRAPHY, designTokens, getMediaRunt
 import UiIcon from '../../components/UiIcon.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
 import SearchableSelect from '../../components/SearchableSelect.vue'
+import DatePicker from '../../components/DatePicker.vue'
 import type { SearchableSelectOption } from '../../components/searchable-select'
 import {
   accountPromotionOptions,
   accountRoleOptions,
   afterSaleTypeOptions,
+  afterStatusFilterOptions,
   afterTypeFilterOptions,
   catalogChannelFilterOptions,
   catalogProductSourceOptions,
@@ -29,6 +31,7 @@ import {
   orderStatusOptions,
   policyTypeOptions,
   productStatusOptions,
+  promoterSettleFilterOptions,
   supplierStatusOptions,
   supplierTypeOptions,
   trendRangeOptions
@@ -45,7 +48,7 @@ const adminPermissionGroups = ADMIN_PERMISSION_GROUPS
 const active = ref<ModuleKey>('dashboard')
 const keyword = ref('')
 const page = ref(1)
-const pageSize = 20
+const pageSize = 10
 const dialog = ref<'supplier' | 'supplier-edit' | 'supplier-pause' | 'recovery-verify' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'route' | 'route-edit' | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'withdrawal-reject' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
 type WorkPage = { type: 'supplier' | 'supplier-account' | 'role' | 'admin-account'; mode: 'create' | 'edit'; id?: string }
 const workPage = ref<WorkPage | null>(null)
@@ -130,13 +133,17 @@ const bookingStatusOptions: SearchableSelectOption[] = [
   { value: '全部', label: '全部状态' }, { value: 'submitted', label: '待确认' }, { value: 'confirmed', label: '已确认' }, { value: 'completed', label: '已完成' }, { value: 'cancelled', label: '已取消' }
 ]
 const afterKeyword = ref('')
+const settlementKeyword = ref('')
+const settlementSupplierFilter = ref('')
 const afterTypeFilter = ref('全部')
+const afterStatusFilter = ref('全部')
 const farmKeyword = ref('')
 const farmStatusFilter = ref('全部门店')
 const farmCityFilter = ref('全部城市')
 const promoterKeyword = ref('')
 const promoterTypeFilter = ref('全部')
 const promoterLevelFilter = ref('全部')
+const promoterSettleFilter = ref('全部')
 const commissionTab = ref('佣金结算')
 const commissionTabOptions: { label: string; value: string }[] = ['佣金结算', '提现审核', '供应商结算', '佣金规则', '消费分成'].map((v) => ({ label: v, value: v }))
 const commissionKeyword = ref('')
@@ -155,8 +162,20 @@ const categoryKeyword = ref('')
 const categoryTypeFilter = ref('全部')
 const dictTypeTab = ref<string>('productCategory')
 const dictKeyword = ref('')
+const dictStatusFilter = ref('全部')
 const farmTab = ref('门店列表')
 const farmAccountFilter = ref('全部')
+const storeAccountKeyword = ref('')
+const storeAccountStatusFilter = ref('全部')
+const roleKeyword = ref('')
+const roleStatusFilter = ref('全部')
+const roleStatusOptions: SearchableSelectOption[] = [{ label: '全部', value: '全部' }, { label: '启用', value: '启用' }, { label: '停用', value: '停用' }]
+const accountKeyword = ref('')
+const accountRoleFilter = ref('全部')
+const accountStatusFilter = ref('全部')
+const accountStatusOptions: SearchableSelectOption[] = [{ label: '全部', value: '全部' }, { label: '启用', value: '启用' }, { label: '停用', value: '停用' }]
+const policyKeyword = ref('')
+const logResultOptions: SearchableSelectOption[] = [{ label: '全部', value: 'all' }, { label: '成功', value: 'success' }, { label: '失败', value: 'failure' }]
 const afterReasonFilter = ref('全部')
 const productKeyword = ref('')
 const productSupplierFilter = ref('')
@@ -327,7 +346,26 @@ function completeBooking(item: typeof store.bookings[number]) {
 function cancelBooking(item: typeof store.bookings[number]) {
   confirmAction(`确认取消 ${item.farmName} 的该笔预约？`, () => runOperation(`booking-${item.id}`, () => store.cancelBooking(item.id, item.farmId), '预约已取消'))
 }
-const filteredPolicies = computed(() => store.policies.filter((item) => `${item.name}${item.scope}${item.type}`.includes(keyword.value)))
+const filteredPolicies = computed(() => store.policies.filter((item) => {
+  const matchesGlobal = `${item.name}${item.scope}${item.type}`.includes(keyword.value)
+  const q = policyKeyword.value.trim().toLowerCase()
+  const matchesKeyword = !q || `${item.name}${item.scope}${item.type}`.toLowerCase().includes(q)
+  return matchesGlobal && matchesKeyword
+}))
+const filteredRoles = computed(() => store.adminRoles.filter((item) => {
+  const q = roleKeyword.value.trim().toLowerCase()
+  const matchesKeyword = !q || `${item.name}${item.code}`.toLowerCase().includes(q)
+  const matchesStatus = roleStatusFilter.value === '全部' || (roleStatusFilter.value === '启用' ? item.enabled : !item.enabled)
+  return matchesKeyword && matchesStatus
+}))
+const filteredAdminAccounts = computed(() => store.adminAccounts.filter((item) => {
+  const q = accountKeyword.value.trim().toLowerCase()
+  const matchesKeyword = !q || `${item.account}${item.name}`.toLowerCase().includes(q)
+  const matchesRole = accountRoleFilter.value === '全部' || item.roleId === accountRoleFilter.value
+  const matchesStatus = accountStatusFilter.value === '全部' || (accountStatusFilter.value === '启用' ? item.enabled : !item.enabled)
+  return matchesKeyword && matchesRole && matchesStatus
+}))
+const accountRoleFilterOptions = computed<SearchableSelectOption[]>(() => [{ value: '全部', label: '全部角色' }, ...store.adminRoles.map((role) => ({ value: role.id, label: role.name }))])
 const dictionaryState = computed<PlatformDictionaryState>(() => ({
   schemaVersion: 2,
   revision: store.dictionaryRevision,
@@ -342,7 +380,8 @@ const filteredAfterSales = computed(() => store.afterSales.filter((item) => {
   const matchesKeyword = !q || `${item.id}${item.orderId}${item.productName}${item.applicant}`.toLowerCase().includes(q)
   const matchesType = afterTypeFilter.value === '全部' || item.type === afterTypeFilter.value
   const matchesReason = afterReasonFilter.value === '全部' || (item.issue || '').includes(afterReasonFilter.value)
-  return matchesGlobal && matchesKeyword && matchesType && matchesReason && matchesActiveTodo('afterSales', item)
+  const matchesStatus = afterStatusFilter.value === '全部' || item.status === afterStatusFilter.value
+  return matchesGlobal && matchesKeyword && matchesType && matchesReason && matchesStatus && matchesActiveTodo('afterSales', item)
 }))
 const afterReasonOptions = computed(() => dictionaryItems('afterSaleReason').map((item) => item.label))
 const filteredFarms = computed(() => store.farms.filter((item) => {
@@ -361,7 +400,8 @@ const filteredPromoters = computed(() => store.promoters.filter((item) => {
   const matchesKeyword = !q || item.name.toLowerCase().includes(q)
   const matchesType = promoterTypeFilter.value === '全部' || item.type === promoterTypeFilter.value
   const matchesLevel = promoterLevelFilter.value === '全部' || item.level === promoterLevelFilter.value
-  return matchesGlobal && matchesKeyword && matchesType && matchesLevel
+  const matchesSettle = promoterSettleFilter.value === '全部' || (promoterSettleFilter.value === '已结算') === !!item.settled
+  return matchesGlobal && matchesKeyword && matchesType && matchesLevel && matchesSettle
 }))
 const visiblePromoters = computed(() => {
   const list = promoterRankTab.value === '主播排行' ? filteredPromoters.value.filter((item) => item.type === '主播' || item.type === '达人') : filteredPromoters.value
@@ -413,7 +453,13 @@ const reportRows = computed(() => reportFilterError.value ? [] : aggregateOperat
 const reportSummary = computed(() => reportFilterError.value ? { orderCount: 0, itemCount: 0, gmv: 0 } : summarizeOperationalReport(store.orders, store.products, reportFilter.value))
 const pagedAfterSales = computed(() => filteredAfterSales.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const pagedFarms = computed(() => filteredFarms.value.slice((page.value - 1) * pageSize, page.value * pageSize))
-const filteredStoreAccounts = computed(() => store.storeAccounts.filter((item) => farmAccountFilter.value === '全部' || item.farmId === farmAccountFilter.value))
+const filteredStoreAccounts = computed(() => store.storeAccounts.filter((item) => {
+  const matchesFarm = farmAccountFilter.value === '全部' || item.farmId === farmAccountFilter.value
+  const q = storeAccountKeyword.value.trim().toLowerCase()
+  const matchesKeyword = !q || `${item.name}${item.account}`.toLowerCase().includes(q)
+  const matchesStatus = storeAccountStatusFilter.value === '全部' || (storeAccountStatusFilter.value === '启用' ? item.enabled : !item.enabled)
+  return matchesFarm && matchesKeyword && matchesStatus
+}))
 const pagedStoreAccounts = computed(() => filteredStoreAccounts.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const pagedPromoters = computed(() => visiblePromoters.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const pagedPolicies = computed(() => filteredPolicies.value.slice((page.value - 1) * pageSize, page.value * pageSize))
@@ -425,7 +471,20 @@ const settlementRecords = computed(() => [
   ...store.supplierSettlementRecords.map((r) => ({ ...r, kind: 'supplier' as const })),
   ...store.commissionSettlementRecords.map((r) => ({ ...r, kind: 'commission' as const })),
 ])
-const pagedSettlementRecords = computed(() => settlementRecords.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+const filteredSettlementRecords = computed(() => {
+  const q = settlementKeyword.value.trim().toLowerCase()
+  const supplierId = settlementSupplierFilter.value
+  return settlementRecords.value.filter((record) => {
+    const orders = [
+      ...(record.kind === 'supplier' ? record.orderIds : []),
+      ...record.items.flatMap((item) => 'orderIds' in item ? item.orderIds : [])
+    ]
+    const matchesOrder = !q || orders.some((id) => id.toLowerCase().includes(q))
+    const matchesSupplier = !supplierId || record.items.some((item) => 'supplierId' in item && item.supplierId === supplierId)
+    return matchesOrder && matchesSupplier
+  })
+})
+const pagedSettlementRecords = computed(() => filteredSettlementRecords.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const filteredCommissionRecords = computed(() => {
   const q = commissionKeyword.value.trim().toLowerCase()
   return store.commissionSettlementRecords.filter((record) => {
@@ -579,7 +638,12 @@ const activeDictGroup = computed(() => store.dictGroups.find((group) => group.ty
 const activeDictionaryPermissions = computed(() => dictionaryUiPermissions(activeDictGroup.value))
 const filteredDictItems = computed(() => {
   const q = dictKeyword.value.trim().toLowerCase()
-  return store.dictItems.filter((item) => item.type === dictTypeTab.value && (!q || `${item.code}${item.label}`.toLowerCase().includes(q)))
+  return store.dictItems.filter((item) => {
+    const matchesType = item.type === dictTypeTab.value
+    const matchesKeyword = !q || `${item.code}${item.label}`.toLowerCase().includes(q)
+    const matchesStatus = dictStatusFilter.value === '全部' || (dictStatusFilter.value === '启用' ? item.enabled : !item.enabled)
+    return matchesType && matchesKeyword && matchesStatus
+  })
 })
 const pagedDictItems = computed(() => filteredDictItems.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const supplierStatCounts = computed(() => ({
@@ -637,9 +701,21 @@ function resetFiltersForModule(route: ModuleKey) {
   }
   if (route === 'afterSales') {
     afterKeyword.value = ''
+    settlementKeyword.value = ''
+    settlementSupplierFilter.value = ''
     afterTypeFilter.value = '全部'
+    afterStatusFilter.value = '全部'
     afterReasonFilter.value = '全部'
     afterTab.value = '售后工单'
+  }
+  if (route === 'farms') {
+    storeAccountStatusFilter.value = '全部'
+  }
+  if (route === 'promoters') {
+    promoterSettleFilter.value = '全部'
+  }
+  if (route === 'dict') {
+    dictStatusFilter.value = '全部'
   }
   if (route === 'commissions') {
     commissionTab.value = '佣金结算'
@@ -1038,7 +1114,7 @@ function orderTotalQty(order: Order) {
 }
 
 function orderFulfillmentText(status: OrderStatus) {
-  return ({ pending: '待发货', shipping: '已发货', delivered: '已完成', 'after-sale': '已完成', 'paid-cancelled': '已支付取消', 'unpaid-cancelled': '未支付取消' } as Record<OrderStatus, string>)[status]
+  return ({ 'pending-payment': '待付款', pending: '待发货', shipping: '已发货', delivered: '已完成', 'after-sale': '已完成', 'paid-cancelled': '已支付取消', 'unpaid-cancelled': '未支付取消' } as Record<OrderStatus, string>)[status]
 }
 
 function orderFlow(order: Order): OrderFlowEvent[] {
@@ -1340,30 +1416,6 @@ function openPromoterEdit(promoter: Promoter) {
     promoterStatus: promoter.status
   })
   dialog.value = 'promoter-edit'
-}
-
-function onValidUntilChange(event: { detail: { value: string } }) {
-  form.value.validUntil = event.detail.value
-}
-
-function onReportFromChange(event: { detail: { value: string } }) {
-  reportFrom.value = event.detail.value
-}
-
-function onReportToChange(event: { detail: { value: string } }) {
-  reportTo.value = event.detail.value
-}
-
-function onBookingDateChange(event: { detail: { value: string } }) {
-  bookingDateFilter.value = event.detail.value
-}
-
-function onLogFromChange(event: { detail: { value: string } }) {
-  logFrom.value = event.detail.value
-}
-
-function onLogToChange(event: { detail: { value: string } }) {
-  logTo.value = event.detail.value
 }
 
 function previewImage(src: string) {
@@ -1899,7 +1951,7 @@ watch([trendRange, period], async () => { if (active.value === 'dashboard') { aw
 watch([() => store.loading, () => store.auth.isLoggedIn], async () => { if (!store.loading && store.auth.isLoggedIn) { await nextTick(); renderCharts() } })
 watch(keyword, () => { page.value = 1 })
 watch([productKeyword, productSupplierFilter, productSourceFilter, productCategoryFilter, productStatusFilter, productChannelFilter, productReviewFilter], () => { page.value = 1 })
-watch([supplierKeyword, supplierStatusFilter, supplierCategoryFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, afterTypeFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, promoterLevelFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, supplierSettleSupplierFilter, ruleKeyword, dictKeyword, farmAccountFilter, afterReasonFilter, withdrawalKeyword, withdrawalStatusFilter, routeSearch, routeCityFilter], () => { page.value = 1; commissionHistoryPage.value = 1 })
+watch([supplierKeyword, supplierStatusFilter, supplierCategoryFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, settlementKeyword, settlementSupplierFilter, afterTypeFilter, afterStatusFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, promoterLevelFilter, promoterSettleFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, supplierSettleSupplierFilter, ruleKeyword, dictKeyword, dictStatusFilter, farmAccountFilter, storeAccountKeyword, storeAccountStatusFilter, afterReasonFilter, withdrawalKeyword, withdrawalStatusFilter, routeSearch, routeCityFilter, roleKeyword, roleStatusFilter, accountKeyword, accountRoleFilter, accountStatusFilter, policyKeyword, logResult], () => { page.value = 1; commissionHistoryPage.value = 1 })
 watch(orderStatusFilter, () => { page.value = 1 })
 const loginAccount = ref('admin')
 const loginPassword = ref('123456')
@@ -1994,7 +2046,7 @@ onBeforeUnmount(() => {
       <header class="topbar">
         <view class="crumb">中选科技供应链中台 / <strong>{{ titles[active].title }}</strong></view>
         <view class="top-actions">
-          <label class="search-box"><UiIcon name="search" :size="17" /><input v-model="keyword" placeholder="搜索商品 / 供应商 / 订单号" /></label>
+          <view class="filter-control topbar-search"><UiIcon name="search" :size="17" /><input v-model="keyword" placeholder="搜索商品 / 供应商 / 订单号" /></view>
           <button class="period-button" :class="{ on: period === '本月' }" @click="switchPeriod(period === '本月' ? '本周' : '本月')"><UiIcon name="calendar-days" :size="15" />{{ period }}</button>
           <button class="icon-button" aria-label="打开待办提醒" title="待办提醒" @click="openDetail('todos')"><UiIcon name="bell" :size="19" /><span v-if="!store.notificationsRead && store.pendingTodos" class="notice-dot"></span></button>
           <view class="operator">
@@ -2010,36 +2062,46 @@ onBeforeUnmount(() => {
           <section class="work-page">
             <view class="work-page-head"><button class="page-back" aria-label="返回" @click="closeOverlay"><UiIcon name="arrow-left" :size="16" /></button><view><h1>{{ workPage.type === 'supplier' ? (workPage.mode === 'create' ? '邀请供应商' : '修改供应商资料') : workPage.type === 'supplier-account' ? '供应商账号信息' : workPage.type === 'role' ? (workPage.mode === 'create' ? '新增角色' : '修改角色') : (workPage.mode === 'create' ? '新增后台账号' : '修改后台账号') }}</h1><p>保存后立即写入共享演示数据并记录操作日志</p></view></view>
             <view v-if="workPage?.type === 'supplier'" class="work-form-grid">
+              <view class="form-card"><view class="form-card-title">基础信息</view><view class="form-card-grid">
               <label class="field"><text>供应商名称</text><input v-model="form.name" placeholder="请输入供应商名称" /></label>
               <view class="field"><text>供应商类型</text><SearchableSelect v-model="form.coop" :options="supplierTypeOptions" /></view>
               <view class="field"><text>主营品类</text><SearchableSelect v-model="form.category" :options="supplierCategoryOptions" /></view>
               <label class="field"><text>所在区域</text><input v-model="form.region" placeholder="如 怀化靖州" /></label>
               <label class="field"><text>联系人手机</text><input v-model="form.contactPhone" maxlength="11" placeholder="认证后作为初始账号和密码" /></label>
               <label class="field"><text>账号创建规则</text><input :value="workPage.mode === 'create' ? '认证通过后自动创建' : (store.supplierAccounts.some(item => item.supplierId === form.id) ? '已创建，请到账号信息修改' : '尚未认证，不创建账号')" disabled /></label>
+              </view></view>
+              <view class="form-card"><view class="form-card-title">资质与账号</view><view class="form-card-grid">
               <label class="field"><text>营业执照编号</text><input v-model="form.businessLicenseNumber" /></label>
               <view class="field"><text>营业执照图片</text><ImageUploader v-model="form.businessLicense" purpose="supplier-business-license" profile="license" @error="showToast" /></view>
               <label class="field"><text>生产 / 经营许可编号</text><input v-model="form.permitNumber" /></label>
               <view class="field"><text>生产 / 经营许可图片</text><ImageUploader v-model="form.permit" purpose="supplier-permit" profile="license" @error="showToast" /></view>
-              <view class="field"><text>证照有效期</text><picker mode="date" :value="form.validUntil" @change="onValidUntilChange"><view class="picker-field" :class="{ placeholder: !form.validUntil }">{{ form.validUntil || '请选择日期' }}</view></picker></view>
+              <view class="field"><text>证照有效期</text><DatePicker v-model="form.validUntil" placeholder="请选择日期" /></view>
+              </view></view>
             </view>
             <view v-else-if="workPage?.type === 'supplier-account'" class="work-form-grid">
+              <view class="form-card"><view class="form-card-title">账号信息</view><view class="form-card-grid">
               <label class="field"><text>登录账号</text><input v-model="supplierAccountForm.account" maxlength="11" :disabled="!store.can('supplier.account.update')" /></label>
               <label class="field"><text>新密码</text><input v-model="supplierAccountForm.password" type="password" :disabled="!store.can('supplier.account.update')" placeholder="留空保留当前密码" /></label>
               <view class="field"><text>账号状态</text><SearchableSelect v-model="supplierAccountForm.enabled" :options="enabledOptions" :disabled="!store.can('supplier.account.freeze')" /></view>
               <label v-if="!supplierAccountForm.enabled" class="field full"><text>冻结原因</text><input v-model="supplierAccountForm.freezeReason" placeholder="冻结后供应商及旗下司机均无法登录" /></label>
+              </view></view>
             </view>
             <view v-else-if="workPage?.type === 'role'" class="work-form-grid">
+              <view class="form-card"><view class="form-card-title">角色信息</view><view class="form-card-grid">
               <label class="field"><text>角色编码</text><input v-model="roleForm.code" :disabled="workPage.mode === 'edit'" placeholder="如 regional_operator" /></label>
               <label class="field"><text>角色名称</text><input v-model="roleForm.name" /></label>
+              </view></view>
               <view class="permission-section full"><h3>菜单权限</h3><view class="permission-grid"><button v-for="menu in ALL_ADMIN_MENU_KEYS" :key="menu" type="button" :class="{ selected: roleForm.menuPermissions.includes(menu) }" @click="toggleRoleMenu(menu)">{{ adminMenuLabels[menu] }}</button></view></view>
               <view class="permission-section full"><h3>按钮权限</h3><view class="permission-groups"><section v-for="group in adminPermissionGroups" :key="group.key" class="permission-group" :class="{ disabled: !roleForm.menuPermissions.includes(group.key) }"><view class="permission-group-head"><strong>{{ group.label }}</strong><view><button type="button" :disabled="!roleForm.menuPermissions.includes(group.key)" @click="setRoleActionGroup(group, true)">全选</button><button type="button" @click="setRoleActionGroup(group, false)">清空</button></view></view><view class="permission-grid actions"><button v-for="permission in group.permissions" :key="permission.code" type="button" :disabled="!roleForm.menuPermissions.includes(group.key)" :class="{ selected: roleForm.actionPermissions.includes(permission.code) }" @click="toggleRoleAction(permission.code)">{{ permission.label }}</button></view></section></view></view>
             </view>
             <view v-else-if="workPage?.type === 'admin-account'" class="work-form-grid">
+              <view class="form-card"><view class="form-card-title">账号信息</view><view class="form-card-grid">
               <label class="field"><text>登录账号</text><input v-model="adminAccountForm.account" /></label>
               <label class="field"><text>姓名</text><input v-model="adminAccountForm.name" /></label>
               <label class="field"><text>{{ workPage.mode === 'create' ? '初始密码' : '新密码' }}</text><input v-model="adminAccountForm.password" type="password" :placeholder="workPage.mode === 'edit' ? '留空保留当前密码' : '请输入6-20位密码'" /></label>
               <view class="field"><text>角色</text><SearchableSelect v-model="adminAccountForm.roleId" :options="adminRoleOptions" /></view>
               <label v-if="workPage.mode === 'edit'" class="field"><text>账号状态</text><input :value="adminAccountForm.enabled ? '启用（请在账号列表单独变更）' : '停用（请在账号列表单独变更）'" disabled /></label>
+              </view></view>
             </view>
             <view class="work-page-actions"><button class="button secondary" @click="closeOverlay">取消</button><button v-if="workPage.type === 'supplier'" class="button primary" :disabled="busy" @click="saveDialog">{{ busy ? '保存中...' : '保存供应商' }}</button><button v-else-if="workPage.type === 'supplier-account'" class="button primary" @click="saveSupplierAccount">保存账号</button><button v-else-if="workPage.type === 'role'" class="button primary" @click="saveRole">保存角色</button><button v-else class="button primary" @click="saveAdminAccount">保存账号</button></view>
           </section>
@@ -2086,6 +2148,7 @@ onBeforeUnmount(() => {
               <view v-for="product in metrics.hotProducts" :key="product.name" class="rank-row">
                 <BusinessImage class="hot-thumb" :src="product.image" mode="aspectFit" /><view><strong>{{ product.name }}</strong><small>供应商：{{ product.supplier }}</small></view><view class="hot-right"><b>{{ money(product.amount) }}</b><small>{{ product.units }} 件</small></view>
               </view>
+              <view v-if="!metrics.hotProducts.length" class="empty-state">本月暂无动销数据</view>
             </section>
             <section class="panel"><view class="panel-head"><h2>待办事项</h2><text>{{ store.pendingTodos }} 项待处理</text></view>
               <button v-for="todo in adminTodos" :key="todo.id" class="todo-row" @click="openTodo(todo)"><span class="todo-emoji"><UiIcon name="bell-ring" :size="18" /></span><view><strong>{{ todo.title }}</strong><small>{{ todo.count }} 项 · {{ todo.objectIds?.[0] }}</small></view><span class="todo-pill" :class="{ no: todo.priority === 'high', wait: todo.priority === 'medium' }">{{ todo.priority === 'high' ? '紧急' : todo.priority === 'medium' ? '待处理' : '提醒' }}</span></button>
@@ -2096,8 +2159,8 @@ onBeforeUnmount(() => {
 
         <section v-else-if="active === 'reports'" class="data-panel report-panel">
           <view class="report-filters">
-            <label class="field"><text>开始日期</text><picker mode="date" :value="reportFrom" @change="onReportFromChange"><view class="picker-field">{{ reportFrom }}</view></picker></label>
-            <label class="field"><text>结束日期</text><picker mode="date" :value="reportTo" @change="onReportToChange"><view class="picker-field">{{ reportTo }}</view></picker></label>
+            <view class="field"><text>开始日期</text><DatePicker v-model="reportFrom" /></view>
+            <view class="field"><text>结束日期</text><DatePicker v-model="reportTo" /></view>
             <view class="field"><text>门店</text><SearchableSelect v-model="reportStoreFilter" :options="reportStoreOptions" search-placeholder="筛选门店" /></view>
             <view class="field"><text>供应商</text><SearchableSelect v-model="reportSupplierFilter" :options="reportSupplierOptions" search-placeholder="筛选供应商" /></view>
             <view class="field"><text>品类</text><SearchableSelect v-model="reportCategoryFilter" :options="reportCategoryOptions" search-placeholder="筛选品类" /></view>
@@ -2113,10 +2176,10 @@ onBeforeUnmount(() => {
 
         <section v-else-if="active === 'bookings'" class="data-panel booking-panel">
           <view class="booking-filters">
-            <label class="field"><text>预约日期</text><picker mode="date" :value="bookingDateFilter" @change="onBookingDateChange"><view class="picker-field" :class="{ placeholder: !bookingDateFilter }">{{ bookingDateFilter || '请选择日期' }}</view></picker></label>
+            <view class="field"><text>预约日期</text><DatePicker v-model="bookingDateFilter" placeholder="请选择日期" /></view>
             <view class="field"><text>门店</text><SearchableSelect v-model="bookingFarmFilter" :options="bookingFarmOptions" search-placeholder="筛选门店" /></view>
             <view class="field"><text>状态</text><SearchableSelect v-model="bookingStatusFilter" :options="bookingStatusOptions" search-placeholder="筛选状态" /></view>
-            <label class="field"><text>用户</text><input v-model="bookingUserFilter" placeholder="搜索用户 ID" /></label>
+            <label class="field"><text>用户</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="bookingUserFilter" placeholder="请输入用户 ID" /></view></label>
             <button v-if="bookingDateFilter || bookingFarmFilter || bookingStatusFilter !== '全部' || bookingUserFilter || bookingObjectIds.length" class="button secondary" @click="activeTodoFilter = null; bookingDateFilter = ''; bookingFarmFilter = ''; bookingStatusFilter = '全部'; bookingUserFilter = ''; bookingObjectIds = []">清除筛选</button>
           </view>
           <view class="booking-table-scroll">
@@ -2147,7 +2210,7 @@ onBeforeUnmount(() => {
             <view><small>待审核资质</small><strong>{{ supplierStatCounts.pending }} 家</strong><span>需在 48h 内处理</span></view>
             <view><small>供销社渠道</small><strong>{{ supplierStatCounts.coop }} 家</strong></view>
           </view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierKeyword" placeholder="搜索供应商名称" /></label><SearchableSelect v-model="supplierStatusFilter" :options="supplierStatusOptions" class="is-wide" search-placeholder="搜索供应商状态" /><SearchableSelect v-model="supplierCategoryFilter" :options="supplierCategoryFilterOptions" class="is-wide" search-placeholder="搜索供应商品类" /></view>
+          <view class="module-toolbar"><view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="supplierKeyword" placeholder="请输入供应商名称" /></view></label><view class="field"><text>状态</text><SearchableSelect v-model="supplierStatusFilter" :options="supplierStatusOptions" class="is-wide" search-placeholder="搜索供应商状态" placeholder="请选择状态" /></view><view class="field"><text>品类</text><SearchableSelect v-model="supplierCategoryFilter" :options="supplierCategoryFilterOptions" class="is-wide" search-placeholder="搜索供应商品类" placeholder="请选择品类" /></view></view><text class="toolbar-count">共 {{ filteredSuppliers.length }} 家</text></view>
           <view class="supplier-table-scroll">
           <view class="table-row table-head supplier-grid"><text>供应商</text><text>主营品类</text><text>商品数</text><text>资质与状态</text><text>操作</text></view>
           <view v-for="item in pagedSuppliers" :key="item.id" class="table-row supplier-grid">
@@ -2161,7 +2224,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'categories'" class="data-panel">
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="categoryKeyword" placeholder="搜索品类名称" /></label><SearchableSelect v-model="categoryTypeFilter" :options="categoryTypeFilterOptions" search-placeholder="搜索品类类型" /></view>
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="categoryKeyword" placeholder="请输入品类名称" /></view></label><view class="field"><text>类型</text><SearchableSelect v-model="categoryTypeFilter" :options="categoryTypeFilterOptions" search-placeholder="搜索品类类型" placeholder="请选择类型" /></view></view>
           <view class="table-row table-head category-grid"><text>品类名称</text><text>类型</text><text>使用数量</text><text>操作</text></view>
           <view v-for="item in pagedCategories" :key="item.id" class="table-row category-grid">
             <strong class="category-label"><BusinessImage v-if="item.type === 'product'" class="category-thumb" :src="productCategoryImage(item.name, dictionaryState)" :fallback="defaultProductCategoryImage(item.name)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="item.name">{{ item.name }}</text></strong>
@@ -2173,7 +2236,7 @@ onBeforeUnmount(() => {
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredCategories.length" @change="page = $event" />
         </section>
         <section v-else-if="active === 'routes'" class="data-panel">
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="15" /><input v-model="routeSearch" placeholder="搜索线路名称" /></label><SearchableSelect v-model="routeCityFilter" :options="routeCityFilterOptions" search-placeholder="搜索城市" /></view>
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="15" /><input v-model="routeSearch" placeholder="请输入线路名称" /></view></label><view class="field"><text>城市</text><SearchableSelect v-model="routeCityFilter" :options="routeCityFilterOptions" search-placeholder="搜索城市" placeholder="请选择城市" /></view></view>
           <view class="table-row table-head route-grid"><text>线路</text><text>城市</text><text>参考价</text><text>描述</text><text>操作</text></view>
           <view v-for="item in filteredRoutes" :key="item.id" class="table-row route-grid">
             <view class="route-cell"><BusinessImage class="route-thumb" :src="item.image" mode="aspectFill" /><strong>{{ item.name }}</strong></view>
@@ -2186,7 +2249,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="active === 'products'" class="data-panel">
-          <view class="goods-tools"><view class="module-search"><SearchableSelect v-model="productReviewFilter" :options="productReviewOptions" class="is-wide" search-placeholder="搜索商品审核状态" /><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="搜索商品名称" /></label><SearchableSelect v-model="productSupplierFilter" :options="productSupplierFilterOptions" class="is-wide" search-placeholder="搜索供应商" /><SearchableSelect v-model="productChannelFilter" :options="catalogChannelFilterOptions" search-placeholder="搜索商品渠道" /><SearchableSelect v-model="productCategoryFilter" :options="productCategoryFilterOptions" search-placeholder="搜索商品品类" /><SearchableSelect v-model="productStatusFilter" :options="productStatusOptions" search-placeholder="搜索商品状态" /></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
+          <view class="goods-tools"><view class="filter-bar"><view class="field"><text>审核状态</text><SearchableSelect v-model="productReviewFilter" :options="productReviewOptions" class="is-wide" search-placeholder="搜索商品审核状态" placeholder="请选择审核状态" /></view><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="请输入商品名称" /></view></label><view class="field"><text>供应商</text><SearchableSelect v-model="productSupplierFilter" :options="productSupplierFilterOptions" class="is-wide" search-placeholder="搜索供应商" placeholder="请选择供应商" /></view><view class="field"><text>渠道</text><SearchableSelect v-model="productChannelFilter" :options="catalogChannelFilterOptions" search-placeholder="搜索商品渠道" placeholder="请选择渠道" /></view><view class="field"><text>品类</text><SearchableSelect v-model="productCategoryFilter" :options="productCategoryFilterOptions" search-placeholder="搜索商品品类" placeholder="请选择品类" /></view><view class="field"><text>状态</text><SearchableSelect v-model="productStatusFilter" :options="productStatusOptions" search-placeholder="搜索商品状态" placeholder="请选择状态" /></view></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
           <view v-if="productReviewFilter === '正式商品'" class="product-table-scroll">
           <view class="table-row table-head unified-product-grid"><text>商品</text><text>渠道</text><text>品类</text><text>价格</text><text>库存</text><text>状态</text><text>操作</text></view>
           <view v-for="product in pagedUnifiedProductRows" :key="product.id" class="table-row unified-product-grid">
@@ -2216,9 +2279,10 @@ onBeforeUnmount(() => {
             </view>
             <view v-if="!visibleProductSubmissions.length" class="empty-state">暂无{{ productReviewFilter }}商品</view>
           </view>
-          <view v-if="productRejectTarget" class="modal-mask" @click.self="productRejectTarget = null"><view class="modal"><view class="modal-head"><h2>驳回商品</h2><button class="icon-button" aria-label="关闭" @click="productRejectTarget = null"><UiIcon name="x" :size="18" /></button></view><view class="modal-body"><label class="field"><text>驳回原因</text><textarea v-model="productRejectReason" placeholder="请填写具体原因" /></label></view><view class="modal-actions"><button class="button secondary" @click="productRejectTarget = null">取消</button><button class="button danger-button" @click="confirmRejectProductSubmission">确认驳回</button></view></view></view>
+          <view v-if="productRejectTarget" class="modal-mask" @click.self="productRejectTarget = null"><view class="modal"><view class="modal-head"><h2>驳回商品</h2><button class="icon-button" aria-label="关闭" @click="productRejectTarget = null"><UiIcon name="x" :size="18" /></button></view><view class="modal-body"><view class="form-card"><label class="field"><text>驳回原因</text><textarea v-model="productRejectReason" placeholder="请填写具体原因" /></label></view></view><view class="modal-actions"><button class="button secondary" @click="productRejectTarget = null">取消</button><button class="button danger-button" @click="confirmRejectProductSubmission">确认驳回</button></view></view></view>
         </section>
         <view v-else-if="active === 'prices'" class="policy-panels">
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="policyKeyword" placeholder="请输入策略名称 / 范围 / 类型" /></view></label></view>
           <section class="panel pricing-defaults-panel">
             <view class="panel-head"><view><h2>商品默认价格配置</h2><text>保存后仅预填后续新增商品，历史商品不批量覆盖</text></view><button class="button primary" @click="savePricingDefaults">保存默认配置</button></view>
             <view class="pricing-defaults-grid">
@@ -2247,7 +2311,7 @@ onBeforeUnmount(() => {
         </view>
 
         <section v-else-if="active === 'orders'" class="data-panel">
-           <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="搜索订单号 / 商品" /></label><SearchableSelect v-model="orderStoreFilter" :options="orderStoreSelectOptions" search-placeholder="搜索门店" /><SearchableSelect v-model="orderChannelFilter" :options="orderChannelOptions" search-placeholder="搜索订单来源" /><SearchableSelect v-model="orderStatusFilter" :options="orderStatusOptions" search-placeholder="搜索订单状态" /><SearchableSelect v-model="orderAfterFilter" :options="orderAfterOptions" search-placeholder="搜索售后状态" /></view><view class="toolbar-actions"><button v-if="store.can('report.export')" class="button primary" @click="exportCurrent"><UiIcon name="download" :size="15" />导出订单</button></view></view>
+           <view class="module-toolbar"><view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="orderKeyword" placeholder="请输入订单号 / 商品" /></view></label><view class="field"><text>门店</text><SearchableSelect v-model="orderStoreFilter" :options="orderStoreSelectOptions" search-placeholder="搜索门店" placeholder="请选择门店" /></view><view class="field"><text>来源</text><SearchableSelect v-model="orderChannelFilter" :options="orderChannelOptions" search-placeholder="搜索订单来源" placeholder="请选择来源" /></view><view class="field"><text>状态</text><SearchableSelect v-model="orderStatusFilter" :options="orderStatusOptions" search-placeholder="搜索订单状态" placeholder="请选择状态" /></view><view class="field"><text>售后</text><SearchableSelect v-model="orderAfterFilter" :options="orderAfterOptions" search-placeholder="搜索售后状态" placeholder="请选择售后状态" /></view></view><view class="toolbar-actions"><button v-if="store.can('report.export')" class="button primary" @click="exportCurrent"><UiIcon name="download" :size="15" />导出订单</button></view></view>
           <view class="fulfill-strip">
             <view class="done"><b><UiIcon name="check" :size="15" /></b><small>下单付款</small><strong>{{ metrics.orderStats.total }} 单</strong></view>
             <view class="done"><b><UiIcon name="check" :size="15" /></b><small>中台接单</small><strong>自动分配供应商</strong></view>
@@ -2272,17 +2336,20 @@ onBeforeUnmount(() => {
           <view class="summary-strip"><view><small>工单总量</small><strong>{{ store.afterSales.length }} 单</strong></view><view><small>处理中</small><strong>{{ store.pendingAfterSales }} 单</strong></view><view><small>售后金额</small><strong>{{ money(store.afterSales.reduce((sum,item) => sum + item.amount, 0)) }}</strong></view><view><small>已退款</small><strong>{{ store.afterSales.filter(item => item.status === 'refunded').length }} 单</strong></view></view>
           <view class="filter-chips"><button v-for="item in ['售后工单','结算流水']" :key="item" :class="{ active: afterTab === item }" @click="afterTab = item; page = 1">{{ item }}</button></view>
           <template v-if="afterTab === '售后工单'">
-          <view class="module-toolbar"><view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="afterKeyword" placeholder="搜索工单号 / 订单号 / 商品 / 申请方" /></label><SearchableSelect v-model="afterTypeFilter" :options="afterTypeFilterOptions" search-placeholder="搜索售后类型" /><SearchableSelect v-model="afterReasonFilter" :options="afterReasonFilterSelectOptions" search-placeholder="搜索售后原因" /></view></view>
+          <view class="module-toolbar"><view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="afterKeyword" placeholder="请输入工单号 / 订单号 / 商品 / 申请方" /></view></label><view class="field"><text>类型</text><SearchableSelect v-model="afterTypeFilter" :options="afterTypeFilterOptions" search-placeholder="搜索售后类型" placeholder="请选择类型" /></view><view class="field"><text>原因</text><SearchableSelect v-model="afterReasonFilter" :options="afterReasonFilterSelectOptions" search-placeholder="搜索售后原因" placeholder="请选择原因" /></view><view class="field"><text>状态</text><SearchableSelect v-model="afterStatusFilter" :options="afterStatusFilterOptions" search-placeholder="搜索售后状态" placeholder="请选择状态" /></view></view></view>
           <view class="after-sale-table-scroll">
           <view class="table-row table-head after-grid"><text>工单</text><text>商品</text><text>数量</text><text>类型</text><text>申请金额</text><text>退款金额</text><text>状态</text><text>操作</text></view>
           <view v-for="item in pagedAfterSales" :key="item.id" class="table-row after-grid"><view><strong>{{ item.id }}</strong><small>{{ item.orderId }}</small></view><view class="product-cell"><BusinessImage class="after-thumb" :src="item.image" mode="aspectFit" /><view><strong>{{ item.productName }}</strong><small>{{ item.issue || item.applicant }}</small></view></view><text>{{ item.quantity ?? '—' }}</text><text>{{ item.type === 'reship' ? '破损补寄' : item.type === 'refund' ? '退货退款' : '质量理赔' }}</text><strong>{{ money(item.amount) }}</strong><text class="refund-amount">{{ item.refundAmount != null ? money(item.refundAmount) : '—' }}</text><span class="status" :class="item.status">{{ afterSaleStatusText(item.status) }}</span><view class="row-actions"><template v-if="item.status === 'processing' && store.can('afterSale.manage')"><button class="danger" @click="confirmAction('确认拒绝该售后申请？', () => runOperation(`after-${item.id}`, () => store.rejectAfterSale(item.id), '已拒绝售后'))">拒绝</button><button @click="confirmAction('确认同意退款？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleRefund(item.id), '已同意退款'))">同意退款</button><button @click="confirmAction('确认同意退货？', () => runOperation(`after-${item.id}`, () => store.approveAfterSaleReturn(item.id), '已同意退货'))">同意退货</button></template><template v-else-if="['refund-pending', 'return-pending'].includes(item.status) && store.can('afterSale.manage')"><small>{{ item.status === 'return-pending' ? '等待退货验收' : '等待退款回执' }}</small><button :disabled="isOperating(`after-${item.id}`)" @click="confirmAction(item.status === 'return-pending' ? '确认已收到退货并原路退款？' : '确认发起原路退款？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id), item.status === 'return-pending' ? '退货退款已完成' : '退款已完成'))">{{ isOperating(`after-${item.id}`) ? '处理中...' : item.status === 'return-pending' ? '确认退货退款' : '执行退款' }}</button></template><template v-else-if="item.status === 'refund-failed' && store.can('afterSale.manage')"><small>{{ item.failureReason || '退款渠道处理失败' }}</small><button :disabled="isOperating(`after-${item.id}`)" @click="confirmAction('确认重新发起原路退款？', () => runOperation(`after-${item.id}`, () => store.refundAfterSale(item.id), '退款已完成'))">{{ isOperating(`after-${item.id}`) ? '处理中...' : '重试退款' }}</button></template><button v-else @click="openDetail('afterSale', item.id)">记录</button></view></view><view v-if="!filteredAfterSales.length" class="empty-state">没有符合条件的售后工单</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredAfterSales.length" @change="page = $event" />
           </view>
           </template>
-          <view v-else class="settlement-history after-flow">
-            <view v-if="!store.supplierSettlementRecords.length && !store.commissionSettlementRecords.length" class="empty-state">暂无结算流水</view>
-            <view v-for="record in pagedSettlementRecords" :key="`${record.kind}-${record.id}`" class="history-row"><strong>{{ record.id }} · {{ money(record.amount) }}</strong><small>{{ settlementLabel(record) }} · {{ record.createdAt }}</small></view>
-            <PaginationBar :page="page" :page-size="pageSize" :total="settlementRecords.length" @change="page = $event" />
-          </view>
+          <template v-else-if="afterTab === '结算流水'">
+            <view class="filter-bar"><label class="field is-search"><text>订单号</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="settlementKeyword" placeholder="请输入订单号" /></view></label><view class="field"><text>供应商</text><SearchableSelect v-model="settlementSupplierFilter" :options="supplierSettleSupplierOptions" class="is-wide" search-placeholder="搜索供应商" placeholder="请选择供应商" /></view></view>
+            <view class="settlement-history after-flow">
+              <view v-if="!filteredSettlementRecords.length" class="empty-state">{{ settlementRecords.length ? '没有符合条件的结算流水' : '暂无结算流水' }}</view>
+              <view v-for="record in pagedSettlementRecords" :key="`${record.kind}-${record.id}`" class="history-row"><strong>{{ record.id }} · {{ money(record.amount) }}</strong><small>{{ settlementLabel(record) }} · {{ record.createdAt }}</small></view>
+              <PaginationBar :page="page" :page-size="pageSize" :total="filteredSettlementRecords.length" @change="page = $event" />
+            </view>
+          </template>
         </section>
 
         <section v-else-if="active === 'farms'" class="data-panel">
@@ -2293,7 +2360,7 @@ onBeforeUnmount(() => {
             <view><small>已开通小程序</small><strong>{{ metrics.farmStats.liveCount }} 个</strong><span>{{ metrics.farmStats.configuring }} 家配置中</span></view>
             <view><small>门店自有商品</small><strong>{{ metrics.farmStats.selfProducts }} 个</strong><span class="pending-text">待审核 {{ metrics.farmStats.pendingSelfProducts }} 个</span></view>
           </view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="搜索门店名称" /></label><SearchableSelect v-model="farmCityFilter" :options="farmCityFilterOptions" search-placeholder="搜索城市" /><SearchableSelect v-model="farmStatusFilter" :options="farmStatusFilterOptions" search-placeholder="搜索门店状态" /></view>
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="请输入门店名称" /></view></label><view class="field"><text>城市</text><SearchableSelect v-model="farmCityFilter" :options="farmCityFilterOptions" search-placeholder="搜索城市" placeholder="请选择城市" /></view><view class="field"><text>状态</text><SearchableSelect v-model="farmStatusFilter" :options="farmStatusFilterOptions" search-placeholder="搜索门店状态" placeholder="请选择状态" /></view></view>
           <view class="farm-table-scroll">
           <view class="table-row table-head farm-grid"><text>农家乐门店</text><text>区域</text><text>小程序</text><text>已选品</text><text>本月 GMV</text><text>人气值</text><text>状态</text><text>操作</text></view>
           <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><BusinessImage class="farm-thumb" :src="item.image" mode="aspectFit" @click="previewImage" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><text>{{ item.livePopularity.toLocaleString('zh-CN') }}</text><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button v-if="store.can('farm.manage')" @click="openFarmEdit(item)">修改</button></view></view>
@@ -2301,7 +2368,7 @@ onBeforeUnmount(() => {
           <view v-if="!filteredFarms.length" class="empty-state">没有符合条件的门店</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredFarms.length" @change="page = $event" />
           </template>
           <template v-else>
-            <view class="module-search"><SearchableSelect v-model="farmAccountFilter" :options="farmAccountSelectOptions" search-placeholder="搜索门店" /><button class="button primary" @click="openAccountDialog()"><UiIcon name="plus" :size="16" />新增门店账号</button></view>
+            <view class="module-toolbar"><view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="storeAccountKeyword" placeholder="请输入姓名 / 登录账号" /></view></label><view class="field"><text>门店</text><SearchableSelect v-model="farmAccountFilter" :options="farmAccountSelectOptions" search-placeholder="搜索门店" placeholder="请选择门店" /></view><view class="field"><text>状态</text><SearchableSelect v-model="storeAccountStatusFilter" :options="roleStatusOptions" search-placeholder="搜索账号状态" placeholder="请选择状态" /></view></view><view class="toolbar-actions"><button class="button primary" @click="openAccountDialog()"><UiIcon name="plus" :size="16" />新增门店账号</button></view></view>
             <view class="account-table-scroll">
             <view class="table-row table-head account-grid"><text>门店</text><text>姓名</text><text>登录账号</text><text>角色</text><text>推广</text><text>状态</text><text>操作</text></view>
             <view v-for="item in pagedStoreAccounts" :key="item.id" class="table-row account-grid"><text>{{ store.farms.find((farm) => farm.id === item.farmId)?.name || item.farmId }}</text><strong>{{ item.name }}</strong><text>{{ item.account }}</text><span class="status" :class="item.role === 'owner' ? 'active' : 'pending'">{{ item.role === 'owner' ? '店主' : '店员' }}</span><span class="status" :class="item.promoEnabled ? 'active' : 'rejected'">{{ item.promoEnabled ? '已开' : '关闭' }}</span><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><view class="row-actions"><button @click="openAccountDialog(item)">修改</button><button class="danger" :disabled="isOperating(`store-account-${item.id}`)" @click="runOperation(`store-account-${item.id}`, () => store.toggleStoreAccount(item.id), item.enabled ? '账号已停用' : '账号已启用')">{{ isOperating(`store-account-${item.id}`) ? '处理中...' : item.enabled ? '停用' : '启用' }}</button></view></view>
@@ -2319,10 +2386,10 @@ onBeforeUnmount(() => {
             <view><small>累计锁粉</small><strong>{{ metrics.promoterStats.lockedFans.toLocaleString('zh-CN') }}</strong><span class="positive">带货 GMV ¥{{ formatNumber(store.promoters.reduce((sum, p) => sum + p.gmv, 0)) }}</span></view>
           </view>
           <view class="filter-chips solid"><button v-for="item in ['推客排行','主播排行']" :key="item" :class="{ active: promoterRankTab === item }" @click="promoterRankTab = item; page = 1">{{ item }}</button></view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="搜索推客名称" /></label><SearchableSelect v-model="promoterTypeFilter" :options="promoterTypeOptions" search-placeholder="搜索推客类型" /><SearchableSelect v-model="promoterLevelFilter" :options="promoterLevelFilterOptions" search-placeholder="搜索推客等级" /></view>
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="请输入推客名称" /></view></label><view class="field"><text>类型</text><SearchableSelect v-model="promoterTypeFilter" :options="promoterTypeOptions" search-placeholder="搜索推客类型" placeholder="请选择类型" /></view><view class="field"><text>等级</text><SearchableSelect v-model="promoterLevelFilter" :options="promoterLevelFilterOptions" search-placeholder="搜索推客等级" placeholder="请选择等级" /></view><view class="field"><text>状态</text><SearchableSelect v-model="promoterSettleFilter" :options="promoterSettleFilterOptions" search-placeholder="搜索结算状态" placeholder="请选择状态" /></view></view>
           <view class="promoter-table-scroll">
           <view class="table-row table-head promoter-grid"><text>推客 / 主播</text><text>类型</text><text>锁粉数</text><text>订单</text><text>带货 GMV</text><text>佣金</text><text>状态</text><text>操作</text></view>
-          <view v-for="item in pagedPromoters" :key="item.id" class="table-row promoter-grid"><view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view><span class="source-pill" :class="item.type === '主播' ? 'host' : item.type === '达人' ? 'expert' : 'platform'">{{ item.type || '推客' }}</span><text>{{ item.fans }}</text><text>{{ item.orders }}</text><strong>{{ money(item.gmv) }}</strong><strong class="commission">{{ money(item.commission) }}</strong><span class="status" :class="item.settled ? 'delivered' : 'pending'">{{ item.settled ? '已结算' : '待结算' }}</span><view class="row-actions"><button v-if="store.can('promoter.manage')" @click="openPromoterEdit(item)">修改</button></view></view>
+          <view v-for="item in pagedPromoters" :key="item.id" class="table-row promoter-grid"><view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view><text>{{ item.type || '推客' }}</text><text>{{ item.fans }}</text><text>{{ item.orders }}</text><strong>{{ money(item.gmv) }}</strong><strong class="commission">{{ money(item.commission) }}</strong><span class="status" :class="item.settled ? 'delivered' : 'pending'">{{ item.settled ? '已结算' : '待结算' }}</span><view class="row-actions"><button v-if="store.can('promoter.manage')" @click="openPromoterEdit(item)">修改</button></view></view>
           </view>
           <view v-if="!visiblePromoters.length" class="empty-state">没有符合条件的推客</view><PaginationBar :page="page" :page-size="pageSize" :total="visiblePromoters.length" @change="page = $event" />
         </section>
@@ -2330,13 +2397,13 @@ onBeforeUnmount(() => {
         <section v-else-if="active === 'commissions'" class="data-panel">
           <view class="filter-chips commission-filter-tabs"><button v-for="item in commissionTabOptions" :key="item.value" :class="{ active: commissionTab === item.value }" @click="commissionTab = item.value; page = 1">{{ item.label }}</button></view>
           <template v-if="commissionTab === '佣金结算'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="搜索单号 / 金额 / 推客" /></label><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" search-placeholder="搜索结算状态" /></view>
+            <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="请输入单号 / 金额 / 推客" /></view></label><view class="field"><text>状态</text><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" search-placeholder="搜索结算状态" placeholder="请选择状态" /></view></view>
             <view class="commission-status-table">
               <view class="panel-head"><h2>推客结算状态</h2><text>未结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) > 0).length }} 人 · 已结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) <= 0).length }} 人</text></view>
               <view class="table-row table-head commission-status-grid"><text>推客</text><text>类型</text><text>待结佣金</text><text>结算状态</text></view>
               <view v-for="item in pagedPromoterCommissionRows" :key="item.id" class="table-row commission-status-grid" :class="pendingShareAmount(item.id) <= 0 ? 'status-settled' : 'status-unsettled'">
                 <view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view>
-                <span class="source-pill" :class="item.type === '主播' ? 'host' : item.type === '达人' ? 'expert' : 'platform'">{{ item.type || '推客' }}</span>
+                <text>{{ item.type || '推客' }}</text>
                 <strong>{{ money(pendingShareAmount(item.id)) }}</strong>
                 <span class="status" :class="pendingShareAmount(item.id) <= 0 ? 'delivered' : 'pending'">{{ pendingShareAmount(item.id) <= 0 ? '已结算' : '未结算' }}</span>
               </view>
@@ -2350,7 +2417,7 @@ onBeforeUnmount(() => {
             </view>
           </template>
           <template v-else-if="commissionTab === '提现审核'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="withdrawalKeyword" placeholder="搜索申请人 / 提现单号 / 方式" /></label><SearchableSelect v-model="withdrawalStatusFilter" :options="withdrawalStatusOptions" search-placeholder="筛选状态" /></view>
+            <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="withdrawalKeyword" placeholder="请输入申请人 / 提现单号 / 方式" /></view></label><view class="field"><text>状态</text><SearchableSelect v-model="withdrawalStatusFilter" :options="withdrawalStatusOptions" search-placeholder="筛选状态" placeholder="请选择状态" /></view></view>
             <view class="withdrawal-table">
               <view class="withdrawal-table-scroll">
               <view class="table-row table-head withdrawal-grid"><text>申请人</text><text>金额</text><text>方式</text><text>申请时间</text><text>状态</text><text>备注</text><text>操作</text></view>
@@ -2363,7 +2430,7 @@ onBeforeUnmount(() => {
             </view>
           </template>
           <template v-else-if="commissionTab === '供应商结算'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="supplierSettleKeyword" placeholder="搜索单号 / 金额" /></label><SearchableSelect v-model="supplierSettleSupplierFilter" :options="supplierSettleSupplierOptions" class="is-wide" search-placeholder="搜索供应商" /></view>
+            <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="supplierSettleKeyword" placeholder="请输入单号 / 金额" /></view></label><view class="field"><text>供应商</text><SearchableSelect v-model="supplierSettleSupplierFilter" :options="supplierSettleSupplierOptions" class="is-wide" search-placeholder="搜索供应商" placeholder="请选择供应商" /></view></view>
             <view class="settlement-history"><view class="panel-head"><h2>供应商结算记录</h2><text>累计 {{ money(filteredSupplierRecords.reduce((sum, item) => sum + item.amount, 0)) }}</text></view>
               <view v-if="!filteredSupplierRecords.length" class="empty-state">暂无供应商结算记录</view>
               <view v-for="record in pagedSupplierSettlementRecords" :key="record.id" class="history-row"><strong>{{ record.id }} · {{ money(record.amount) }}</strong><small>{{ record.period }} · {{ record.items.length }} 家供应商 · {{ record.orderIds.length }} 笔订单 · {{ record.createdAt }}</small><view class="history-items"><view v-for="item in record.items" :key="item.supplierId"><span>{{ item.supplierName }}</span><small>{{ item.orderIds.join('、') || '无关联订单' }}</small><b>{{ money(item.amount) }}</b></view></view></view>
@@ -2371,7 +2438,7 @@ onBeforeUnmount(() => {
             </view>
           </template>
           <template v-else-if="commissionTab === '佣金规则'">
-            <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="ruleKeyword" placeholder="搜索规则名称" /></label></view>
+            <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="ruleKeyword" placeholder="请输入规则名称" /></view></label></view>
             <view class="commission-rules"><view class="panel-head"><h2>佣金规则</h2><text>本地模拟配置 · 点击编辑调整比例</text></view><view class="commission-rule-grid"><view v-for="rule in filteredRules" :key="rule.id" class="commission-rule-card"><view class="rule-top"><view class="rule-icon"><UiIcon :name="commissionRuleIcon(rule.targetType)" :size="17" /></view><button v-if="store.can('commission.manage')" class="compact-button" @click="openCommission(rule)">编辑</button></view><strong class="rule-name">{{ rule.name }}</strong><view class="rule-rate">{{ rule.rate }}<small>%</small></view><small class="rule-meta">{{ rule.targetType === 'farm' ? '门店推广' : rule.targetType === 'product' ? '商品推广' : '直播推广' }} · 更新于 {{ rule.updatedAt }}</small></view></view></view>
           </template>
           <template v-else-if="commissionTab === '消费分成'">
@@ -2399,25 +2466,27 @@ onBeforeUnmount(() => {
               <button v-if="activeDictionaryPermissions.addItem && store.can('dictionary.manage')" class="button primary" @click="openDictDialog()"><UiIcon name="plus" :size="16" />新增字典项</button>
             </view>
           </view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="dictKeyword" placeholder="搜索编码 / 名称" /></label></view>
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="dictKeyword" placeholder="请输入编码 / 名称" /></view></label><view class="field"><text>状态</text><SearchableSelect v-model="dictStatusFilter" :options="roleStatusOptions" search-placeholder="搜索字典状态" placeholder="请选择状态" /></view></view>
           <view class="dict-table"><view class="table-row table-head dict-grid"><text>编码</text><text>名称</text><text>启用</text><text>排序</text><text>操作</text></view><view v-for="item in pagedDictItems" :key="item.id" class="table-row dict-grid"><strong>{{ item.code }}</strong><view class="category-label"><BusinessImage v-if="dictTypeTab === 'productCategory'" class="category-thumb" :src="productCategoryImage(item.code, dictionaryState)" :fallback="defaultProductCategoryImage(item.label)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="item.label">{{ item.label }}</text></view><span class="status" :class="item.enabled ? 'active' : 'rejected'">{{ item.enabled ? '启用' : '停用' }}</span><text>{{ item.sort }}</text><view class="row-actions"><button v-if="store.can('dictionary.manage')" @click="openDictDialog(item)">修改</button><button v-if="activeDictionaryPermissions.deleteItem && store.can('dictionary.manage')" class="danger" @click="removeDictItem(item.id)">删除</button></view></view></view>
           <view v-if="!filteredDictItems.length" class="empty-state">暂无字典项</view>
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredDictItems.length" @change="page = $event" />
         </section>
         <section v-else-if="active === 'logs'" class="data-panel system-table-panel">
-          <view class="audit-filters"><label class="field"><text>开始日期</text><picker mode="date" :value="logFrom" @change="onLogFromChange"><view class="picker-field" :class="{ placeholder: !logFrom }">{{ logFrom || '请选择日期' }}</view></picker></label><label class="field"><text>结束日期</text><picker mode="date" :value="logTo" @change="onLogToChange"><view class="picker-field" :class="{ placeholder: !logTo }">{{ logTo || '请选择日期' }}</view></picker></label><view class="field"><text>操作人</text><SearchableSelect v-model="logActor" :options="logActorOptions" /></view><view class="field"><text>角色</text><SearchableSelect v-model="logRole" :options="logRoleOptions" /></view><view class="field"><text>模块</text><SearchableSelect v-model="logModule" :options="logModuleOptions" /></view></view>
-          <view class="module-search"><label class="search-box"><UiIcon name="search" :size="16" /><input v-model="logKeyword" placeholder="搜索动作 / 目标 / 失败原因" /></label><view class="filter-chips"><button :class="{ active: logResult === 'all' }" @click="logResult = 'all'">全部</button><button :class="{ active: logResult === 'success' }" @click="logResult = 'success'">成功</button><button :class="{ active: logResult === 'failure' }" @click="logResult = 'failure'">失败</button></view></view>
+          <view class="audit-filters"><view class="field"><text>开始日期</text><DatePicker v-model="logFrom" placeholder="请选择日期" /></view><view class="field"><text>结束日期</text><DatePicker v-model="logTo" placeholder="请选择日期" /></view><view class="field"><text>操作人</text><SearchableSelect v-model="logActor" :options="logActorOptions" /></view><view class="field"><text>角色</text><SearchableSelect v-model="logRole" :options="logRoleOptions" /></view><view class="field"><text>模块</text><SearchableSelect v-model="logModule" :options="logModuleOptions" /></view></view>
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="logKeyword" placeholder="请输入动作 / 目标 / 失败原因" /></view></label><view class="field"><text>结果</text><SearchableSelect v-model="logResult" :options="logResultOptions" search-placeholder="搜索结果" placeholder="请选择结果" /></view></view>
           <view class="system-table-scroll"><view class="table-row table-head audit-grid"><text>时间</text><text>操作人</text><text>角色</text><text>模块 / 动作</text><text>目标</text><text>结果</text><text>原因</text><text>详情</text></view><view v-for="entry in filteredAuditLogs" :key="entry.id" class="table-row audit-grid"><text>{{ new Date(entry.createdAt).toLocaleString('zh-CN') }}</text><view><strong>{{ entry.actorName || entry.actorId }}</strong><small>{{ entry.actorId }}</small></view><text>{{ entry.actorRole || '—' }}</text><view><strong>{{ entry.module }}</strong><small>{{ entry.action }}</small></view><text>{{ entry.targetId || '—' }}</text><span class="status" :class="entry.result === 'success' ? 'active' : 'rejected'">{{ entry.result === 'success' ? '成功' : '失败' }}</span><text>{{ entry.reason || '—' }}</text><view class="row-actions"><button @click="openDetail('auditLog', entry.id)">查看</button></view></view></view>
           <view v-if="!filteredAuditLogs.length" class="empty-state">暂无符合条件的操作日志</view>
         </section>
         <section v-else-if="active === 'roles'" class="data-panel system-table-panel">
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="roleKeyword" placeholder="请输入角色名称 / 编码" /></view></label><view class="field"><text>状态</text><SearchableSelect v-model="roleStatusFilter" :options="roleStatusOptions" search-placeholder="搜索角色状态" placeholder="请选择状态" /></view></view>
           <view class="role-table-scroll">
-          <view class="table-row table-head role-grid"><text>角色</text><text>编码</text><text>菜单权限</text><text>按钮权限</text><text>状态</text><text>操作</text></view><view v-for="role in store.adminRoles" :key="role.id" class="table-row role-grid"><view><strong>{{ role.name }}</strong><small>{{ role.system ? '系统角色' : '自定义角色' }}</small></view><text>{{ role.code }}</text><text>{{ role.menuPermissions.length }} 项</text><text>{{ role.actionPermissions.length }} 项</text><span class="status" :class="role.enabled ? 'active' : 'rejected'">{{ role.enabled ? '启用' : '停用' }}</span><view class="row-actions"><button v-if="store.can('admin.role.update') && role.id !== 'AR-SUPER'" @click="openRole(role)">修改权限</button><text v-else>—</text></view></view>
+          <view class="table-row table-head role-grid"><text>角色</text><text>编码</text><text>菜单权限</text><text>按钮权限</text><text>状态</text><text>操作</text></view><view v-for="role in filteredRoles" :key="role.id" class="table-row role-grid"><view><strong>{{ role.name }}</strong><small>{{ role.system ? '系统角色' : '自定义角色' }}</small></view><text>{{ role.code }}</text><text>{{ role.menuPermissions.length }} 项</text><text>{{ role.actionPermissions.length }} 项</text><span class="status" :class="role.enabled ? 'active' : 'rejected'">{{ role.enabled ? '启用' : '停用' }}</span><view class="row-actions"><button v-if="store.can('admin.role.update') && role.id !== 'AR-SUPER'" @click="openRole(role)">修改权限</button><text v-else>—</text></view></view>
           </view>
         </section>
         <section v-else-if="active === 'accounts'" class="data-panel system-table-panel">
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="accountKeyword" placeholder="请输入账号 / 姓名" /></view></label><view class="field"><text>角色</text><SearchableSelect v-model="accountRoleFilter" :options="accountRoleFilterOptions" search-placeholder="搜索账号角色" placeholder="请选择角色" /></view><view class="field"><text>状态</text><SearchableSelect v-model="accountStatusFilter" :options="accountStatusOptions" search-placeholder="搜索账号状态" placeholder="请选择状态" /></view></view>
           <view class="admin-account-table-scroll">
-          <view class="table-row table-head admin-account-grid"><text>账号</text><text>姓名</text><text>角色</text><text>状态</text><text>最后登录</text><text>操作</text></view><view v-for="account in store.adminAccounts" :key="account.id" class="table-row admin-account-grid"><strong>{{ account.account }}</strong><text>{{ account.name }}</text><text>{{ store.adminRoles.find(role => role.id === account.roleId)?.name || account.roleId }}</text><span class="status" :class="account.enabled ? 'active' : 'rejected'">{{ account.enabled ? '启用' : '停用' }}</span><text>{{ account.lastLoginAt ? new Date(account.lastLoginAt).toLocaleString('zh-CN') : '从未登录' }}</text><view class="row-actions"><button v-if="store.can('admin.account.update')" @click="openAdminAccount(account)">修改资料</button><button v-if="store.can('admin.account.status')" :class="{ danger: account.enabled }" @click="setAdminAccountEnabled(account)">{{ account.enabled ? '停用' : '启用' }}</button></view></view>
+          <view class="table-row table-head admin-account-grid"><text>账号</text><text>姓名</text><text>角色</text><text>状态</text><text>最后登录</text><text>操作</text></view><view v-for="account in filteredAdminAccounts" :key="account.id" class="table-row admin-account-grid"><strong>{{ account.account }}</strong><text>{{ account.name }}</text><text>{{ store.adminRoles.find(role => role.id === account.roleId)?.name || account.roleId }}</text><span class="status" :class="account.enabled ? 'active' : 'rejected'">{{ account.enabled ? '启用' : '停用' }}</span><text>{{ account.lastLoginAt ? new Date(account.lastLoginAt).toLocaleString('zh-CN') : '从未登录' }}</text><view class="row-actions"><button v-if="store.can('admin.account.update')" @click="openAdminAccount(account)">修改资料</button><button v-if="store.can('admin.account.status')" :class="{ danger: account.enabled }" @click="setAdminAccountEnabled(account)">{{ account.enabled ? '停用' : '启用' }}</button></view></view>
           </view>
         </section>
         </template>
@@ -2426,17 +2495,21 @@ onBeforeUnmount(() => {
 
      <view v-if="dialog && !workPage" class="modal-mask" :class="{ 'work-modal-mask': !['withdrawal-reject', 'supplier-pause', 'recovery-verify'].includes(dialog) }" @click.self="closeOverlay">
        <view class="modal" role="dialog" aria-modal="true" @keydown="trapFocus">
-         <view class="modal-head"><view><h2>{{ dialog === 'withdrawal-reject' ? '驳回提现申请' : dialog === 'supplier-pause' ? '暂停供应商合作' : dialog === 'recovery-verify' ? (selectedRecoveryTask?.handlerKey ? '重试恢复任务' : '人工核验恢复任务') : dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'route' ? '新增旅游线路' : dialog === 'route-edit' ? '编辑旅游线路' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>{{ dialog === 'recovery-verify' ? '只有重试成功或人工回读确认后，任务才会关闭' : '保存后立即写入本地演示数据' }}</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
+         <view class="modal-head"><view><h2>{{ dialog === 'withdrawal-reject' ? '驳回提现申请' : dialog === 'supplier-pause' ? '暂停供应商合作' : dialog === 'recovery-verify' ? (selectedRecoveryTask?.handlerKey ? '重试恢复任务' : '人工核验恢复任务') : dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'route' ? '新增旅游线路' : dialog === 'route-edit' ? '编辑旅游线路' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>{{ dialog === 'recovery-verify' ? '只有重试成功或人工回读确认后，任务才会关闭' : dialog === 'supplier-pause' ? '暂停后供应商和司机仍可登录并处理存量订单，但不能接收新订单或新增司机' : '保存后立即写入本地演示数据' }}</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
         <view class="modal-body">
-        <template v-if="dialog === 'withdrawal-reject'"><label class="field"><text>驳回备注（可选）</text><input v-model="withdrawalNote" placeholder="请输入驳回原因" /></label></template>
-        <template v-if="dialog === 'supplier-pause'"><label class="field"><text>暂停合作原因</text><input v-model="supplierPauseReason" placeholder="必填，恢复合作后仍保留在审计日志" /></label><text class="drawer-muted">暂停合作后供应商和司机仍可登录并处理存量订单，但不能接收新订单或新增司机。</text></template>
+        <template v-if="dialog === 'withdrawal-reject'"><view class="form-card"><label class="field"><text>驳回备注（可选）</text><input v-model="withdrawalNote" placeholder="请输入驳回原因" /></label></view></template>
+        <template v-if="dialog === 'supplier-pause'"><view class="form-card"><label class="field"><text>暂停合作原因</text><input v-model="supplierPauseReason" placeholder="必填，恢复合作后仍保留在审计日志" /></label></view></template>
         <template v-if="dialog === 'recovery-verify'">
-          <view class="recovery-verification-summary"><strong>{{ selectedRecoveryTask?.failedStep || '未知步骤' }}</strong><text>{{ selectedRecoveryTask?.operationId }}</text><small>{{ selectedRecoveryTask?.lastError || selectedRecoveryTask?.reason }}</small></view>
+          <view class="form-card">
+          <view class="form-card-grid">
+          <view class="recovery-verification-summary full"><strong>{{ selectedRecoveryTask?.failedStep || '未知步骤' }}</strong><text>{{ selectedRecoveryTask?.operationId }}</text><small>{{ selectedRecoveryTask?.lastError || selectedRecoveryTask?.reason }}</small></view>
           <view class="field"><text>核验结果</text><SearchableSelect v-model="recoveryOutcome" :options="recoveryOutcomeOptions" /></view>
-          <label class="field"><text>处理说明</text><textarea v-model="recoveryResolutionNote" maxlength="300" placeholder="自动重试可选；人工核验或处理器未加载时必填，并说明已核对的数据快照" /></label>
+          <label class="field full"><text>处理说明</text><textarea v-model="recoveryResolutionNote" maxlength="300" placeholder="自动重试可选；人工核验或处理器未加载时必填，并说明已核对的数据快照" /></label>
+          </view>
+          </view>
         </template>
-        <label v-if="['policy','policy-edit'].includes(dialog)" class="field"><text>名称</text><input v-model="form.name" placeholder="请输入名称" /></label>
         <template v-if="dialog === 'supplier' || dialog === 'supplier-edit'">
+          <view class="form-card full"><view class="form-card-title">基础信息</view><view class="form-card-grid">
           <label class="field"><text>供应商名称</text><input v-model="form.name" placeholder="请输入供应商名称" /></label>
           <view class="field"><text>供应商类型</text><SearchableSelect v-model="form.coop" :options="supplierTypeOptions" search-placeholder="搜索供应商类型" /></view>
           <view class="field"><text>主营品类</text><SearchableSelect v-model="form.category" :options="supplierCategoryOptions" search-placeholder="搜索主营品类" /></view>
@@ -2444,64 +2517,79 @@ onBeforeUnmount(() => {
           <label class="field"><text>联系人手机</text><input v-model="form.contactPhone" maxlength="11" placeholder="请输入11位手机号" /></label>
           <label class="field"><text>登录账号</text><input :value="form.contactPhone" disabled placeholder="保存后自动生成" /></label>
           <label v-if="dialog === 'supplier-edit'" class="field"><text>新密码</text><input v-model="form.supplierPassword" type="password" maxlength="20" placeholder="留空则保留原密码" /></label>
+          </view></view>
+          <view class="form-card full"><view class="form-card-title">资质与账号</view><view class="form-card-grid">
           <label class="field"><text>营业执照编号</text><input v-model="form.businessLicenseNumber" placeholder="请输入营业执照编号" /></label>
           <view class="field"><text>营业执照图片</text><ImageUploader v-model="form.businessLicense" purpose="supplier-business-license" profile="license" @error="showToast" /></view>
           <label class="field"><text>生产 / 经营许可编号</text><input v-model="form.permitNumber" placeholder="请输入许可编号" /></label>
           <view class="field"><text>生产 / 经营许可图片</text><ImageUploader v-model="form.permit" purpose="supplier-permit" profile="license" @error="showToast" /></view>
-          <view class="field"><text>证照有效期</text>
-            <picker mode="date" :value="form.validUntil" @change="onValidUntilChange">
-              <view class="picker-field" :class="{ placeholder: !form.validUntil }">{{ form.validUntil || '请选择日期' }}</view>
-            </picker>
-          </view>
+          <view class="field"><text>证照有效期</text><DatePicker v-model="form.validUntil" placeholder="请选择日期" /></view>
+          </view></view>
         </template>
         <template v-if="dialog === 'category' || dialog === 'category-edit'">
+          <view class="form-card full"><view class="form-card-title">品类信息</view><view class="form-card-grid">
           <label class="field"><text>品类名称</text><input v-model="form.name" placeholder="请输入品类名称" /></label>
           <view class="field"><text>品类类型</text><SearchableSelect v-model="form.categoryType" :options="categoryTypeOptions" search-placeholder="搜索品类类型" :disabled="dialog === 'category-edit' && editingDictionaryCategory" /></view>
-          <view v-if="form.categoryType === 'product'" class="field"><text>品类图片（必传）</text><ImageUploader v-model="form.categoryImage" purpose="product-category" @error="showToast" /></view>
+          <view v-if="form.categoryType === 'product'" class="field full"><text>品类图片（必传）</text><ImageUploader v-model="form.categoryImage" purpose="product-category" @error="showToast" /></view>
+          </view></view>
         </template>
         <template v-if="dialog === 'route' || dialog === 'route-edit'">
+          <view class="form-card full"><view class="form-card-title">线路信息</view><view class="form-card-grid">
           <label class="field"><text>线路名称</text><input v-model="form.routeName" placeholder="如：湘西风情两日游" /></label>
           <label class="field"><text>所属城市</text><input v-model="form.routeCity" placeholder="如：湘西州" /></label>
           <label class="field"><text>线路描述</text><input v-model="form.routeDesc" placeholder="如：茶园+非遗+农家宴" /></label>
           <label class="field"><text>参考价格（元）</text><input v-model.number="form.routePrice" type="number" /></label>
-          <view class="field"><text>线路封面图</text><ImageUploader v-model="form.routeImage" purpose="route-cover" profile="normal" /></view>
+          <view class="field full"><text>线路封面图</text><ImageUploader v-model="form.routeImage" purpose="route-cover" profile="normal" /></view>
+          </view></view>
         </template>
         <template v-if="dialog === 'dict' || dialog === 'dict-edit'">
+          <view class="form-card full"><view class="form-card-title">字典项信息</view><view class="form-card-grid">
           <label class="field"><text>字典编码</text><input v-model="form.dictCode" placeholder="如 pending / transport" :disabled="!activeDictionaryPermissions.editCode" /></label>
           <label class="field"><text>显示名称</text><input v-model="form.dictLabel" placeholder="如 待处理" /></label>
-          <view v-if="dictTypeTab === 'productCategory'" class="field"><text>品类图片（必传）</text><ImageUploader v-model="form.dictImage" purpose="product-category" @error="showToast" /></view>
+          <view v-if="dictTypeTab === 'productCategory'" class="field full"><text>品类图片（必传）</text><ImageUploader v-model="form.dictImage" purpose="product-category" @error="showToast" /></view>
           <label class="field"><text>排序</text><input v-model.number="form.dictSort" type="number" min="0" /></label>
           <view class="field"><text>显示色调</text><SearchableSelect v-model="form.dictTone" :options="dictionaryToneOptions" search-placeholder="搜索色调" /></view>
           <view class="field"><text>启用状态</text><SearchableSelect v-model="form.enabled" :options="enabledOptions" search-placeholder="搜索启用状态" /></view>
+          </view></view>
         </template>
         <template v-if="dialog === 'dict-group' || dialog === 'dict-group-edit'">
+          <view class="form-card full"><view class="form-card-title">分组信息</view><view class="form-card-grid">
           <label class="field"><text>分组名称</text><input v-model="form.dictGroupName" placeholder="如 城市信息 / 数据状态" /></label>
           <label class="field"><text>类型编码</text><input v-model="form.dictGroupType" placeholder="如 productTag（英文，唯一）" :disabled="dialog === 'dict-group-edit' && !activeDictionaryPermissions.editType" /></label>
+          </view></view>
         </template>
         <template v-if="dialog === 'store-account' || dialog === 'store-account-edit'">
+          <view class="form-card full"><view class="form-card-title">账号信息</view><view class="form-card-grid">
           <view class="field"><text>所属门店</text><SearchableSelect v-model="form.accountFarmId" :options="accountFarmSelectOptions" :disabled="dialog === 'store-account-edit'" search-placeholder="搜索所属门店" /></view>
           <label class="field"><text>姓名</text><input v-model="form.accountName" placeholder="如 王店长" /></label>
           <label class="field"><text>登录账号（手机号）</text><input v-model="form.accountPhone" placeholder="如 13800000001" /></label>
           <label class="field"><text>登录密码</text><input v-model="form.accountPassword" placeholder="如 123456" /></label>
           <view class="field"><text>角色</text><SearchableSelect v-model="form.accountRole" :options="accountRoleOptions" search-placeholder="搜索账号角色" /></view><view v-if="form.accountRole === 'staff'" class="field"><text>店员推广权限</text><SearchableSelect v-model="form.accountPromo" :options="accountPromotionOptions" search-placeholder="搜索推广权限" /></view>
+          </view></view>
         </template>
-        <template v-if="dialog === 'policy' || dialog === 'policy-edit'"><view class="field"><text>策略类型</text><SearchableSelect v-model="form.type" :options="policyTypeOptions" :disabled="dialog === 'policy-edit'" search-placeholder="搜索策略类型" /></view><label class="field"><text>适用范围</text><input v-model="form.scope" /></label><label class="field"><text>优惠比例（1-100%）</text><input v-model.number="form.discount" type="number" min="1" max="100" /></label><view v-if="dialog === 'policy-edit'" class="field"><text>规则状态</text><SearchableSelect v-model="form.enabled" :options="enabledOptions" search-placeholder="搜索规则状态" /></view><view v-if="form.type === 'ladder'" class="tier-editor"><view class="tier-editor-head"><text>阶梯档位</text><button class="mini-button" type="button" @click="addTier">＋ 添加档位</button></view><view v-for="(tier, ti) in form.tiers" :key="ti" class="tier-editor-row"><label class="field"><text>起始数量</text><input v-model.number="tier.minQty" type="number" min="1" placeholder="如 1" /></label><label class="field"><text>上限数量（留空=无上限）</text><input v-model.number="tier.maxQty" type="number" min="1" placeholder="留空为无上限" /></label><label class="field"><text>集采单价</text><input v-model.number="tier.price" type="number" min="0" step="0.1" placeholder="如 42" /></label><label class="field"><text>让利 %</text><input v-model.number="tier.discountOff" type="number" min="0" max="100" placeholder="如 30" /></label><button class="compact-button danger" type="button" @click="removeTier(ti)">删除</button></view></view></template>
-        <template v-if="dialog === 'after-sale-init'"><label class="field"><text>售后订单</text><input :value="form.id" disabled /></label><view class="field"><text>售后类型</text><SearchableSelect v-model="form.result" :options="afterSaleTypeOptions" search-placeholder="搜索售后类型" /></view><view class="field"><text>售后原因</text><SearchableSelect v-model="form.initIssue" :options="afterReasonSelectOptions" search-placeholder="搜索售后原因" /></view></template>
-        <template v-if="dialog === 'commission'"><label class="field"><text>佣金比例（1-100%）</text><input v-model.number="form.rate" type="number" min="1" max="100" /></label></template>
+        <template v-if="dialog === 'policy' || dialog === 'policy-edit'"><view class="form-card full"><view class="form-card-title">基本信息</view><view class="form-card-grid"><label class="field"><text>名称</text><input v-model="form.name" placeholder="请输入名称" /></label><view class="field"><text>策略类型</text><SearchableSelect v-model="form.type" :options="policyTypeOptions" :disabled="dialog === 'policy-edit'" search-placeholder="搜索策略类型" /></view><label class="field"><text>适用范围</text><input v-model="form.scope" /></label><label class="field"><text>优惠比例（1-100%）</text><input v-model.number="form.discount" type="number" min="1" max="100" /></label><view v-if="dialog === 'policy-edit'" class="field"><text>规则状态</text><SearchableSelect v-model="form.enabled" :options="enabledOptions" search-placeholder="搜索规则状态" /></view></view></view><view v-if="form.type === 'ladder'" class="form-card full"><view class="form-card-title">阶梯档位</view><view class="tier-editor"><view class="tier-editor-head"><button class="mini-button" type="button" @click="addTier">＋ 添加档位</button></view><view v-for="(tier, ti) in form.tiers" :key="ti" class="tier-editor-row"><label class="field"><text>起始数量</text><input v-model.number="tier.minQty" type="number" min="1" placeholder="如 1" /></label><label class="field"><text>上限数量（留空=无上限）</text><input v-model.number="tier.maxQty" type="number" min="1" placeholder="留空为无上限" /></label><label class="field"><text>集采单价</text><input v-model.number="tier.price" type="number" min="0" step="0.1" placeholder="如 42" /></label><label class="field"><text>让利 %</text><input v-model.number="tier.discountOff" type="number" min="0" max="100" placeholder="如 30" /></label><button class="compact-button danger" type="button" @click="removeTier(ti)">删除</button></view></view></view></template>
+        <template v-if="dialog === 'after-sale-init'"><view class="form-card full"><view class="form-card-title">售后信息</view><view class="form-card-grid"><label class="field"><text>售后订单</text><input :value="form.id" disabled /></label><view class="field"><text>售后类型</text><SearchableSelect v-model="form.result" :options="afterSaleTypeOptions" search-placeholder="搜索售后类型" /></view><view class="field"><text>售后原因</text><SearchableSelect v-model="form.initIssue" :options="afterReasonSelectOptions" search-placeholder="搜索售后原因" /></view></view></view></template>
+        <template v-if="dialog === 'commission'"><view class="form-card full"><view class="form-card-title">佣金规则</view><view class="form-card-grid"><label class="field"><text>佣金比例（1-100%）</text><input v-model.number="form.rate" type="number" min="1" max="100" /></label></view></view></template>
         <template v-if="dialog === 'promoter' || dialog === 'promoter-edit'">
+          <view class="form-card full"><view class="form-card-title">推客信息</view><view class="form-card-grid">
           <label class="field"><text>推客姓名</text><input v-model="form.name" placeholder="请输入推客姓名" /></label>
           <view class="field"><text>等级标签</text><SearchableSelect v-model="form.level" :options="promoterLevelOptions" search-placeholder="搜索推客等级" /></view>
           <view class="field"><text>类型</text><SearchableSelect v-model="form.promoterType" :options="promoterFormTypeOptions" search-placeholder="搜索推客类型" /></view>
           <view class="field"><text>状态</text><SearchableSelect v-model="form.promoterStatus" :options="promoterStatusOptions" search-placeholder="搜索推客状态" /></view>
+          </view></view>
         </template>
         <template v-if="dialog === 'farm' || dialog === 'farm-edit'">
+          <view class="form-card full"><view class="form-card-title">基础信息</view><view class="form-card-grid">
           <label class="field"><text>门店名称</text><input v-model="form.name" placeholder="请输入门店名称" /></label>
           <view class="field"><text>门店封面</text><ImageUploader v-model="form.image" purpose="farm-cover" @error="showToast" /></view>
+          </view></view>
+          <view class="form-card full"><view class="form-card-title">位置信息</view><view class="form-card-grid">
           <label class="field"><text>省份</text><input value="湖南省" disabled /></label>
           <view class="field"><text>城市</text><SearchableSelect v-model="form.farmCityCode" :options="farmCitySelectOptions" search-placeholder="搜索城市" /></view>
           <view class="field"><text>县区</text><SearchableSelect v-model="form.farmDistrictCode" :options="farmDistrictSelectOptions" :disabled="!form.farmCityCode" search-placeholder="搜索县区" /></view>
           <label class="field"><text>详细地址</text><input v-model="form.farmDetail" placeholder="如 潇湘中路123号" /></label>
-          <view v-if="dialog === 'farm-edit'" class="location-info">
+          </view></view>
+          <view v-if="dialog === 'farm-edit'" class="location-info full">
             <view class="location-info-head"><text>定位状态</text><strong :class="editingFarm?.locationStatus || 'failed'">{{ editingFarm?.locationStatus === 'resolved' ? '已定位' : editingFarm?.locationStatus === 'pending' ? '定位中' : '定位失败' }}</strong><button class="compact-button" :disabled="busy" @click="retryFarmGeocode"><UiIcon name="map-pin" :size="14" />重新定位</button></view>
             <template v-if="editingFarm?.location">
               <text>标准地址：{{ editingFarm.location.formattedAddress }}</text>
@@ -2510,10 +2598,12 @@ onBeforeUnmount(() => {
             </template>
             <text v-else>暂无有效坐标{{ editingFarm?.locationError ? `（${editingFarm.locationError}）` : '' }}</text>
           </view>
+          <view class="form-card full"><view class="form-card-title">经营数据</view><view class="form-card-grid">
           <label class="field"><text>门店标签</text><input v-model="form.tags" placeholder="逗号分隔，如 柴火土菜,临溪包厢" /></label>
           <label class="field"><text>评分</text><input v-model.number="form.rating" type="number" min="0" max="5" step="0.1" /></label>
           <label class="field"><text>平均客单价</text><input v-model.number="form.averageSpend" type="number" min="0" /></label><label class="field"><text>人气值</text><input v-model.number="form.livePopularity" type="number" min="0" /></label>
           <view class="field"><text>经营状态</text><SearchableSelect v-model="form.farmStatus" :options="farmStatusOptions" search-placeholder="搜索经营状态" /></view>
+          </view></view>
         </template>
         </view>
         <view class="modal-actions"><button class="button secondary" :disabled="busy" @click="closeOverlay">取消</button><button class="button primary" :class="{ 'danger-button': dialog === 'supplier-pause' || dialog === 'withdrawal-reject' }" :disabled="busy" @click="saveDialog">{{ busy ? '处理中...' : dialog === 'withdrawal-reject' ? '确认驳回' : dialog === 'supplier-pause' ? '确认暂停合作' : dialog === 'recovery-verify' ? (selectedRecoveryTask?.handlerKey ? '重试并核验' : '保存核验结果') : dialog === 'supplier' ? '发送邀请' : dialog === 'supplier-edit' || dialog === 'farm-edit' ? '保存修改' : '保存' }}</button></view>
@@ -2524,7 +2614,7 @@ onBeforeUnmount(() => {
       <view class="modal catalog-product-modal" role="dialog" aria-modal="true">
         <view class="modal-head"><view><h2>{{ store.catalogProducts.some((item) => item.id === catalogProductForm.id) ? '编辑商品' : '新增商品' }}</h2><p>门店、直播与全部商品使用同一商品目录</p></view><button class="icon-button" aria-label="关闭弹窗" @click="catalogProductDialog = false"><UiIcon name="x" :size="18" /></button></view>
         <view class="modal-body catalog-product-body">
-        <view class="catalog-form-grid">
+        <view class="form-card"><view class="form-card-title">基础信息</view><view class="form-card-grid">
           <label class="field"><text>商品名称</text><input v-model="catalogProductForm.name" placeholder="请输入商品名称" /></label>
           <view class="field"><text>商品渠道</text><SearchableSelect v-model="catalogProductForm.channel" :options="catalogProductChannelOptions" search-placeholder="搜索商品渠道" /></view>
           <view class="field"><text>商品类型</text><SearchableSelect v-model="catalogProductForm.productType" :options="catalogProductTypeOptions" search-placeholder="搜索商品类型" /></view>
@@ -2532,13 +2622,17 @@ onBeforeUnmount(() => {
           <view class="field"><text>商品分类</text><SearchableSelect v-model="catalogProductForm.category" :options="productCategoryOptions" search-placeholder="搜索商品分类" /></view>
           <view class="field"><text>供应商</text><SearchableSelect v-model="catalogProductForm.supplierId" :options="catalogSupplierOptions" search-placeholder="搜索供应商" /></view>
           <view class="field"><text>商品来源</text><SearchableSelect v-model="catalogProductForm.source" :options="catalogProductSourceOptions" search-placeholder="搜索商品来源" /></view>
+        </view></view>
+        <view class="form-card"><view class="form-card-title">图片与标签 · 推广佣金</view><view class="form-card-grid">
           <view class="field"><text>商品主图（必传）</text><ImageUploader v-model="catalogProductForm.image" purpose="catalog-main" @error="showToast" /></view>
           <view class="field"><text>商品图库（最多 9 张）</text><ImageUploader v-model="catalogProductForm.images" purpose="catalog-gallery" multiple :max-count="9" @error="showToast" /></view>
           <label class="field"><text>标签（逗号分隔）</text><input v-model="catalogProductForm.tags" placeholder="产地直发,精选" /></label>
           <label class="field"><text>推客佣金率 %</text><input v-model.number="catalogProductForm.promoterCommissionRate" type="number" min="0" max="100" /></label>
           <label class="field"><text>门店佣金率 %</text><input v-model.number="catalogProductForm.storeCommissionRate" type="number" min="0" max="100" /></label>
-        </view>
+        </view></view>
+        <view class="form-card"><view class="form-card-title">SKU 明细</view>
         <view class="c-sku-editor"><view class="tier-editor-head"><text>SKU 价格、起订量与共享库存</text><button class="mini-button" type="button" @click="addCatalogSku">＋ 添加 SKU</button></view><view class="catalog-sku-labels"><text>规格名称</text><text>规格图片</text><text>零售价</text><text>供货价</text><text>库存</text><text>起订量</text><text>一级金额</text><text>二级金额</text><text>操作</text></view><view v-for="(sku, index) in catalogProductForm.skus" :key="sku.id" class="c-sku-row" :class="{ retired: sku.status === 'retired' }"><input v-model="sku.name" :disabled="sku.status === 'retired'" placeholder="规格名称" /><ImageUploader v-model="sku.image" :purpose="`catalog-sku-${sku.id}`" :disabled="sku.status === 'retired'" @error="showToast" /><input v-model.number="sku.retailPrice" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="零售价" /><input v-model.number="sku.cost" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="供货价" /><input v-model.number="sku.stock" :disabled="sku.status === 'retired'" type="number" min="0" placeholder="库存" /><input v-model.number="sku.minimumOrderQuantity" :disabled="sku.status === 'retired'" type="number" min="1" step="1" placeholder="起订量" /><input v-model.number="sku.level1Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="一级金额" /><input v-model.number="sku.level2Amount" :disabled="sku.status === 'retired'" type="number" min="0" step="0.01" placeholder="二级金额" /><button v-if="sku.status === 'retired'" class="compact-button" type="button" @click="restoreCatalogSku(index)">恢复</button><button v-else class="compact-button danger" type="button" @click="removeCatalogSku(index)">{{ persistedCatalogSkuIds.has(sku.id) ? '停用' : '删除' }}</button></view></view>
+        </view>
         </view>
         <view class="modal-actions"><button class="button secondary" @click="catalogProductDialog = false">取消</button><button class="button primary" @click="saveCatalogProductDialog">保存商品</button></view>
       </view>
@@ -2546,7 +2640,7 @@ onBeforeUnmount(() => {
 
      <view v-if="detail" class="drawer-mask" @click.self="closeOverlay">
        <aside class="drawer" role="dialog" aria-modal="true" @keydown="trapFocus">
-         <view class="drawer-head"><view><small>本地演示数据</small><h2>{{ detail.type === 'todos' ? '待办中心' : detail.type === 'supplier' ? '供应商详情' : detail.type === 'order' ? '订单流转记录' : detail.type === 'afterSale' ? '售后处理记录' : detail.type === 'auditLog' ? '操作日志详情' : '门店经营数据' }}</h2></view><view class="drawer-head-actions"><button v-if="detail.type === 'todos'" class="mark-read-button" @click="markAllRead"><UiIcon name="check" :size="15" />全部已读</button><button class="icon-button" aria-label="关闭抽屉" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view></view>
+         <view class="drawer-head"><view class="drawer-head-icon"><UiIcon :name="detail.type === 'todos' ? 'bell-ring' : detail.type === 'supplier' ? 'factory' : detail.type === 'order' ? 'list-tree' : detail.type === 'afterSale' ? 'headset' : detail.type === 'auditLog' ? 'book-open' : 'store'" :size="18" /></view><view><small>本地演示数据</small><h2>{{ detail.type === 'todos' ? '待办中心' : detail.type === 'supplier' ? '供应商详情' : detail.type === 'order' ? '订单流转记录' : detail.type === 'afterSale' ? '售后处理记录' : detail.type === 'auditLog' ? '操作日志详情' : '门店经营数据' }}</h2></view><view class="drawer-head-actions"><button v-if="detail.type === 'todos'" class="mark-read-button" @click="markAllRead"><UiIcon name="check" :size="15" />全部已读</button><button class="icon-button" aria-label="关闭抽屉" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view></view>
         <view v-if="detail.type === 'todos'" class="drawer-list todo-detail">
           <button v-for="todo in adminTodos" :key="todo.id" @click="openTodo(todo)"><span>{{ todo.title }}</span><b>{{ todo.count }}</b></button>
            <view class="recovery-section"><view class="recovery-head"><span>待恢复事务</span><b>{{ store.pendingRecovery }}</b></view><view v-if="!recoveryTasks.length" class="drawer-muted">暂无待恢复任务</view><view v-for="task in recoveryTasks" :key="task.id" class="recovery-row"><view><strong>{{ task.failedStep }}</strong><small>{{ task.operationId }} · {{ task.lastError || task.reason }}</small></view><button v-if="store.can('recovery.resolve')" class="compact-button" @click="openRecoveryVerification(task.id)">{{ task.handlerKey ? '重试' : '人工核验' }}</button></view></view>
@@ -2576,9 +2670,9 @@ onBeforeUnmount(() => {
         <view v-if="detail.type === 'order' && selectedOrder && selectedOrder.status === 'shipping' && store.can('order.confirm')" class="drawer-actions"><button class="button primary wide" @click="confirmOrder(selectedOrder)">确认收货</button></view>
         <view v-else-if="detail.type === 'afterSale' && selectedAfterSale" class="drawer-list">
           <view class="detail-hero"><view class="detail-icon"><UiIcon name="headset" :size="25" /></view><view><h3>{{ selectedAfterSale.id }}</h3><text>{{ selectedAfterSale.productName }} · {{ money(selectedAfterSale.amount) }}</text></view></view>
-          <view class="history-row"><strong>工单创建</strong><small>{{ selectedAfterSale.applicant }} 提交申请</small></view><view v-for="item in selectedAfterSale.history || []" :key="item.time" class="history-row"><strong>{{ item.action }}</strong><small>{{ item.operator }} · {{ item.time }}</small></view>
-           <view v-if="selectedAfterSale.refundAmount != null" class="history-row"><strong>{{ selectedAfterSale.refundMethod === 'return' ? '退货退款' : '仅退款' }}</strong><small>退款金额 {{ money(selectedAfterSale.refundAmount) }} · {{ selectedAfterSale.refundMode === 'full' ? '全额退款' : selectedAfterSale.refundMode === 'ratio' ? '按比例退款' : '自定义退款' }}</small></view>
-          <view v-if="(selectedAfterSale.evidenceImages || []).length" class="history-row"><strong>上传凭证</strong><view class="after-evidence-grid"><BusinessImage v-for="(img, i) in selectedAfterSale.evidenceImages" :key="i" :src="img" mode="aspectFill" class="after-evidence-thumb" @click="previewImage" /></view></view>
+          <view class="detail-grid"><view><small>工单创建</small><strong>{{ selectedAfterSale.applicant }} 提交申请</strong></view><view v-if="selectedAfterSale.refundAmount != null"><small>{{ selectedAfterSale.refundMethod === 'return' ? '退货退款' : '仅退款' }}</small><strong>退款金额 {{ money(selectedAfterSale.refundAmount) }} · {{ selectedAfterSale.refundMode === 'full' ? '全额退款' : selectedAfterSale.refundMode === 'ratio' ? '按比例退款' : '自定义退款' }}</strong></view></view>
+          <view v-for="item in selectedAfterSale.history || []" :key="item.time" class="history-row"><strong>{{ item.action }}</strong><small>{{ item.operator }} · {{ item.time }}</small></view>
+           <view v-if="(selectedAfterSale.evidenceImages || []).length" class="history-row"><strong>上传凭证</strong><view class="after-evidence-grid"><BusinessImage v-for="(img, i) in selectedAfterSale.evidenceImages" :key="i" :src="img" mode="aspectFill" class="after-evidence-thumb" @click="previewImage" /></view></view>
         </view>
         <view v-else-if="detail.type === 'farm' && selectedFarm" class="drawer-list">
           <BusinessImage class="farm-cover" :src="selectedFarm.image" mode="aspectFit" @click="previewImage" /><h3>{{ selectedFarm.name }}</h3><text class="drawer-muted">{{ selectedFarm.region }} · {{ selectedFarm.tags.join(' · ') }}</text>
@@ -2610,46 +2704,58 @@ onBeforeUnmount(() => {
 .operator { display:flex;align-items:center;gap:10px;flex:none;padding:0;border:0;font-size:13px; } .operator-meta { min-width:0; } .operator-meta text, .operator small { display: block; } .operator small { color: var(--color-ink-2); margin-top: 2px; font-size: 12px; } .avatar { width: 32px; height: 32px; border-radius: var(--radius-icon); background: var(--color-brand-primary); color: var(--color-on-brand); display: grid; place-items: center; flex: none; }
 .main { width: calc(100% - var(--admin-sidebar-width)); min-height: 100vh; margin-left: var(--admin-sidebar-width); } .topbar { height: 60px; padding: 0 24px; background:var(--color-card); border-bottom: 1px solid var(--admin-line); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 8; }
 .crumb { font-size: 13px; color: var(--admin-muted); } .crumb strong { color: var(--admin-ink); } .top-actions, .head-actions, .row-actions { display: flex; align-items: center; gap: 8px; }
-.search-box { width: 240px; height: var(--admin-control-height); display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); } .search-box input { min-width:0;flex: 1; height: 100%; border: 0; outline: 0; background: transparent; font-size: 13px; }
+.filter-control{width:100%;height:var(--admin-control-height);padding:0 12px;display:flex;align-items:center;gap:8px;background: var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);box-sizing:border-box;color:var(--admin-ink);font-size:13px}.filter-control.placeholder{color:var(--admin-muted)}.filter-control input{min-width:0;flex:1;height:100%;border:0;outline:0;background:transparent;font-size:13px}.filter-control .ui-icon{flex:none}.topbar-search{width:240px;flex:none}
 .icon-button { width: var(--admin-control-height); height: var(--admin-control-height); position:relative; display: grid; place-items: center; background: var(--color-card-alt); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-control); cursor: pointer; }.notice-dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--color-danger);border:1px solid var(--color-card)}
 .content { padding: var(--space-section); } .page-head { min-height: 58px; margin-bottom: 18px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .page-head p { margin-top: 6px; color: var(--admin-muted); font-size: 13px; }
 .todo-filter-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:-6px 0 16px;padding:11px 14px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);background:var(--admin-green-soft);color:var(--admin-ink)}.todo-filter-banner>view{min-width:0}.todo-filter-banner strong,.todo-filter-banner small{display:block}.todo-filter-banner small{margin-top:3px;color:var(--admin-muted);overflow-wrap:anywhere}.todo-filter-banner .button{margin:0;flex:none}
 .button { min-height: 40px; padding: 0 14px; border-radius: var(--admin-radius-control); display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 700; font-size: 13px; } .button.primary { background: var(--admin-green-2); color:var(--color-on-brand); min-height: 44px; box-shadow: var(--shadow-button-primary); } .button.secondary { background:var(--color-card); color: var(--admin-ink); border: 1px solid var(--admin-line); } .button:disabled { opacity: .45; cursor: default; }.button.wide{width:100%;margin-top:18px}
 .loading { min-height: 420px; display: grid; place-items: center; color: var(--admin-muted); }
-.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--space-section); margin-bottom: var(--space-section); } .kpi-card { min-width:0;padding: var(--space-card-pc); background:var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-panel); box-shadow: var(--shadow-card); } .kpi-card text,.kpi-card small { display:block; color: var(--admin-muted); font-size: var(--text-caption); } .kpi-card strong { display:block; margin: 8px 0 5px; font-size: 26px; font-weight: 700; color: var(--color-ink); overflow-wrap:anywhere; } .kpi-card .positive { color: var(--color-success); }
-.chart-grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: var(--space-section); margin-bottom: var(--space-section); } .panel,.data-panel { background:var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-panel); overflow: hidden; box-shadow: var(--shadow-card); } .data-panel{overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--color-line) transparent}.panel { padding: var(--space-card-pc); } .panel-head { display:flex; align-items:center; justify-content:space-between; } .panel-head h2 { font-size: 15px; } .panel-head text { color:var(--admin-muted); font-size:12px; } .chart { height: 280px; width: 100%; }
-.lower-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:16px; } .rank-row { display:flex; align-items:center; gap:10px; padding:13px 0; border-bottom:1px solid var(--color-line); } .rank-row .hot-emoji { width:34px; height:34px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:18px; flex-shrink:0; } .rank-row>view:nth-child(2) { flex:1; min-width:0; } .rank-row .hot-right { text-align:right; flex-shrink:0; } .rank-row .hot-right b { color:var(--admin-green-2); } .rank-row .hot-right small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .rank-row:last-child { border:0; } .rank-row image { width:42px;height:42px;border-radius:var(--radius-icon); } .rank-row strong,.rank-row small { display:block; } .rank-row strong { font-size:12px; } .rank-row small { color:var(--admin-muted);font-size:12px;margin-top:3px; } .rank-row b { color:var(--admin-green-2);font-size:12px; } .rank-no { font-weight:800;color:var(--admin-gold); }
-.todo-row { width:100%;min-height:56px;padding:9px 0;display:flex;align-items:center;gap:11px;background:transparent;border-bottom:1px solid var(--color-line-light);cursor:pointer;text-align:left;color:var(--admin-ink); } .todo-row .todo-emoji { width:32px; height:32px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:16px; flex-shrink:0; } .todo-row>view { flex:1; min-width:0; } .todo-row strong,.todo-row small { display:block; } .todo-row strong { font-size:13px; } .todo-row small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .todo-pill { font-size:12px; font-weight:600; border-radius:var(--radius-nav); padding:3px 10px; background:var(--color-line-light); color:var(--color-ink-2); flex-shrink:0; } .todo-pill.wait { background:var(--color-warning-soft); color:var(--color-warning-dark); } .todo-pill.no { background:var(--color-danger-soft); color:var(--color-danger); }
+.kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 12px; } .kpi-card { min-width:0;padding: 13px 16px; background:var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-panel); box-shadow: var(--shadow-card); display:grid; grid-template-columns:40px minmax(0,1fr); column-gap:13px; align-items:center; } .kpi-card .kpi-icon { grid-row:1 / span 3; align-self:center; } .kpi-card text,.kpi-card small { display:block; color: var(--admin-muted); font-size: var(--text-caption); } .kpi-card strong { display:block; margin: 2px 0; font-size: 21px; font-weight: 700; color: var(--color-ink); overflow-wrap:anywhere; } .kpi-card .positive { color: var(--color-success); }
+.chart-grid { display: grid; grid-template-columns: 2.2fr 1fr; gap: 12px; margin-bottom: 12px; } .panel,.data-panel { background:var(--color-card); border: 1px solid var(--admin-line); border-radius: var(--admin-radius-panel); overflow: hidden; box-shadow: var(--shadow-card); } .data-panel{overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--color-line) transparent}.panel { padding: var(--space-card-pc); } .panel-head { display:flex; align-items:center; justify-content:space-between; } .panel-head h2 { font-size: 15px; } .panel-head text { color:var(--admin-muted); font-size:12px; } .chart { height: 280px; width: 100%; }
+.lower-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:12px; } .rank-row { display:flex; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--color-line); } .rank-row .hot-emoji { width:34px; height:34px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:18px; flex-shrink:0; } .rank-row>view:nth-child(2) { flex:1; min-width:0; } .rank-row .hot-right { text-align:right; flex-shrink:0; } .rank-row .hot-right b { color:var(--admin-green-2); } .rank-row .hot-right small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .rank-row:last-child { border:0; } .rank-row image { width:42px;height:42px;border-radius:var(--radius-icon); } .rank-row strong,.rank-row small { display:block; } .rank-row strong { font-size:12px; } .rank-row small { color:var(--admin-muted);font-size:12px;margin-top:3px; } .rank-row b { color:var(--admin-green-2);font-size:12px; } .rank-no { font-weight:800;color:var(--admin-gold); }
+.todo-row { width:100%;min-height:46px;padding:7px 0;display:flex;align-items:center;gap:11px;background:transparent;border-bottom:1px solid var(--color-line-light);cursor:pointer;text-align:left;color:var(--admin-ink); } .todo-row .todo-emoji { width:28px; height:28px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:14px; flex-shrink:0; } .todo-row>view { flex:1; min-width:0; } .todo-row strong,.todo-row small { display:block; } .todo-row strong { font-size:13px; } .todo-row small { color:var(--admin-muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .todo-pill { font-size:12px; font-weight:600; border-radius:var(--radius-nav); padding:3px 10px; background:var(--color-line-light); color:var(--color-ink-2); flex-shrink:0; } .todo-pill.wait { background:var(--color-warning-soft); color:var(--color-warning-dark); } .todo-pill.no { background:var(--color-danger-soft); color:var(--color-danger); }
 .table-row { min-height:var(--admin-row-height); padding:0 17px; display:grid; align-items:center; gap:12px; border-bottom:1px solid var(--color-line-light); font-size:12px; } .table-row:last-of-type { border-bottom:0; } .table-head { min-height:40px; background:var(--color-card-alt); color:var(--admin-muted);font-size:12px;font-weight:700; }
 .report-filters{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px;padding:16px;border-bottom:1px solid var(--admin-line)}.report-filters .field{display:flex;flex-direction:column;gap:6px;min-width:0}.report-filters .field>text{font-size:12px;color:var(--admin-muted)}.report-filters .picker-field,.booking-filters .picker-field,.audit-filters .picker-field{height:var(--admin-control-height);padding:0 9px;border:1px solid var(--color-line);border-radius:var(--admin-radius-control);background:var(--color-card);box-sizing:border-box}.report-filter-error{margin:10px 16px 0;padding:8px 10px;color:var(--color-danger);background:var(--color-danger-soft);border:1px solid var(--color-danger-soft);border-radius:var(--admin-radius-control);font-size:12px}.report-summary{margin:16px}.report-table-scroll{overflow-x:auto;margin:0 16px 16px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel)}.report-grid{grid-template-columns:1fr 2fr .8fr .9fr 1fr;min-width:620px}.report-panel{overflow:visible}
 @media (max-width: 900px){.report-filters{grid-template-columns:repeat(2,minmax(0,1fr));}.report-filters .field{min-width:0;}.report-filters :deep(.searchable-select){min-width:0;}}
 .supplier-table-scroll{overflow-x:auto;max-width:100%}.order-table-scroll{overflow-x:auto;max-width:100%}.farm-table-scroll{overflow-x:auto;max-width:100%}.product-table-scroll{overflow-x:auto;max-width:100%}.promoter-table-scroll{overflow-x:auto;max-width:100%}.account-table-scroll{overflow-x:auto;max-width:100%}.withdrawal-table-scroll{overflow-x:auto;max-width:100%}.role-table-scroll{overflow-x:auto;max-width:100%}.admin-account-table-scroll{overflow-x:auto;max-width:100%}.supplier-grid { grid-template-columns:1.4fr 1.3fr .55fr 1fr minmax(240px, 1.4fr);min-width:980px; }.supplier-grid .row-actions{flex-wrap:wrap}.dict-grid { grid-template-columns:1.4fr 1.6fr .7fr .6fr 1fr; }.dict-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;flex-wrap:wrap}.dict-tabs{display:flex;flex-wrap:wrap;gap:7px}.dict-tab{display:flex;align-items:center;min-height:32px;padding:0 4px 0 12px;border-radius:var(--admin-radius-control);border:1px solid var(--color-line);background:var(--color-card);color:var(--color-ink)}.dict-tab.active{background:var(--color-brand-primary-soft);border-color:var(--color-line);color:var(--color-brand-primary)}.dict-tab-btn{min-height:28px;padding:0 8px;border:0;background:transparent;color:inherit;font-size:13px;cursor:pointer}.dict-tab.active .dict-tab-btn{font-weight:700}.dict-tool-actions{display:flex;align-items:center;gap:8px}.dict-table{border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);overflow:hidden}.dict-table .table-row{min-height:var(--admin-row-height);padding:0 14px}.dict-table .table-row:nth-child(even){background:var(--color-card-alt)}.dict-table .table-head{min-height:40px;background:var(--color-line-light)}.account-grid { grid-template-columns:1.3fr 1fr 1.3fr .6fr .7fr .7fr 1.2fr; }.product-grid { grid-template-columns:1.6fr .8fr .7fr .8fr .6fr .7fr .6fr .6fr .6fr .8fr; }.order-grid{grid-template-columns:1.2fr 1.4fr .45fr .75fr .6fr .6fr .55fr .6fr .6fr .8fr;min-width:1080px}.farm-grid{grid-template-columns:1.3fr 1.2fr .7fr .8fr .75fr .6fr .7fr .8fr;min-width:860px}
 .after-sale-table-scroll{overflow-x:auto;max-width:100%}.after-grid { grid-template-columns:1fr 1.4fr .5fr .7fr .7fr .7fr .7fr minmax(220px,1.2fr);min-width:1040px }.after-grid .row-actions{min-width:220px;flex-wrap:nowrap}.after-grid .row-actions button{white-space:nowrap}.promoter-grid { grid-template-columns:1.2fr 1.1fr .65fr .65fr .9fr .8fr .6fr .8fr;min-width:900px }
-.table-row strong,.table-row small { display:block; } .table-row small { color:var(--admin-muted);font-size:12px;margin-top:4px; } .route-grid { display:grid;grid-template-columns:1.6fr .8fr .7fr 1.4fr .8fr; }.route-cell { display:flex;align-items:center;gap:10px;min-width:0; }.route-thumb { width:42px;height:42px;flex:none;border-radius:var(--radius-icon); }.product-cell { display:flex;align-items:center;gap:10px;min-width:0; } .product-cell image { width:42px;height:42px;border-radius:var(--radius-icon);flex:none; } .product-cell view { min-width:0; } .product-cell strong { overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere; }
+.table-row strong,.table-row small { display:block; } .table-row small { color:var(--admin-muted);font-size:12px;margin-top:2px; } .route-grid { display:grid;grid-template-columns:1.6fr .8fr .7fr 1.4fr .8fr; }.route-cell { display:flex;align-items:center;gap:10px;min-width:0; }.route-thumb { width:42px;height:42px;flex:none;border-radius:var(--radius-icon); }.product-cell { display:flex;align-items:center;gap:10px;min-width:0; } .product-cell image { width:42px;height:42px;border-radius:var(--radius-icon);flex:none; } .product-cell view { min-width:0; } .product-cell strong { overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere; }
+/* 订单表金额/实付列右对齐（order-grid 直接子级 strong 恰为两列金额） */
+.order-grid>strong{text-align:right}
+.order-grid.table-head>text:nth-child(5),.order-grid.table-head>text:nth-child(6){text-align:right}
 .status { width:max-content;max-width:100%;padding:5px 8px;border-radius:var(--radius-nav);background:var(--color-line-light);color:var(--color-ink-2);font-size:12px;white-space:nowrap; }.status.active,.status.cooperating,.status.delivered,.status.resolved { background:var(--color-success-soft);color:var(--color-success); }.status.pending,.status.processing { background:var(--color-warning-soft);color:var(--color-warning-dark); }.status.rejected,.status.after-sale { background:var(--color-danger-soft);color:var(--color-danger); }.status.shipping { background:var(--color-info-soft);color:var(--color-info-dark); }
 .row-actions button { min-height:32px;padding:5px 9px;background:var(--color-card);color:var(--color-brand-primary);border:1px solid var(--color-line);border-radius:var(--radius-nav);cursor:pointer;font-size:13px; }.row-actions button:first-child:not(.danger){background:var(--color-brand-primary);color:var(--color-on-brand);border-color:var(--color-brand-primary)}.row-actions button.danger { background:var(--color-card);color:var(--color-danger);border-color:var(--color-danger-soft); }
 
 .policy-panels { display:flex;flex-direction:column;gap:14px; }.policy-group { padding:0;overflow:hidden; }.policy-group-head { padding:14px 16px;border-bottom:1px solid var(--admin-line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px; }.policy-group-head h2 { display:flex;align-items:center;gap:7px;font-size:15px;margin:0; }.policy-group-head h2>text{margin:0;color:var(--admin-ink);font-size:15px}.policy-group-head>view>text { display:block;color:var(--admin-muted);font-size:12px;margin-top:3px; }.policy-group-count { white-space:nowrap;font-size:12px;color:var(--admin-muted); }.policy-card-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:16px; }.policy-data-card { min-width:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px;background:var(--color-card); }.policy-data-top { display:flex;align-items:flex-start;justify-content:space-between;gap:10px; }.policy-data-top strong { font-size:14px;overflow-wrap:anywhere; }.policy-scope { display:block;margin-top:4px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.policy-data-meta { display:flex;align-items:center;gap:10px;margin-top:10px; }.policy-discount { font-size:13px;font-weight:700;color:var(--admin-green-2); }.tier-table { margin-top:12px;border:1px solid var(--color-line-light);border-radius:var(--admin-radius-panel);overflow:hidden; }.tier-table .table-row { min-height:34px;padding:0 12px;font-size:12px; }.tier-table .tier-grid { grid-template-columns:1.3fr .8fr .7fr 1.2fr; }.tier-off { color:var(--admin-green-2);font-weight:700; }.tier-empty { margin-top:12px;padding:10px;border-radius:var(--admin-radius-panel);background:var(--color-card-alt);color:var(--admin-muted);font-size:12px;text-align:center; }.switch { width:42px;height:23px;padding:3px;border-radius:var(--radius-nav);background:var(--color-line);cursor:pointer; }.switch span { display:block;width:17px;height:17px;border-radius:50%;background:var(--color-card);transition:.2s; }.switch.on { background:var(--admin-green-2); }.switch.on span { transform:translateX(19px); }
-.summary-strip { display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--admin-line);background:var(--color-card-alt); }.summary-strip view { padding:15px 18px;border-right:1px solid var(--admin-line); }.summary-strip view:last-child { border:0; }.summary-strip small,.summary-strip strong { display:block; }.summary-strip small { color:var(--admin-muted);font-size:12px; }.summary-strip strong { margin-top:4px;font-size:16px; }.commission-banner { min-height:108px;padding:18px;display:flex;align-items:center;justify-content:space-between;background:var(--color-gold-soft);border-bottom:1px solid var(--color-gold-soft); }.commission-banner small,.commission-banner strong,.commission-banner text { display:block; }.commission-banner small { color:var(--color-gold-dark);font-size:12px; }.commission-banner strong { margin:5px 0;font-size:26px;color:var(--color-gold-dark); }.commission-banner text { color:var(--color-ink-2);font-size:12px; }.gold { color:var(--color-gold-dark); }
-.modal-mask { position:fixed;inset:0;background:var(--color-overlay);z-index:30;display:grid;place-items:center; }.modal,.catalog-product-modal { width:440px;max-width:92vw;max-height:86vh;background:var(--color-card);border-radius:var(--admin-radius-panel);padding:22px;box-shadow:0 18px 48px var(--color-overlay); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px; }.modal-head>view{min-width:0}.modal-head h2 { font-size:19px;overflow-wrap:anywhere; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.field { display:block;margin-bottom:14px;min-width:0; }.field text { display:block;margin-bottom:6px;font-size:12px;font-weight:700; }.field>input { width:100%;height:var(--admin-control-height);padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);outline:0;background:var(--color-card); }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
+.summary-strip { display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--admin-line);background:var(--color-card-alt); }.summary-strip view { padding:15px 18px;border-right:1px solid var(--admin-line); }.summary-strip view:last-child { border:0; }.summary-strip small,.summary-strip strong { display:block; }.summary-strip small { color:var(--admin-muted);font-size:12px; }.summary-strip strong { margin-top:4px;font-size:16px; }.commission-banner { min-height:84px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;background:var(--color-gold-soft);border-bottom:1px solid var(--color-gold-soft); }.commission-banner small,.commission-banner strong,.commission-banner text { display:block; }.commission-banner small { color:var(--color-gold-dark);font-size:12px; }.commission-banner strong { margin:4px 0;font-size:22px;color:var(--color-gold-dark); }.commission-banner text { color:var(--color-ink-2);font-size:12px; }.gold { color:var(--color-gold-dark); }
+.modal-mask { position:fixed;inset:0;background:var(--color-overlay);z-index:30;display:grid;place-items:center; }.modal,.catalog-product-modal { max-width:92vw;max-height:86vh;background:var(--color-card);border-radius:var(--admin-radius-panel);padding:22px;box-shadow:0 18px 48px var(--color-overlay); }.modal-head { display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px; }.modal-head>view{min-width:0}.modal-head h2 { font-size:17px;overflow-wrap:anywhere; }.modal-head p { margin-top:5px;color:var(--admin-muted);font-size:12px;overflow-wrap:anywhere; }.field { display:block;margin-bottom:14px;min-width:0; }.field text { display:block;margin-bottom:6px;font-size:12px;font-weight:700; }.field>input { width:100%;height:var(--admin-control-height);padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);outline:0;background:var(--color-card); }.modal-actions { display:flex;justify-content:flex-end;gap:9px;margin-top:20px; }
 .location-info{display:flex;flex-direction:column;gap:6px;margin:-2px 0 14px;padding:10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt);color:var(--admin-muted);font-size:12px;line-height:1.45}.location-info-head{display:flex;align-items:center;gap:8px;color:var(--admin-ink);font-weight:700}.location-info-head strong.resolved{color:var(--admin-green-2)}.location-info-head strong.failed{color:var(--color-danger)}.location-info-head .compact-button{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
-.drawer-mask{position:fixed;inset:0;background:var(--color-overlay);z-index:35;display:flex;justify-content:flex-end}.drawer{width:min(440px,100vw);max-width:100vw;height:100%;max-height:100vh;padding:22px;background:var(--color-card);box-shadow:-18px 0 48px var(--color-overlay);overflow-y:auto}.drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--admin-line)}.drawer-head small{display:block;color:var(--admin-muted);font-size:12px;margin-bottom:4px}.drawer-head h2{font-size:20px}.drawer-list{padding-top:18px}.todo-detail>button{width:100%;min-height:52px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;background:var(--color-card-alt);border-bottom:1px solid var(--admin-line);color:var(--admin-ink);text-align:left}.todo-detail b{color:var(--admin-green-2)}.export-history{margin-top:20px;padding:14px;background:var(--color-gold-soft);border-radius:var(--admin-radius-panel)}.export-history strong,.export-history text{display:block}.export-history text{margin-top:8px;color:var(--admin-muted);font-size:12px}.detail-hero{display:flex;align-items:center;gap:12px;padding:14px;background:var(--color-hover-bg);border-radius:var(--admin-radius-panel)}.detail-icon{width:46px;height:46px;border-radius:var(--radius-icon);background:var(--admin-green-soft);display:grid;place-items:center}.detail-hero h3,.drawer-list>h3{margin:0;font-size:17px}.detail-hero text,.drawer-muted{display:block;margin-top:5px;color:var(--admin-muted);font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.detail-grid view{padding:13px;background:var(--color-card-alt);border:1px solid var(--color-line-light);border-radius:var(--admin-radius-panel)}.detail-grid small,.detail-grid strong{display:block}.detail-grid small{color:var(--admin-muted);font-size:12px}.detail-grid strong{margin-top:5px;font-size:14px}.tracking-number{margin:16px 0;padding:13px;border:1px dashed var(--color-line);border-radius:var(--admin-radius-panel)}.tracking-number small,.tracking-number strong{display:block}.tracking-number small{color:var(--admin-muted);font-size:12px}.tracking-number strong{margin-top:5px;font-size:14px}.timeline-list>view{position:relative;display:grid;grid-template-columns:16px 1fr;gap:9px;padding-bottom:18px}.timeline-list>view>span{width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--admin-green-2);box-shadow:0 0 0 4px var(--admin-green-soft)}.timeline-list>view:not(:last-child)::after{content:"";position:absolute;left:4px;top:16px;bottom:2px;width:1px;background:var(--color-line)}.timeline-list strong,.timeline-list small,.timeline-list text{display:block}.timeline-list small,.timeline-list text{margin-top:4px;color:var(--admin-muted);font-size:12px}.history-row{padding:13px 0;border-bottom:1px solid var(--color-line-light)}.history-row strong,.history-row small{display:block}.history-row small{margin-top:5px;color:var(--admin-muted);font-size:12px}.history-items{margin-top:9px;display:grid;gap:6px}.history-items>view{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:12px;align-items:center;padding:8px 10px;border-radius:var(--admin-radius-panel);background:var(--color-hover-bg)}.history-items span{font-size:12px;font-weight:700}.history-items small{margin:0;overflow-wrap:anywhere}.history-items b{color:var(--admin-green-2);font-size:12px}.farm-cover{width:100%;height:180px;border-radius:var(--radius-icon);margin-bottom:14px;cursor:zoom-in}
+.drawer-mask{position:fixed;inset:0;background:var(--color-overlay);z-index:35;display:flex;justify-content:flex-end}.drawer{max-width:100vw;height:100%;max-height:100vh;padding:22px;background:var(--color-card);box-shadow:-18px 0 48px var(--color-overlay);overflow-y:auto}.drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:16px;border-bottom:1px solid var(--admin-line)}.drawer-head small{display:block;color:var(--admin-muted);font-size:12px;margin-bottom:4px}.drawer-head h2{font-size:18px}.drawer-list{padding-top:16px}.todo-detail>button{width:100%;min-height:52px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;background:var(--color-card-alt);border-bottom:1px solid var(--admin-line);color:var(--admin-ink);text-align:left}.todo-detail b{color:var(--admin-green-2)}.export-history{margin-top:20px;padding:14px;background:var(--color-gold-soft);border-radius:var(--admin-radius-panel)}.export-history strong,.export-history text{display:block}.export-history text{margin-top:8px;color:var(--admin-muted);font-size:12px}.detail-hero{display:flex;align-items:center;gap:12px;padding:14px;background:var(--color-hover-bg);border-radius:var(--admin-radius-panel)}.detail-icon{width:46px;height:46px;border-radius:var(--radius-icon);background:var(--admin-green-soft);display:grid;place-items:center}.detail-hero h3,.drawer-list>h3{margin:0;font-size:17px}.detail-hero text,.drawer-muted{display:block;margin-top:5px;color:var(--admin-muted);font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.detail-grid view{padding:13px;background:var(--color-card-alt);border:1px solid var(--color-line-light);border-radius:var(--admin-radius-panel)}.detail-grid small,.detail-grid strong{display:block}.detail-grid small{color:var(--admin-muted);font-size:12px}.detail-grid strong{margin-top:5px;font-size:14px}.tracking-number{margin:16px 0;padding:13px;border:1px dashed var(--color-line);border-radius:var(--admin-radius-panel)}.tracking-number small,.tracking-number strong{display:block}.tracking-number small{color:var(--admin-muted);font-size:12px}.tracking-number strong{margin-top:5px;font-size:14px}.timeline-list>view{position:relative;display:grid;grid-template-columns:16px 1fr;gap:9px;padding-bottom:18px}.timeline-list>view>span{width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--admin-green-2);box-shadow:0 0 0 4px var(--admin-green-soft)}.timeline-list>view:not(:last-child)::after{content:"";position:absolute;left:4px;top:16px;bottom:2px;width:1px;background:var(--color-line)}.timeline-list strong,.timeline-list small,.timeline-list text{display:block}.timeline-list small,.timeline-list text{margin-top:4px;color:var(--admin-muted);font-size:12px}.history-row{padding:13px 0;border-bottom:1px solid var(--color-line-light)}.history-row strong,.history-row small{display:block}.history-row small{margin-top:5px;color:var(--admin-muted);font-size:12px}.history-items{margin-top:9px;display:grid;gap:6px}.history-items>view{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:12px;align-items:center;padding:8px 10px;border-radius:var(--admin-radius-panel);background:var(--color-hover-bg)}.history-items span{font-size:12px;font-weight:700}.history-items small{margin:0;overflow-wrap:anywhere}.history-items b{color:var(--admin-green-2);font-size:12px}.farm-cover{width:100%;height:180px;border-radius:var(--radius-icon);margin-bottom:14px;cursor:zoom-in}
 @media(max-width:1280px){.admin-shell{--admin-sidebar-width:var(--admin-sidebar-compact-width)}}
-@media(max-width:1180px){.commission-rule-grid{grid-template-columns:repeat(2,1fr)}.sidebar{width:var(--admin-sidebar-width)}.main{width:calc(100% - var(--admin-sidebar-width));margin-left:var(--admin-sidebar-width)}.brand{padding:0 12px}.brand-title{font-size:13px}.nav-item{padding:0 8px;gap:8px}.content{padding:var(--space-section)}.topbar{padding:0 18px}.search-box{width:210px}.kpi-grid{grid-template-columns:repeat(2,1fr)}.chart-grid,.lower-grid{grid-template-columns:1fr}.supplier-grid{min-width:760px}.product-grid,.order-grid,.after-grid,.farm-grid{min-width:860px}.promoter-grid{min-width:900px}}
-.search-box{height:var(--admin-control-height)}.row-actions button,.compact-button{min-height:32px}.state-panel{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--admin-muted)}.empty-state{min-height:120px;display:grid;place-items:center;color:var(--admin-muted);font-size:12px}.module-toolbar{padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-bottom:1px solid var(--admin-line);background:var(--color-card)}.module-toolbar .searchable-select{min-width:160px}.module-toolbar .button{margin-left:auto}.order-id{display:flex;align-items:center;gap:9px}.order-id input{width:16px;height:16px}.policy-actions{display:flex;align-items:center;gap:8px}.compact-button{padding:0 9px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2);font-size:13px}.compact-button.danger { background: var(--color-danger-soft); color: var(--color-danger); border: 1px solid var(--color-danger-soft); }.banner-actions,.drawer-actions{display:flex;flex-wrap:wrap;gap:9px}.danger-button{background:var(--color-danger);color:var(--color-on-brand)}.share-config-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;padding:4px 0 8px}.share-config-row .field{min-width:160px}.share-config-row .button{margin:0 0 4px}.commission-rules{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt)}.commission-rules>button{width:100%;min-height:40px;padding:0 10px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;border-bottom:1px solid var(--admin-line);background:transparent;text-align:left}.commission-rules>button:last-child{border:0}.commission-rules small{color:var(--admin-muted)}
+@media(max-width:1180px){.commission-rule-grid{grid-template-columns:repeat(2,1fr)}.sidebar{width:var(--admin-sidebar-width)}.main{width:calc(100% - var(--admin-sidebar-width));margin-left:var(--admin-sidebar-width)}.brand{padding:0 12px}.brand-title{font-size:13px}.nav-item{padding:0 8px;gap:8px}.content{padding:var(--space-section)}.topbar{padding:0 18px}.topbar-search{width:210px}.kpi-grid{grid-template-columns:repeat(2,1fr)}.chart-grid,.lower-grid{grid-template-columns:1fr}.supplier-grid{min-width:760px}.product-grid,.order-grid,.after-grid,.farm-grid{min-width:860px}.promoter-grid{min-width:900px}}
+.filter-bar{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px;min-width:0}.filter-bar .field{margin:0;min-width:0;flex:1 1 128px;max-width:190px}.filter-bar .field>text{display:block;margin-bottom:6px;font-size:12px;font-weight:400;color:var(--admin-muted)}.filter-bar .searchable-select{min-width:160px}.filter-bar .searchable-select.is-wide{min-width:180px}.filter-bar .button{margin:0 0 1px}.row-actions button,.compact-button{min-height:32px}.state-panel{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--admin-muted)}.empty-state{min-height:120px;display:grid;place-items:center;color:var(--admin-muted);font-size:12px}.module-toolbar{padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;border-bottom:1px solid var(--admin-line);background:var(--color-card)}.module-toolbar .searchable-select{min-width:160px}.module-toolbar .button{margin-left:auto}.order-id{display:flex;align-items:center;gap:9px}.order-id input{width:16px;height:16px}
+.module-toolbar .filter-bar{flex:1 1 auto;flex-wrap:nowrap;min-width:0}
+.module-toolbar .filter-bar .field.is-search{width:var(--admin-toolbar-search);min-width:0;flex:none;max-width:none}
+.module-toolbar .filter-bar .searchable-select{min-width:0;flex:1 1 128px;max-width:170px}
+.module-toolbar .filter-bar .searchable-select.is-wide{min-width:0;flex:1 1 150px;max-width:190px}
+@media(max-width:1180px){.module-toolbar .filter-bar{flex-wrap:wrap}.module-toolbar .filter-bar .field.is-search{min-width:200px;width:min(280px,100%)}.module-toolbar .filter-bar .searchable-select{flex:1 1 130px;max-width:none}}.policy-actions{display:flex;align-items:center;gap:8px}.compact-button{padding:0 9px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2);font-size:13px}.compact-button.danger { background: var(--color-danger-soft); color: var(--color-danger); border: 1px solid var(--color-danger-soft); }.banner-actions,.drawer-actions{display:flex;flex-wrap:wrap;gap:9px}.danger-button{background:var(--color-danger);color:var(--color-on-brand)}.share-config-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;padding:4px 0 8px}.share-config-row .field{min-width:160px}.share-config-row .button{margin:0 0 4px}.commission-rules{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt)}.commission-rules>button{width:100%;min-height:40px;padding:0 10px;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;border-bottom:1px solid var(--admin-line);background:transparent;text-align:left}.commission-rules>button:last-child{border:0}.commission-rules small{color:var(--admin-muted)}
 .order-select{width:24px;height:24px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card);display:grid;place-items:center;flex:none}.order-select.selected{background:var(--admin-green-2);border-color:var(--admin-green-2)}.order-select.selected .ui-icon{filter:brightness(0) invert(1)}
 .settlement-history{margin:18px;padding:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card)}.settlement-history .empty-state{min-height:72px}
 .row-actions button:disabled,.switch:disabled{opacity:.5;cursor:default}.drawer-actions{margin-top:18px}.detail-grid strong{overflow-wrap:anywhere}
 
 /* ===== 原型 1:1 补充样式 ===== */
 .page-time{display:block;margin-top:4px;font-size:12px;color:var(--admin-muted)}
-.kpi-icon{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);color:var(--color-brand-primary);font-size:16px;margin-bottom:10px}
+.kpi-icon{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);color:var(--color-brand-primary);font-size:16px;margin-bottom:0}
 .period-button{min-height:32px;padding:0 10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--admin-ink);font-size:13px;cursor:pointer}.period-button.on{background:var(--color-brand-primary-soft);color:var(--color-brand-primary);border-color:var(--color-line)}
-.stat-strip{display:grid;gap:14px;margin-bottom:16px}.stat-strip.three{grid-template-columns:repeat(3,1fr)}.stat-strip.four{grid-template-columns:repeat(4,1fr)}.stat-strip>view{min-width:0;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px 16px}.stat-strip small{display:block;font-size:12.5px;color:var(--admin-muted)}.stat-strip strong{display:block;margin-top:5px;font-size:21px;font-weight:800;overflow-wrap:anywhere}.stat-strip span{display:block;margin-top:5px;font-size:12px;color:var(--admin-muted);line-height:1.4;overflow-wrap:anywhere}.stat-strip .positive{color:var(--admin-green-2)}.stat-strip .pending-text{color:var(--color-warning-dark)}
+.stat-strip{display:grid;gap:14px;margin-bottom:16px}.stat-strip.three{grid-template-columns:repeat(3,1fr)}.stat-strip.four{grid-template-columns:repeat(4,1fr)}.stat-strip>view{min-width:0;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:14px 16px}.stat-strip small{display:block;font-size:12.5px;color:var(--admin-muted)}.stat-strip strong{display:block;margin-top:4px;font-size:19px;font-weight:800;overflow-wrap:anywhere}.stat-strip span{display:block;margin-top:4px;font-size:12px;color:var(--admin-muted);line-height:1.4;overflow-wrap:anywhere}.stat-strip .positive{color:var(--admin-green-2)}.stat-strip .pending-text{color:var(--color-warning-dark)}
+/* 统计条单卡三段/四段化：外层一张卡，内部分段虚线分隔 */
+.stat-strip.three,.stat-strip.four{gap:0;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card);overflow:hidden;margin-bottom:12px}
+.stat-strip.three>view,.stat-strip.four>view{border:0;border-radius:0;border-right:1px dashed var(--color-line);padding:11px 16px}
+.stat-strip.three>view:last-child,.stat-strip.four>view:last-child{border-right:0}
 .filter-chips{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 12px}.filter-chips button{min-height:32px;padding:0 12px;border-radius:var(--admin-radius-control);border:1px solid var(--admin-line);background:var(--color-card);color:var(--admin-ink);font-size:13px;cursor:pointer}.filter-chips button.active{background:var(--color-brand-primary-soft);color:var(--color-brand-primary-dark);border-color:var(--color-line)}
 .mini-button{min-height:32px;padding:0 8px;border-radius:var(--admin-radius-control);background:var(--color-brand-primary-soft);color:var(--color-brand-primary);font-size:13px;border:1px solid var(--color-line);cursor:pointer;margin-left:6px;vertical-align:2px}
-.fulfill-strip{display:flex;gap:0;margin-bottom:16px;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:12px 8px;overflow-x:auto}.fulfill-strip>view{flex:1;min-width:96px;text-align:center;position:relative;padding:2px 4px}.fulfill-strip>view:not(:last-child)::after{content:"→";position:absolute;right:-1px;top:12px;color:var(--color-line);font-size:16px}.fulfill-strip b{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--color-ink-3);color:var(--color-on-brand);font-size:14px;font-weight:800;margin-bottom:6px}.fulfill-strip .done b{background:var(--admin-green-2)}.fulfill-strip .done b .ui-icon{filter:brightness(0) invert(1)}.fulfill-strip .cur b{background:var(--color-gold)}.fulfill-strip small{display:block;font-size:12px;font-weight:700;color:var(--admin-ink)}.fulfill-strip strong{display:block;margin-top:4px;font-size:12px;font-weight:700;line-height:1.3}
+.fulfill-strip{display:flex;gap:0;margin-bottom:12px;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:8px 6px;overflow-x:auto}.fulfill-strip>view{flex:1;min-width:96px;display:flex;align-items:center;gap:8px;position:relative;padding:2px 8px;justify-content:flex-start}.fulfill-strip>view:not(:last-child)::after{content:"→";position:absolute;right:-2px;top:50%;transform:translateY(-50%);color:var(--color-line);font-size:14px}.fulfill-strip b{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--color-ink-3);color:var(--color-on-brand);font-size:12px;font-weight:800;flex:none}.fulfill-strip .done b{background:var(--admin-green-2)}.fulfill-strip .done b .ui-icon{filter:brightness(0) invert(1)}.fulfill-strip .cur b{background:var(--color-gold)}.fulfill-strip small{display:block;font-size:11.5px;font-weight:700;color:var(--admin-ink);text-align:left;white-space:nowrap}.fulfill-strip strong{display:block;margin-top:1px;font-size:11px;font-weight:700;line-height:1.3;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .settle-banner{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:stretch;margin-bottom:12px}.settle-banner>view{min-width:0;background:var(--color-brand-primary-soft);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:11px 13px}.settle-banner small{display:block;font-size:12px;color:var(--admin-muted)}.settle-banner strong{display:block;margin-top:5px;font-size:18px;font-weight:800;overflow-wrap:anywhere}.settle-banner span{display:block;margin-top:4px;font-size:12px;color:var(--admin-muted);overflow-wrap:anywhere}.settle-banner .positive{color:var(--admin-green-2)}.settle-banner .button{min-height:var(--admin-control-height);align-self:center;white-space:nowrap}
 .tier-grid{grid-template-columns:1.2fr 1fr 1fr 1.4fr 1fr}.tier-grid strong{font-weight:700}
 .status.delivered{background:var(--color-success-soft);color:var(--admin-green-2)}.status.pending{background:var(--color-warning-soft);color:var(--color-warning-dark)}
@@ -2675,7 +2781,6 @@ h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .pa
 /* ===== 按钮靠左 + 文字居中（统一） ===== */
 button, uni-button { text-align: center; }
 .state-panel { align-items: flex-start; }
-.modal-actions { justify-content: flex-start; }
 .page-head { justify-content: space-between; flex-wrap: wrap; }
 .commission-banner { justify-content: flex-start; gap: 18px; }
 .nav-item { justify-content: flex-start; text-align: left; }
@@ -2687,8 +2792,8 @@ button, uni-button { text-align: center; }
 .order-tabs button{min-height:32px;padding:6px 13px;border-radius:var(--admin-radius-control);background:var(--color-card-alt);border:1px solid var(--color-line);color:var(--color-ink-2);font-size:13px;font-weight:600}
 .order-tabs button.active{background:var(--color-brand-primary-soft);color:var(--color-brand-primary);border-color:var(--color-line)}
 .toolbar-actions{margin-left:auto;display:flex;flex-wrap:wrap;gap:10px}
-.goods-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.goods-tools .module-search{flex:1 0 auto}
+.goods-tools{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.goods-tools .filter-bar{flex:1 0 auto}
 .goods-count{margin-left:auto;font-size:12px;color:var(--admin-muted);white-space:nowrap}
 .c-product-grid{grid-template-columns:1.7fr 1.2fr .7fr .7fr .7fr .7fr .7fr 1fr;min-width:920px}.c-sku-editor{padding:12px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt);overflow-x:auto;box-shadow: inset -12px 0 12px -12px var(--color-overlay)}.after-evidence-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
 .after-evidence-thumb { width: 72px; height: 72px; border-radius:var(--radius-icon); }
@@ -2699,9 +2804,7 @@ button, uni-button { text-align: center; }
 @media(max-width:1180px){.settle-banner{grid-template-columns:1fr 1fr}.settle-banner .button{grid-column:1/-1}.module-toolbar .toolbar-actions{width:100%;justify-content:flex-end}}
 @media(max-width:1100px){.product-submission-card{grid-template-columns:minmax(0,1fr)}.product-submission-card .row-actions{grid-column:1/-1;justify-content:flex-start}}
 .sku-no{color:var(--admin-muted);font-size:12px}
-.source-pill{display:inline-block;padding:2px 8px;border-radius:var(--radius-nav);font-size:12px;font-weight:600}
-.source-pill.platform{background:var(--color-info-soft);color:var(--color-info-dark)}
-.source-pill.farmhouse{background:var(--color-line-light);color:var(--color-ink-2)}
+.source-pill{display:inline-block;padding:2px 8px;border-radius:var(--radius-nav);font-size:12px;font-weight:600;color:var(--admin-ink)}
 
 
 
@@ -2722,8 +2825,6 @@ button, uni-button { text-align: center; }
 
 
 /* ===== 1:1 还原（对照原型） ===== */
-.source-pill.host{background:var(--color-danger-soft);color:var(--color-danger)}
-.source-pill.expert{background:var(--color-info-soft);color:var(--color-info-dark)}
 .promoter-grid .commission{color:var(--color-danger);font-weight:800}
 .commission-status-table{margin-bottom:14px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);overflow:hidden}
 .commission-status-grid{grid-template-columns:1.4fr 1fr 1fr 1fr}
@@ -2790,10 +2891,7 @@ button, uni-button { text-align: center; }
 .upload-preview{width:64px;height:64px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt);cursor:zoom-in}
 .upload-button{margin:0;min-height:32px;padding:0 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--admin-green-2);font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .upload-button.danger{color:var(--color-danger)}
-.module-search{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
-.module-search .search-box{width:min(280px,100%);min-width:220px}
-.module-search .searchable-select{min-width:160px}
-.module-search .searchable-select.is-wide{min-width:180px}
+.filter-bar .field.is-search{width:min(280px,100%);min-width:220px}
 .product-thumb{width:42px;height:42px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);flex:none;object-fit:contain}
 .product-cell .after-thumb{width:40px;height:40px;border-radius:var(--radius-icon);background:var(--color-brand-primary-soft);flex:none;object-fit:contain}
 .refund-amount{color:var(--color-danger);font-weight:700}
@@ -2847,7 +2945,7 @@ button, uni-button { text-align: center; }
   .main { width: calc(100% - 72px); margin-left: 72px; min-width: 0; }
   .topbar { height: auto; min-height: 60px; padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
   .top-actions { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
-  .top-actions .search-box { width: min(100%, 280px); flex: 1 1 180px; }
+  .top-actions .topbar-search { width: min(100%, 280px); flex: 1 1 180px; }
   .content { padding: 18px 12px 32px; min-width: 0; }
   .page-head { flex-wrap: wrap; }
   .head-actions { width: 100%; flex-wrap: wrap; }
@@ -2873,7 +2971,7 @@ button, uni-button { text-align: center; }
 .price-cell{display:flex;flex-direction:column;gap:2px}
 .checkbox-field{display:flex;align-items:center;gap:8px}
 .fixed-tag{font-size:12px;color:var(--color-brand-primary);font-weight:700}
-.catalog-filter{min-width:150px}.catalog-filter .muted{color:var(--admin-muted);cursor:default}.catalog-product-modal{width:min(960px,92vw);max-height:88vh;overflow:auto}.catalog-form-grid,.pricing-defaults-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pricing-defaults-panel{padding:16px}.pricing-defaults-panel .panel-head{padding:0 0 12px}.pricing-defaults-panel .panel-head text{display:block;margin-top:4px;color:var(--admin-muted);font-size:12px}.pricing-defaults-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.catalog-filter{min-width:150px}.catalog-filter .muted{color:var(--admin-muted);cursor:default}.catalog-product-modal{width:min(var(--admin-modal-lg),92vw);max-height:88vh;overflow:auto}.catalog-form-grid,.pricing-defaults-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pricing-defaults-panel{padding:16px}.pricing-defaults-panel .panel-head{padding:0 0 12px}.pricing-defaults-panel .panel-head text{display:block;margin-top:4px;color:var(--admin-muted);font-size:12px}.pricing-defaults-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:768px){.catalog-form-grid,.pricing-defaults-grid{grid-template-columns:1fr}.c-sku-editor{overflow-x:auto}.c-sku-row,.catalog-sku-labels{min-width:760px}}
 
 /* ===== 后台可读性优化 ===== */
@@ -2884,7 +2982,7 @@ button, uni-button { text-align: center; }
 .nav-badge { font-size: var(--text-caption); }
 .operator { font-size: 13px; }
 .operator small { font-size: 12px; }
-.crumb, .search-box input { font-size: 14px; }
+.crumb, .filter-control input { font-size: 14px; }
 .page-head p { font-size: 14px; line-height: 1.55; }
 .kpi-card text, .kpi-card small { font-size: 13px; }
 .panel-head text { font-size: 12px; }
@@ -2903,7 +3001,7 @@ button, uni-button { text-align: center; }
 .policy-group-head text, .policy-group-count, .policy-scope, .rule-meta { font-size: 12px; }
 .summary-strip small { font-size: 12px; }
 .modal-head p, .location-info, .drawer-head small, .detail-grid small, .tracking-number small { font-size: 12px; }
-.drawer-head h2 { font-size: 21px; }
+.drawer-head h2 { font-size: 18px; }
 .detail-hero text, .drawer-muted { font-size: 12px; }
 .timeline-list small, .timeline-list text, .history-row small { font-size: 12px; }
 .export-history text { font-size: 12px; }
@@ -2938,15 +3036,15 @@ button, uni-button { text-align: center; }
 
 /* ===== 后台桌面工作区视觉契约 ===== */
 .admin-workspace{min-width:0}
-.page-head>view:first-child,.panel-head>view,.module-search,.toolbar-actions{min-width:0}
+.page-head>view:first-child,.panel-head>view,.filter-bar,.toolbar-actions{min-width:0}
 .page-head h1,.page-head p,.work-page-head h1,.work-page-head p{overflow-wrap:anywhere}
 .panel,.data-panel,.work-page,.policy-data-card,.commission-rule-card,.commission-rules,.settlement-history,.report-table-scroll,.booking-table-scroll,.dict-table{border-radius:var(--admin-radius-panel)}
-.button,.search-box,.icon-button,.field>input,.field textarea,.picker-field,.upload-button,.compact-button,.mini-button,.period-button{border-radius:var(--admin-radius-control)}
+.button,.filter-control,.icon-button,.field>input,.field textarea,.picker-field,.upload-button,.compact-button,.mini-button,.period-button{border-radius:var(--admin-radius-control)}
 .button{min-height:var(--admin-control-height)}
 .module-toolbar,.booking-filters,.report-filters,.audit-filters,.dict-toolbar{background:var(--color-card);border-bottom:1px solid var(--admin-line)}
 .module-toolbar,.dict-toolbar{padding:12px 16px}
-.data-panel>.module-search,.data-panel>.goods-tools,.data-panel>.filter-chips{margin:0;padding:12px 16px;border-bottom:1px solid var(--admin-line);background:var(--color-card)}
-.data-panel>.filter-chips+.module-search{border-top:0}
+.data-panel>.filter-bar,.data-panel>.goods-tools,.data-panel>.filter-chips{margin:0;padding:12px 16px;border-bottom:1px solid var(--admin-line);background:var(--color-card)}
+.data-panel>.filter-chips+.filter-bar{border-top:0}
 .table-row{min-height:var(--admin-row-height)}
 .table-head{min-height:40px}
 .table-row>text,.table-row>strong,.table-row>view{min-width:0}
@@ -2958,7 +3056,7 @@ button, uni-button { text-align: center; }
 .kpi-icon .ui-icon,.rule-icon .ui-icon,.policy-group-head .ui-icon{opacity:.82}
 .modal-actions,.drawer-actions,.head-actions,.toolbar-actions{flex-wrap:wrap}
 .modal-actions .button,.drawer-actions .button{margin:0}
-.catalog-product-modal{width:min(960px,92vw)}
+.catalog-product-modal{width:min(var(--admin-modal-lg),92vw)}
 .drawer{overflow-wrap:anywhere}
 .drawer-head h2,.drawer-list>h3{overflow-wrap:normal;white-space:normal}
 
@@ -2969,7 +3067,7 @@ button, uni-button { text-align: center; }
 
 .modal,.catalog-product-modal { display:flex; flex-direction:column; overflow:hidden; padding:0; }
 .modal-head { min-height:68px; flex:none; margin:0; padding:16px 22px; border-bottom:1px solid var(--admin-line); }
-.modal-body { min-height:0; padding:16px 22px 4px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
+.modal-body { flex:1; min-height:0; padding:16px 22px 4px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; }
 .modal-actions { flex:none; margin:0; padding:14px 22px 18px; border-top:1px solid var(--admin-line); background:var(--color-card); }
 .catalog-product-body { padding-bottom:16px; }
 .work-modal-mask .modal:not(.catalog-product-modal) { display:flex; flex-direction:column; }
@@ -3018,6 +3116,48 @@ button, uni-button { text-align: center; }
   .row-actions button:first-child:not(.danger):hover { background: var(--color-brand-primary-dark); }
   .row-actions button.danger:hover { background: var(--color-danger-soft); }
   .todo-detail>button:hover { background: var(--admin-green-soft); }
-  .dict-table .table-row:not(.table-head):hover { background: var(--color-hover-bg); }
+  .table-row:not(.table-head):hover { background: var(--color-hover-bg); }
+  .filter-chips button:hover { background: var(--color-hover-bg); }
+  .period-button:hover { background: var(--color-hover-bg); }
+  .dict-tab:hover { background: var(--color-hover-bg); }
 }
+
+/* ===== 全模块统一落码（对照设计稿 ③④⑤⑥⑦：所有菜单/弹窗/抽屉/子页） ===== */
+/* 1) 工具栏单行化：扩展到全部表格模块（此前只覆盖 orders/afterSales 的 .module-toolbar） */
+.data-panel>.filter-bar,.goods-tools .filter-bar{flex:1 1 auto;flex-wrap:nowrap;min-width:0}
+.data-panel>.filter-bar .field.is-search,.goods-tools .filter-bar .field.is-search{width:var(--admin-toolbar-search);min-width:0;flex:none;max-width:none}
+.data-panel>.filter-bar .searchable-select,.goods-tools .filter-bar .searchable-select{min-width:0;flex:1 1 128px;max-width:170px}
+.data-panel>.filter-bar .searchable-select.is-wide,.goods-tools .filter-bar .searchable-select.is-wide{min-width:0;flex:1 1 150px;max-width:190px}
+@media(max-width:1180px){.data-panel>.filter-bar,.goods-tools .filter-bar{flex-wrap:wrap}.data-panel>.filter-bar .field.is-search,.goods-tools .filter-bar .field.is-search{min-width:200px;width:min(280px,100%)}.data-panel>.filter-bar .searchable-select,.goods-tools .filter-bar .searchable-select{flex:1 1 130px;max-width:none}}
+.policy-panels>.filter-bar{padding:12px 16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card)}
+.toolbar-count{margin-left:auto;flex:none;font-size:12px;color:var(--admin-muted);white-space:nowrap}
+/* 2) 表单分组卡：弹窗主体浅底画布 + 字段收白底分组卡（短表单 2 列） */
+.modal-body{background:var(--color-bg)}
+.form-card{min-width:0;margin-bottom:12px;padding:14px 16px 2px;background:var(--color-card);border:1px solid var(--color-line);border-radius:var(--admin-radius-panel)}
+.form-card:last-child{margin-bottom:4px}
+.form-card-title{margin:0 0 12px;font-size:13px;font-weight:700;color:var(--admin-ink)}
+.form-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px}
+.form-card-grid>.full{grid-column:1/-1}
+.work-modal-mask .modal-body{display:block}
+.work-form-grid>.form-card{grid-column:1/-1}
+@media(max-width:768px){.form-card-grid{grid-template-columns:1fr}}
+/* 3) 确认类小弹窗统一 400px 紧凑宽度；弹窗标题 15px；操作栏吸底右对齐 */
+.modal-mask:not(.work-modal-mask) .modal{width:var(--admin-modal-sm)}
+.modal-head h2{font-size:15px}
+.modal-actions{justify-content:flex-end}
+/* 4) 只读字段改浅绿提示条（账号创建规则 / 冻结状态等 disabled 输入） */
+.field>input:disabled{background:var(--admin-green-soft);border-color:transparent;color:var(--admin-green-2)}
+/* 5) SKU 编辑器：行序号徽标 + 44px 紧凑行 + 序号列 */
+.c-sku-editor{counter-reset:sku-row}
+.c-sku-row{counter-increment:sku-row;min-height:44px}
+.c-sku-row::before{content:counter(sku-row);display:grid;place-items:center;width:22px;height:22px;margin-top:6px;border-radius:50%;background:var(--color-line-light);color:var(--color-ink-2);font-size:12px;font-weight:700;flex:none}
+.c-sku-row,.catalog-sku-labels{grid-template-columns:26px 1.2fr 110px repeat(6,.8fr) auto}
+.catalog-sku-labels::before{content:'#';font-weight:700}
+/* 6) 抽屉统一 460px + 头部 36px 图标章 */
+.drawer{width:min(var(--admin-drawer-width),100vw)}
+.drawer-head{gap:12px}
+.drawer-head-icon{flex:none;width:36px;height:36px;border-radius:var(--radius-icon);background:var(--admin-green-soft);color:var(--admin-green-2);display:grid;place-items:center}
+/* 7) 抽屉信息行紧凑化（44px 行高） */
+.supplier-product-row{padding:7px 0}
+.detail-grid view{padding:11px 12px}
 </style>

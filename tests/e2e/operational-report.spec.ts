@@ -130,7 +130,7 @@ test('all admin menu workspaces keep overflow inside their own data surfaces', a
 test('admin todo navigation keeps every matching order id visible and can be cleared', async ({ page }) => {
   await loginAdmin(page)
   await page.locator('.nav-item').filter({ hasText: '订单履约' }).click()
-  const orderSearch = page.locator('.module-toolbar .module-search')
+  const orderSearch = page.locator('.module-toolbar .filter-bar')
   await orderSearch.locator('input').fill('不会命中任何待办订单')
   const orderSelects = orderSearch.locator('.searchable-select')
   await orderSelects.nth(0).locator('.searchable-select__trigger').click()

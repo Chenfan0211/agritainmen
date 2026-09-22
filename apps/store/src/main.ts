@@ -5,7 +5,7 @@ import './media-runtime'
 import App from './App.vue'
 import { createStoreAtomicRecoveryHandlerRegistrations } from './stores/store'
 
-const persistedKeys = ['info', 'products', 'cart', 'orders', 'auth'] as const
+const persistedKeys = ['info', 'products', 'cart', 'checkoutLineKeys', 'orders', 'auth'] as const
 
 export function createApp() {
   purgeRetiredAllianceData()

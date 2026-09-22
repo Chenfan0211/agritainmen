@@ -68,7 +68,7 @@ test('all admin selects use the searchable dropdown and keep filter behavior', a
   await page.locator('.searchable-select__search input').press('Escape')
 
   await page.locator('.nav-item', { hasText: '供应商管理' }).click()
-  const statusSelect = page.locator('.module-search .searchable-select').first()
+  const statusSelect = page.locator('.filter-bar .searchable-select').first()
   await statusSelect.locator('.searchable-select__trigger').click()
   await page.locator('.searchable-select__search input').fill('待审')
   await page.locator('.searchable-select__option', { hasText: '待审核' }).click()

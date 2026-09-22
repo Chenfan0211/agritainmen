@@ -6,11 +6,12 @@ const globalSource = readFileSync(new URL('./styles/global.scss', import.meta.ur
 const appSource = readFileSync(new URL('./App.vue', import.meta.url), 'utf8')
 const paginationSource = readFileSync(new URL('./components/PaginationBar.vue', import.meta.url), 'utf8')
 const selectSource = readFileSync(new URL('./components/SearchableSelect.vue', import.meta.url), 'utf8')
+const datePickerSource = readFileSync(new URL('./components/DatePicker.vue', import.meta.url), 'utf8')
 const iconSource = readFileSync(new URL('./components/UiIcon.vue', import.meta.url), 'utf8')
 const sharedSource = readFileSync(new URL('../../../packages/shared/src/index.ts', import.meta.url), 'utf8')
 const tokenCss = readFileSync(new URL('../../../packages/ui/src/design-tokens.css', import.meta.url), 'utf8')
 const styleSource = pageSource.slice(pageSource.indexOf('<style'))
-const businessStyles = [globalSource, styleSource, paginationSource, selectSource]
+const businessStyles = [globalSource, styleSource, paginationSource, selectSource, datePickerSource]
   .join('\n')
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/\/\/.*$/gm, '')
@@ -24,9 +25,13 @@ describe('admin visual contract', () => {
       '--admin-radius-panel: var(--radius-card)',
       '--admin-radius-control: var(--radius-button)',
       '--admin-control-height: 40px',
-      '--admin-row-height: 56px',
+      '--admin-row-height: 48px',
       '--admin-sidebar-width: 220px',
       '--admin-sidebar-compact-width: 196px',
+      '--admin-modal-sm: 400px',
+      '--admin-modal-lg: 960px',
+      '--admin-drawer-width: 460px',
+      '--admin-toolbar-search: 230px',
       '--admin-focus-ring:',
       '--admin-green: var(--color-brand-primary-dark)',
       '--admin-bg: var(--color-bg)'
@@ -65,10 +70,10 @@ describe('admin visual contract', () => {
     expect(pageSource).toMatch(/\.nav-item \{[^}]*min-height: 40px/)
     expect(pageSource).toMatch(/\.brand-title \{ font-size: 16px/)
     expect(pageSource).not.toContain('size="medium"')
-    expect(pageSource).toMatch(/\.module-search\{[^}]*gap:10px/)
-    expect(pageSource).toMatch(/\.module-search \.search-box\{[^}]*min-width:220px/)
-    expect(pageSource).toMatch(/\.module-search \.searchable-select\{min-width:160px/)
-    expect(pageSource).toMatch(/\.goods-tools \.module-search\{flex:1 0 auto/)
+    expect(pageSource).toMatch(/\.filter-bar\{[^}]*gap:12px/)
+    expect(pageSource).toMatch(/\.filter-control\{[^}]*height:var\(--admin-control-height\)/)
+    expect(pageSource).toMatch(/\.filter-bar \.searchable-select\{min-width:160px/)
+    expect(pageSource).toMatch(/\.goods-tools \.filter-bar\{flex:1 0 auto/)
   })
 
   it('uses the same panel and control radii across cards, dialogs and filters', () => {
@@ -131,6 +136,8 @@ describe('admin visual contract', () => {
   })
 
   it('hides empty pagination and keeps modal/drawer chrome independently scrollable', () => {
+    expect(pageSource).toContain('const pageSize = 10')
+    expect(paginationSource).toContain('pageSize: 10')
     expect(paginationSource).toMatch(/v-if="total > 0"/)
     expect(pageSource).not.toMatch(/\.modal,\.catalog-product-modal \{[^}]*overflow-y:auto/)
     expect(pageSource).toMatch(/\.modal,\.catalog-product-modal \{ display:flex; flex-direction:column; overflow:hidden/)
@@ -172,6 +179,8 @@ describe('admin visual contract', () => {
     expect(pageSource).not.toMatch(/\.period-button\.on\{background:var\(--green/)
     expect(pageSource).not.toMatch(/\.filter-chips\.solid button\.active\{background:#1d6b44/)
     expect(pageSource).not.toMatch(/\.source-pill\{[^}]*border-radius:999px/)
+    expect(pageSource).not.toMatch(/class="source-pill" :class="item\.type === '主播'/)
+    expect(pageSource).toContain('<text>{{ item.type || \'推客\' }}</text>')
     expect(pageSource).not.toMatch(/\.table-head\{min-height:42px\}/)
     expect(pageSource).toMatch(/\.table-head\{min-height:40px\}/)
     expect(pageSource).toMatch(/\.table-row:not\(\.table-head\)>text,\.table-row:not\(\.table-head\)>strong,\.table-row:not\(\.table-head\)>view/)
@@ -206,12 +215,18 @@ describe('admin visual contract', () => {
     expect(pageSource).toMatch(/\.supplier-grid \{ grid-template-columns:[^}]*minmax\(240px, 1\.4fr\)/)
     expect(pageSource).toMatch(/\.supplier-grid \.row-actions\{[^}]*flex-wrap:wrap/)
     expect(pageSource).toMatch(/\.after-grid \.row-actions\{[^}]*flex-wrap:nowrap/)
-    expect(pageSource).toMatch(/\.report-filters \.picker-field,.booking-filters \.picker-field,.audit-filters \.picker-field\{height:var\(--admin-control-height\)/)
+    expect(pageSource).toMatch(/\.filter-control\{[^}]*height:var\(--admin-control-height\)/)
     expect(pageSource).toMatch(/\.picker-field\{[^}]*height:var\(--admin-control-height\)/)
-    expect(pageSource).toMatch(/\.search-box \{[^}]*background:\s*var\(--color-card\)/)
+    expect(pageSource).toMatch(/\.filter-control\{[^}]*background:\s*var\(--color-card\)/)
     expect(pageSource).toMatch(/\.brand-mark \{[^}]*flex:\s*none/)
     expect(pageSource).toMatch(/\.brand-mark \{[^}]*aspect-ratio:\s*1/)
     expect(pageSource).not.toContain('type="date"')
+    expect(pageSource).not.toContain('picker mode="date"')
+    expect(datePickerSource).toContain('height: var(--admin-control-height)')
+    expect(datePickerSource).toContain('<UiIcon name="calendar-days"')
+    for (const binding of ['reportFrom', 'reportTo', 'bookingDateFilter', 'logFrom', 'logTo', 'form.validUntil']) {
+      expect(pageSource).toContain(`<DatePicker v-model="${binding}"`)
+    }
     expect(pageSource).not.toContain('批量发货')
     expect(selectSource).toContain('height: var(--admin-control-height)')
     expect(pageSource).not.toMatch(/\.row-actions button \{ min-height:30px/)
@@ -233,5 +248,73 @@ describe('admin visual contract', () => {
       expect(pageSource).toMatch(new RegExp(`\\.${scroll}\\{[^}]*overflow-x:auto`))
     }
     expect(pageSource).toMatch(/\.after-grid \.row-actions\{[^}]*flex-wrap:nowrap/)
+  })
+
+  it('locks overlay sizes and toolbar search to admin density tokens', () => {
+    expect(styleSource).toMatch(/\.modal-mask:not\(\.work-modal-mask\) \.modal\{width:var\(--admin-modal-sm\)/)
+    expect(styleSource).toMatch(/\.catalog-product-modal\{width:min\(var\(--admin-modal-lg\),92vw\)/)
+    expect(styleSource).toMatch(/\.drawer\{width:min\(var\(--admin-drawer-width\),100vw\)/)
+    expect(styleSource).toMatch(/\.module-toolbar \.filter-bar \.field\.is-search\{width:var\(--admin-toolbar-search\)/)
+    expect(styleSource).toMatch(/\.data-panel>\.filter-bar \.field\.is-search,\.goods-tools \.filter-bar \.field\.is-search\{width:var\(--admin-toolbar-search\)/)
+    expect(styleSource).not.toMatch(/\.modal,\.catalog-product-modal \{ width:440px/)
+    expect(styleSource).not.toMatch(/\.drawer\{width:min\(440px/)
+    expect(styleSource).not.toMatch(/\.modal-actions \{ justify-content: flex-start; \}/)
+    expect(styleSource).toMatch(/\.modal-actions\{justify-content:flex-end\}/)
+    expect(styleSource).toMatch(/\.row-actions button \{ min-height:32px/)
+    expect(styleSource).toMatch(/\.modal-actions \.button\.primary,[\s\S]*min-height: 44px/)
+  })
+
+  it('uses form-card chrome for leftover confirm dialogs and shared drawer skeleton', () => {
+    const rejectModal = pageSource.slice(
+      pageSource.indexOf('v-if="productRejectTarget"'),
+      pageSource.indexOf('class="button danger-button" @click="confirmRejectProductSubmission"')
+    )
+    expect(rejectModal).toContain('class="form-card"')
+    expect(rejectModal).toContain('v-model="productRejectReason"')
+
+    const recoveryModal = pageSource.slice(
+      pageSource.indexOf("dialog === 'recovery-verify'"),
+      pageSource.indexOf("dialog === 'supplier' || dialog === 'supplier-edit'")
+    )
+    expect(recoveryModal).toContain('class="form-card"')
+    expect(recoveryModal).toContain('class="form-card-grid"')
+
+    expect(pageSource).toMatch(/detail\.type === 'todos'[\s\S]*class="drawer-list todo-detail"/)
+    expect(pageSource).toMatch(/detail\.type === 'afterSale'[\s\S]*class="detail-hero"/)
+    expect(pageSource).toMatch(/detail\.type === 'afterSale'[\s\S]*class="detail-grid"/)
+    expect(pageSource).toMatch(/detail\.type === 'auditLog'[\s\S]*class="detail-hero"/)
+    expect(pageSource).toMatch(/detail\.type === 'auditLog'[\s\S]*class="detail-grid"/)
+  })
+
+  it('applies hover states only on hover-capable pointers', () => {
+    expect(styleSource).toMatch(/@media \(hover: hover\) \{[\s\S]*\.table-row:not\(\.table-head\):hover/)
+    expect(styleSource).toMatch(/@media \(hover: hover\) \{[\s\S]*\.filter-chips button:hover/)
+    expect(styleSource).toMatch(/@media \(hover: hover\) \{[\s\S]*\.period-button:hover/)
+    expect(styleSource).toMatch(/@media \(hover: hover\) \{[\s\S]*\.dict-tab:hover/)
+    expect(styleSource).toMatch(/\.login-field input\{height:var\(--admin-control-height\)/)
+    expect(styleSource).toMatch(/\.login-card\{[^}]*border-radius:var\(--admin-radius-panel\)/)
+    expect(styleSource).toMatch(/\.login-button\{min-height:44px/)
+  })
+
+  it('uses labeled filter-bar fields for list search and date pickers', () => {
+    const listMarkup = pageSource.slice(pageSource.indexOf('active === \'suppliers\''), pageSource.indexOf('v-if="dialog && !workPage"'))
+    expect(listMarkup).not.toMatch(/class="search-box"/)
+    expect(listMarkup).toContain('class="filter-bar"')
+    expect(listMarkup).toContain('class="filter-control"')
+    expect(datePickerSource).toContain('<UiIcon name="calendar-days"')
+    expect(pageSource).not.toContain('<UiIcon name="clock"')
+    expect(pageSource).toContain('v-model="roleKeyword"')
+    expect(pageSource).toContain('v-model="accountKeyword"')
+    expect(pageSource).toContain('v-model="policyKeyword"')
+    expect(pageSource).toContain('v-model="storeAccountKeyword"')
+    expect(pageSource).toContain('v-model="storeAccountStatusFilter"')
+    expect(pageSource).toContain('v-model="afterStatusFilter"')
+    expect(pageSource).toContain('v-model="promoterSettleFilter"')
+    expect(pageSource).toContain('v-model="dictStatusFilter"')
+    expect(pageSource).toContain('v-model="settlementKeyword"')
+    expect(pageSource).toContain('v-model="logResult"')
+    expect(listMarkup).not.toContain("@click=\"logResult = 'all'\"")
+    expect(styleSource).toMatch(/\.filter-bar \.field>text\{[^}]*color:var\(--admin-muted\)/)
+    expect(listMarkup).toMatch(/class="module-toolbar"><view class="filter-bar">[\s\S]*v-model="storeAccountKeyword"[\s\S]*class="toolbar-actions"><button[^>]*@click="openAccountDialog\(\)"/)
   })
 })

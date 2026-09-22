@@ -7,10 +7,15 @@ const template = source.slice(source.indexOf('<template>') + '<template>'.length
 const stylePath = resolve(import.meta.dirname, '../../styles/index-page.scss')
 const styles = existsSync(stylePath) ? readFileSync(stylePath, 'utf8') : ''
 
-const workViews = ['select', 'verify', 'design-rooms', 'design-foods', 'design-experiences', 'staff-admin', 'orders', 'bookings', 'ledger', 'addresses', 'checkout', 'help']
+const workViews = ['select', 'verify', 'design-rooms', 'design-foods', 'design-experiences', 'staff-admin', 'orders', 'order-detail', 'bookings', 'ledger', 'addresses', 'checkout', 'help']
 const sheets = ['login', 'cart', 'orders', 'bookings', 'room-form', 'food-form', 'experience-form', 'share', 'product', 'contact', 'foods', 'ledger', 'recharge', 'identity', 'help', 'booking-form', 'after-sale', 'service', 'staff-form', 'staff-promo', 'pay']
 
 describe('农家乐移动端视觉契约', () => {
+
+  it('全局样式不引入小程序不支持的裸 select 标签选择器', () => {
+    const globalStyles = readFileSync(resolve(import.meta.dirname, '../../styles/global.scss'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(globalStyles).not.toMatch(/(^|[,{}])\s*select\s*(?=[,{])/m)
+  })
   it('保留门店、预订、商城和会员四个主导航', () => {
     expect(source.match(/\{ key: '(home|reserve|shop|member)'/g)).toEqual([
       "{ key: 'home'",
@@ -41,7 +46,7 @@ describe('农家乐移动端视觉契约', () => {
       expect(template, className).toMatch(new RegExp(`class="${className}"[^>]*mode="aspectFill"`))
     }
     expect(template).toMatch(/:src="item\.image" mode="aspectFill"/)
-    expect(template).toMatch(/:src="detailImages\[detailImageIndex\] \|\| selectedProduct\.image" mode="aspectFill"/)
+    expect(template).toMatch(/class="product-gallery-image" :src="image" mode="aspectFill"/)
   })
 
   it('商品卡标签与名称竖排且标签行不预留空高', () => {
@@ -49,8 +54,10 @@ describe('农家乐移动端视觉契约', () => {
     expect(template).toContain('class="item-title"')
     expect(template).not.toContain('class="product-name-row"')
     expect(styles).not.toMatch(/\.product-tag-row\s*\{[^}]*min-height:\s*23px/s)
-    expect(styles).toMatch(/\.product-body\s*\{[^}]*flex-direction:\s*column[^}]*gap:\s*6px/s)
+    expect(styles).toMatch(/\.product-body\s*\{[^}]*flex-direction:\s*column[^}]*gap:\s*4px/s)
     expect(styles).toMatch(/\.product-body \.item-title\s*\{[^}]*width:\s*100%[^}]*-webkit-line-clamp:\s*2/s)
+    expect(styles).toMatch(/\.product-body \.item-title\s*\{[^}]*height:\s*auto/s)
+    expect(styles).toMatch(/\.product-body \.muted\s*\{[^}]*margin-top:\s*-2px/s)
   })
 
   it('特产商城使用双列瀑布流并隐藏购买端起订量', () => {
@@ -117,12 +124,14 @@ describe('农家乐移动端视觉契约', () => {
     expect(styles).toMatch(/\.sheet-head\s*\{[^}]*min-height:\s*var\(--mobile-sheet-header-height\)/s)
     expect(styles).toMatch(/\.sheet-head\s*\{[^}]*margin:\s*0 12px/s)
     expect(template).toMatch(/class="empty pc-empty"[\s\S]*购物车还是空的/)
-    expect(template).toMatch(/class="[^\"]*record-link[^\"]*" @click="workView = 'bookings'"/)
+    expect(template).not.toContain('openMyBookingsPage')
+    expect(template).not.toContain('aria-label="查看我的预订"')
     expect(template).not.toMatch(/class="record-link" @click="sheet = 'bookings'"/)
-    expect(styles).toMatch(/\.cart-count span\s*\{[^}]*border-radius:\s*var\(--mobile-radius-card\)/)
+    expect(styles).toMatch(/\.cart-count span\s*\{[^}]*border-radius:\s*50%/)
     expect(styles).toMatch(/\.cart-count\s*\{[^}]*overflow:\s*visible/)
-    expect(styles).toMatch(/\.cart-count span\s*\{[^}]*top:\s*0/)
-    expect(styles).toMatch(/\.cart-count span\s*\{[^}]*z-index:\s*1/)
+    expect(styles).toMatch(/\.cart-count span\s*\{[^}]*top:\s*-6px/)
+    expect(styles).toMatch(/\.cart-count span\s*\{[^}]*width:\s*15px[^}]*height:\s*15px/)
+    expect(styles).not.toMatch(/\.cart-count\s*\{[^}]*width:\s*var\(--farm-touch-primary\)/)
   })
 
   it('登录卡在扣除底部导航后的可用区域内居中', () => {
@@ -141,7 +150,8 @@ describe('农家乐移动端视觉契约', () => {
       expect(styles, className).toMatch(new RegExp(`\\.${className}\\s*\\{[^}]*border-radius:\\s*var\\(--mobile-radius-(?:card|control)\\)`, 's'))
     }
     expect(styles).toMatch(/\.form-field\s+input[^}]*border-radius:\s*var\(--mobile-radius-control\)/s)
-    expect(styles).toMatch(/\.sheet-head button[^}]*border-radius:\s*var\(--mobile-radius-control\)/s)
+    expect(styles).toMatch(/\.sheet-head button[^}]*width:\s*32px/s)
+    expect(styles).toMatch(/\.sheet-head button[^}]*border-radius:\s*var\(--radius-pill\)/s)
     expect(styles).not.toMatch(/\.sheet-head button[^}]*border-radius:\s*50%/s)
   })
 
@@ -153,12 +163,13 @@ describe('农家乐移动端视觉契约', () => {
     expect(styles).toMatch(/\.shop-page\s*\{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*var\(--mobile-action-bar-height\)\s*\+\s*28px\s*\+\s*env\(safe-area-inset-bottom\)\)/s)
   })
 
-  it('核销卡片将金额和操作放到独立行，避免窄屏挤压标题', () => {
+  it('核销卡片将金额和核销钮收进同一行', () => {
     expect(template).toContain('class="verify-item voucher-verify"')
     expect(template).toContain('class="verify-item booking-verify"')
-    expect(styles).toMatch(/\.booking-verify\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*44px minmax\(0,\s*1fr\) auto/s)
-    expect(styles).toMatch(/\.booking-verify \.verify-amount\s*\{[^}]*grid-column:\s*2/s)
-    expect(styles).toMatch(/\.booking-verify \.verify-btn\s*\{[^}]*grid-column:\s*3/s)
+    expect(template).toContain('class="verify-amount-row"')
+    expect(template).toMatch(/class="verify-status status-corner"/)
+    expect(styles).toMatch(/\.verify-amount-row\s*\{[^}]*display:\s*flex/s)
+    expect(styles).toMatch(/\.booking-verify \.verify-amount-row\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s)
   })
 
   it('按角色隔离推广中心并在顾客身份下退出经营工作页', () => {
@@ -167,13 +178,27 @@ describe('农家乐移动端视觉契约', () => {
     expect(source).toMatch(/function chooseRole\(role: Role\)\s*\{[\s\S]*?if \(role === 'customer'\)[\s\S]*?workView\.value = null/)
   })
 
+  it('订单工作页支持订单详情和退货单号展示', () => {
+    expect(source).toContain("const selectedOrderId = ref('')")
+    expect(source).toContain('const selectedOrder = computed')
+    expect(source).toMatch(/function openOrderDetail\(order: StorefrontOrder\)/)
+    expect(template).toContain('订单号')
+    expect(template).toMatch(/class="[^"]*order-detail-page[^"]*"/)
+    expect(template).toContain('v-model="afterSaleReturnTrackingNo"')
+    expect(template).toContain('仅退款')
+    expect(template).toContain('退货退款')
+    expect(template).not.toMatch(/>\s*申请退货\s*</)
+    expect(styles).toMatch(/\.order-detail-page\s*\{/)
+    expect(styles).toMatch(/\.record-actions\s*\{[^}]*justify-content:\s*flex-end/s)
+  })
+
   it('工作台和业务按钮使用稳定的居中布局契约', () => {
     expect(styles).toMatch(/button,\s*uni-button\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*text-align:\s*center/s)
-    for (const selector of ['.identity-row button', '.choice-row button', '.member-hero .recharge', '.cats button', '.chips button']) {
+    for (const selector of ['.identity-row button', '.choice-row button', '.mem-asset .recharge', '.cats button', '.chips button']) {
       const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       expect(styles, selector).toMatch(new RegExp(`${escaped}[^}]*justify-content:\\s*center`, 's'))
     }
-    expect(styles).not.toMatch(/\.record-link[^}]*justify-content:\s*center/s)
+    expect(styles).not.toMatch(/\.record-link\s*\{/s)
     expect(styles).toMatch(/\.workbench\s*\{[^}]*background:\s*transparent/s)
   })
 
@@ -182,20 +207,21 @@ describe('农家乐移动端视觉契约', () => {
     expect(template).toContain('class="member-hero-top"')
     expect(template).toContain('class="member-avatar"')
     expect(template).toMatch(/class="[^"]*mine-list[^"]*pc-tile-grid[^"]*"/)
-    expect(template).toContain('class="recharge pc-hero-action"')
+    expect(template).toMatch(/class="recharge"/)
+    expect(template).not.toContain('class="recharge pc-hero-action"')
     expect(template).toContain('class="member-footer pc-footer"')
     expect(template).toMatch(/class="pc-tile pc-tile--[a-z]+"/)
-    expect(template).not.toContain('class="recharge-options"')
+    expect(template).toContain('class="recharge-options"')
     expect(template).not.toContain('class="identity-row"')
     expect(styles).toMatch(/\.member-hero\s*\{[^}]*background:\s*var\(--gradient-brand\)/)
     expect(styles).toMatch(/\.mine-list\.pc-tile-grid \.pc-tile\s*\{[^}]*background:\s*transparent/)
   })
 
-  it('会员中心提供独立收货地址入口，服务四列且工作台三列', () => {
+  it('会员中心提供独立收货地址入口，服务与工作台均四列', () => {
     expect(template).toContain('class="pc-tile-label">收货地址<')
     expect(template).toContain('@click="openAddresses()"')
     expect(styles).toMatch(/\.svc5\s*\{[^}]*grid-template-columns:\s*repeat\(4/s)
-    expect(styles).toMatch(/\.workbench-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3/s)
+    expect(styles).toMatch(/\.workbench-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4/s)
   })
 
   it('地址工作页提供列表、表单、地区选择、默认标记和删除确认入口', () => {
@@ -243,23 +269,33 @@ describe('农家乐移动端视觉契约', () => {
     expect(source).toMatch(/function logout\(\)[\s\S]*?resetCheckoutDeliveryState\(\)/)
   })
 
-  it('购物车按社区团购与快递直发分栏，并按当前分类独立结算', () => {
+  it('购物车按到店自提与快递直发分栏，并按当前分类独立结算', () => {
     expect(source).toContain("const cartCategory = ref<'community' | 'express'>('community')")
     expect(source).toContain('const selectedCartLineKeys = reactive(new Set<string>())')
     expect(source).toContain('const selectedCartItems = computed')
     expect(source).toContain('selectedLines: checkoutLineRefs.value')
     expect(template).toMatch(/class="[^\"]*cart-category-tabs[^\"]*"/)
-    expect(template).toContain('社区团购')
-    expect(template).toContain('快递直发')
+    expect(template).toContain('到店自提 ·')
+    expect(template).toContain('快递直发 ·')
+    expect(template).toContain('class="cart-group-card"')
+    expect(template).toContain('class="cart-hint"')
+    expect(template).toContain('到店自提满 ¥99 免配送费 · 快递直发按重量计费')
+    expect(template).not.toContain('社区团购')
     expect(template).toContain('class="cart-line-check"')
     expect(template).toContain('@click="toggleAllCartLines"')
     expect(template).toContain('checkout-page')
     expect(template).toContain('class="pickup-point-card"')
+    expect(template).toContain('<span>农家乐</span>')
+    expect(template).not.toContain('自提点')
     expect(source).not.toContain('const cartHasPickupOnly')
     expect(template).toContain('class="cart-fulfillment-tag"')
+    expect(template.slice(template.indexOf('class="cart-sheet-list"'), template.indexOf('sheet === \'room-form\''))).not.toContain('省')
     expect(styles).toMatch(/\.cart-category-tabs\s*\{[^}]*grid-template-columns:\s*repeat\(2/s)
-    expect(styles).toMatch(/\.cart-line\s*\{[^}]*grid-template-columns:\s*34px 72px/s)
+    expect(styles).toMatch(/\.cart-line\s*\{[^}]*display:\s*flex/s)
+    expect(styles).toMatch(/\.cart-line-check\s*\{[^}]*width:\s*17px/s)
+    expect(styles).toMatch(/\.cart-line \.stepper\s*\{[^}]*height:\s*30px/s)
     expect(styles).toMatch(/\.cart-sheet-foot\s*\{[^}]*justify-content:\s*space-between/s)
+    expect(styles).toMatch(/\.cart-sheet-foot strong\s*\{[^}]*font-size:\s*17px/s)
     expect(styles).toMatch(/\.checkout-page-foot\s*\{[^}]*position:\s*fixed/s)
   })
 
@@ -271,9 +307,12 @@ describe('农家乐移动端视觉契约', () => {
     const productView = template.slice(productViewAt, productViewEnd > productViewAt ? productViewEnd : productViewAt + 4000)
     expect(source).toContain('const detailImages = computed')
     expect(source).toContain('const detailQuantity = ref(1)')
+    expect(source).toContain('function onDetailImageChange')
     expect(source).toContain('function changeDetailQuantity')
     expect(source).toContain('function buyNow')
     expect(productView).toContain('class="product-gallery"')
+    expect(productView).toContain('class="product-gallery-swiper"')
+    expect(productView).toContain('@change="onDetailImageChange"')
     expect(productView).toContain('class="detail-sku-options"')
     expect(productView).toContain('detail-quantity')
     expect(productView).toContain('class="product-info-list"')
@@ -282,13 +321,20 @@ describe('农家乐移动端视觉契约', () => {
     expect(productView).toContain('加入购物车')
     expect(productView).not.toContain('class="sub-head"')
     expect(productView).toContain('class="gallery-back"')
-    expect(productView).toContain('class="gallery-share"')
+    expect(productView).toContain('class="detail-share-button"')
+    expect(productView).not.toContain('class="gallery-share"')
+    expect(productView).not.toContain('class="gallery-arrow')
     expect(productView).toContain('class="detail-cart-button"')
     expect(productView).toContain("sheet = 'cart'")
     expect(template).toMatch(/v-if="!productView && activeTab === 'shop' && store\.cartCount" class="[^"]*cart-bar[^"]*"/)
     expect(template).toMatch(/v-if="!productView" class="tabbar"/)
-    expect(styles).toMatch(/\.product-gallery\s*\{[^}]*aspect-ratio:\s*1/s)
-    expect(styles).toMatch(/\.gallery-back(?:,\s*\.gallery-share)?\s*\{[^}]*position:\s*absolute/s)
+    expect(styles).toMatch(/\.product-gallery\s*\{[^}]*height:\s*252px/s)
+    expect(styles).toMatch(/\.product-gallery-swiper\s*\{[^}]*height:\s*100%/s)
+    expect(styles).toMatch(/\.gallery-back\s*\{[^}]*position:\s*absolute/s)
+    expect(styles).not.toMatch(/\.gallery-arrow\s*\{/)
+    expect(styles).toMatch(/\.gallery-count\s*\{[^}]*z-index:\s*3/s)
+    expect(styles).toMatch(/\.detail-share-button\s*\{[^}]*min-height:\s*36px/s)
+    expect(styles).toMatch(/\.product-summary-card\s*\{[^}]*margin:\s*8px\s+8px\s+0/s)
     expect(styles).toMatch(/\.product-detail-actions--fixed\s*\{[^}]*position:\s*fixed/s)
     expect(styles).toMatch(/\.detail-quantity\s+\.stepper button[^}]*min-height:\s*var\(--farm-touch-primary\)/s)
     expect(styles).toMatch(/\.detail-sku-options\s*\{[^}]*flex-wrap:\s*wrap/s)
@@ -307,6 +353,7 @@ describe('农家乐移动端视觉契约', () => {
     expect(source).toMatch(/function openSkuSheet\(product: Product\)[\s\S]*?product\.skus\.find\(\(sku\) => canStartOrder\(sku\)\)/)
     expect(styles).toMatch(/\.sku-product-summary\s*\{[^}]*grid-template-columns:/s)
     expect(template).toContain('class="product-detail-actions sheet-foot"')
+    expect(template).toContain('class="sku-quantity-group"')
     expect(styles).toMatch(/\.sku-product-summary\s*\{[^}]*position:\s*sticky[^}]*background:\s*var\(--farm-cream\)[^}]*box-shadow:/s)
     expect(styles).toMatch(/\.sku-product-summary strong\s*\{[^}]*color:\s*var\(--farm-clay\)/s)
     expect(styles).toMatch(/\.sku-options button\s*\{[^}]*min-height:\s*var\(--farm-touch-primary\)[^}]*flex-direction:\s*column[^}]*align-items:\s*flex-start/s)
@@ -325,12 +372,12 @@ describe('农家乐移动端视觉契约', () => {
     expect(template).not.toMatch(/class="mobile-head">[\s\S]*会员中心/)
     expect(styles).not.toMatch(/\.mobile-head\s*\{/)
     expect(source).not.toMatch(/\.mobile-head,/)
-    expect(template).toMatch(/class="cb"[\s\S]*class="cfoot"[\s\S]*class="booknow"/)
+    expect(template).toMatch(/class="cb"[\s\S]*class="cfoot"[\s\S]*class="booknow package-buy"/)
     expect(styles).toMatch(/\.combo\s*\{[^}]*align-items:\s*stretch/)
     expect(styles).toMatch(/\.combo \.cb\s*\{[^}]*flex-direction:\s*column/)
     expect(styles).toMatch(/\.combo \.cfoot\s*\{[^}]*margin-top:\s*auto/)
     expect(styles).toMatch(/@media \(max-width:\s*375px\)[\s\S]*\.combo \.cfoot \{[^}]*flex-wrap:\s*wrap/)
-    expect(styles).not.toContain('.recharge-options')
+    expect(styles).toContain('.recharge-options')
   })
 
   it('经营页空态用 pc-state-icon，核销完成态用图标', () => {
@@ -391,7 +438,7 @@ describe('农家乐移动端视觉契约', () => {
   it('超窄屏会员信息保持单行层级，门店评分图标跟随文字首行', () => {
     expect(styles).toMatch(/\.rating \.ui-icon\s*\{[^}]*display:\s*inline-block[^}]*vertical-align:/s)
     expect(styles).toMatch(/@media \(max-width:\s*340px\)[\s\S]*\.member-hero \.lv[\s\S]*white-space:\s*nowrap/)
-    expect(styles).toMatch(/@media \(max-width:\s*340px\)[\s\S]*\.member-hero \.recharge[\s\S]*white-space:\s*nowrap/)
+    expect(styles).toMatch(/@media \(max-width:\s*340px\)[\s\S]*\.mem-asset \.recharge[\s\S]*white-space:\s*nowrap/)
     expect(styles).toMatch(/@media \(max-width:\s*340px\)[\s\S]*\.uid[\s\S]*text-overflow:\s*ellipsis/)
   })
 
@@ -399,7 +446,7 @@ describe('农家乐移动端视觉契约', () => {
     expect(template).not.toContain('class="security-note"')
     expect(template).not.toContain('class="policy-hint"')
     expect(styles).toMatch(/\.mall-hero\s*\{[^}]*padding:\s*calc\(12px \+ env\(safe-area-inset-top\)\) 16px 16px/)
-    expect(styles).toMatch(/\.section-head\s*\{[^}]*padding:\s*22px 8px 10px/)
+    expect(styles).toMatch(/\.section-head\s*\{[^}]*padding:\s*12px 16px 8px/)
     expect(styles).toMatch(/\.notice\s*\{[^}]*margin:\s*14px 8px/)
     expect(styles).toMatch(/\.food-list\s*\{[^}]*padding-inline:\s*8px/)
     expect(styles).toMatch(/\.referrer-banner\s*\{[^}]*margin:\s*10px 8px 0/)
@@ -434,7 +481,9 @@ describe('农家乐移动端视觉契约', () => {
   it('经营页 sub-head 固定，购物车条跟 tab 高度 token，并删除无入口 identity 模板', () => {
     expect(styles).toMatch(/\.work-page\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column[^}]*overflow:\s*hidden/)
     expect(styles).toMatch(/\.work-body\s*\{[^}]*flex:\s*1[^}]*overflow-y:\s*auto/)
-    expect(styles).toMatch(/\.cart-bar\s*\{[^}]*bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*8px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
+    expect(styles).toMatch(/\.cart-bar\s*\{[^}]*bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*10px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
+    expect(styles).toMatch(/\.cart-bar\s*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--color-brand-primary\)\s*88%,\s*var\(--color-card\)\s*12%\)/s)
+    expect(styles).toMatch(/\.cart-bar > button:last-child\s*\{[^}]*background:\s*var\(--color-card\)/s)
     expect(styles).not.toMatch(/\.cart-bar\s*\{[^}]*bottom:\s*calc\(76px/)
     expect(template).toContain('class="work-body"')
     expect(template).not.toContain('class="identity-sheet"')
@@ -485,7 +534,7 @@ describe('农家乐移动端视觉契约', () => {
     expect(template).toContain('action-btn action-btn--primary')
     expect(template).toContain('action-btn action-btn--muted')
     expect(template).toContain('action-btn action-btn--gold')
-    expect(template).toContain('action-btn action-btn--danger')
+    expect(template).not.toContain('action-btn action-btn--danger')
     expect(styles).toMatch(/\.action-btn--primary\s*\{[^}]*background:\s*var\(--farm-green\)/)
     expect(styles).toMatch(/\.action-btn--gold\s*\{[^}]*border:\s*1px solid var\(--color-gold\)/)
     expect(styles).toMatch(/\.action-btn--danger\s*\{[^}]*color:\s*var\(--farm-red\)/)
@@ -497,15 +546,15 @@ describe('农家乐移动端视觉契约', () => {
   })
 
   it('首页预订弹层、土菜详情与套餐购买', () => {
-    expect(template).toContain('@click="openBookingForm(\'room\', room.name, room.people)">立即预订')
+    expect(template).toContain('@click="openBookingForm(\'room\', room.name, room.people)">预订')
     expect(template).toMatch(/class="food-card"[^>]*@click="openFoodDetail\(food\)"/)
     expect(source).toContain('Array.from({ length: 5 }')
     expect(source).toContain("offset === 1 ? '明天' : '后天'")
-    expect(template).toContain('<text>套餐</text>')
+    expect(template).toContain('>套餐</button>')
     expect(template).not.toContain('<text>套餐预订</text>')
     expect(template).toContain('class="pc-tile-label">套餐预订')
     expect(template).toContain('@click="openPackageDetail(pkg)"')
-    expect(template).toContain('@click.stop="openPackageDetail(pkg)">购买')
+    expect(template).toContain('@click.stop="buyPackageNow(pkg)">购买')
     expect(template).toContain('class="detail-section package-foods"')
     expect(template).toContain('class="package-buy-row"')
     expect(source).toContain("P007: ['FD01', 'FD02', 'FD03', 'FD04']")

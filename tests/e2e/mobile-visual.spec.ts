@@ -137,6 +137,26 @@ test('farmhouse mobile views stay inside all supported widths', async ({ page },
   await auditTabs(page, '.tabbar uni-button', 4, testInfo, 'farmhouse')
 })
 
+test('farmhouse reserve tabs stay usable at all supported widths', async ({ page }, testInfo) => {
+  await reset(page, 'http://127.0.0.1:8792')
+  await page.locator('.tabbar uni-button').nth(1).click()
+  await expect(page.locator('.reserve-tabs')).toBeVisible()
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('.reserve-room-list')).toBeVisible()
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `farmhouse-reserve-rooms-${viewport.width}`)
+
+    await page.locator('.reserve-tabs uni-button', { hasText: '套餐' }).click()
+    await expect(page.locator('.reserve-package-list')).toBeVisible()
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `farmhouse-reserve-packages-${viewport.width}`)
+
+    await page.locator('.reserve-tabs uni-button', { hasText: '包厢预订' }).click()
+  }
+})
+
 test('farmhouse workspaces stay readable at all supported widths', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
   await page.setViewportSize(viewports[1])
@@ -293,7 +313,7 @@ test('farmhouse 320px member card and store rating keep compact text hierarchy',
   await page.setViewportSize(viewports[0])
   await reset(page, 'http://127.0.0.1:8792')
 
-  const rating = page.locator('.store-summary .rating')
+  const rating = page.locator('.hero2 .hero-sub')
   const ratingIcon = rating.locator('.ui-icon')
   const ratingMetrics = await rating.evaluate((element) => {
     const icon = element.querySelector('.ui-icon')
@@ -307,12 +327,12 @@ test('farmhouse 320px member card and store rating keep compact text hierarchy',
     }
   })
   await expect(ratingIcon).toBeVisible()
-  expect(ratingMetrics.display).toBe('inline-block')
+  expect(ratingMetrics.display).toBe('block')
   expect(ratingMetrics.iconTop).toBeGreaterThanOrEqual(ratingMetrics.ratingTop)
   expect(ratingMetrics.iconTop - ratingMetrics.ratingTop).toBeLessThan(8)
 
   await loginFarmhouseManager(page)
-  for (const selector of ['.member-hero .lv', '.mem-asset .recharge', '.member-asset-row strong']) {
+  for (const selector of ['.member-hero .lv', '.mem-asset .recharge', '.mem-asset > uni-view:first-child strong']) {
     const metrics = await page.locator(selector).evaluate((element) => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
@@ -383,7 +403,7 @@ test('farmhouse checkout falls back to pickup after removing the last courier it
   const courierLine = page.locator('.sheet-line').filter({ hasText: '湘西烟熏柴火腊肉' })
   await courierLine.getByLabel('减少数量').click()
   await expect(courierLine).toHaveCount(0)
-  await expect(page.locator('.cart-category-tabs')).toContainText('社区团购')
+  await expect(page.locator('.cart-category-tabs')).toContainText('到店自提')
 
   await page.locator('.cart-sheet-foot .primary-button').filter({ hasText: '去结算' }).click()
   await expect(page.locator('.pickup-point-card')).toBeVisible()
@@ -427,7 +447,13 @@ test('farmhouse product detail keeps gallery, quantity controls and fixed action
   await expect(page.locator('.cart-bar')).toHaveCount(0)
 
   const firstPrice = await page.locator('.product-summary-card .detail-price').innerText()
-  await page.locator('.gallery-arrow-next').click()
+  const gallery = page.locator('.product-gallery-swiper')
+  const galleryBox = await gallery.boundingBox()
+  if (!galleryBox) throw new Error('商品轮播区域不可见')
+  await page.mouse.move(galleryBox.x + galleryBox.width - 20, galleryBox.y + galleryBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(galleryBox.x + 20, galleryBox.y + galleryBox.height / 2, { steps: 8 })
+  await page.mouse.up()
   await expect(page.locator('.gallery-count')).toHaveText('2 / 2')
   const secondSku = page.locator('.detail-sku-options uni-button').nth(1)
   await secondSku.click()
@@ -466,6 +492,69 @@ test('farmhouse product detail keeps gallery, quantity controls and fixed action
   await page.locator('.cart-bar .cart-count').click()
   await expect(page.locator('.sheet-line')).toContainText('炎陵黄桃')
   await expect(page.locator('.sheet-line .stepper')).toContainText('1')
+})
+
+test('farmhouse order details stay readable with a fixed action bar at all widths', async ({ page }, testInfo) => {
+  test.setTimeout(60_000)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await reset(page, 'http://127.0.0.1:8792')
+  await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('agritainment-platform-farmhouse-commerce') || '{}') as Record<string, unknown>
+    const order = {
+      id: 'SO-E2E-VISUAL-DETAIL',
+      amount: 119.8,
+      itemCount: 2,
+      status: '已完成',
+      createdAt: '2026-09-15 10:00',
+      items: [{ productId: 'P001', skuId: 'P001-500', name: '湘西烟熏柴火腊肉 500g 超长商品标题验收', skuName: '500g家庭礼盒规格', image: '/static/images/bacon.webp', quantity: 2, price: 59.9 }],
+      delivery: { mode: 'courier', address: '测试收货人 13800002009 · 湖南省 长沙市 岳麓区 测试路 9 号 · 这是一段较长收货地址' },
+      courier: '顺丰速运',
+      trackingNo: 'SF-E2E-VISUAL-DETAIL-001',
+      payMethod: 'wechat',
+      remark: '请工作日配送，并在送达前电话联系'
+    }
+    localStorage.setItem('agritainment-platform-farmhouse-commerce', JSON.stringify({
+      ...state,
+      F001: { orders: [order], memberBalance: 300, memberPoints: 0, balanceEntries: [] }
+    }))
+  })
+  await page.reload()
+  await page.locator('.tabbar uni-button').nth(3).click()
+  await page.locator('.login-prompt .primary-button').click()
+  await page.locator('.sheet-foot .primary-button').click()
+  await page.locator('.tabbar uni-button').nth(3).click()
+  await page.locator('.mine-list uni-button').filter({ hasText: '我的订单' }).click()
+  await page.locator('.order-record-card').first().click()
+
+  for (const viewport of [
+    { width: 375, height: 812 },
+    { width: 390, height: 844 },
+    { width: 430, height: 932 },
+    { width: 768, height: 932 }
+  ]) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('[data-visual-view="order-detail"]')).toBeVisible()
+    await assertMobileFrame(page, viewport.width)
+    await page.locator('.order-meta-section').evaluate((section) => {
+      section.scrollIntoView({ block: 'center', inline: 'nearest' })
+    })
+    const bounds = await page.locator('.order-detail-foot').evaluate((foot) => {
+      const footRect = foot.getBoundingClientRect()
+      const content = document.querySelector('.order-meta-section')
+      const contentRect = content?.getBoundingClientRect()
+      return {
+        footBottom: footRect.bottom,
+        contentBottom: contentRect?.bottom || 0,
+        footTop: footRect.top,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth
+      }
+    })
+    expect(bounds.footBottom).toBeLessThanOrEqual(viewport.height + 1)
+    expect(bounds.contentBottom).toBeLessThanOrEqual(bounds.footTop + 1)
+    expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth)
+    await screenshot(page, testInfo, `farmhouse-order-detail-${viewport.width}`)
+  }
 })
 
 test('store mobile views stay inside all supported widths', async ({ page }, testInfo) => {
@@ -547,10 +636,10 @@ test('store product detail keeps gallery, ladder pricing and fixed ordering acti
   await page.locator('.detail-sku-option').nth(1).click()
   await expect(page.locator('.detail-retail-price')).not.toHaveText(initialRetailPrice)
   await expect(page.locator('.detail-current-price del')).toContainText('¥110')
-  await expect(page.locator('.detail-quantity-row')).toContainText('2 件')
+  await expect(page.locator('.detail-quantity-input input')).toHaveValue('2')
   await expect(page.locator('.detail-current-price strong')).toContainText('¥90')
   await page.getByLabel('增加采购数量').click()
-  await expect(page.locator('.detail-quantity-row')).toContainText('3 件')
+  await expect(page.locator('.detail-quantity-input input')).toHaveValue('3')
   await expect(page.locator('.detail-current-price strong')).toContainText('¥80')
   await expect(page.locator('.detail-ladder-row.active')).toContainText('3 件以上')
 
@@ -597,20 +686,94 @@ test('supplier mobile views stay inside all supported widths', async ({ page }, 
   await auditTabs(page, '.tabbar .tab-item', 3, testInfo, 'supplier')
 })
 
-test('promoter mobile view stays inside all supported widths', async ({ page }, testInfo) => {
+test('promoter mobile views stay inside all supported widths and sheets remain usable', async ({ page }, testInfo) => {
   await page.setViewportSize(viewports[1])
   await reset(page, 'http://127.0.0.1:8796')
+  await page.evaluate(() => {
+    localStorage.setItem('agritainment-platform-store-catalog-selections', JSON.stringify({
+      schemaVersion: 1,
+      revision: 0,
+      selections: [
+        { storeId: 'F001', productId: 'P007', listed: true, retailPrice: 288, updatedAt: '2026-08-01T00:00:00.000Z' },
+        { storeId: 'F001', productId: 'P053', listed: true, retailPrice: 128, updatedAt: '2026-08-01T00:00:00.000Z' }
+      ]
+    }))
+  })
+  await page.reload()
+  await page.waitForLoadState('networkidle')
   await screenshot(page, testInfo, 'promoter-login')
-  await page.locator('.login-field input').nth(0).fill('13800000000')
-  await page.locator('.login-field input').nth(1).fill('123456')
+  const phoneInput = page.locator('.login-field input').nth(0)
+  const passwordInput = page.locator('.login-field input').nth(1)
+  await phoneInput.fill('1380000000')
+  await expect(page.locator('.login-phone-valid')).toHaveCount(0)
+  await phoneInput.fill('13800000000')
+  await expect(page.locator('.login-phone-valid')).toBeVisible()
+  await expect(passwordInput).toHaveAttribute('type', 'password')
+  await page.locator('.login-visibility').click()
+  await expect(passwordInput).toHaveAttribute('type', 'text')
+  await page.locator('.login-visibility').click()
+  await expect(passwordInput).toHaveAttribute('type', 'password')
+  await passwordInput.fill('123456')
   await page.locator('.login-card .primary-button').click()
   await expect(page.locator('.promoter-head')).toBeVisible()
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `promoter-home-${viewport.width}`)
   }
+
   await page.setViewportSize(viewports[1])
-  await screenshot(page, testInfo, 'promoter-home')
+  await page.locator('.quick-tools .pc-tile--green').click()
+  await expect(page.locator('[data-visual-state="promoter-create-live"]')).toBeVisible()
+  await expect(page.locator('.sheet--create-live .sheet-foot .primary-button')).toBeVisible()
+  await screenshot(page, testInfo, 'promoter-create-live-initial-375')
+  const firstFarm = page.locator('.farm-option').first()
+  await firstFarm.click()
+  await expect(firstFarm).toHaveClass(/active/)
+  const firstPackage = page.locator('.pkg-option').first()
+  await expect(firstPackage).toBeVisible()
+  await firstPackage.click()
+  await expect(firstPackage).toHaveClass(/active/)
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `promoter-create-live-${viewport.width}`)
+  }
+  await page.locator('.sheet--create-live .sheet-head uni-button').click()
+  await expect(page.locator('.sheet')).toHaveCount(0)
+
+  await page.locator('.quick-tools .pc-tile--amber').click()
+  await expect(page.locator('[data-visual-state="promoter-shares"]')).toBeVisible()
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `promoter-shares-${viewport.width}`)
+  }
+  await page.locator('.sheet--shares .sheet-head uni-button').click()
+  await expect(page.locator('.sheet')).toHaveCount(0)
+
+  await page.locator('.quick-tools .pc-tile--blue').click()
+  await expect(page.locator('[data-visual-state="promoter-bound-users"]')).toBeVisible()
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `promoter-bound-users-${viewport.width}`)
+  }
+  await page.locator('.sheet--bound-users .sheet-head uni-button').click()
+  await expect(page.locator('.sheet')).toHaveCount(0)
+
+  await page.locator('.live-card').first().locator('.share-action').click()
+  await expect(page.locator('[data-visual-state="promoter-share"]')).toBeVisible()
+  await expect(page.locator('.qr-box')).toHaveCSS('aspect-ratio', '1 / 1')
+  await expect(page.locator('.sheet-foot .primary-button')).toBeVisible()
+  await page.locator('.sheet-foot .primary-button').click()
+  await expect(page.locator('.uni-toast:visible, .toast:visible, uni-toast:visible')).toContainText('直播间链接已复制')
+  await expect(page.locator('.share-sheet')).toBeVisible()
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await assertMobileFrame(page, viewport.width)
+    await screenshot(page, testInfo, `promoter-share-${viewport.width}`)
+  }
 })
 
 test('user operation pages stay readable at all supported widths', async ({ page }, testInfo) => {
@@ -625,15 +788,21 @@ test('user operation pages stay readable at all supported widths', async ({ page
   }
 })
 
-test('supplier driver tabs stay readable at all supported widths', async ({ page }, testInfo) => {
+test('supplier driver home stays readable without a tabbar at all supported widths', async ({ page }, testInfo) => {
   await page.setViewportSize(viewports[1])
   await reset(page, 'http://127.0.0.1:8798')
   await page.locator('.role-tabs uni-button').filter({ hasText: '司机' }).click()
   await page.locator('.login-button').click()
   await expect(page.locator('.app-shell')).toBeVisible()
-  await auditTabs(page, '.tabbar .tab-item', 3, testInfo, 'supplier-driver')
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('.tabbar')).toHaveCount(0)
+    await expect(page.locator('[data-visual-view="driver-today"]')).toBeVisible()
+    await waitForVisualStability(page)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    await screenshot(page, testInfo, `supplier-driver-home-${viewport.width}`)
+  }
 })
-
 test('supplier secondary workspaces stay readable at all supported widths', async ({ page }, testInfo) => {
   await page.setViewportSize(viewports[1])
   await reset(page, 'http://127.0.0.1:8798')
@@ -644,6 +813,7 @@ test('supplier secondary workspaces stay readable at all supported widths', asyn
   const workspaces = [
     ['司机管理', 'workspace-drivers'],
     ['线路规划', 'workspace-routes'],
+    ['出仓交接', 'workspace-outbound'],
     ['结算账单', 'workspace-settlements'],
     ['交接日志', 'workspace-handovers'],
     ['仓点设置', 'workspace-warehouse']

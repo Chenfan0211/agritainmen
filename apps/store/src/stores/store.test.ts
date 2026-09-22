@@ -56,8 +56,8 @@ describe('store ordering store interactions', () => {
     expect(source).toContain('minimumOrderQuantity(')
     expect(source).toContain('库存不足或购买数量未达要求')
     expect(source).toContain(':disabled="!canStartOrder(selectedSku)"')
-    expect(source).toContain(':class="{ shortage: item.unavailable }"')
-    expect(source).toContain(':disabled="store.cartHasUnavailable"')
+    expect(source).toContain(':class="{ shortage: item.unavailable, selected: store.isCheckoutSelected(item) }"')
+    expect(source).toContain(':disabled="!store.checkoutCount || store.checkoutHasUnavailable"')
   })
 
   it('keeps procurement snapshots unchanged when catalog revision changes after the lock request', async () => {
@@ -78,7 +78,7 @@ describe('store ordering store interactions', () => {
       return callback()
     } } })
 
-    expect(await store.submitOrder()).toBe(false)
+    expect(await store.submitOrder()).toBe(null)
 
     expect(readCatalogState()).toEqual(changed)
     expect(readPlatformOrders()).toEqual(null)
@@ -116,7 +116,7 @@ describe('store ordering store interactions', () => {
       return callback()
     } } })
 
-    expect(await store.submitOrder()).toBe(false)
+    expect(await store.submitOrder()).toBe(null)
 
     expect(readCatalogState()).toEqual(beforeCatalog)
     expect(readPlatformOrders()).toEqual(null)
@@ -137,7 +137,7 @@ describe('store ordering store interactions', () => {
       originalSetItem(key, value)
     }) as Storage['setItem']
     try {
-      expect(await store.submitOrder()).toBe(false)
+      expect(await store.submitOrder()).toBe(null)
     } finally {
       localStorage.setItem = originalSetItem
     }
@@ -170,7 +170,7 @@ describe('store ordering store interactions', () => {
     await store.initialize()
     store.addToCart(store.products[0])
 
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     expect(readCatalogState()).toMatchObject({ revision: 1, products: [{ id: 'ORDERING', skus: [{ id: 'ORDERING-SKU', stock: 7 }] }] })
     expect(store.catalogRevision).toBe(1)
   })
@@ -180,14 +180,14 @@ describe('store ordering store interactions', () => {
     const store = useStoreStore()
     await store.initialize()
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const orderId = store.orders[0].id
 
     await store.initialize(true)
 
     expect(store.orders[0].id).toBe(orderId)
     expect(store.orders).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: orderId, farmId: 'F001', status: 'submitted' })
+      expect.objectContaining({ id: orderId, farmId: 'F001', status: 'pending-payment' })
     ]))
   })
 
@@ -198,7 +198,7 @@ describe('store ordering store interactions', () => {
     store.addToCart(store.products[0])
     expect(upsertPlatformEntity('suppliers', 'S002', { ...suppliers[1], status: 'paused', cooperationPauseReason: '暂停接单' })).toBe(true)
 
-    expect(await store.submitOrder()).toBe(false)
+    expect(await store.submitOrder()).toBe(null)
     expect(store.checkoutError).toBe('湘西腊味合作社已暂停接单，请选择其他商品')
     expect(store.cart).toHaveLength(1)
   })
@@ -385,7 +385,7 @@ describe('store ordering store interactions', () => {
       tiers: [{ minQty: 1, maxQty: 9, price: 90, discountOff: 10 }, { minQty: 10, maxQty: null, price: 75, discountOff: 25 }]
     })).toBe(true)
 
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     expect(store.orders[0]).toMatchObject({ amount: 750, saved: 450 })
     expect(store.orders[0].items[0]).toMatchObject({ quantity: 10, price: 75 })
     expect(upsertPlatformEntity('policies', 'TIER-ORDER-POLICY', {
@@ -406,7 +406,7 @@ describe('store ordering store interactions', () => {
     expect(store.changeCart(product.id, product.skus[0].id, -1)).toBe(true)
     expect(store.cart[0]).toMatchObject({ quantity: 2, minimumOrderQuantity: 3, unavailable: true })
     expect(store.changeCart(product.id, product.skus[0].id, 1)).toBe(true)
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     expect(store.orders[0].items[0]).toMatchObject({ quantity: 3, minimumOrderQuantity: 3 })
   })
 
@@ -431,7 +431,7 @@ describe('store ordering store interactions', () => {
     latest.products[0].skus[0].minimumOrderQuantity = 4
     expect(writeCatalogState(latest)).toBe(true)
 
-    expect(await store.submitOrder()).toBe(false)
+    expect(await store.submitOrder()).toBe(null)
     expect(store.cart[0]).toMatchObject({ quantity: 2, minimumOrderQuantity: 4, unavailable: true })
     expect(store.checkoutError).toContain('库存不足或购买数量未达要求')
   })
@@ -474,13 +474,13 @@ describe('store ordering store interactions', () => {
     store.addToCart(box)
     store.changeCart(box.id, box.skus[0].id, 1)
     expect(store.cartCount).toBe(3)
-    expect(await store.submitOrder('请周三前送达')).toBe(true)
-    expect(store.orders[0]).toMatchObject({ status: 'submitted', amount: 40, saved: 65, itemCount: 3, remark: '请周三前送达' })
+    expect(await store.submitOrder('请周三前送达')).toBeTruthy()
+    expect(store.orders[0]).toMatchObject({ status: 'pending-payment', amount: 40, saved: 65, itemCount: 3, remark: '请周三前送达' })
     expect(store.orders[0].items).toHaveLength(2)
     expect(store.cart).toHaveLength(0)
     expect(store.products.find((item) => item.id === 'TEA')?.skus[0].stock).toBe(teaStockBefore - 1)
     expect(store.products.find((item) => item.id === 'BOX')?.skus[0].stock).toBe(18)
-    expect(await store.submitOrder()).toBe(false)
+    expect(await store.submitOrder()).toBe(null)
     expect(store.checkoutError).toBe('进货单为空')
   })
 
@@ -621,7 +621,7 @@ describe('store auth', () => {
     expect(store.cart).toEqual([])
     expect(store.orders).toEqual([])
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const f002Order = store.orders[0]
     expect(f002Order.farmId).toBe('F002')
     expect(readPlatformOrders()?.[f002Order.id]).toMatchObject({ customer: expect.stringContaining('云上人家'), supplierOrderLink: { source: 'store', customerUserId: 'F002' } })
@@ -658,13 +658,13 @@ describe('deriveStoreMetrics', () => {
     store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
     const tea = store.products[0]
     store.addToCart(tea)
-    expect(await store.submitOrder('')).toBe(true)
+    expect(await store.submitOrder('')).toBeTruthy()
     const orderId = store.orders[0].id
     expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
-    expect(readPlatformOrders()?.[orderId]?.status).toBe('pending')
+    expect(readPlatformOrders()?.[orderId]?.status).toBe('pending-payment')
     expect(await store.cancelOrder(orderId)).toBe(true)
     expect(readCatalogState()?.products[0].skus[0].stock).toBe(8)
-    expect(store.orders[0].status).toBe('cancelled')
+    expect(store.orders[0].status).toBe('unpaid-cancelled')
     expect(readPlatformOrders()?.[orderId]?.status).toBe('unpaid-cancelled')
     expect(store.initiateAfterSale(orderId)).toBe(false)
     store.orders[0].status = 'received'
@@ -689,14 +689,14 @@ describe('deriveStoreMetrics', () => {
     writeCatalog([catalog])
     store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const refundOrder = store.orders[0]
     refundOrder.status = 'received'
     expect(store.initiateAfterSale(refundOrder.id, 'refund')).toBe(true)
     expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
 
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const returnOrder = store.orders[0]
     returnOrder.status = 'received'
     expect(store.initiateAfterSale(returnOrder.id, 'return')).toBe(true)
@@ -714,7 +714,7 @@ describe('deriveStoreMetrics', () => {
     writeCatalog([catalog])
     store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const order = store.orders[0]
     order.status = 'received'
     expect(store.initiateAfterSale(order.id, 'return')).toBe(true)
@@ -754,7 +754,7 @@ describe('deriveStoreMetrics', () => {
     writeCatalog([catalog])
     store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const order = store.orders[0]
     order.status = 'received'
     expect(store.initiateAfterSale(order.id, 'return')).toBe(true)
@@ -789,7 +789,7 @@ describe('deriveStoreMetrics', () => {
     writeCatalog([catalog])
     store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const order = store.orders[0]
     order.status = 'received'
     expect(store.initiateAfterSale(order.id, 'return')).toBe(true)
@@ -822,7 +822,7 @@ describe('deriveStoreMetrics', () => {
     writeCatalog([catalog])
     store.$patch({ products: [catalogProductToProduct(catalog)], catalogRevision: 0, cart: [], orders: [], checkoutError: '' })
     store.addToCart(store.products[0])
-    expect(await store.submitOrder()).toBe(true)
+    expect(await store.submitOrder()).toBeTruthy()
     const order = store.orders[0]
     order.status = 'received'
     expect(store.initiateAfterSale(order.id, 'return')).toBe(true)
@@ -842,5 +842,116 @@ describe('deriveStoreMetrics', () => {
     expect(store.orders).toEqual(beforeOrders)
     expect(store.products).toEqual(beforeProducts)
     expect(store.error).toBe('退货事务恢复失败，请联系平台处理')
+  })
+})
+
+describe('store order payment lifecycle', () => {
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear(); vi.unstubAllGlobals() })
+
+  it('starts a pending-payment order for selected cart lines only', async () => {
+    writeCatalog([
+      catalogProduct({ id: 'PARTIAL-A', channel: 'store' }),
+      catalogProduct({ id: 'PARTIAL-B', channel: 'store' })
+    ])
+    const store = useStoreStore()
+    await store.initialize()
+    store.addToCart(store.products[0])
+    store.addToCart(store.products[1])
+    const selectedKey = `${store.cart[0].productId}:${store.cart[0].skuId}`
+    store.setCheckoutSelection([selectedKey])
+
+    expect(store.checkoutLines.map((item) => item.productId)).toEqual(['PARTIAL-A'])
+    const orderId = await store.submitOrder('只订第一件', [selectedKey])
+    const order = store.orders.find((item) => item.id === orderId)
+
+    expect(order).toMatchObject({ status: 'pending-payment', amount: 20, itemCount: 1, remark: '只订第一件' })
+    expect(order?.paidAt).toBeUndefined()
+    expect(Date.parse(order?.paymentDeadlineAt || '')).toBeGreaterThan(Date.now())
+    expect(store.cart.map((item) => item.productId)).toEqual(['PARTIAL-B'])
+    expect(readPlatformOrders()?.[orderId!]?.status).toBe('pending-payment')
+  })
+})
+
+describe('store order payment and cancellation rules', () => {
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear(); vi.unstubAllGlobals() })
+
+  async function createPendingOrder(id: string) {
+    writeCatalog([catalogProduct({ id, channel: 'store' })])
+    const store = useStoreStore()
+    await store.initialize()
+    store.addToCart(store.products[0])
+    const orderId = await store.submitOrder()
+    return { store, orderId: orderId! }
+  }
+
+  it('pays a pending order and then exposes it as awaiting acceptance', async () => {
+    const { store, orderId } = await createPendingOrder('PAY-ORDER')
+
+    expect(await store.payOrder(orderId)).toBe(true)
+    expect(store.orders[0]).toMatchObject({ id: orderId, status: 'submitted' })
+    expect(store.orders[0].paidAt).toBeTruthy()
+    expect(readPlatformOrders()?.[orderId]?.status).toBe('pending')
+  })
+
+  it('cancels a paid order before shipment and releases stock exactly once', async () => {
+    const { store, orderId } = await createPendingOrder('PAID-CANCEL')
+    expect(await store.payOrder(orderId)).toBe(true)
+
+    expect(await store.cancelOrder(orderId)).toBe(true)
+    expect(store.orders[0].status).toBe('paid-cancelled')
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(8)
+    expect(readPlatformOrders()?.[orderId]?.status).toBe('paid-cancelled')
+    expect(await store.cancelOrder(orderId)).toBe(false)
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(8)
+  })
+
+  it('expires an unpaid order after the payment deadline and releases its stock', async () => {
+    const { store, orderId } = await createPendingOrder('EXPIRE-ORDER')
+    store.orders[0].paymentDeadlineAt = new Date(Date.now() - 1000).toISOString()
+
+    expect(await store.sweepExpiredPaymentOrders()).toBe(1)
+    expect(store.orders[0].status).toBe('unpaid-cancelled')
+    expect(store.orders[0].inventoryReleased).toBe(true)
+    expect(readCatalogState()?.products[0].skus[0].stock).toBe(8)
+    expect(readPlatformOrders()?.[orderId]?.status).toBe('unpaid-cancelled')
+    expect(store.orders[0].logistics.at(-1)?.title).toContain('超时')
+  })
+
+  it('does not cancel an order after it has shipped', async () => {
+    const { store, orderId } = await createPendingOrder('SHIPPED-CANCEL')
+    expect(await store.payOrder(orderId)).toBe(true)
+    store.orders[0].status = 'shipped'
+
+    expect(await store.cancelOrder(orderId)).toBe(false)
+    expect(store.orders[0].status).toBe('shipped')
+  })
+})
+
+describe('store cart quantity controls', () => {
+  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear(); vi.unstubAllGlobals() })
+
+  it('sets an explicit cart quantity and reprices the line', async () => {
+    const product = catalogProduct({
+      id: 'MANUAL-QTY',
+      channel: 'store',
+      category: '手工数量测试',
+      skus: [{ id: 'MANUAL-QTY-SKU', name: '整箱', image: '/static/images/field.webp', retailPrice: 50, cost: 20, stock: 20, level1Amount: 10, level2Amount: 10, minimumOrderQuantity: 2 }]
+    })
+    writeCatalog([product])
+    expect(upsertPlatformEntity('policies', 'MANUAL-QTY-POLICY', {
+      id: 'MANUAL-QTY-POLICY', name: '手工数量阶梯价', type: 'ladder', scope: '手工数量测试类目', discount: 20, enabled: true,
+      tiers: [{ minQty: 1, maxQty: 4, price: 20, discountOff: 0 }, { minQty: 5, maxQty: null, price: 16, discountOff: 20 }]
+    })).toBe(true)
+    const store = useStoreStore()
+    await store.initialize()
+    expect(store.addToCart(store.products[0], 'MANUAL-QTY-SKU', 2)).toBe('added')
+
+    expect(store.setCartQuantity('MANUAL-QTY', 'MANUAL-QTY-SKU', 5)).toBe(true)
+    expect(store.cart[0]).toMatchObject({ quantity: 5, price: 16 })
+    expect(store.checkoutTotal).toBe(80)
+
+    expect(store.setCartQuantity('MANUAL-QTY', 'MANUAL-QTY-SKU', 1)).toBe(false)
+    expect(store.setCartQuantity('MANUAL-QTY', 'MANUAL-QTY-SKU', 21)).toBe(false)
+    expect(store.cart[0].quantity).toBe(5)
   })
 })

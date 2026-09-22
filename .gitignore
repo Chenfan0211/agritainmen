@@ -13,6 +13,7 @@ test-results/
 # Tool / local artifacts
 .superpowers/
 .gstack/
+.workbuddy/
 __pycache__/
 *.pyc
 agritainment-deploy-*.zip

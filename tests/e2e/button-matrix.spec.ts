@@ -17,7 +17,8 @@ async function storeLogin(page: Page) {
 async function clearStoreDemoCart(page: Page) {
   await page.locator('.tabbar uni-button').nth(2).click()
   if (await page.locator('.cart-row').count()) {
-    await page.locator('.cart-all').click()
+    const allSelected = await page.locator('.cart-all-check').evaluate((el) => el.classList.contains('on'))
+    if (!allSelected) await page.locator('.cart-all').click()
     await page.locator('.cart-del').click()
     await expect(page.locator('.cart-row')).toHaveCount(0)
   }
@@ -128,7 +129,7 @@ test('admin filters, edits products and opens order flow without shipping', asyn
   await page.locator('.drawer-head .icon-button').click()
 
   await page.locator('.nav-item', { hasText: '售后结算' }).click()
-  await page.locator('.data-panel .search-box input').fill('不存在的工单')
+  await page.locator('.data-panel .filter-control input').fill('不存在的工单')
   await expect(page.locator('.empty-state')).toContainText('没有符合条件的售后工单')
 })
 
@@ -159,9 +160,159 @@ test('farmhouse preserves reservation type, checks out and confirms recharge', a
   await page.locator('.tabbar uni-button').nth(3).click()
   await page.locator('.mem-asset .recharge').click()
   await expect(page.locator('.recharge-confirm')).toContainText('储值享 9 折')
-  await page.locator('.recharge-confirm .ui-chips uni-button').nth(1).click()
+  await page.locator('.recharge-confirm .recharge-options uni-button').nth(1).click()
   await page.locator('.sheet-foot .primary-button', { hasText: '确认充值' }).click()
   await expect(page.locator('.ledger-list')).toContainText('会员储值充值')
+})
+
+test('farmhouse reservation page hides the duplicate bookings shortcut', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('http://127.0.0.1:8792')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await farmhouseLogin(page)
+  await expect(page.locator('.tabbar uni-button').nth(1)).toBeVisible()
+
+  await page.locator('.tabbar uni-button').nth(1).click()
+  await expect(page.locator('[data-visual-view="reserve"]')).toBeVisible()
+  await expect(page.locator('.book-float')).toHaveCount(0)
+  await expect(page.getByText('查看我的预订', { exact: false })).toHaveCount(0)
+
+  await page.locator('.tabbar uni-button').nth(3).click()
+  await page.locator('.mine-list uni-button').filter({ hasText: '我的预订' }).click()
+  await expect(page.locator('[data-visual-view="bookings"]')).toBeVisible()
+  await expect(page.locator('[data-visual-view="bookings"] .page-title')).toContainText('我的预订')
+})
+
+test('farmhouse reserve tabs filter rooms and disable rooms already booked for the day', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('http://127.0.0.1:8792')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.waitForLoadState('networkidle')
+
+  await page.locator('.tabbar uni-button').nth(1).click()
+  await expect(page.locator('.reserve-tabs')).toBeVisible()
+  await expect(page.locator('.reserve-room-search')).toBeVisible()
+
+  await page.locator('.reserve-room-search input').fill('竹林')
+  await expect(page.locator('.reserve-room-list .room-li')).toHaveCount(1)
+  await page.locator('.reserve-room-search input').fill('')
+
+  await page.locator('.date-strip .date-chip').first().click()
+  const roomCards = page.locator('.reserve-room-list .room-li')
+  await expect(roomCards.last()).toContainText('观溪雅间')
+  await expect(roomCards.last()).toHaveClass(/booked/)
+  await expect(roomCards.last().locator('uni-button')).toHaveAttribute('disabled', 'true')
+
+  await page.locator('.reserve-tabs uni-button', { hasText: '套餐' }).click()
+  await expect(page.locator('.date-strip')).toHaveCount(0)
+  await page.locator('.reserve-package-search input').fill('四人')
+  await expect(page.locator('.reserve-package-list .combo-c')).toHaveCount(1)
+  await expect(page.locator('.reserve-package-list .combo-c')).toContainText('农家四人欢聚套餐券')
+})
+
+test('farmhouse package buy opens checkout directly and resumes after login', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('http://127.0.0.1:8792')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.waitForLoadState('networkidle')
+
+  await page.locator('.tabbar uni-button').nth(1).click()
+  await page.locator('.reserve-tabs uni-button', { hasText: '套餐' }).click()
+  const packageCard = page.locator('.reserve-package-list .combo-c', { hasText: '农家四人欢聚套餐券' })
+  await packageCard.locator('.package-buy').click()
+
+  await expect(page.locator('.sheet')).toContainText('微信一键登录')
+  await page.locator('.sheet-foot .primary-button').click()
+
+  await expect(page.locator('[data-visual-view="checkout"]')).toBeVisible()
+  await expect(page.locator('.checkout-items')).toContainText('农家四人欢聚套餐券')
+})
+
+test('farmhouse orders open details and support only-refund or return-refund', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('http://127.0.0.1:8792')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('agritainment-platform-farmhouse-commerce') || '{}') as Record<string, unknown>
+    const pickupOrder = {
+      id: 'SO-E2E-PICKUP-DETAIL',
+      amount: 68,
+      itemCount: 1,
+      status: '已完成',
+      createdAt: '2026-09-15 09:00',
+      items: [{ productId: 'P002', skuId: 'P002-5J', name: '炎陵黄桃 5斤礼盒', skuName: '5斤礼盒', image: '/static/images/peach.webp', quantity: 1, price: 68 }],
+      delivery: { mode: 'pickup' },
+      payMethod: 'balance',
+      remark: '到店前请联系我'
+    }
+    const courierOrder = {
+      id: 'SO-E2E-COURIER-DETAIL',
+      amount: 119.8,
+      itemCount: 2,
+      status: '已完成',
+      createdAt: '2026-09-15 09:30',
+      items: [{ productId: 'P001', skuId: 'P001-500', name: '湘西烟熏柴火腊肉 500g', skuName: '500g', image: '/static/images/bacon.webp', quantity: 2, price: 59.9 }],
+      delivery: { mode: 'courier', address: '测试收货人 13800002009 · 湖南省 长沙市 岳麓区 测试路 9 号' },
+      courier: '顺丰速运',
+      trackingNo: 'SF-E2E-DETAIL-001',
+      logistics: [{ time: '2026-09-15 10:00', title: '商品已发货', detail: '快递已揽收' }],
+      payMethod: 'wechat',
+      remark: '请工作日配送'
+    }
+    localStorage.setItem('agritainment-platform-farmhouse-commerce', JSON.stringify({
+      ...state,
+      F001: { orders: [courierOrder, pickupOrder], memberBalance: 300, memberPoints: 0, balanceEntries: [] }
+    }))
+  })
+  await page.reload()
+  await farmhouseLogin(page)
+  await page.locator('.tabbar uni-button').nth(3).click()
+  await page.locator('.mine-list uni-button', { hasText: '我的订单' }).click()
+
+  const pickupCard = page.locator('.order-record-card').filter({ hasText: 'SO-E2E-PICKUP-DETAIL' })
+  await expect(pickupCard).toContainText('到店自提')
+  await expect(pickupCard.locator('.record-actions')).toHaveCSS('justify-content', 'flex-end')
+  await pickupCard.click()
+  await expect(page.locator('[data-visual-view="order-detail"]')).toBeVisible()
+  await expect(page.locator('.order-detail-status-card')).toContainText('SO-E2E-PICKUP-DETAIL')
+  await expect(page.locator('.order-products-section')).toContainText('炎陵黄桃 5斤礼盒')
+  await expect(page.locator('.order-meta-section')).toContainText('订单备注')
+  await expect(page.locator('.order-meta-section')).toContainText('会员余额')
+  await expect(page.locator('.order-delivery-section')).toContainText('到店自提')
+  await expect(page.locator('.order-delivery-section')).not.toContainText('收货地址')
+  await expect(page.locator('[data-visual-view="order-detail"]')).not.toContainText('优惠券')
+  await page.getByLabel('返回我的订单').click()
+
+  const courierCard = page.locator('.order-record-card').filter({ hasText: 'SO-E2E-COURIER-DETAIL' })
+  await courierCard.click()
+  await expect(page.locator('.order-detail-status-card')).toContainText('SO-E2E-COURIER-DETAIL')
+  await expect(page.locator('.order-products-section')).toContainText('湘西烟熏柴火腊肉 500g')
+  await expect(page.locator('.order-delivery-section')).toContainText('测试收货人')
+  await expect(page.locator('.order-delivery-section')).toContainText('顺丰速运')
+  await expect(page.locator('.order-delivery-section')).toContainText('SF-E2E-DETAIL-001')
+  await expect(page.locator('.order-meta-section')).toContainText('微信支付')
+  await expect(page.locator('.order-detail-foot .primary-button')).toContainText('申请退款')
+  await page.getByLabel('返回我的订单').click()
+
+  await page.locator('.order-record-card', { hasText: 'SO-E2E-COURIER-DETAIL' }).locator('.action-btn--gold').click()
+  await expect(page.locator('.sheet')).toContainText('仅退款')
+  await expect(page.locator('.sheet')).toContainText('退货退款')
+  await page.getByText('退货退款', { exact: true }).click()
+  await expect(page.locator('.return-tracking-field')).toBeVisible()
+  await page.locator('.sheet-foot .primary-button', { hasText: '提交售后申请' }).click()
+  await expect(page.locator('.return-tracking-field')).toBeVisible()
+  await page.locator('.return-tracking-field input').fill('SF-RETURN-E2E-001')
+  await page.locator('.sheet-foot .primary-button', { hasText: '提交售后申请' }).click()
+  await expect(page.locator('.sheet')).toHaveCount(0)
+  const afterSale = await page.evaluate(() => {
+    const records = JSON.parse(localStorage.getItem('agritainment-platform-after-sales') || '{}') as Record<string, { orderId?: string; refundMethod?: string; returnTrackingNo?: string }>
+    return Object.values(records).find((record) => record.orderId === 'SO-E2E-COURIER-DETAIL') || null
+  })
+  expect(afterSale).toMatchObject({ refundMethod: 'return', returnTrackingNo: 'SF-RETURN-E2E-001' })
 })
 
 test('admin supplier settlement is idempotent and after-sales has two stages', async ({ page }) => {
@@ -291,7 +442,7 @@ test('manager verifies a booking and designs a signature dish', async ({ page })
 
   // 设计招牌土菜：新增一道菜
   await page.locator('.workbench uni-button', { hasText: '招牌土菜' }).click()
-  await page.locator('.sub-head .text-button', { hasText: '新增菜品' }).click()
+  await page.locator('.sub-head .header-action[aria-label="新增菜品"]').click()
   await page.locator('.design-form .form-field input').nth(0).fill('秘制辣子鸡')
   await page.locator('.design-form .form-field input').nth(1).fill('农家自养土鸡 · 香辣过瘾')
   await page.locator('.design-form .form-field input').nth(2).fill('68')
@@ -363,30 +514,86 @@ test('store orders supply products and tracks order status', async ({ page }) =>
   await page.locator('.product-card', { hasText: '古丈蒿子粑粑 6个装' }).locator('.product-foot uni-button').click()
   await expect(page.locator('.cart-bar')).toContainText('2')
 
-  // 提交订单
+  // 独立结算页 → 待付款详情
   await page.locator('.cart-bar uni-button').last().click()
+  await expect(page.locator('.cart-sheet-summary')).toContainText('取消全选')
+  await page.locator('.cart-sheet-summary .cart-all').click()
+  await expect(page.locator('.cart-sheet-summary')).toContainText(/已选\s*0\s*件/)
+  await expect(page.locator('.sheet-foot .primary-button', { hasText: '确认下单' })).toHaveAttribute('disabled', 'true')
+  await page.locator('.cart-sheet-summary .cart-all').click()
+  await expect(page.locator('.cart-sheet-summary')).toContainText(/已选\s*2\s*件/)
+  await page.locator('.sheet-check').nth(1).click()
+  await expect(page.locator('.cart-sheet-summary')).toContainText(/已选\s*1\s*件/)
   await page.locator('.sheet-foot .primary-button', { hasText: '确认下单' }).click()
-  await page.locator('.checkout-form textarea').fill('请周三前送达')
-  await page.locator('.sheet-foot .primary-button', { hasText: '提交订单' }).click()
-  await expect(page.locator('.order-detail-head')).toContainText('待接单')
+  await expect(page.locator('.checkout-page')).toBeVisible()
+  await expect(page.locator('.checkout-line')).toHaveCount(1)
+  await page.locator('.remark-input textarea').fill('请周三前送达')
+  await page.locator('.submit-button').click()
+  await expect(page.locator('.hero-status')).toContainText('待付款')
 
-  // 推进状态 → 待发货
+  // 模拟支付 → 待接单，再推进到待发货
+  await page.locator('.order-actions uni-button', { hasText: '去支付' }).click()
+  await page.locator('.uni-modal', { hasText: '模拟支付' }).locator('.uni-modal__btn_primary').click()
+  await expect(page.locator('.hero-status')).toContainText('待接单')
   await page.locator('.order-actions uni-button', { hasText: '推进状态' }).click()
-  await expect(page.locator('.order-detail-head')).toContainText('待发货')
-  await page.locator('.sheet-head uni-button').click()
+  await expect(page.locator('.hero-status')).toContainText('待发货')
+  await expect(page.locator('.logistics')).toContainText('中台已接单')
 
-  // 订单列表 + 详情物流轨迹
+  // 返回后从订单列表再次进入详情
+  await page.locator('.hero-back').click()
+  await page.locator('.tabbar uni-button').nth(3).click()
+  await page.locator('.quick-grid uni-button', { hasText: '我的订单' }).click()
   await expect(page.locator('.order-card').first()).toContainText('待发货')
   await page.locator('.order-card').first().click()
   await expect(page.locator('.logistics')).toContainText('中台已接单')
-  await page.locator('.sheet-head uni-button').click()
 
-  // 页面无横向溢出
-  expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390)
-  await page.setViewportSize({ width: 430, height: 932 })
+  // 订单详情页在 375/390/430 均无横向溢出
+  for (const width of [375, 390, 430]) {
+    await page.setViewportSize({ width, height: 932 })
+    expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(width)
+  }
   await page.reload()
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(430)
 })
+test('store unpaid order can be cancelled before payment', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('http://127.0.0.1:8795')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await storeLogin(page)
+  await clearStoreDemoCart(page)
+  await page.locator('.product-card', { hasText: '商用保鲜膜 300米' }).locator('.product-foot uni-button').click()
+  await page.locator('.cart-bar uni-button').last().click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '确认下单' }).click()
+  await expect(page.locator('.checkout-page')).toBeVisible()
+  await page.locator('.submit-button').click()
+  await expect(page.locator('.hero-status')).toContainText('待付款')
+  await page.locator('.order-actions uni-button', { hasText: '取消订单' }).click()
+  await page.locator('.uni-modal', { hasText: '取消订单' }).locator('.uni-modal__btn_primary').click()
+  await expect(page.locator('.hero-status')).toContainText('未支付取消')
+})
+
+test('store paid order can be cancelled before shipment', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('http://127.0.0.1:8795')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await storeLogin(page)
+  await clearStoreDemoCart(page)
+  await page.locator('.product-card', { hasText: '商用保鲜膜 300米' }).locator('.product-foot uni-button').click()
+  await page.locator('.cart-bar uni-button').last().click()
+  await page.locator('.sheet-foot .primary-button', { hasText: '确认下单' }).click()
+  await expect(page.locator('.checkout-page')).toBeVisible()
+  await page.locator('.submit-button').click()
+  await expect(page.locator('.hero-status')).toContainText('待付款')
+  await page.locator('.order-actions uni-button', { hasText: '去支付' }).click()
+  await page.locator('.uni-modal', { hasText: '模拟支付' }).locator('.uni-modal__btn_primary').click()
+  await expect(page.locator('.hero-status')).toContainText('待接单')
+  await page.locator('.order-actions uni-button', { hasText: '取消订单' }).click()
+  await page.locator('.uni-modal', { hasText: '取消订单' }).locator('.uni-modal__btn_primary').click()
+  await expect(page.locator('.hero-status')).toContainText('已支付取消')
+})
+
 test('store workbench surfaces data, cart stepping, repeat order and contact sheet', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('http://127.0.0.1:8795')
@@ -427,6 +634,11 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
   await expect(page.locator('.order-card').first()).toContainText('已完成')
   await page.locator('.order-chips uni-button', { hasText: '待接单' }).click()
   await expect(page.locator('.order-card').first()).toContainText('待接单')
+  await expect(page.locator('.order-chips')).toContainText('配送中')
+  await expect(page.locator('.order-chips')).toContainText('待收货')
+  await expect(page.locator('.order-chips')).not.toContainText('已发货')
+  await page.locator('.order-chips uni-button', { hasText: '待收货' }).click()
+  await expect(page.locator('.order-card').first()).toContainText('待收货')
   await page.locator('.order-chips uni-button', { hasText: '全部' }).click()
 
   // 商城：多规格商品详情 + 购物车步进合计变化
@@ -435,26 +647,42 @@ test('store workbench surfaces data, cart stepping, repeat order and contact she
   await expect(page.locator('.sku-options')).toContainText('500g')
   await expect(page.locator('.sku-options')).toContainText('1kg家庭装')
   await page.locator('.sku-options uni-button').first().click()
+  await page.locator('.detail-quantity-input input').fill('3')
+  await page.locator('.detail-quantity-input input').blur()
+  await expect(page.locator('.detail-quantity-input input')).toHaveValue('3')
   await page.locator('.product-detail-actions uni-button', { hasText: '加入进货单' }).click()
-  await page.locator('.cart-bar uni-button').last().click()
-  await page.locator('.sheet-line .stepper uni-button').last().click()
-  await expect(page.locator('.checkout-summary')).toContainText('¥176')
+  await page.locator('.tabbar uni-button').nth(2).click()
+  await expect(page.locator('.cart-footer .cart-all')).toContainText('取消全选')
+  await page.locator('.cart-footer .cart-all').click()
+  await expect(page.locator('.cart-footer-total')).toContainText(/已选\s*0\s*件/)
+  await page.locator('.cart-footer .cart-all').click()
+  await expect(page.locator('.cart-footer-total')).toContainText(/已选\s*3\s*件/)
+  await page.locator('.cart-quantity-input input').fill('4')
+  await page.locator('.cart-quantity-input input').blur()
+  await expect(page.locator('.cart-quantity-input input')).toHaveValue('4')
+  await expect(page.locator('.cart-footer-total')).toContainText('¥352')
 
-  // 提交订单 → 订单详情
-  await page.locator('.sheet-foot .primary-button', { hasText: '确认下单' }).click()
-  await page.locator('.sheet-foot .primary-button', { hasText: '提交订单' }).click()
-  await expect(page.locator('.order-detail-head')).toContainText('待接单')
-  await page.locator('.sheet-head uni-button').click()
+  // 独立结算页 → 待付款详情 → 模拟支付
+  await page.locator('.cart-checkout', { hasText: '结算(4)' }).click()
+  await expect(page.locator('.checkout-page')).toBeVisible()
+  await page.locator('.submit-button').click()
+  await expect(page.locator('.hero-status')).toContainText('待付款')
+  await page.locator('.order-actions uni-button', { hasText: '去支付' }).click()
+  await page.locator('.uni-modal', { hasText: '模拟支付' }).locator('.uni-modal__btn_primary').click()
+  await expect(page.locator('.hero-status')).toContainText('待接单')
 
   // 订单状态筛选
+  await page.locator('.hero-back').click()
+  await page.locator('.tabbar uni-button').nth(3).click()
+  await page.locator('.quick-grid uni-button', { hasText: '我的订单' }).click()
   await page.locator('.order-chips uni-button', { hasText: '待接单' }).click()
   await expect(page.locator('.order-card').first()).toContainText('待接单')
 
   // 再次下单回填购物车
   await page.locator('.order-card').first().click()
-  await page.locator('.order-actions .outline-button', { hasText: '再次下单' }).click()
-  await expect(page.locator('.sheet-head')).toContainText('进货单')
-  await page.locator('.sheet-head uni-button').click()
+  await page.locator('.order-actions uni-button', { hasText: '再次下单' }).click()
+  await expect(page.locator('.cart-page')).toBeVisible()
+  await expect(page.locator('.cart-row').first()).toBeVisible()
 
   // 页面无横向溢出
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390)

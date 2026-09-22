@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(import.meta.dirname, 'index.vue'), 'utf8')
 const template = source.slice(source.indexOf('<template>') + '<template>'.length, source.lastIndexOf('</template>'))
 const styles = source.match(/<style scoped lang="scss">([\s\S]*?)<\/style>/)?.[1] || ''
+const globalStyles = readFileSync(resolve(import.meta.dirname, '../../styles/global.scss'), 'utf8')
+const checkoutSource = readFileSync(resolve(import.meta.dirname, '../checkout/index.vue'), 'utf8')
+const orderDetailSource = readFileSync(resolve(import.meta.dirname, '../order-detail/index.vue'), 'utf8')
 
 function expectRule(selector: string, declarations: RegExp) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -12,9 +15,24 @@ function expectRule(selector: string, declarations: RegExp) {
 }
 
 describe('门店端现代供应链视觉契约', () => {
+
+  it('全局样式不引入小程序不支持的裸 select 标签选择器', () => {
+    const globalStyles = readFileSync(resolve(import.meta.dirname, '../../styles/global.scss'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(globalStyles).not.toMatch(/(^|[,{}])\s*select\s*(?=[,{])/m)
+  })
+  it('本端 token 提供橙色渐变、线色和 14px 卡片圆角', () => {
+    expect(globalStyles).toContain('--store-gradient: linear-gradient(140deg, #f59b2c, #f0810f 55%, #d66a00)')
+    expect(globalStyles).toContain('--store-login-gradient: linear-gradient(168deg, #f59b2c 0%, #f0810f 46%, #e0740a 74%, #c96200 100%)')
+    expect(globalStyles).toContain('--store-line: #e9ded1')
+    expect(globalStyles).toContain('--store-line-light: #f1e8dc')
+    expect(globalStyles).toContain('--mobile-radius-card: 14px')
+    expect(globalStyles).toContain('--mobile-tab-height: 72px')
+    expect(globalStyles).toContain('--mobile-brand: #f0810f')
+    expect(globalStyles).toMatch(/@media \(min-width: 431px\)[\s\S]*var\(--store-h5-glow-top\)/)
+  })
+
   it('使用业务图标表达门店、位置、供应链策略和电话操作', () => {
     expect(template).not.toMatch(/\p{Extended_Pictographic}/u)
-
     expect(template).toContain('<UiIcon name="shopping-cart"')
     expect(template).toContain('<UiIcon name="map-pin"')
     expect(template).toContain('<UiIcon name="package-check"')
@@ -28,33 +46,62 @@ describe('门店端现代供应链视觉契约', () => {
     }
   })
 
-  it('使用跨端双列瀑布流并限制商品卡在窄屏内收缩', () => {
-    expectRule('.mall-hero', /padding:\s*calc\(12px\s*\+\s*env\(safe-area-inset-top\)\)\s*8px\s*16px/)
-    expectRule('.page-pad', /padding:\s*0 8px/)
-    expectRule('.mall-hero', /background:\s*var\(--farm-green-deep\)/)
+  it('登录页全屏渐变、品牌区在上、表单卡贴底', () => {
+    expect(template).toContain('class="pc-login-mark"')
+    expect(template).toContain('<UiIcon name="shopping-bag"')
+    expect(template).toContain('class="login-panel"')
+    expect(template).toContain('class="login-field"')
+    expect(template).toContain('class="login-button"')
+    expect(template).not.toContain('class="login-logo"')
+    expectRule('.login-page', /background:\s*var\(--store-login-gradient\)/)
+    expect(styles).toMatch(/\.login-page::before/)
+    expectRule('.login-card', /min-height:\s*100vh/)
+    expectRule('.login-card', /border-radius:\s*0/)
+    expect(styles).toMatch(/\.login-card \.pc-login-hero,\s*\.login-hero\s*\{[^}]*min-height:\s*200px/)
+    expectRule('.login-panel', /margin-top:\s*auto/)
+    expectRule('.login-panel', /border-radius:\s*26px 26px 0 0/)
+    expectRule('.login-button', /border-radius:\s*var\(--mobile-radius-pill\)/)
+    expect(styles).not.toMatch(/\.login-page\{[^}]*padding:8px/)
+    expect(styles).not.toMatch(/\.login-card\{[^}]*max-width:340px/)
+  })
+
+  it('页头用品牌渐变和弧底，首页商品是双列正方形卡', () => {
+    expectRule('.mall-hero', /background:\s*var\(--store-gradient\)/)
+    expectRule('.mall-hero', /padding:[^;}]*36px/)
+    expect(styles).toMatch(/\.mall-hero::after\s*\{[^}]*border-radius:\s*24px 24px 0 0/)
     expectRule('.app-shell', /overflow-x:\s*hidden/)
     expect(template).toContain('class="waterfall-grid"')
-    expect(template).toContain('class="waterfall-column"')
-    expectRule('.waterfall-grid', /display:\s*flex/)
-    expectRule('.waterfall-column', /flex:\s*1/)
+    expect(template).toContain('class="product-card"')
+    expect(template).toMatch(/class="[^"]*product-open[^"]*"/)
+    expectRule('.waterfall-grid', /grid-template-columns:\s*1fr\s+1fr/)
+    expectRule('.product-image', /aspect-ratio:\s*1\s*\/\s*1/)
+    expectRule('.page-pad', /padding:\s*0 16px/)
+    expect(template).toContain('class="mall-hero-sub">中选科技供应链 · 供货价直采 · 中台直配到店')
+    expect(template).not.toContain('class="mall-hero-sub">中选科技供应链 · 供货价直采 · 中台直配到店 · 中台统一维护商品状态与库存')
+    expect(template).toContain('class="member-footer">平台支持 · 湖南省电子商务协会 · 中选科技供应链中台 · 中台统一维护商品状态与库存')
+    expect(template).toContain('class="result-count">共 {{ visibleProducts.length }} 款商品 · 中台直配到店')
+    expect(template).not.toContain('class="result-count">共 {{ visibleProducts.length }} 款商品 · 中台直配到店 · 中台统一维护商品状态与库存')
+    expect(styles).toMatch(/\.cat-card \.category-grid-img\s*\{[^}]*width:\s*44px/)
   })
 
   it('详情页直接展示规格起订量，商品列表保持紧凑', () => {
     expect(template).toContain('起订 {{ effectiveMinimumOrderQuantity(sku) }} 件')
     expect(template).toContain('当前规格起订量')
-    expect(template.slice(template.indexOf('class="waterfall-grid"'), template.indexOf('class="category-page"'))).not.toContain('起订')
+    expect(template.slice(template.indexOf('class="waterfall-grid"'), template.indexOf('category-page'))).not.toContain('起订')
   })
 
   it('商品详情使用大图融合长页、内联规格数量和固定加购栏', () => {
     expect(template).toContain('class="detail-gallery"')
     expect(template).toContain('class="detail-gallery-count"')
     expect(template).toContain('v-if="detailGallery.length > 1"')
+    expect(template).toContain('class="detail-body"')
     expect(template).toContain('class="detail-summary detail-section"')
     expect(template).toContain('class="detail-sku-options"')
     expect(template).toContain('class="detail-quantity-stepper"')
+    expect(template).toContain('class="detail-quantity-input"')
     expect(template).toContain(':disabled="!selectedSku || detailQuantity >= detailRemainingStock"')
     expect(template).toContain('class="detail-ladder-section detail-section"')
-    expect(template).toContain('class="detail-product-info detail-section"')
+    expect(template).not.toContain('class="detail-product-info detail-section"')
     expect(template).toContain('class="detail-rich-images detail-section"')
     expect(template).toContain('class="product-detail-bar"')
     expect(template).toContain('<view v-if="!productView" class="tabbar">')
@@ -64,18 +111,27 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.detail-gallery', /aspect-ratio:\s*1\s*\/\s*1/)
     expectRule('.detail-sku-option', /min-height:\s*var\(--mobile-touch-target\)/)
     expectRule('.detail-quantity-stepper button', /width:\s*44px[^}]*height:\s*44px/)
-    expectRule('.product-detail-bar', /position:\s*fixed[^}]*padding-bottom:\s*calc\(8px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
-    expectRule('.product-view', /padding-bottom:\s*calc\(72px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
+    expectRule('.product-detail-bar', /position:\s*fixed/)
+    expectRule('.product-detail-bar', /border-radius:\s*26px/)
+    expectRule('.detail-body', /border-radius:\s*20px 20px 0 0/)
+    expectRule('.detail-body', /background:\s*var\(--farm-bg\)/)
+    expectRule('.detail-gallery-count', /bottom:\s*28px/)
+    expect(styles).toMatch(/\.detail-gallery-back::before\s*\{[^}]*inset:\s*4px/)
+    expectRule('.product-view', /padding-bottom:\s*calc\(96px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
+    expectRule('.detail-cart-badge', /top:\s*-2px/)
+    expectRule('.detail-cart-badge', /right:\s*-6px/)
+    expect(template).not.toContain('detail-gallery-prev')
+    expect(template).not.toContain('detail-gallery-next')
+    expect(styles).not.toContain('.detail-gallery-arrow')
     expect(source).toContain('next > detailRemainingStock.value')
     expect(template).toContain('detailNextTier.minQty - detailPricingQuantity')
     expect(source).toContain('readStorePricePolicies')
     expect(source).not.toContain('activePolicies.value.length ? activePolicies.value : pricePolicies')
   })
 
-  it('主要卡片使用不超过八像素的统一圆角和克制阴影', () => {
-    for (const selector of ['.product-card', '.order-card', '.hot-list', '.login-card']) {
+  it('主要卡片使用本端 14px 圆角 token', () => {
+    for (const selector of ['.product-card', '.order-card', '.hot-list']) {
       expectRule(selector, /border-radius:\s*var\(--mobile-radius-card\)/)
-      expectRule(selector, /box-shadow:\s*var\(--mobile-shadow-card\)/)
     }
   })
 
@@ -83,8 +139,8 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.chips button', /min-height:\s*var\(--mobile-touch-target\)/)
     expectRule('.cart-count', /width:\s*44px[^}]*height:\s*44px/)
     expectRule('.cart-bar>button:last-child', /min-height:\s*var\(--mobile-touch-target\)/)
-    expectRule('.sheet-head button', /width:\s*44px[^}]*height:\s*44px/)
-    expectRule('.outline-button', /height:\s*var\(--mobile-touch-target\)/)
+    expectRule('.sheet-head button', /min-width:\s*44px/)
+    expectRule('.outline-button', /min-height:\s*var\(--mobile-touch-target\)/)
     expectRule('.login-tabs button', /min-height:\s*var\(--mobile-touch-target\)/)
     expectRule('.logout-button', /min-height:\s*var\(--mobile-touch-target\)/)
   })
@@ -102,7 +158,7 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.quick-grid .pc-tile-label', /font-size:\s*13px/)
   })
 
-  it('分类和购物车页头使用本端主题色块，商品卡底行是圆形加购', () => {
+  it('分类和购物车页头使用渐变头，商品卡底行是圆形加购', () => {
     expect(template).toContain('class="mall-hero-title">商品分类')
     expect(template).toContain('class="mall-hero-title">购物车')
     expect(template).not.toContain('>加购<')
@@ -111,32 +167,62 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.product-foot button', /width:\s*32px/)
     expectRule('.product-foot button', /height:\s*32px/)
     expectRule('.product-foot button', /border-radius:\s*50%/)
-    expectRule('.product-foot button', /background:\s*var\(--farm-green\)/)
+    expectRule('.product-foot button', /background:\s*var\(--store-gradient\)/)
     expectRule('.cat-add', /width:\s*32px/)
     expectRule('.cat-add', /height:\s*32px/)
     expectRule('.cat-add', /border-radius:\s*50%/)
-    expectRule('.cat-add', /background:\s*var\(--farm-green\)/)
+    expectRule('.cat-add', /background:\s*var\(--store-gradient\)/)
     expectRule('.product-foot', /min-height:\s*0/)
     expect(styles).not.toMatch(/\.tabbar button\.active \.ui-icon\s*\{[^}]*filter:/s)
-    expect(styles).toMatch(/\.sku-options\s*\{[^}]*flex-wrap:\s*wrap/s)
-    expect(styles).toMatch(/\.stepper button\s*\{[^}]*height:\s*32px/s)
-    expect(styles).not.toMatch(/\.cart-footer\s*\{[^}]*position:\s*sticky/s)
-    expect(styles).not.toMatch(/\.cart-footer\s*\{[^}]*position:\s*fixed/s)
   })
 
-  it('六类业务弹层都有稳定的视觉验收入口', () => {
-    for (const state of ['product', 'cart', 'checkout', 'order', 'contact', 'address']) {
+  it('进货条、结算条和 Tab 选中态按设计稿做成胶囊', () => {
+    expectRule('.cart-bar', /background:\s*var\(--store-gradient\)/)
+    expectRule('.cart-bar', /overflow:\s*visible/)
+    expectRule('.cart-bar', /padding:\s*6px 10px/)
+    expectRule('.cart-bar', /border-radius:\s*24px/)
+    expectRule('.cart-count', /overflow:\s*visible/)
+    expectRule('.cart-footer', /position:\s*fixed/)
+    expectRule('.cart-footer', /border-radius:\s*18px/)
+    expect(styles).toMatch(/\.tabbar button\.active \.tab-icon-wrap\s*\{[^}]*background:\s*var\(--farm-green-soft\)/)
+    expectRule('.tabbar', /overflow:\s*visible/)
+    expectRule('.tabbar', /padding:\s*10px 0 calc\(10px \+ env\(safe-area-inset-bottom\)\)/)
+    expectRule('.tab-icon-wrap', /height:\s*32px/)
+    expectRule('.tab-badge', /top:\s*-2px/)
+    expectRule('.tab-badge', /right:\s*-4px/)
+    expectRule('.cart-count span', /top:\s*-2px/)
+    expectRule('.cart-count span', /right:\s*-4px/)
+    expectRule('.primary-button', /border-radius:\s*var\(--mobile-radius-pill\)/)
+  })
+
+  it('保留四类业务弹层，结算和订单详情使用独立页面入口', () => {
+    for (const state of ['product', 'cart', 'contact', 'address']) {
       expect(template).toContain(`data-visual-state="store-${state}"`)
     }
+    expect(template).not.toContain(`sheet === 'checkout'`)
+    expect(template).not.toContain(`sheet === 'order'`)
+    expect(checkoutSource).toContain('class="store-subpage checkout-page"')
+    expect(orderDetailSource).toContain('class="store-subpage order-detail-page"')
     expectRule('.sheet', /max-width:\s*100%/)
     expectRule('.sheet', /overflow:\s*hidden/)
     expectRule('.sheet', /max-height:\s*var\(--mobile-sheet-max-height\)/)
+    expectRule('.sheet-head>text', /text-align:\s*center/)
     expect(styles).toMatch(/@media \(min-width:\s*431px\)[\s\S]*?\.sheet\s*\{[^}]*max-width:\s*430px/)
+    expect(template).not.toContain('class="sheet-handle"')
+  })
+
+  it('规格弹层包含商品摘要、数量步进和小计', () => {
+    expect(template).toContain('class="sku-sum"')
+    expect(template).toContain('class="sku-qty-row"')
+    expect(template).toContain('class="sku-sum-total"')
+    expect(template).toMatch(/sheet === 'product'[\s\S]*当前小计/)
+    expect(source).toMatch(/function addSelected\(\) \{[\s\S]*detailQuantity\.value/)
   })
 
   it('购物车栏和不透明底部导航拥有独立正文占位', () => {
     expect(template).toContain(`:class="{ 'has-cart-bar': (activeTab === 'home' || activeTab === 'category') && store.cartCount }"`)
-    expectRule('.app-shell.has-cart-bar', /padding-bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*var\(--mobile-action-bar-height\)\s*\+\s*28px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
+    expect(styles).not.toMatch(/\.app-shell\.has-cart-bar \{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)/)
+    expect(styles).toMatch(/\.app-shell\.has-cart-bar \.shop-page \{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*var\(--mobile-action-bar-height\)\s*\+\s*12px\s*\+\s*env\(safe-area-inset-bottom\)\)/)
     expectRule('.tabbar', /background:\s*var\(--mobile-surface\)/)
   })
 
@@ -147,7 +233,16 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.cat-product-body', /flex-direction:\s*column/)
     expectRule('.cat-product-name', /width:\s*100%/)
     expectRule('.cat-product-name', /-webkit-line-clamp:\s*2/)
-    expectRule('.side-item.active', /box-shadow:\s*inset 3px 0 0 var\(--farm-green\)/)
+    expect(styles).toMatch(/\.side-item\.active::before\s*\{[^}]*width:\s*3px/)
+    expect(styles).toMatch(/\.side-item\.active::before\s*\{[^}]*top:\s*10px/)
+    expect(styles).toMatch(/\.tab-page\.category-page \{[^}]*padding-bottom:\s*0/)
+    expect(styles).toMatch(/\.category-page \.category-layout\s*\{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\) \+ 12px \+ env\(safe-area-inset-bottom\)\)/)
+    expect(styles).toMatch(/\.app-shell\.has-cart-bar \.category-page \.category-layout \{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\) \+ var\(--mobile-action-bar-height\) \+ 12px \+ env\(safe-area-inset-bottom\)\)/)
+    expect(styles).toMatch(/\.category-page \.category-layout\s*\{[^}]*flex:\s*1/)
+    expect(styles).toMatch(/\.category-page\s*\{[^}]*max-height:\s*100vh/)
+    expect(styles).toMatch(/\.category-side\s*\{[^}]*overflow-y:\s*auto/)
+    expect(styles).toMatch(/\.category-side\s*\{[^}]*max-height:\s*100%/)
+    expect(styles).toMatch(/\.category-page \.category-side \{[^}]*clip-path:\s*inset\(0\)/)
     expectRule('.cost-line', /flex-direction:\s*column/)
   })
 
@@ -157,20 +252,20 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.order-detail-head > text', /word-break:\s*break-all/)
     expectRule('.checkout-line > text', /min-width:\s*0[^}]*word-break:\s*break-all/)
     expect(styles.toLowerCase()).not.toContain('#17633f')
+    expect(styles).not.toMatch(/#[0-9A-Fa-f]{3,8}/)
   })
 
-  it('H5 画框包在条件编译内，登录空态避开胶囊，订货圆角不超过 8px', () => {
+  it('H5 画框包在条件编译内，登录空态避开胶囊', () => {
+    expect(source).toMatch(/\/\* #ifdef MP-WEIXIN \*\/[\s\S]*\.cart-footer[\s\S]*\.product-detail-bar[\s\S]*transform: none/)
     expect(source).toMatch(/\/\* #ifdef H5 \*\/[\s\S]*@media \(min-width:431px\)[\s\S]*\/\* #endif \*\//)
     expect(source).toMatch(/\.login-page \{[\s\S]*padding-top: calc\(24px \+ var\(--status-bar-height\)\)/)
     expect(source).toMatch(/\.state-page,\s*\.loading \{[\s\S]*padding-right: 96px/)
-    expect(styles).toMatch(/\.order-thumb \{[^}]*border-radius:8px/)
-    expect(styles).toMatch(/\.cart-del \{[^}]*border-radius:8px/)
     expect(styles).toMatch(/\.steps \{[^}]*overflow-x:auto[^}]*minmax\(56px,1fr\)/)
     expect(styles).not.toMatch(/@media \(max-width:375px\) \{[\s\S]*\.steps \{/)
-    expect(styles).toMatch(/\.sheet-head \{[^}]*padding:6px 12px/)
     expect(styles).toMatch(/\.store-metrics \{ grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/)
     expect(template).toMatch(/class="hot-list pc-empty"[\s\S]*暂无常订商品/)
     expect(styles).toMatch(/@media \(min-width:431px\)[\s\S]*\.login-page \{ max-width:430px/)
+    expect(styles.lastIndexOf('@media (min-width:431px)')).toBeGreaterThan(styles.indexOf('.cart-footer { position:fixed'))
   })
 
   it('门店工作台去掉去订货和账号结算字段，快捷入口三列单列资料卡', () => {
@@ -191,30 +286,26 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.quick-grid', /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
     expectRule('.store-identity', /display:\s*flex/)
     expectRule('.store-identity .store-identity-address', /white-space:\s*normal/)
+    expectRule('.store-metrics', /margin-top:\s*-14px/)
     expectRule('.sheet-scroll', /height:\s*auto/)
     expectRule('.sheet-scroll', /max-height:\s*calc\(80vh/)
   })
 
-  it('订单详情操作栏贴在 sheet-foot，section 间距收紧', () => {
-    expect(template).toMatch(/<\/scroll-view>[\s\S]*class="order-actions sheet-foot"/)
-    expect(template).not.toMatch(/class="order-actions"[\s\S]*<\/scroll-view>/)
-    expect(styles).toMatch(/\.steps \{ margin-top:8px/)
-    expect(styles).toMatch(/\.logistics \{ margin-top:8px/)
-    expect(styles).toMatch(/\.order-items \{ margin-top:8px/)
+  it('订单详情使用独立页面并保留状态与操作入口', () => {
+    expect(orderDetailSource).toContain('class="order-actions"')
+    expect(orderDetailSource).toContain("order.status === 'pending-payment'")
+    expect(orderDetailSource).toContain('去支付')
+    expect(orderDetailSource).toContain('取消订单')
+    expect(orderDetailSource).toContain('class="steps"')
+    expect(orderDetailSource).toContain('class="logistics"')
   })
 
-  it('购物车 Tab 结算条用 flex 钉底，375 可换行，地址复制在 scroll 外', () => {
+  it('购物车 Tab 结算条悬浮在 Tab 上方，375 可换行，地址复制在 scroll 外', () => {
     expect(styles).toMatch(/\.cart-page \{[^}]*display:\s*flex[^}]*flex-direction:\s*column/)
     expect(styles).toMatch(/\.cart-page \{[^}]*min-height:\s*100vh/)
-    expect(styles).toMatch(/\.tab-page\.cart-page \{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)/)
-    expect(styles).toMatch(/\.cart-footer \{[^}]*flex:\s*none/)
-    expect(styles).toMatch(/\.cart-footer \{[^}]*margin:\s*0;/)
-    expect(styles).toMatch(/\.cart-footer \{[^}]*border-radius:\s*0/)
-    expect(styles).not.toMatch(/\.cart-footer \{[^}]*box-shadow/)
-    expect(styles).not.toMatch(/\.cart-footer \{[^}]*z-index:\s*22/)
-    expect(styles).not.toMatch(/\.cart-footer \{[^}]*position:\s*sticky/)
-    expect(styles).not.toMatch(/\.cart-footer \{[^}]*position:\s*fixed/)
-    expect(template).toContain('合计：')
+    expect(styles).toMatch(/\.tab-page\.cart-page \{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*72px/)
+    expect(template).toContain('cart-selected-count')
+    expect(template).toContain('cart-total-amount')
     expect(styles).toMatch(/\.cart-row \{[^}]*align-items:\s*stretch/)
     expect(styles).toMatch(/\.cart-row-main \{[^}]*flex-direction:\s*column/)
     expect(styles).toMatch(/\.cart-row-bottom \{[^}]*margin-top:\s*auto/)
@@ -227,13 +318,14 @@ describe('门店端现代供应链视觉契约', () => {
     expect(template.slice(0, scrollEnd)).not.toContain('@click="copyAddress"')
   })
 
-  it('进货单、确认下单、详情和客服主操作也贴在 sheet-foot', () => {
+  it('进货单、客服和结算页主操作保持固定或贴底', () => {
     const scrollEnd = template.indexOf('</scroll-view>')
     const afterScroll = template.slice(scrollEnd)
     expect(afterScroll).toMatch(/sheet === 'cart'[\s\S]*确认下单/)
-    expect(afterScroll).toMatch(/sheet === 'checkout'[\s\S]*提交订单/)
     expect(afterScroll).toContain('class="product-detail-actions sheet-foot"')
     expect(afterScroll).toContain('class="contact-actions sheet-foot"')
+    expect(checkoutSource).toContain('class="submit-bar"')
+    expect(checkoutSource).toContain('提交订单')
     expect(template.slice(0, scrollEnd)).not.toContain('确认下单')
     expect(styles).toMatch(/@media \(max-width:\s*375px\)[\s\S]*\.order-head \{[^}]*flex-wrap:\s*wrap/)
     expect(styles).toMatch(/@media \(max-width:\s*375px\)[\s\S]*\.order-no \{[^}]*white-space:\s*normal/)
@@ -251,24 +343,22 @@ describe('门店端现代供应链视觉契约', () => {
     expectRule('.product-emoji', /inset:\s*0/)
   })
 
-  it('订货单和工作台页头用主题色块，非购物车底栏按 tab token 留白', () => {
+  it('订货单和工作台页头用渐变色块，非购物车底栏按 tab token 留白', () => {
     expect(template).toMatch(/class="mall-hero heading-with-back">[\s\S]*我的订货单/)
     expect(template).toMatch(/class="page-back" aria-label="返回"/)
+    expectRule('.page-back', /color:\s*var\(--farm-ink\)/)
+    expect(styles).toMatch(/\.page-back::before\s*\{[^}]*inset:\s*4px/)
+    expect(styles).toMatch(/\.sheet-head button::before\s*\{[^}]*inset:\s*7px/)
+    expect(template).toMatch(/@click="copyAddress"[\s\S]*<UiIcon name="link"/)
     expect(template).toContain('data-visual-view="product"')
     expect(source).toContain("case 'product': return '选择规格'")
     expect(template).toContain('logout-danger')
     expect(template).not.toMatch(/class="mobile-head">[\s\S]*我的订货单/)
     expect(template).toMatch(/class="state-page pc-empty"/)
     expect(template).toContain('class="pc-state-icon"')
-    expect(styles).toMatch(/\.tab-page\s*\{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*28px/)
+    expect(styles).toMatch(/\.tab-page\s*\{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*12px/)
     expect(styles).not.toMatch(/\.tab-page \{[^}]*padding-bottom:48px/)
     expect(styles).toMatch(/\.store-hero-top \.mall-hero-title/)
-    expect(styles).toMatch(/\.login-page\{[^}]*padding:8px/)
-    expect(template).toContain('class="pc-login-mark"')
-    expect(template).toContain('<UiIcon name="shopping-bag"')
-    expect(template).not.toContain('class="login-logo"')
-    expect(styles).toMatch(/\.login-card\{[^}]*max-width:340px/)
-    expect(styles).toMatch(/\.login-body\{[^}]*padding:16px 12px 18px/)
     expect(styles).not.toMatch(/\.mobile-head \{/)
     expect(styles).toMatch(/\.cart-row-bottom \.stepper button \{[^}]*width:var\(--mobile-control-compact\)/)
     expect(styles).toMatch(/\.cart-row-bottom \.stepper button \{[^}]*height:var\(--mobile-control-compact\)/)
