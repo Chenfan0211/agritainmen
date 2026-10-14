@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
-import type { AdminAccount, AdminMenuKey, AdminPermissionCode, AdminRole, TravelRoute, AfterSale, BusinessMediaValue, CCommissionAllocation, COrder, CProduct, CatalogProduct, CatalogProductSubmission, CatalogState, Category, CommissionRule, CommissionSettlementRecord, DictGroup, DictItem, FarmAdministrativeAddress, FarmStore, GeocodeRequest, GeocodeResult, MockScenario, Order, PlatformAuditLogEntry, PlatformDictionaryState, PlatformEntities, PlatformJournalEntry, PlatformRecoveryHandlerKey, PlatformTransactionStep, PricePolicy, PriceTier, PricingDefaults, Product, Promoter, ShareConfig, SharedBooking, StoreAccount, Supplier, SupplierAccount, SupplierSettlementRecord, WithdrawalRequestStatus, WriteResult } from '@agritainment/shared'
-import { ADMIN_SUPER_ROLE_ID, CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY, DEFAULT_PRICING_DEFAULTS, DICTIONARY_SCHEMA_VERSION, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, addDictGroup as addSharedDictGroup, addDictItem as addSharedDictItem, appendPlatformAuditLog, approveCatalogProductSubmission as approveSharedCatalogProductSubmission, authenticateAdmin, buildFarmAdministrativeAddress, buildSupplierAccountSeeds, buildPromoterAccountSeeds, canPublishPlatformDictionaries, catalogChannelFlags, catalogProductToCProduct, catalogProductToProduct, clearPlatformJson, cloneSeed, confirmCSubOrderReceiptAtSupplier, createCatalogProductReviewRecoveryHandlerRegistration, createCatalogProductSubmission, createGeocodeProviders, createId, createPlatformAuditLogEntry, createPlatformProductionRecoveryHandlerRegistration, createStrictSnapshotRecoveryHandlerRegistration, createUserAtomicRecoveryHandlerRegistrations, deriveCOrderStatus, emptyPlatformMedia, enqueuePlatformRecovery, ensureCatalogState, formatFarmAdministrativeAddress, geocodeAddress, getPlatformProviders, hasAdminMenu, hasAdminPermission, initializePlatformRecoveryHandlers, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformEntities, mergePlatformOrders, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, migrateFarmAdministrativeAddress, normalizeCProducts, normalizeMediaReference, pendingShareTotal, preparePlatformJournal, readCCommissionRecords, readCInventoryState, readCOrders, readCatalogProductSubmissionState, readCatalogState, readPlatformAdminAccounts, readPlatformAdminRoles, readPlatformAfterSales, readPlatformAuditLogs, readPlatformBookings, readPlatformCollectionRevision, readPlatformCommissionRules, readPlatformCommissionSettlementRecords, readPlatformDictionaries, readPlatformDrivers, readPlatformJournal, readPlatformJson, readPlatformMedia, readPlatformRoutes, mergePlatformRoutes, travelRoutes, readPlatformOrders, readPlatformStoreAccounts, readPlatformEntities, readPlatformPromoterAccountState, mergePlatformPromoterAccounts, writePlatformPromoterAccounts, readPlatformSupplierAccounts, readPlatformSupplierSettlements, readPricingDefaults, readShareConfig, readShareRecords, readPlatformWithdrawals, readPlatformRecoveryQueue, readPlatformCommissionSettlements, reconcilePendingPlatformTransactions, rejectCatalogProductSubmission as rejectSharedCatalogProductSubmission, removeDictGroup as removeSharedDictGroup, removeDictItem as removeSharedDictItem, resolvePlatformJournal, resolvePlatformRecoveryTask, retryPlatformRecoveryTask, round2, runLockedPlatformTransaction, saveCatalogProduct as persistCatalogProduct, seedCCommerceData, seedPlatformAdminSecurity, syncCSubOrderFromSupplier, todayString, updateDictGroup as updateSharedDictGroup, updateDictItem as updateSharedDictItem, persistPlatformEntity, upsertPlatformFarm, upsertPlatformFarmPopularity, validatePhone, writeCCommissionRecords, writeCOrders, writeCatalogState, writePlatformAdminAccounts, writePlatformAdminRoles, writePlatformAfterSales, writePlatformCommissionRules, writePlatformCommissionSettlementRecords, writePlatformEntities, writePlatformJson, writePlatformCommissionSettlements, writePlatformMedia, writePlatformOrders, writePlatformSupplierSettlements, writePlatformStoreAccounts, writePlatformSupplierAccounts, writePricingDefaults, writeShareConfig, writeShareRecords } from '@agritainment/shared'
-import { PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY } from '@agritainment/shared'
+import type { AdminAccount, AdminMenuKey, AdminPermissionCode, AdminRole, AfterSale, BusinessMediaValue, CatalogProduct, CatalogProductSubmission, CatalogState, Category, CCommissionAllocation, CDistributorProfile, CommissionRule, CommissionSettlementRecord, COrder, CProduct, DictGroup, DictItem, FarmAdministrativeAddress, FarmStore, GeocodeRequest, GeocodeResult, MockScenario, Order, PlatformAuditLogEntry, PlatformDictionaryState, PlatformEntities, PlatformJournalEntry, PlatformRecoveryHandlerKey, PlatformTransactionStep, PricePolicy, PriceTier, PricingDefaults, Product, Promoter, ShareConfig, StoreAccount, Supplier, SupplierAccount, SupplierSettlementRecord, WithdrawalRequestStatus, WriteResult } from '@agritainment/shared'
+import { addDictGroup as addSharedDictGroup, addDictItem as addSharedDictItem, ADMIN_SUPER_ROLE_ID, appendPlatformAuditLog, approveCatalogProductSubmission as approveSharedCatalogProductSubmission, authenticateAdmin, buildFarmAdministrativeAddress, buildPromoterAccountSeeds, buildSupplierAccountSeeds, canPublishPlatformDictionaries, CATALOG_PRODUCT_REVIEW_RECOVERY_HANDLER_KEY, catalogChannelFlags, catalogProductToCProduct, catalogProductToProduct, clearPlatformJson, cloneSeed, confirmCSubOrderReceiptAtSupplier, createCatalogProductReviewRecoveryHandlerRegistration, createCatalogProductSubmission, createGeocodeProviders, createId, createPlatformAuditLogEntry, createPlatformProductionRecoveryHandlerRegistration, createStrictSnapshotRecoveryHandlerRegistration, createUserAtomicRecoveryHandlerRegistrations, DEFAULT_PRICING_DEFAULTS, deriveCOrderStatus, DICTIONARY_SCHEMA_VERSION, emptyPlatformMedia, enqueuePlatformRecovery, ensureCatalogState, formatFarmAdministrativeAddress, geocodeAddress, getPlatformProviders, hasAdminMenu, hasAdminPermission, initializePlatformRecoveryHandlers, mergeEntitySeeds, mergePlatformAfterSales, mergePlatformEntities, mergePlatformOrders, mergePlatformPromoterAccounts, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, migrateFarmAdministrativeAddress, normalizeCProducts, normalizeMediaReference, pendingShareTotal, persistPlatformEntity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, preparePlatformJournal, readCatalogProductSubmissionState, readCatalogState, readCCommissionRecords, readCDistributorProfiles, readCInventoryState, readCOrders, readPlatformAdminAccounts, readPlatformAdminRoles, readPlatformAfterSales, readPlatformAuditLogs, readPlatformCollectionRevision, readPlatformCommissionRules, readPlatformCommissionSettlementRecords, readPlatformCommissionSettlements, readPlatformDictionaries, readPlatformDrivers, readPlatformEntities, readPlatformJournal, readPlatformJson, readPlatformMedia, readPlatformOrders, readPlatformPromoterAccountState, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, readPlatformSupplierSettlements, readPlatformWithdrawals, readPricingDefaults, readShareConfig, readShareRecords, reconcilePendingPlatformTransactions, rejectCatalogProductSubmission as rejectSharedCatalogProductSubmission, removeDictGroup as removeSharedDictGroup, removeDictItem as removeSharedDictItem, resolvePlatformJournal, resolvePlatformRecoveryTask, retryPlatformRecoveryTask, round2, runLockedPlatformTransaction, saveCatalogProduct as persistCatalogProduct, seedCCommerceData, seedPlatformAdminSecurity, syncCSubOrderFromSupplier, todayString, updateDictGroup as updateSharedDictGroup, updateDictItem as updateSharedDictItem, upsertPlatformFarm, validatePhone, writeCatalogState, writeCCommissionRecords, writeCDistributorProfiles, writeCOrders, writePlatformAdminAccounts, writePlatformAdminRoles, writePlatformAfterSales, writePlatformCommissionRules, writePlatformCommissionSettlementRecords, writePlatformCommissionSettlements, writePlatformEntities, writePlatformJson, writePlatformMedia, writePlatformOrders, writePlatformPromoterAccounts, writePlatformStoreAccounts, writePlatformSupplierAccounts, writePlatformSupplierSettlements, writePricingDefaults, writeShareConfig, writeShareRecords } from '@agritainment/shared'
+import { PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY } from '@agritainment/shared'
 import { demoAdminExportRecords, seedAdminDemoDataOnce } from '../data/demo-admin'
 import { adminRepository } from '../services/repository'
 import { buildSupplierQualification, readSupplierQualificationFields } from '../media-dictionary'
@@ -21,10 +21,8 @@ interface AdminState {
   productSubmissionRevision: number
   pricingDefaults: PricingDefaults
   categories: Category[]
-  routes: TravelRoute[]
   orders: Order[]
   afterSales: AfterSale[]
-  bookings: SharedBooking[]
   farms: FarmStore[]
   promoters: Promoter[]
   policies: PricePolicy[]
@@ -151,14 +149,9 @@ function buildAdminTodos(state: Pick<AdminState, 'suppliers' | 'products' | 'pro
   })
   add('driver-reference-invalid', `配送订单「${invalidDriverOrders[0]?.id} · ${invalidDriverOrders[0]?.productName}」司机不可用`, invalidDriverOrders, 'orders', 'high', invalidDriverOrders[0]?.createdAt || '', { status: 'pending-or-shipping', driver: 'invalid' })
 
-  const bookings = Object.values(readPlatformBookings() || {})
-  const expiredBookings = bookings.filter((item) => item.status === 'submitted' && item.date < todayString())
-  add('booking-expired-submitted', `预约「${expiredBookings[0]?.farmName} · ${expiredBookings[0]?.userId}」已过期未确认`, expiredBookings, 'bookings', 'high', expiredBookings[0]?.createdAt || '', { status: 'submitted', expired: 'true' })
-  const amountMissingBookings = bookings.filter((item) => item.status === 'completed' && !(Number(item.amount) > 0))
-  add('booking-completed-no-amount', `预约「${amountMissingBookings[0]?.farmName} · ${amountMissingBookings[0]?.userId}」缺少实收金额`, amountMissingBookings, 'bookings', 'medium', amountMissingBookings[0]?.updatedAt || amountMissingBookings[0]?.createdAt || '', { status: 'completed', amount: 'missing' })
-
   const refundFailed = state.afterSales.filter((item) => item.status === 'refund-failed')
   add('after-sale-refund-failed', `售后「${refundFailed[0]?.productName}」退款失败`, refundFailed, 'afterSales', 'high', refundFailed[0]?.history?.[0]?.time || '', { status: 'refund-failed' })
+
   return todos.sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a.priority] - ({ high: 0, medium: 1, low: 2 })[b.priority] || b.createdAt.localeCompare(a.createdAt))
 }
 
@@ -174,7 +167,6 @@ type FarmSavePayload = {
   averageSpend?: number
   status?: FarmStore['status']
   image?: BusinessMediaValue | null
-  livePopularity?: number
   forceGeocode?: boolean
 }
 
@@ -211,17 +203,17 @@ type AdminTransactionInput = {
 
 export const ADMIN_PERMISSION_GROUPS: Array<{ key: AdminMenuKey; label: string; permissions: Array<{ code: AdminPermissionCode; label: string }> }> = [
   { key: 'reports', label: '经营报表', permissions: [{ code: 'report.export', label: '导出经营报表' }] },
-  { key: 'bookings', label: '预约管理', permissions: [{ code: 'booking.confirm', label: '确认预约' }, { code: 'booking.complete', label: '完成核销' }, { code: 'booking.cancel', label: '取消预约' }] },
   { key: 'suppliers', label: '供应商管理', permissions: [{ code: 'supplier.create', label: '新增供应商' }, { code: 'supplier.update', label: '修改供应商' }, { code: 'supplier.audit', label: '审核供应商' }, { code: 'supplier.pause', label: '暂停合作' }, { code: 'supplier.account.update', label: '修改供应商账号' }, { code: 'supplier.account.freeze', label: '冻结供应商账号' }] },
   { key: 'products', label: '商品库管理', permissions: [{ code: 'product.create', label: '新增商品' }, { code: 'product.update', label: '修改商品' }, { code: 'product.audit', label: '审核商品' }, { code: 'product.status', label: '上下架商品' }] },
   { key: 'categories', label: '品类管理', permissions: [{ code: 'category.manage', label: '维护品类' }] },
-  { key: 'routes', label: '线路管理', permissions: [{ code: 'route.manage', label: '维护线路' }] },
-  { key: 'prices', label: '价格策略', permissions: [{ code: 'price.manage', label: '维护价格策略' }] },
+  { key: 'prices', label: '价格体系', permissions: [{ code: 'price.manage', label: '维护价格策略' }] },
   { key: 'orders', label: '订单管理', permissions: [{ code: 'order.ship', label: '订单发货' }, { code: 'order.confirm', label: '确认收货' }] },
   { key: 'afterSales', label: '售后管理', permissions: [{ code: 'afterSale.manage', label: '处理售后' }] },
-  { key: 'farms', label: '农家乐管理', permissions: [{ code: 'farm.manage', label: '维护农家乐' }, { code: 'storeAccount.manage', label: '维护门店账号' }] },
-  { key: 'promoters', label: '推客管理', permissions: [{ code: 'promoter.manage', label: '维护推客' }] },
+  { key: 'farms', label: '门店管理', permissions: [{ code: 'farm.manage', label: '维护门店' }, { code: 'storeAccount.manage', label: '维护门店账号' }] },
+  { key: 'promoters', label: '业务员管理', permissions: [{ code: 'promoter.manage', label: '维护业务员' }] },
   { key: 'commissions', label: '佣金结算', permissions: [{ code: 'commission.manage', label: '执行结算' }, { code: 'withdrawal.review', label: '审核提现' }] },
+  { key: 'users', label: '用户信息', permissions: [{ code: 'user.view', label: '查看用户信息' }] },
+  { key: 'leaders', label: '团长管理', permissions: [{ code: 'leader.manage', label: '维护团长' }, { code: 'leader.price.manage', label: '维护团长价格' }, { code: 'leader.withdrawal.review', label: '审核团长提现' }] },
   { key: 'dict', label: '字典数据', permissions: [{ code: 'dictionary.manage', label: '维护字典' }] },
   { key: 'logs', label: '操作日志', permissions: [{ code: 'audit.export', label: '导出操作日志' }] },
   { key: 'dashboard', label: '恢复中心', permissions: [{ code: 'recovery.resolve', label: '处理恢复任务' }] },
@@ -460,21 +452,6 @@ const adminAfterSaleRecovery = createStrictSnapshotRecoveryHandlerRegistration<A
   }
 })
 
-const adminBookingRecovery = createStrictSnapshotRecoveryHandlerRegistration<{ bookings: Record<string, SharedBooking> } & AdminRecoveryAuditSnapshot, AdminRecoveryRevisionToken>({
-  key: 'admin-booking-v1',
-  fields: ['bookings', 'auditAction', 'auditResult', 'auditLogs'],
-  validateJournal: (journal) => validAdminRecoveryJournal(journal, 'admin-booking-v1', (snapshot) => isAdminRecord(snapshot.bookings)),
-  readStable: (journal) => readStableAdminRecoverySnapshot([PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY], () => ({
-    bookings: readPlatformBookings() || {},
-    ...readAdminRecoveryAuditSnapshot(journal.original as AdminRecoveryAuditSnapshot)
-  })),
-  isStillStable: adminRecoveryRevisionsStillMatch,
-  writeSnapshot: (snapshot, rollback, journal) => executeAdminRecoveryWrites([
-    { apply: () => writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, snapshot.bookings), rollback: () => writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, rollback.bookings) },
-    ...adminRecoveryAuditWriteSteps(journal)
-  ])
-})
-
 const ADMIN_FAILURE_AUDIT_HANDLER_KEY = 'admin-failure-audit-v1' as const
 const ADMIN_FAILURE_AUDIT_FIELDS = ['id', 'module', 'action', 'actorId', 'actorName', 'actorRole', 'targetType', 'targetId', 'result', 'reason', 'operationId', 'createdAt'] as const
 
@@ -549,7 +526,6 @@ initializePlatformRecoveryHandlers([
   adminSupplierSettlementRecovery,
   adminCommissionSettlementRecovery,
   adminAfterSaleRecovery,
-  adminBookingRecovery,
   adminFailureAuditRecovery,
   ...createUserAtomicRecoveryHandlerRegistrations()
 ])
@@ -760,10 +736,8 @@ export const useAdminStore = defineStore('operations', {
     productSubmissionRevision: 0,
     pricingDefaults: { ...DEFAULT_PRICING_DEFAULTS },
     categories: [],
-    routes: [],
     orders: [],
     afterSales: [],
-    bookings: [],
     farms: [],
     promoters: [],
     policies: [],
@@ -859,10 +833,8 @@ export const useAdminStore = defineStore('operations', {
           productSubmissionRevision: productSubmissionState?.revision ?? 0,
           pricingDefaults: readPricingDefaults(),
           categories: mergeEntitySeeds(mergePlatformEntities(data.categories, platformEntities?.categories), hasPersistedData ? this.categories : []),
-          routes: mergePlatformRoutes(travelRoutes),
           orders: hasPersistedData ? mergeEntitySeeds(data.orders, this.orders) : data.orders,
           afterSales: hasPersistedData ? mergeEntitySeeds(data.afterSales, this.afterSales) : data.afterSales,
-          bookings: Object.values(readPlatformBookings() || {}).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt)),
           farms: mergeEntitySeeds(mergePlatformEntities(data.farms, platformEntities?.farms), hasPersistedData ? this.farms : []).map(migrateFarmAdministrativeAddress),
           promoters: mergeEntitySeeds(mergePlatformEntities(data.promoters, platformEntities?.promoters), hasPersistedData ? this.promoters : []),
           policies: mergeEntitySeeds(mergePlatformEntities(data.pricePolicies, platformEntities?.policies), hasPersistedData ? this.policies : []),
@@ -899,57 +871,6 @@ export const useAdminStore = defineStore('operations', {
     },
     async refreshSharedState() {
       await this.initialize(true)
-    },
-    async transitionBooking(id: string, farmId: string, expectedStatus: SharedBooking['status'], nextStatus: SharedBooking['status'], permission: AdminPermissionCode, amount?: number) {
-      const bookings = readPlatformBookings() || {}
-      const current = bookings[id]
-      const now = new Date().toISOString()
-      const completedAmount = round2(Number(amount))
-      const action = `booking.${nextStatus === 'confirmed' ? 'confirm' : nextStatus === 'completed' ? 'complete' : 'cancel'}`
-      const valid = !!current && current.farmId === farmId && current.status === expectedStatus && (
-        nextStatus !== 'completed' || (current.date >= todayString() && Number.isFinite(completedAmount) && completedAmount > 0)
-      )
-      const nextBooking: SharedBooking | undefined = current ? {
-        ...current,
-        status: nextStatus,
-        updatedAt: now,
-        operatorId: this.auth.accountId || this.auth.account,
-        operatorName: this.auth.name,
-        ...(nextStatus === 'completed' ? { amount: completedAmount, amountConfirmedAt: now } : {})
-      } : undefined
-      const nextBookings = nextBooking ? { ...bookings, [id]: nextBooking } : bookings
-      const revision = readPlatformCollectionRevision(PLATFORM_BOOKINGS_STORAGE_KEY)
-      const operationId = createId('OP-BOOKING')
-      const result = await this.executeAdminTransaction(permission, {
-        module: 'bookings', action, targetType: 'booking', targetId: id,
-        metadata: { farmId, from: current?.status, to: nextStatus, amount: nextStatus === 'completed' ? completedAmount : undefined }
-      }, {
-        operationId,
-        collections: [PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
-        original: { bookings, auditAction: action },
-        target: { bookings: nextBookings, auditAction: action },
-        recoveryHandlerKey: 'admin-booking-v1',
-        recoverySchema: 'admin-booking-v1',
-        revisionChecks: [{ key: PLATFORM_BOOKINGS_STORAGE_KEY, expectedRevision: revision }],
-        validate: () => valid,
-        steps: [{
-          key: 'booking',
-          apply: () => writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, nextBookings, revision),
-          rollback: () => writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, bookings)
-        }]
-      })
-      if (!result.ok) return false
-      this.bookings = Object.values(nextBookings).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt))
-      return true
-    },
-    async confirmBooking(id: string, farmId: string) {
-      return this.transitionBooking(id, farmId, 'submitted', 'confirmed', 'booking.confirm')
-    },
-    async completeBooking(id: string, farmId: string, amount: number) {
-      return this.transitionBooking(id, farmId, 'confirmed', 'completed', 'booking.complete', amount)
-    },
-    async cancelBooking(id: string, farmId: string) {
-      return this.transitionBooking(id, farmId, 'confirmed', 'cancelled', 'booking.cancel')
     },
     setMockScenario(scenario: MockScenario) {
       this.mockScenario = scenario
@@ -1267,54 +1188,55 @@ export const useAdminStore = defineStore('operations', {
       this.pricingDefaults = readPricingDefaults()
       return true
     },
-    async addRoute(payload: Omit<TravelRoute, 'id'>) {
-      const trimmed = payload.name.trim()
-      const route: TravelRoute = { id: createId('ROUTE'), ...payload, name: trimmed }
-      const revision = readPlatformCollectionRevision(PLATFORM_ROUTES_STORAGE_KEY)
-      const previous = cloneSeed(readPlatformRoutes() || {})
-      const target = { ...previous, [route.id]: route }
-      const result = await this.executeAdminTransaction('route.manage', { module: 'routes', action: 'route.create', targetType: 'route', targetId: route.id, deniedMessage: '无权新增线路', validationMessage: '请填写线路名称' }, {
-        operationId: createId('OP-ROUTE'), collections: [PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY], original: previous, target,
-        revisionChecks: [{ key: PLATFORM_ROUTES_STORAGE_KEY, expectedRevision: revision }],
-        validate: () => !!trimmed,
-        steps: [{ key: 'route', apply: () => writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, target), rollback: () => writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, previous) }]
+    async updateLeaderPricing(defaults: PricingDefaults) {
+      const revision = readPlatformCollectionRevision(PLATFORM_PRICING_DEFAULTS_STORAGE_KEY)
+      const previous = readPricingDefaults()
+      const result = await this.executeAdminTransaction('leader.price.manage', { module: 'leaders', action: 'leader.price.update', targetType: 'leader-price', targetId: 'default', deniedMessage: '无权修改团长价格', validationMessage: '团长价格配置不合法' }, {
+        operationId: createId('OP-LEADER-PRICE'),
+        collections: [PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
+        original: previous,
+        target: defaults,
+        revisionChecks: [{ key: PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, expectedRevision: revision }],
+        validate: () => Number.isFinite(defaults.level1Amount) && Number.isFinite(defaults.level2Amount) && defaults.level1Amount >= 0 && defaults.level2Amount >= 0,
+        steps: [{ key: 'leader-price', apply: () => writePricingDefaults(defaults), rollback: () => writePricingDefaults(previous) }]
       })
       if (!result.ok) return false
-      this.routes.unshift(route)
+      this.pricingDefaults = readPricingDefaults()
       return true
     },
-    async updateRoute(id: string, payload: Omit<TravelRoute, 'id'>) {
-      const trimmed = payload.name.trim()
-      const revision = readPlatformCollectionRevision(PLATFORM_ROUTES_STORAGE_KEY)
-      const previous = cloneSeed(readPlatformRoutes() || {})
-      const route = previous[id] || null
-      const next: TravelRoute | null = route ? { ...route, ...payload, name: trimmed } : null
-      const target = next ? { ...previous, [id]: next } : previous
-      const result = await this.executeAdminTransaction('route.manage', { module: 'routes', action: 'route.update', targetType: 'route', targetId: id, deniedMessage: '无权修改线路', validationMessage: '线路不存在或名称为空' }, {
-        operationId: createId('OP-ROUTE'), collections: [PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY], original: previous, target,
-        revisionChecks: [{ key: PLATFORM_ROUTES_STORAGE_KEY, expectedRevision: revision }],
-        validate: () => !!next && !!trimmed,
-        steps: [{ key: 'route', apply: () => writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, target), rollback: () => writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, previous) }]
+    async updateLeaderShareRates(payload: { level1Rate: number; level2Rate: number }) {
+      const rawShareConfig = readPlatformJson(PLATFORM_SHARE_CONFIG_STORAGE_KEY)
+      const revision = readPlatformCollectionRevision(PLATFORM_SHARE_CONFIG_STORAGE_KEY)
+      const previous = readShareConfig()
+      const target = { ...previous, leaderLevel1Rate: payload.level1Rate, leaderLevel2Rate: payload.level2Rate }
+      const result = await this.executeAdminTransaction('leader.manage', { module: 'leaders', action: 'leader.share.update', targetType: 'leader-share', targetId: 'default', deniedMessage: '无权修改团长分成', validationMessage: '分成比例需在 0-100 之间' }, {
+        operationId: createId('OP-LEADER-SHARE'),
+        collections: [PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
+        original: previous,
+        target,
+        revisionChecks: [{ key: PLATFORM_SHARE_CONFIG_STORAGE_KEY, expectedRevision: revision }],
+        validate: () => [payload.level1Rate, payload.level2Rate].every((rate) => Number.isFinite(rate) && rate >= 0 && rate <= 100),
+        steps: [{ key: 'leader-share', apply: () => writeShareConfig(target), rollback: () => restoreRawPlatformCollection(PLATFORM_SHARE_CONFIG_STORAGE_KEY, rawShareConfig) }]
       })
-      if (!result.ok || !next) return false
-      const index = this.routes.findIndex((item) => item.id === id)
-      this.routes[index] = next
-      return true
+      return result.ok
     },
-    async removeRoute(id: string) {
-      const revision = readPlatformCollectionRevision(PLATFORM_ROUTES_STORAGE_KEY)
-      const previous = cloneSeed(readPlatformRoutes() || {})
-      const route = previous[id] || null
-      const target = { ...previous, [id]: null }
-      const result = await this.executeAdminTransaction('route.manage', { module: 'routes', action: 'route.delete', targetType: 'route', targetId: id, deniedMessage: '无权删除线路', validationMessage: '线路不存在' }, {
-        operationId: createId('OP-ROUTE'), collections: [PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY], original: previous, target,
-        revisionChecks: [{ key: PLATFORM_ROUTES_STORAGE_KEY, expectedRevision: revision }],
-        validate: () => !!route,
-        steps: [{ key: 'route', apply: () => writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, target), rollback: () => writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, previous) }]
+    async setLeaderStatus(userId: string, enabled: boolean) {
+      const rawProfiles = readPlatformJson(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY)
+      const previous = readCDistributorProfiles() || {}
+      const current = previous[userId]
+      const revision = readPlatformCollectionRevision(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY)
+      const next = current ? { ...current, status: enabled ? 'active' as const : 'paused' as const } : null
+      const target = next ? { ...previous, [userId]: next } : previous
+      const result = await this.executeAdminTransaction('leader.manage', { module: 'leaders', action: enabled ? 'leader.enable' : 'leader.disable', targetType: 'leader', targetId: userId, deniedMessage: '无权修改团长状态', validationMessage: '团长不存在' }, {
+        operationId: createId('OP-LEADER-STATUS'),
+        collections: [PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
+        original: previous,
+        target,
+        revisionChecks: [{ key: PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, expectedRevision: revision }],
+        validate: () => !!next,
+        steps: [{ key: 'leader', apply: () => writeCDistributorProfiles(target as Record<string, CDistributorProfile>), rollback: () => restoreRawPlatformCollection(PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, rawProfiles) }]
       })
-      if (!result.ok) return false
-      this.routes = this.routes.filter((item) => item.id !== id)
-      return true
+      return result.ok ? next : null
     },
     async addCategory(name: string, type: Category['type'], image?: DictItem['image']) {
       const trimmed = name.trim()
@@ -1483,12 +1405,12 @@ export const useAdminStore = defineStore('operations', {
         inUse ? '品类正在使用，无法删除' : '系统字典项不可删除'
       )
     },
-    async addStoreAccount(payload: { farmId: string; name: string; account: string; password: string; role: StoreAccount['role']; promoEnabled?: boolean }) {
+    async addStoreAccount(payload: { farmId: string; name: string; account: string; password: string; role: StoreAccount['role']; promoEnabled?: boolean; priceLevel?: StoreAccount['priceLevel'] }) {
       const valid = !!payload.farmId && !!payload.name.trim() && !!payload.account.trim() && !!payload.password.trim() && !this.storeAccounts.some((item) => item.farmId === payload.farmId && item.account === payload.account)
       const revision = readPlatformCollectionRevision(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY)
       const rawPersisted = readPlatformJson(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY)
       const previousAccounts = cloneSeed(this.storeAccounts)
-      const nextAccounts = [{ id: createId('SA'), farmId: payload.farmId, name: payload.name.trim(), account: payload.account.trim(), password: payload.password.trim(), role: payload.role, enabled: true, promoEnabled: payload.promoEnabled ?? false, createdAt: new Date().toLocaleString('zh-CN') }, ...this.storeAccounts]
+      const nextAccounts = [{ id: createId('SA'), farmId: payload.farmId, name: payload.name.trim(), account: payload.account.trim(), password: payload.password.trim(), role: payload.role, enabled: true, promoEnabled: payload.promoEnabled ?? false, priceLevel: payload.role === 'staff' ? payload.priceLevel : undefined, createdAt: new Date().toLocaleString('zh-CN') }, ...this.storeAccounts]
       const result = await this.executeAdminTransaction('storeAccount.manage', { module: 'accounts', action: 'store-account.create', targetType: 'store-account', deniedMessage: '无权新增门店账号', validationMessage: '门店账号信息无效或账号已存在' }, {
         operationId: createId('OP-STORE-ACCOUNT'), collections: [PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY], original: previousAccounts, target: nextAccounts,
         revisionChecks: [{ key: PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, expectedRevision: revision }],
@@ -1499,7 +1421,7 @@ export const useAdminStore = defineStore('operations', {
       this.storeAccounts = nextAccounts
       return true
     },
-    async updateStoreAccount(id: string, payload: { name?: string; account?: string; password?: string; role?: StoreAccount['role']; enabled?: boolean; promoEnabled?: boolean }) {
+    async updateStoreAccount(id: string, payload: { name?: string; account?: string; password?: string; role?: StoreAccount['role']; enabled?: boolean; promoEnabled?: boolean; priceLevel?: StoreAccount['priceLevel'] }) {
       const revision = readPlatformCollectionRevision(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY)
       const item = this.storeAccounts.find((candidate) => candidate.id === id)
       const nextItem = item ? { ...item } : null
@@ -1509,6 +1431,7 @@ export const useAdminStore = defineStore('operations', {
       if (nextItem && payload.role !== undefined) nextItem.role = payload.role
       if (nextItem && payload.enabled !== undefined) nextItem.enabled = payload.enabled
       if (nextItem && payload.promoEnabled !== undefined) nextItem.promoEnabled = payload.promoEnabled
+      if (nextItem && payload.priceLevel !== undefined) nextItem.priceLevel = payload.priceLevel
       const rawPersisted = readPlatformJson(PLATFORM_STORE_ACCOUNTS_STORAGE_KEY)
       const previousAccounts = cloneSeed(this.storeAccounts)
       const nextAccounts = this.storeAccounts.map((candidate) => candidate.id === id && nextItem ? nextItem : candidate)
@@ -2123,17 +2046,17 @@ export const useAdminStore = defineStore('operations', {
         status: payload.status ?? 'pending', selectedCount: 0, gmv: 0, image: normalizeMediaReference(payload.image) ?? { source: 'builtin', path: '/static/images/farmhouse.webp' },
         tags: payload.tags?.length ? payload.tags : ['新入驻'],
         city: address?.city || '湘西州',
-        availability: 'bookable', livePopularity: payload.livePopularity ?? 0,
+        availability: 'bookable',
         address: address?.address || '', regionCode: address?.regionCode, structuredAddress: address?.structuredAddress, locationStatus: 'failed'
       }
       if (address) await updateFarmCoordinates(createdFarm, geocode)
       const rawPreviousMedia = readPlatformJson(PLATFORM_MEDIA_STORAGE_KEY)
       const previousMedia = cloneSeed(readPlatformMedia() ?? emptyPlatformMedia())
-      const targetMedia = upsertPlatformFarmPopularity(upsertPlatformFarm(previousMedia, createdFarm.id, createdFarm.image), createdFarm.id, createdFarm.livePopularity)
+      const targetMedia = upsertPlatformFarm(previousMedia, createdFarm.id, createdFarm.image)
       const persistedEntities = readPlatformEntities()
       const previousEntities: PlatformEntities = cloneSeed(persistedEntities || { updatedAt: new Date(0).toISOString() })
       const targetEntities = { ...previousEntities, farms: { ...(previousEntities.farms || {}), [createdFarm.id]: createdFarm }, updatedAt: new Date().toISOString() }
-      const result = await this.executeAdminTransaction('farm.manage', { module: 'farms', action: 'farm.create', targetType: 'farm', targetId: createdFarm.id, deniedMessage: '无权新增农家乐', validationMessage: '请填写农家乐名称和地址' }, {
+      const result = await this.executeAdminTransaction('farm.manage', { module: 'farms', action: 'farm.create', targetType: 'farm', targetId: createdFarm.id, deniedMessage: '无权新增门店', validationMessage: '请填写门店名称和地址' }, {
         operationId: createId('OP-FARM'), collections: [PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
         original: { media: previousMedia, entities: persistedEntities }, target: { media: targetMedia, entities: targetEntities },
         revisionChecks: [
@@ -2171,7 +2094,6 @@ export const useAdminStore = defineStore('operations', {
         if (payload.averageSpend !== undefined) next.averageSpend = payload.averageSpend
         if (payload.status) next.status = payload.status
         if (payload.image !== undefined) next.image = normalizeMediaReference(payload.image) ?? { source: 'builtin', path: '/static/images/farmhouse.webp' }
-        if (payload.livePopularity !== undefined) next.livePopularity = Math.max(0, Math.round(payload.livePopularity))
         if (payload.forceGeocode || locationInputChanged) {
           const locating = updateFarmCoordinates(next, geocode)
           this.farms[itemIndex] = next
@@ -2181,11 +2103,11 @@ export const useAdminStore = defineStore('operations', {
       }
       const rawPreviousMedia = readPlatformJson(PLATFORM_MEDIA_STORAGE_KEY)
       const previousMedia = cloneSeed(readPlatformMedia() ?? emptyPlatformMedia())
-      const targetMedia = next ? upsertPlatformFarmPopularity(upsertPlatformFarm(previousMedia, next.id, next.image), next.id, next.livePopularity) : previousMedia
+      const targetMedia = next ? upsertPlatformFarm(previousMedia, next.id, next.image) : previousMedia
       const persistedEntities = readPlatformEntities()
       const previousEntities: PlatformEntities = cloneSeed(persistedEntities || { updatedAt: new Date(0).toISOString() })
       const targetEntities = next ? { ...previousEntities, farms: { ...(previousEntities.farms || {}), [id]: next }, updatedAt: new Date().toISOString() } : previousEntities
-      const result = await this.executeAdminTransaction('farm.manage', { module: 'farms', action: 'farm.update', targetType: 'farm', targetId: id, deniedMessage: '无权修改农家乐', validationMessage: '农家乐不存在或名称、地址无效' }, {
+      const result = await this.executeAdminTransaction('farm.manage', { module: 'farms', action: 'farm.update', targetType: 'farm', targetId: id, deniedMessage: '无权修改门店', validationMessage: '农家乐不存在或名称、地址无效' }, {
         operationId: createId('OP-FARM'), collections: [PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
         original: { media: previousMedia, entities: persistedEntities }, target: { media: targetMedia, entities: targetEntities },
         revisionChecks: [
@@ -2209,7 +2131,7 @@ export const useAdminStore = defineStore('operations', {
       const entityRevision = readPlatformCollectionRevision(PLATFORM_ENTITIES_STORAGE_KEY)
       const accountRevision = readPlatformCollectionRevision(PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY)
       const promoter: Promoter = {
-        id: createId('T'), name: payload.name.trim(), level: payload.level.trim() || '普通推客', type: payload.type,
+        id: createId('T'), name: payload.name.trim(), level: payload.level.trim() || '普通业务员', type: payload.type,
         fans: 0, orders: 0, gmv: 0, commission: 0, cumulativeCommission: 0, settled: false, status: payload.status
       }
       const persistedEntities = readPlatformEntities()
@@ -2219,7 +2141,7 @@ export const useAdminStore = defineStore('operations', {
       const previousAccounts = cloneSeed(accountState.accounts)
       const accounts = buildPromoterAccountSeeds([...this.promoters, promoter])
       const nextAccounts = mergePlatformPromoterAccounts(accounts, previousAccounts)
-      const result = await this.executeAdminTransaction('promoter.manage', { module: 'promoters', action: 'promoter.create', targetType: 'promoter', targetId: promoter.id, deniedMessage: '无权新增推客', validationMessage: '请填写推客名称' }, {
+      const result = await this.executeAdminTransaction('promoter.manage', { module: 'promoters', action: 'promoter.create', targetType: 'promoter', targetId: promoter.id, deniedMessage: '无权新增业务员', validationMessage: '请填写业务员名称' }, {
         operationId: createId('OP-PROMOTER'), collections: [PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
         original: { entities: persistedEntities, accounts: previousAccounts }, target: { entities: targetEntities, accounts: nextAccounts },
         revisionChecks: [
@@ -2248,7 +2170,7 @@ export const useAdminStore = defineStore('operations', {
       const seededAccounts = mergePlatformPromoterAccounts(buildPromoterAccountSeeds(this.promoters), accountState.accounts)
       const previousAccounts = cloneSeed(accountState.accounts)
       const nextAccounts = next ? seededAccounts.map((account) => account.promoterId === id ? { ...account, name: next.name, level: next.level, type: next.type || '', status: next.status } : account) : seededAccounts
-      const result = await this.executeAdminTransaction('promoter.manage', { module: 'promoters', action: 'promoter.update', targetType: 'promoter', targetId: id, deniedMessage: '无权修改推客', validationMessage: '推客不存在或名称为空' }, {
+      const result = await this.executeAdminTransaction('promoter.manage', { module: 'promoters', action: 'promoter.update', targetType: 'promoter', targetId: id, deniedMessage: '无权修改业务员', validationMessage: '业务员不存在或名称为空' }, {
         operationId: createId('OP-PROMOTER'), collections: [PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY],
         original: { entities: persistedEntities, accounts: previousAccounts }, target: { entities: targetEntities, accounts: nextAccounts },
         revisionChecks: [
@@ -2404,7 +2326,7 @@ export const useAdminStore = defineStore('operations', {
       })
       return result.ok
     },
-    async reviewWithdrawal(id: string, status: WithdrawalRequestStatus, note?: string) {
+    async reviewWithdrawal(id: string, status: WithdrawalRequestStatus, note?: string, permission: AdminPermissionCode = 'withdrawal.review') {
       const rawWithdrawals = readPlatformJson(PLATFORM_WITHDRAWALS_STORAGE_KEY)
       const withdrawals = readPlatformWithdrawals() ?? {}
       const current = withdrawals[id]
@@ -2413,7 +2335,7 @@ export const useAdminStore = defineStore('operations', {
         ? { ...current, status, reviewedAt: new Date().toISOString(), operator: this.auth.name || this.auth.account || 'admin', reviewedNote: note?.trim() || undefined, revision: (current.revision || 0) + 1 }
         : null
       const target = next ? { ...withdrawals, [id]: next } : withdrawals
-      const result = await this.executeAdminTransaction('withdrawal.review', {
+      const result = await this.executeAdminTransaction(permission, {
         module: 'withdrawals', action: `withdrawal.${status}`, targetType: 'withdrawal', targetId: id,
         deniedMessage: '无权审核提现', validationMessage: '提现申请已处理或不存在', metadata: { note: next?.reviewedNote }
       }, {

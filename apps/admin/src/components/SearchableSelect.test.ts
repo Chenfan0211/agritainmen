@@ -7,7 +7,7 @@ import type { SearchableSelectOption } from './searchable-select'
 const options: SearchableSelectOption[] = [
   { label: '全部商品', value: 'all', keywords: ['catalog'] },
   { label: '门店商品', value: 'store' },
-  { label: '直播商品', value: 'live', disabled: true }
+  { label: '用户端商品', value: 'live', disabled: true }
 ]
 
 const expectedBindings = [
@@ -20,12 +20,9 @@ const expectedBindings = [
   'reportSupplierFilter -> reportSupplierOptions',
   'reportCategoryFilter -> reportCategoryOptions',
   'reportDimension -> reportDimensionOptions',
-  'bookingFarmFilter -> bookingFarmOptions',
-  'bookingStatusFilter -> bookingStatusOptions',
   'supplierStatusFilter -> supplierStatusOptions',
   'supplierCategoryFilter -> supplierCategoryFilterOptions',
   'categoryTypeFilter -> categoryTypeFilterOptions',
-  'routeCityFilter -> routeCityFilterOptions',
   'productReviewFilter -> productReviewOptions',
   'productSupplierFilter -> productSupplierFilterOptions',
   'productChannelFilter -> catalogChannelFilterOptions',

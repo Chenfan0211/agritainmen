@@ -2,13 +2,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import type { ECharts } from 'echarts'
-import type { AdminAccount, AdminMenuKey, AdminPermissionCode, AdminRole, TravelRoute, AfterSale, AfterSaleStatus, BusinessMediaValue, CatalogProduct, CatalogProductSubmission, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, MediaReference, OperationalReportDimension, Order, OrderFlowEvent, OrderItem, OrderStatus, PlatformAuditLogEntry, PlatformDictionaryState, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier, WithdrawalRequest } from '@agritainment/shared'
-import { ALL_ADMIN_ACTION_PERMISSIONS, ALL_ADMIN_MENU_KEYS, PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, aggregateOperationalReport, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, defaultProductCategoryImage, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, normalizeMediaReference, pendingShareAmount, productCategoryImage, readPlatformAuditLogs, readPlatformDrivers, readPlatformRecoveryQueue, readPlatformWithdrawals, readShareConfig, readShareRecords, round2, subscribePlatformChanges, summarizeOperationalReport, todayString, toCsv, validatePricePolicy } from '@agritainment/shared'
+import type { AdminAccount, AdminMenuKey, AdminPermissionCode, AdminRole, AfterSale, AfterSaleStatus, BusinessMediaValue, CatalogProduct, CatalogProductSubmission, CatalogSku, Category, CommissionRule, DictGroup, DictItem, FarmStore, MediaReference, OperationalReportDimension, Order, OrderFlowEvent, OrderItem, OrderStatus, PlatformAuditLogEntry, PlatformDictionaryState, PricePolicy, Product, ProductType, Promoter, StoreAccount, StoreRole, Supplier, WithdrawalRequest } from '@agritainment/shared'
+import { ALL_ADMIN_ACTION_PERMISSIONS, ALL_ADMIN_MENU_KEYS, PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, aggregateOperationalReport, catalogChannelFlags, createId, dashboardRegionChildren, dashboardRegionPath, defaultProductCategoryImage, derivePlatformMetrics, dictLabel, focusFirstInteractive, formatNumber, getDictOptions, installKeyboardButtonSupport, money, normalizeMediaReference, pendingShareAmount, productCategoryImage, readPlatformAuditLogs, readPlatformDrivers, readPlatformRecoveryQueue, readPlatformWithdrawals, readShareConfig, readShareRecords, round2, subscribePlatformChanges, summarizeOperationalReport, todayString, toCsv, validatePricePolicy } from '@agritainment/shared'
 import { BusinessImage, ImageUploader, UI_TYPOGRAPHY, designTokens, getMediaRuntime } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
 import PaginationBar from '../../components/PaginationBar.vue'
 import SearchableSelect from '../../components/SearchableSelect.vue'
 import DatePicker from '../../components/DatePicker.vue'
+import AdminUsersPanel from '../../components/AdminUsersPanel.vue'
+import AdminLeadersPanel from '../../components/AdminLeadersPanel.vue'
+import { buildAdminLeaders, buildAdminUsers, buildLeaderCommissionLedger } from '../../data/user-operations'
 import type { SearchableSelectOption } from '../../components/searchable-select'
 import {
   accountPromotionOptions,
@@ -49,7 +52,7 @@ const active = ref<ModuleKey>('dashboard')
 const keyword = ref('')
 const page = ref(1)
 const pageSize = 10
-const dialog = ref<'supplier' | 'supplier-edit' | 'supplier-pause' | 'recovery-verify' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit' | 'route' | 'route-edit' | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'withdrawal-reject' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
+const dialog = ref<'supplier' | 'supplier-edit' | 'supplier-pause' | 'recovery-verify' | 'policy' | 'policy-edit' | 'farm' | 'farm-edit' | 'category' | 'category-edit'  | 'promoter' | 'promoter-edit' | 'after-sale-init' | 'commission' | 'withdrawal-reject' | 'dict' | 'dict-edit' | 'dict-group' | 'dict-group-edit' | 'store-account' | 'store-account-edit' | null>(null)
 type WorkPage = { type: 'supplier' | 'supplier-account' | 'role' | 'admin-account'; mode: 'create' | 'edit'; id?: string }
 const workPage = ref<WorkPage | null>(null)
 const supplierPauseId = ref('')
@@ -70,10 +73,10 @@ const recoveryResolutionNote = ref('')
 const recoveryOutcome = ref<'committed' | 'aborted'>('aborted')
 const recoveryOutcomeOptions: SearchableSelectOption[] = [{ value: 'aborted', label: '已恢复原始快照' }, { value: 'committed', label: '已确认目标快照' }]
 const platformVersion = ref(0)
-type DetailType = 'todos' | 'supplier' | 'order' | 'afterSale' | 'farm' | 'route' | 'auditLog'
+type DetailType = 'todos' | 'supplier' | 'order' | 'afterSale' | 'farm' | 'auditLog'
 type TierFormRow = { minQty: number; maxQty: number | null | ''; price: number; discountOff: number }
 const detail = ref<{ type: DetailType; id?: string } | null>(null)
-const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部农家乐', discount: 8, tiers: [] as TierFormRow[], spec: '', image: null as BusinessMediaValue | null, images: [] as BusinessMediaValue[], region: '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null as BusinessMediaValue | null, permitNumber: '', permit: null as BusinessMediaValue | null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], categoryImage: null as BusinessMediaValue | null, level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default' as NonNullable<DictItem['tone']>, dictImage: null as BusinessMediaValue | null, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null as BusinessMediaValue | null })
+const form = ref({ id: '', skuId: '', name: '', category: '综合品类', type: 'group' as PricePolicy['type'], scope: '全部门店', discount: 8, tiers: [] as TierFormRow[], spec: '', image: null as BusinessMediaValue | null, images: [] as BusinessMediaValue[], region: '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform' as Product['source'], supplier: '平台自营', result: 'refund' as AfterSale['type'], refundMethod: 'return' as 'return' | 'only', refundMode: 'full' as 'full' | 'ratio' | 'custom', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null as BusinessMediaValue | null, permitNumber: '', permit: null as BusinessMediaValue | null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, coop: false, farmStatus: 'pending' as FarmStore['status'], categoryType: 'product' as Category['type'], categoryImage: null as BusinessMediaValue | null, level: '', promoterType: '推客', promoterStatus: 'active' as Promoter['status'], dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default' as NonNullable<DictItem['tone']>, dictImage: null as BusinessMediaValue | null, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff' as StoreRole, accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null as BusinessMediaValue | null })
 const period = ref('本月')
 const dashboardRange = computed(() => {
   const to = todayString()
@@ -123,15 +126,6 @@ const orderStatusFilter = ref('全部')
 const orderChannelFilter = ref('全部来源')
 const orderAfterFilter = ref('全部')
 const orderStoreFilter = ref('')
-const bookingDateFilter = ref('')
-const bookingFarmFilter = ref('')
-const bookingStatusFilter = ref('全部')
-const bookingUserFilter = ref('')
-const bookingObjectIds = ref<string[]>([])
-const bookingAmounts = reactive<Record<string, number | undefined>>({})
-const bookingStatusOptions: SearchableSelectOption[] = [
-  { value: '全部', label: '全部状态' }, { value: 'submitted', label: '待确认' }, { value: 'confirmed', label: '已确认' }, { value: 'completed', label: '已完成' }, { value: 'cancelled', label: '已取消' }
-]
 const afterKeyword = ref('')
 const settlementKeyword = ref('')
 const settlementSupplierFilter = ref('')
@@ -145,7 +139,7 @@ const promoterTypeFilter = ref('全部')
 const promoterLevelFilter = ref('全部')
 const promoterSettleFilter = ref('全部')
 const commissionTab = ref('佣金结算')
-const commissionTabOptions: { label: string; value: string }[] = ['佣金结算', '提现审核', '供应商结算', '佣金规则', '消费分成'].map((v) => ({ label: v, value: v }))
+const commissionTabOptions: { label: string; value: string }[] = ['佣金结算', '提现审核', '供应商结算', '佣金规则', '团长分成', '消费分成'].map((v) => ({ label: v, value: v }))
 const commissionKeyword = ref('')
 const commissionStatusFilter = ref('全部')
 const commissionHistoryPage = ref(1)
@@ -194,7 +188,7 @@ type CatalogSkuDraft = Omit<CatalogSku, 'image'> & { image: BusinessMediaValue |
 type CatalogProductDraft = Omit<CatalogProduct, 'tags' | 'skus' | 'image' | 'images'> & { image: BusinessMediaValue | null; images: BusinessMediaValue[]; tags: string; skus: CatalogSkuDraft[] }
 const catalogProductForm = reactive<CatalogProductDraft>({ id: '', name: '', category: '土特产', supplierId: '', supplierName: '', source: 'platform', status: 'active', image: null, images: [], tags: '', productType: 'goods', expressDelivery: false, channel: 'store', farmIds: [], promoterCommissionRate: 5, storeCommissionRate: 3, skus: [] })
 const pricingDefaultsForm = reactive({ promoterCommissionRate: 5, storeCommissionRate: 3, level1Amount: 10, level2Amount: 15 })
-const promoterRankTab = ref('推客排行')
+const promoterRankTab = ref('业务员排行')
 const afterTab = ref('售后工单')
 const busy = ref(false)
 const operationKeys = ref<Record<string, boolean>>({})
@@ -213,17 +207,17 @@ let categoryChart: ECharts | null = null
 const navItems: Array<{ key: ModuleKey; label: string; icon: string; badge?: () => number }> = [
   { key: 'dashboard', label: '数据看板', icon: 'layout-dashboard' },
   { key: 'reports', label: '经营报表', icon: 'chart-no-axes-combined' },
-  { key: 'bookings', label: '预约管理', icon: 'calendar-check', badge: () => store.bookings.filter((item) => item.status === 'submitted').length },
   { key: 'suppliers', label: '供应商管理', icon: 'factory', badge: () => store.pendingSuppliers },
   { key: 'products', label: '商品库管理', icon: 'package', badge: () => store.pendingProducts },
   { key: 'categories', label: '品类管理', icon: 'list-tree' },
-  { key: 'routes', label: '旅游线路', icon: 'route' },
   { key: 'prices', label: '价格体系', icon: 'tags' },
   { key: 'orders', label: '订单履约', icon: 'truck', badge: () => store.pendingOrders },
   { key: 'afterSales', label: '售后结算', icon: 'headset', badge: () => store.pendingAfterSales },
-  { key: 'farms', label: '农家乐管理', icon: 'store' },
-  { key: 'promoters', label: '推客管理', icon: 'megaphone' },
+  { key: 'farms', label: '门店管理', icon: 'store' },
+  { key: 'promoters', label: '业务员管理', icon: 'megaphone' },
   { key: 'commissions', label: '佣金结算', icon: 'badge-percent' },
+  { key: 'users', label: '用户信息', icon: 'user-round' },
+  { key: 'leaders', label: '团长管理', icon: 'users' },
   { key: 'dict', label: '字典数据', icon: 'book-open' },
   { key: 'logs', label: '操作日志', icon: 'book-open' },
   { key: 'roles', label: '角色管理', icon: 'shield-check' },
@@ -232,9 +226,8 @@ const navItems: Array<{ key: ModuleKey; label: string; icon: string; badge?: () 
 
 const navGroupDefinitions = [
   { name: '平台总览', items: navItems.filter((item) => ['dashboard', 'reports'].includes(item.key)) },
-  { name: '供应链', items: navItems.filter((item) => ['suppliers', 'products', 'categories', 'prices'].includes(item.key)) },
-  { name: '履约作业', items: navItems.filter((item) => ['bookings', 'routes', 'orders', 'afterSales'].includes(item.key)) },
-  { name: '经营', items: navItems.filter((item) => ['farms', 'promoters', 'commissions'].includes(item.key)) },
+  { name: '供应链', items: navItems.filter((item) => ['suppliers', 'products', 'categories', 'prices', 'orders', 'afterSales', 'farms', 'promoters', 'commissions'].includes(item.key)) },
+  { name: '用户运营', items: navItems.filter((item) => ['users', 'leaders'].includes(item.key)) },
   { name: '系统', items: navItems.filter((item) => ['dict', 'logs', 'roles', 'accounts'].includes(item.key)) }
 ]
 const navGroups = computed(() => navGroupDefinitions.map((group) => ({ ...group, items: group.items.filter((item) => store.canMenu(item.key)) })).filter((group) => group.items.length))
@@ -242,17 +235,17 @@ const navGroups = computed(() => navGroupDefinitions.map((group) => ({ ...group,
 const titles: Record<ModuleKey, { title: string; subtitle: string }> = {
   dashboard: { title: '数据看板', subtitle: '平台经营全景与实时待办' },
   reports: { title: '经营报表', subtitle: '按时间、门店、供应商与品类分析有效订单' },
-  bookings: { title: '预约管理', subtitle: '共享预约确认、到店核销与异常处理' },
   suppliers: { title: '供应商管理', subtitle: '供应商入驻、资质审核与合作状态' },
-  products: { title: '商品库管理', subtitle: '统一选品 · 统一标准 · 覆盖农产品、预制菜、食材调料、酒水饮料、文旅伴手礼、民宿用品' },
+  products: { title: '商品库管理', subtitle: '按展示端维护商品 · 覆盖门店订货端与用户端' },
   categories: { title: '品类管理', subtitle: '商品品类与供应商品类统一维护 · 支持新增、修改与删除' },
-  routes: { title: '旅游线路', subtitle: '乡村旅游线路统一维护 · 支持发布、下架与删除' },
-  prices: { title: '价格体系', subtitle: '支持集采价、阶梯价、区域价、会员价等多维价格策略 · 帮助农家乐降低采购成本' },
-  orders: { title: '订单履约', subtitle: '订单、库存、发货、配送统一管理 · 直播成交订单由中台统一承接履约' },
-  afterSales: { title: '售后结算', subtitle: '统一售后服务与结算分账 · 减少农家乐履约压力' },
-  farms: { title: '农家乐管理', subtitle: '门店入驻、经营状态与选品数据' },
-  promoters: { title: '推客管理', subtitle: '推客、达人、主播资源管理 · 锁粉归因与排行' },
+  prices: { title: '价格体系', subtitle: '阶梯价格与分销价格统一维护 · 帮助门店降低采购成本' },
+  orders: { title: '订单履约', subtitle: '订单、库存、发货、配送统一管理 · 支持批量发货' },
+  afterSales: { title: '售后结算', subtitle: '统一售后服务与结算分账 · 减少门店履约压力' },
+  farms: { title: '门店管理', subtitle: '门店入驻、经营状态与门店账号' },
+  promoters: { title: '业务员管理', subtitle: '业务员资源、负责区域与拓店效果统计' },
   commissions: { title: '佣金结算', subtitle: '佣金规则配置与结算流水 · 含供应商结算记录' },
+  users: { title: '用户信息', subtitle: '用户资料、团长绑定链路与消费记录' },
+  leaders: { title: '团长管理', subtitle: '一级 / 二级团长资料、下级关系、团长价格与分佣提现' },
   dict: { title: '字典数据', subtitle: '城市信息 · 售后原因 · 数据状态统一维护' },
   logs: { title: '操作日志', subtitle: '业务操作、认证、权限拒绝与写入失败记录' },
   roles: { title: '角色管理', subtitle: '按单角色配置后台菜单和按钮权限' },
@@ -305,7 +298,7 @@ const filteredOrders = computed(() => store.orders.filter((item) => {
   const q = orderKeyword.value.trim().toLowerCase()
   const matchesKeyword = !q || `${item.id}${item.productName}${item.customer}`.toLowerCase().includes(q)
   const matchesStore = !orderStoreFilter.value || item.customer === orderStoreFilter.value
-  const channelMap = { '商城': 'shop', '直播': 'live', '进货': 'purchase' } as Record<string, Order['channel']>
+  const channelMap = { '商城': 'shop', '用户端': 'live', '进货': 'purchase' } as Record<string, Order['channel']>
   const matchesChannel = orderChannelFilter.value === '全部来源' || item.channel === channelMap[orderChannelFilter.value]
   const after = store.afterSales.find((a) => a.orderId === item.id)
   const afterStatusMap = { '未发起': 'none', '售后中': 'processing', '售后拒绝': 'rejected', '待退款': 'refund-pending', '待退货': 'return-pending', '已退款': 'refunded', '退款失败': 'refund-failed' } as Record<string, string>
@@ -320,32 +313,6 @@ const visibleOrders = computed(() => {
   if (orderStatusFilter.value === '未支付取消') return filteredOrders.value.filter((item) => item.status === 'unpaid-cancelled')
   return filteredOrders.value
 })
-const bookingFarmOptions = computed<SearchableSelectOption[]>(() => [{ value: '', label: '全部门店' }, ...[...new Map(store.bookings.map((item) => [item.farmId, item.farmName])).entries()].map(([value, label]) => ({ value, label }))])
-const filteredBookings = computed(() => {
-  const user = bookingUserFilter.value.trim().toLowerCase()
-  return store.bookings.filter((item) => {
-    return (!bookingDateFilter.value || item.date === bookingDateFilter.value)
-      && (!bookingFarmFilter.value || item.farmId === bookingFarmFilter.value)
-      && (bookingStatusFilter.value === '全部' || item.status === bookingStatusFilter.value)
-      && (!user || item.userId.toLowerCase().includes(user))
-      && (!bookingObjectIds.value.length || bookingObjectIds.value.includes(item.id))
-      && matchesActiveTodo('bookings', item)
-  })
-})
-function bookingStatusText(status: string) {
-  return ({ submitted: '待确认', confirmed: '已确认', completed: '已完成', cancelled: '已取消' } as Record<string, string>)[status] || status
-}
-function confirmBooking(item: typeof store.bookings[number]) {
-  runOperation(`booking-${item.id}`, () => store.confirmBooking(item.id, item.farmId), '预约已确认')
-}
-function completeBooking(item: typeof store.bookings[number]) {
-  const amount = Number(bookingAmounts[item.id])
-  if (!Number.isFinite(amount) || amount <= 0) return showToast('请输入实际消费金额')
-  runOperation(`booking-${item.id}`, () => store.completeBooking(item.id, item.farmId, amount), '预约已完成')
-}
-function cancelBooking(item: typeof store.bookings[number]) {
-  confirmAction(`确认取消 ${item.farmName} 的该笔预约？`, () => runOperation(`booking-${item.id}`, () => store.cancelBooking(item.id, item.farmId), '预约已取消'))
-}
 const filteredPolicies = computed(() => store.policies.filter((item) => {
   const matchesGlobal = `${item.name}${item.scope}${item.type}`.includes(keyword.value)
   const q = policyKeyword.value.trim().toLowerCase()
@@ -464,7 +431,7 @@ const pagedStoreAccounts = computed(() => filteredStoreAccounts.value.slice((pag
 const pagedPromoters = computed(() => visiblePromoters.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const pagedPolicies = computed(() => filteredPolicies.value.slice((page.value - 1) * pageSize, page.value * pageSize))
 const policyGroups = computed(() => {
-  const order: PricePolicy['type'][] = ['group', 'ladder', 'region', 'member']
+  const order: PricePolicy['type'][] = ['group', 'ladder']
   return order.map((type) => ({ type, items: pagedPolicies.value.filter((p) => p.type === type) })).filter((g) => g.items.length > 0)
 })
 const settlementRecords = computed(() => [
@@ -542,7 +509,7 @@ const pagedSupplierSettlementRecords = computed(() => filteredSupplierRecords.va
 function settlementLabel(record: (typeof settlementRecords.value)[number]) {
   return record.kind === 'supplier'
     ? `供应商结算 · ${record.items.length} 家供应商 · ${record.orderIds.length} 笔订单`
-    : `佣金结算 · ${record.items.length} 位推客`
+    : `佣金结算 · ${record.items.length} 位业务员`
 }
 const selectedSupplier = computed<Supplier | undefined>(() => store.suppliers.find((item) => item.id === detail.value?.id))
 const selectedSupplierQualification = computed(() => selectedSupplier.value ? readSupplierQualificationFields(selectedSupplier.value.qualification) : null)
@@ -617,7 +584,7 @@ const supplierSettleSupplierOptions = computed<SearchableSelectOption[]>(() => {
 })
 const catalogProductChannelOptions = computed<SearchableSelectOption[]>(() => [
   { value: 'store', label: '门店商品' },
-  { value: 'live', label: '直播商品', disabled: catalogProductForm.productType === 'package' },
+  { value: 'live', label: '用户端商品', disabled: catalogProductForm.productType === 'package' },
   { value: 'all', label: '全部商品', disabled: catalogProductForm.productType === 'package' }
 ])
 const filteredCategories = computed(() => {
@@ -675,6 +642,40 @@ function selectModule(key: ModuleKey) {
   page.value = 1
 }
 
+function promoterTypeLabel(type?: string) {
+  return type === '推客' ? '业务员' : (type || '业务员')
+}
+
+const batchShipCandidates = computed(() => store.orders.filter((item) => item.status === 'pending'))
+const promoterBizStats = computed(() => {
+  const farmsWithOrders = new Set(store.orders.map((item) => item.storeId).filter(Boolean))
+  return {
+    developedStores: store.farms.length,
+    dealStores: farmsWithOrders.size,
+    orderAmount: round2(store.orders.reduce((sum, item) => sum + item.amount, 0)),
+    commissionContribution: round2(store.promoters.reduce((sum, item) => sum + item.commission, 0))
+  }
+})
+const leaderShareForm = reactive({ level1Rate: 0, level2Rate: 0 })
+const leaderCommissionLedger = computed(() => buildLeaderCommissionLedger())
+function syncLeaderShareForm() {
+  const share = readShareConfig() as { leaderLevel1Rate?: number; leaderLevel2Rate?: number }
+  leaderShareForm.level1Rate = Number(share.leaderLevel1Rate ?? 0)
+  leaderShareForm.level2Rate = Number(share.leaderLevel2Rate ?? 0)
+}
+async function saveLeaderShareRates() {
+  const saved = await store.updateLeaderShareRates({ level1Rate: Number(leaderShareForm.level1Rate) || 0, level2Rate: Number(leaderShareForm.level2Rate) || 0 })
+  showToast(saved ? '团长分成比例已保存' : store.error || '团长分成保存失败或当前角色无权限')
+}
+async function batchShipOrders() {
+  const ids = batchShipCandidates.value.map((item) => item.id)
+  if (!ids.length) return showToast('当前没有可批量发货的订单')
+  const count = await store.batchShipOrders(ids)
+  showToast(count > 0 ? `已批量发货 ${count} 笔订单` : store.error || '批量发货失败或当前角色无权限')
+}
+watch(commissionTab, () => { if (commissionTab.value === '团长分成') syncLeaderShareForm() })
+syncLeaderShareForm()
+
 function resetFiltersForModule(route: ModuleKey) {
   keyword.value = ''
   page.value = 1
@@ -727,13 +728,6 @@ function resetFiltersForModule(route: ModuleKey) {
     withdrawalStatusFilter.value = '全部'
     commissionHistoryPage.value = 1
   }
-  if (route === 'bookings') {
-    bookingDateFilter.value = ''
-    bookingFarmFilter.value = ''
-    bookingStatusFilter.value = '全部'
-    bookingUserFilter.value = ''
-    bookingObjectIds.value = []
-  }
 }
 
 function openTodo(todo: AdminTodo) {
@@ -767,10 +761,6 @@ function openTodo(todo: AdminTodo) {
   if (todo.route === 'commissions' && filters.settlementType === 'commission') {
     commissionTab.value = '佣金结算'
     commissionKeyword.value = ''
-  }
-  if (todo.route === 'bookings') {
-    bookingStatusFilter.value = filters.status || '全部'
-    bookingObjectIds.value = [...(todo.objectIds || [])]
   }
   if (todo.route === 'dashboard' && filters.detail === 'todos') openDetail('todos')
 }
@@ -952,7 +942,7 @@ function setAdminAccountEnabled(account: AdminAccount) {
 function openDialog(type: 'supplier' | 'policy' | 'farm') {
   rememberOverlayTrigger()
   pendingCreateMediaRetry = null
-  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部农家乐', discount: 8, tiers: [], spec: '', image: null, images: [], region: type === 'farm' ? '' : '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null, permitNumber: '', permit: null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, livePopularity: 0, coop: false, farmStatus: 'pending', categoryType: 'product', categoryImage: null, level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default', dictImage: null, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null }
+  form.value = { id: '', skuId: '', name: '', category: '综合品类', type: 'group', scope: '全部门店', discount: 8, tiers: [], spec: '', image: null, images: [], region: type === 'farm' ? '' : '湖南省', address: '', farmCityCode: '', farmDistrictCode: '', farmDetail: '', price: 59.9, cost: 42, stock: 100, source: 'platform', supplier: '平台自营', result: 'refund', refundMethod: 'return', refundMode: 'full', refundRatio: 100, refundAmount: 0, rate: 10, enabled: true, contactPhone: '', supplierPassword: '', businessLicenseNumber: '', businessLicense: null, permitNumber: '', permit: null, validUntil: '', reviewNote: '运营邀请入驻，等待供应商补充资质', city: '', tags: '', rating: 5, averageSpend: 0, coop: false, farmStatus: 'pending', categoryType: 'product', categoryImage: null, level: '', promoterType: '推客', promoterStatus: 'active', dictCode: '', dictLabel: '', dictSort: 0, dictTone: 'default', dictImage: null, dictGroupName: '', dictGroupType: '', accountFarmId: '', accountName: '', accountPhone: '', accountPassword: '', accountRole: 'staff', accountPromo: false, initIssue: '', productType: 'goods' as ProductType, expressDelivery: false, commissionRate: 0, staffCommissionRate: 0, channels: { store: true }, routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null }
   if (type === 'supplier') form.value.category = '生鲜农产'
   dialog.value = type
   if (type === 'supplier') workPage.value = { type: 'supplier', mode: 'create' }
@@ -1011,7 +1001,7 @@ function validateCatalogProductDraft() {
     if (Number(sku.retailPrice) < Number(sku.level1Amount) + Number(sku.level2Amount)) return '零售价不能低于一级与二级分销金额之和'
   }
   if (catalogProductForm.productType === 'package' && (catalogProductForm.channel !== 'store' || catalogProductForm.expressDelivery)) return '套餐券只允许门店渠道且不支持快递直发'
-  if (catalogProductForm.productType === 'goods' && catalogProductForm.channel !== 'store' && !catalogProductForm.expressDelivery) return '直播商品和全部商品必须支持快递直发'
+  if (catalogProductForm.productType === 'goods' && catalogProductForm.channel !== 'store' && !catalogProductForm.expressDelivery) return '用户端商品和全部商品必须支持快递直发'
   return ''
 }
 
@@ -1197,7 +1187,6 @@ function openFarmEdit(farm: FarmStore) {
     tags: (farm.tags || []).join('，'),
     rating: farm.rating,
     averageSpend: farm.averageSpend,
-    livePopularity: farm.livePopularity,
     farmStatus: farm.status,
     image: farm.image
   })
@@ -1211,7 +1200,7 @@ function splitTags(text: string) {
 function farmPayload(forceGeocode = false) {
   return {
     name: form.value.name, region: form.value.region, address: form.value.address, city: form.value.city, districtCode: form.value.farmDistrictCode || undefined, detail: form.value.farmDetail || undefined, tags: splitTags(form.value.tags),
-    rating: Number(form.value.rating), averageSpend: Number(form.value.averageSpend), livePopularity: Number(form.value.livePopularity) || 0,
+    rating: Number(form.value.rating), averageSpend: Number(form.value.averageSpend),
     status: form.value.farmStatus, image: form.value.image, forceGeocode
   }
 }
@@ -1244,27 +1233,6 @@ function categoryUsage(category: Category) {
 }
 
 
-const editingRouteId = ref('')
-const routeSearch = ref('')
-const routeCityFilter = ref('')
-const routeCityFilterOptions = computed<SearchableSelectOption[]>(() => [
-  { value: '', label: '全部城市' },
-  ...[...new Set(store.routes.map((route) => route.city).filter(Boolean))].map((city) => ({ value: city, label: city }))
-])
-const filteredRoutes = computed(() => store.routes.filter((route) => {
-  const q = routeSearch.value.trim().toLowerCase()
-  return (!q || route.name.toLowerCase().includes(q)) && (!routeCityFilter.value || route.city === routeCityFilter.value)
-}))
-function openRouteDialog() {
-  editingRouteId.value = ''
-  Object.assign(form.value, { routeName: '', routeCity: '', routeDesc: '', routePrice: 0, routeImage: null })
-  dialog.value = 'route'
-}
-function openRouteEdit(route: TravelRoute) {
-  editingRouteId.value = route.id
-  Object.assign(form.value, { routeName: route.name, routeCity: route.city, routeDesc: route.description, routePrice: route.price, routeImage: route.image })
-  dialog.value = 'route-edit'
-}
 function openCategoryDialog() {
   openDialog('farm')
   dialog.value = 'category'
@@ -1388,11 +1356,6 @@ function removeCategory(category: Category) {
         else showToast(error instanceof Error ? error.message : '图片资源解绑失败')
       }
     }, '', '该品类正在使用，无法删除')
-  })
-}
-function removeRoute(route: TravelRoute) {
-  confirmAction(`确认删除线路「${route.name}」？`, () => {
-    runOperation(`route-${route.id}`, () => store.removeRoute(route.id), '线路')
   })
 }
 
@@ -1558,14 +1521,6 @@ async function saveDialog() {
       if (!saved && !errorMessage) errorMessage = store.error
     }
   }
-  if (dialog.value === 'route' || dialog.value === 'route-edit') {
-    if (!form.value.routeName.trim() || !form.value.routeCity.trim()) { saved = false; errorMessage = '请填写线路名称和城市' }
-    else {
-      const routePayload = { name: form.value.routeName.trim(), city: form.value.routeCity.trim(), description: form.value.routeDesc.trim(), price: Number(form.value.routePrice) || 0, image: form.value.routeImage || { source: 'builtin' as const, path: '/static/images/mountain.webp' } }
-      saved = editingRouteId.value ? await store.updateRoute(editingRouteId.value, routePayload) : await store.addRoute(routePayload)
-      if (!saved) errorMessage = store.error
-    }
-  }
   if (dialog.value === 'dict') {
     const dictImage = normalizeMediaReference(form.value.dictImage) || undefined
     const imageError = validateDictionaryItemImage(dictTypeTab.value, dictImage)
@@ -1690,11 +1645,11 @@ async function saveDialog() {
     else saved = await store.initiateAfterSale(form.value.id, form.value.result, form.value.initIssue)
   }
   if (dialog.value === 'promoter') {
-    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写推客姓名' }
+    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写业务员姓名' }
     else saved = await store.addPromoter({ name: form.value.name, level: form.value.level, type: form.value.promoterType, status: form.value.promoterStatus })
   }
   if (dialog.value === 'promoter-edit') {
-    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写推客姓名' }
+    if (!form.value.name.trim()) { saved = false; errorMessage = '请填写业务员姓名' }
     else saved = await store.updatePromoter(form.value.id, { name: form.value.name, level: form.value.level, type: form.value.promoterType, status: form.value.promoterStatus })
   }
   if (dialog.value === 'commission') saved = await store.updateCommissionRule(form.value.id, Number(form.value.rate), true)
@@ -1739,7 +1694,6 @@ async function exportCurrent() {
   const exports: Record<ModuleKey, Array<Array<string | number>>> = {
     dashboard: [['指标', '数值'], ['平台交易额', round2(store.totalGmv)], ['入驻门店', store.farms.length], ['合作供应商', store.activeSupplierCount], ['履约订单', store.shippedOrderCount]],
     reports: [['聚合维度', '名称', '订单数', '商品件数', 'GMV'], ...reportRows.value.map((row) => [reportDimension.value === 'day' ? '日期' : reportDimension.value === 'store' ? '门店' : reportDimension.value === 'supplier' ? '供应商' : '品类', row.label, row.orderCount, row.itemCount, round2(row.gmv)])],
-    bookings: [['预约单号', '日期', '门店', '用户', '时段', '人数', '金额', '状态', '更新时间'], ...filteredBookings.value.map((item) => [item.id, item.date, item.farmName, item.userId, item.session, item.people, item.amount ?? '', bookingStatusText(item.status), item.updatedAt || item.createdAt])],
     suppliers: [['供应商', '区域', '品类', '商品数', '状态'], ...filteredSuppliers.value.map((item) => [item.name, item.region, item.category, supplierProducts(item).length, statusText(item.status)])],
     products: [['商品', '规格', '品类', '供应商', '集采价', '建议零售', '库存', '状态'], ...productRows.value.map((row) => [row.product.name, row.sku.name, row.product.category, row.product.supplier, row.product.source === 'platform' ? round2(row.sku.cost) : '', round2(row.sku.price), row.sku.stock, statusText(row.product.status)])],
     categories: [['品类', '类型', '使用数量'], ...filteredCategories.value.map((item) => [item.name, item.type === 'product' ? '商品品类' : item.type === 'supplier' ? '供应商品类' : '通用', categoryUsage(item)])],
@@ -1747,9 +1701,10 @@ async function exportCurrent() {
     orders: [['订单号', '商品', '数量', '客户', '渠道', '金额', '实付金额', '状态', '售后状态'], ...visibleOrders.value.map((item) => [item.id, item.items?.map((p) => p.name).join('、') || item.productName, orderTotalQty(item), item.customer, channelText(item.channel), round2(item.amount), round2(orderPaidAmount(item)), orderFulfillmentText(item.status), orderAfterStatus(item)])],
     afterSales: [['工单', '订单', '商品', '申请方', '类型', '金额', '状态'], ...filteredAfterSales.value.map((item) => [item.id, item.orderId, item.productName, item.applicant, item.type, round2(item.amount), afterSaleStatusText(item.status)])],
     farms: [['门店', '区域', '选品数', 'GMV', '状态'], ...filteredFarms.value.map((item) => [item.name, item.region, item.selectedCount, round2(item.gmv), statusText(item.status)])],
-    promoters: [['推客', '等级', '锁粉', '订单', 'GMV', '佣金'], ...filteredPromoters.value.map((item) => [item.name, item.level, item.fans, item.orders, round2(item.gmv), round2(item.commission)])],
+    promoters: [['业务员', '等级', '粉丝', '订单', 'GMV', '佣金'], ...filteredPromoters.value.map((item) => [item.name, item.level, item.fans, item.orders, round2(item.gmv), round2(item.commission)])],
+    users: [['用户', '手机号', '团长等级', '一级团长', '二级团长', '订单数', '累计消费', '来源渠道'], ...buildAdminUsers().map((item) => [item.name, item.phone, item.levelLabel, item.level1Leader, item.level2Leader, item.orderCount, item.consumedAmount, item.sourceChannel])],
+    leaders: [['团长', '编号', '等级', '下级用户', '下级团长', '待结算佣金', '可提现佣金', '已提现佣金', '状态'], ...buildAdminLeaders().map((item) => [item.name, item.promoterId, item.levelLabel, item.directUserCount, item.directLeaderCount, item.pendingCommission, item.availableCommission, item.withdrawnCommission, item.statusLabel])],
     commissions: [['类型', '单号', '金额', '时间'], ...store.commissionSettlementRecords.map((r) => ['佣金结算', r.id, round2(r.amount), r.createdAt]), ...store.supplierSettlementRecords.map((r) => ['供应商结算', r.id, round2(r.amount), r.createdAt])],
-    routes: [['线路', '城市', '参考价', '描述'], ...store.routes.map((r) => [r.name, r.city, r.price, r.description])],
     dict: [['编码', '名称', '分组', '排序', '启用'], ...store.dictItems.map((item) => [item.code, item.label, store.dictGroups.find((group) => group.type === item.type)?.name || item.type, item.sort, item.enabled ? '启用' : '停用'])],
     logs: [['时间', '操作人', '角色', '模块', '动作', '结果', '原因'], ...filteredAuditLogs.value.map((item) => [item.createdAt, item.actorName || item.actorId, item.actorRole || '', item.module, item.action, item.result, item.reason || ''])],
     roles: [['角色编码', '角色名称', '菜单数', '按钮权限数', '状态'], ...store.adminRoles.map((item) => [item.code, item.name, item.menuPermissions.length, item.actionPermissions.length, item.enabled ? '启用' : '停用'])],
@@ -1775,22 +1730,18 @@ async function exportCurrent() {
 function policyDesc(type: PricePolicy['type']) {
   const skuCount = store.products.length
   const ladderTiers = store.policies.filter((p) => p.type === 'ladder').reduce((sum, p) => sum + (p.tiers?.length || 0), 0)
-  const regionCount = store.policies.filter((p) => p.type === 'region').length
-  const memberCount = store.policies.filter((p) => p.type === 'member').length
   return ({
-    group: `平台统一谈判集中采购价，所有农家乐均可享受。已覆盖 ${skuCount} 个 SKU`,
-    ladder: `按采购量分档定价，量越大单价越低，鼓励集中采购。已配置 ${skuCount} 个 SKU · 共 ${ladderTiers} 个档位`,
-    region: `按市州 / 县区差异化定价，匹配物流与本地供给。已配置 ${regionCount} 条区域策略`,
-    member: `面向农家乐会员等级的专属采购价。${memberCount} 条会员策略`
+    group: `平台统一谈判的集采价与门店 / 业务员层级分销供货价，所有门店均可享受。已覆盖 ${skuCount} 个 SKU`,
+    ladder: `按采购量分档定价，量越大单价越低，鼓励集中采购。已配置 ${skuCount} 个 SKU · 共 ${ladderTiers} 个档位`
   } as Record<PricePolicy['type'], string>)[type]
 }
 
 function policyIcon(type: PricePolicy['type']) {
-  return ({ group: 'shopping-bag', ladder: 'list-tree', region: 'map-pin', member: 'crown' } as Record<PricePolicy['type'], string>)[type]
+  return ({ group: 'shopping-bag', ladder: 'list-tree' } as Record<PricePolicy['type'], string>)[type]
 }
 
 function policyLabel(type: PricePolicy['type']) {
-  return ({ group: '集采价', ladder: '阶梯价', region: '区域价', member: '会员价' } as Record<PricePolicy['type'], string>)[type]
+  return ({ group: '集采价', ladder: '阶梯价' } as Record<PricePolicy['type'], string>)[type]
 }
 
 function commissionRuleIcon(targetType: string) {
@@ -1827,7 +1778,7 @@ function supplierLoginStatus(supplier: Supplier) {
 }
 
 function channelText(channel: string) {
-  return ({ shop: '商城', live: '直播', purchase: '进货' } as Record<string, string>)[channel] || channel
+  return ({ shop: '商城', live: '用户端', purchase: '进货' } as Record<string, string>)[channel] || channel
 }
 
 const trendSeries = computed(() => {
@@ -1951,7 +1902,7 @@ watch([trendRange, period], async () => { if (active.value === 'dashboard') { aw
 watch([() => store.loading, () => store.auth.isLoggedIn], async () => { if (!store.loading && store.auth.isLoggedIn) { await nextTick(); renderCharts() } })
 watch(keyword, () => { page.value = 1 })
 watch([productKeyword, productSupplierFilter, productSourceFilter, productCategoryFilter, productStatusFilter, productChannelFilter, productReviewFilter], () => { page.value = 1 })
-watch([supplierKeyword, supplierStatusFilter, supplierCategoryFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, settlementKeyword, settlementSupplierFilter, afterTypeFilter, afterStatusFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, promoterLevelFilter, promoterSettleFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, supplierSettleSupplierFilter, ruleKeyword, dictKeyword, dictStatusFilter, farmAccountFilter, storeAccountKeyword, storeAccountStatusFilter, afterReasonFilter, withdrawalKeyword, withdrawalStatusFilter, routeSearch, routeCityFilter, roleKeyword, roleStatusFilter, accountKeyword, accountRoleFilter, accountStatusFilter, policyKeyword, logResult], () => { page.value = 1; commissionHistoryPage.value = 1 })
+watch([supplierKeyword, supplierStatusFilter, supplierCategoryFilter, orderKeyword, orderStatusFilter, orderChannelFilter, orderAfterFilter, orderStoreFilter, afterKeyword, settlementKeyword, settlementSupplierFilter, afterTypeFilter, afterStatusFilter, farmKeyword, farmStatusFilter, farmCityFilter, promoterKeyword, promoterTypeFilter, promoterLevelFilter, promoterSettleFilter, categoryKeyword, categoryTypeFilter, commissionKeyword, commissionStatusFilter, supplierSettleKeyword, supplierSettleSupplierFilter, ruleKeyword, dictKeyword, dictStatusFilter, farmAccountFilter, storeAccountKeyword, storeAccountStatusFilter, afterReasonFilter, withdrawalKeyword, withdrawalStatusFilter, roleKeyword, roleStatusFilter, accountKeyword, accountRoleFilter, accountStatusFilter, policyKeyword, logResult], () => { page.value = 1; commissionHistoryPage.value = 1 })
 watch(orderStatusFilter, () => { page.value = 1 })
 const loginAccount = ref('admin')
 const loginPassword = ref('123456')
@@ -1978,7 +1929,7 @@ onMounted(async () => {
   nowTimer = setInterval(refreshNow, 30000)
   disposeKeyboardButtons = installKeyboardButtonSupport()
   window.addEventListener('resize', resizeCharts)
-  const platformChangeKeys = [PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_BOOKINGS_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_ROUTES_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY]
+  const platformChangeKeys = [PLATFORM_ADMIN_ACCOUNTS_STORAGE_KEY, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_CATALOG_PRODUCT_SUBMISSIONS_STORAGE_KEY, PLATFORM_DRIVERS_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_DICTIONARIES_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_SHARES_STORAGE_KEY, PLATFORM_SETTLEMENTS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY]
   const refreshSharedState = () => {
     platformVersion.value++
     withdrawalVersion.value++
@@ -2108,7 +2059,7 @@ onBeforeUnmount(() => {
         </template>
         <template v-else>
         <view class="page-head">
-          <view><h1>{{ titles[active].title }}</h1><p>{{ active === 'dashboard' ? '平台经营全景 · 实时更新 · ' + nowText : active === 'farms' ? `${metrics.farmStats.total} 个农家乐独立小程序统一管理 · 门店入驻、选品上架、经营数据` : titles[active].subtitle }}</p></view>
+          <view><h1>{{ titles[active].title }}</h1><p>{{ active === 'dashboard' ? '平台经营全景 · 实时更新 · ' + nowText : active === 'farms' ? `${metrics.farmStats.total} 个门店小程序统一管理 · 门店入驻、选品上架、经营数据` : titles[active].subtitle }}</p></view>
           <view class="head-actions">
             <button v-if="active === 'logs' ? store.can('audit.export') : store.can('report.export')" class="button secondary" :disabled="active === 'reports' && !!reportFilterError" @click="exportCurrent"><UiIcon name="download" :size="16" />{{ active === 'dashboard' ? '导出报表' : '导出' }}</button>
             <button v-if="active === 'suppliers' && store.can('supplier.create')" class="button primary" @click="openDialog('supplier')"><UiIcon name="plus" :size="16" />邀请供应商</button>
@@ -2116,10 +2067,10 @@ onBeforeUnmount(() => {
             <button v-if="active === 'accounts' && store.can('admin.account.create')" class="button primary" @click="openAdminAccount()"><UiIcon name="plus" :size="16" />新增账号</button>
             <button v-if="active === 'products' && store.can('product.create')" class="button primary" @click="openCatalogProductDialog()"><UiIcon name="plus" :size="16" />新增商品</button>
             <button v-if="active === 'categories' && store.can('category.manage')" class="button primary" @click="openCategoryDialog()"><UiIcon name="plus" :size="16" />新增品类</button>
-            <button v-if="active === 'routes' && store.can('route.manage')" class="button primary" @click="openRouteDialog()"><UiIcon name="plus" :size="16" />新增线路</button>
             <button v-if="active === 'prices' && store.can('price.manage')" class="button primary" @click="openDialog('policy')"><UiIcon name="plus" :size="16" />新建价格策略</button>
-            <button v-if="active === 'farms' && store.can('farm.manage')" class="button primary" @click="openDialog('farm')"><UiIcon name="plus" :size="16" />新增农家乐门店</button>
-            <button v-if="active === 'promoters' && store.can('promoter.manage')" class="button primary" @click="openPromoterDialog()"><UiIcon name="plus" :size="16" />新增推客</button>
+            <button v-if="active === 'farms' && store.can('farm.manage')" class="button primary" @click="openDialog('farm')"><UiIcon name="plus" :size="16" />新增门店</button>
+            <button v-if="active === 'promoters' && store.can('promoter.manage')" class="button primary" @click="openPromoterDialog()"><UiIcon name="plus" :size="16" />新增业务员</button>
+            <button v-if="active === 'orders' && store.can('order.ship')" class="button secondary" :disabled="!batchShipCandidates.length" @click="batchShipOrders()">批量发货（{{ batchShipCandidates.length }}）</button>
             <button v-if="active === 'commissions' && store.can('commission.manage')" class="button secondary" :disabled="isOperating('supplier-settle')" @click="confirmAction('确认结算全部合作供应商的未结订单？', () => runOperation('supplier-settle', () => store.settleSuppliers(store.suppliers.map(item => item.id)), '供应商批量结算完成', '没有可结算的供应商订单'))">{{ isOperating('supplier-settle') ? '结算中...' : '供应商结算' }}</button><button v-if="active === 'commissions' && store.can('commission.manage')" class="button primary" :disabled="!store.totalCommission || isOperating('commission-settle')" @click="confirmAction('确认结算当前全部模拟佣金？', () => runOperation('commission-settle', () => store.settleCommissions(), '佣金已结算'))">{{ isOperating('commission-settle') ? '结算中...' : '发起佣金结算' }}</button><button v-if="active === 'commissions' && store.commissionRules.length && store.can('commission.manage')" class="button secondary" @click="openCommission(store.commissionRules[0])">佣金规则</button>
           </view>
         </view>
@@ -2135,7 +2086,7 @@ onBeforeUnmount(() => {
         <template v-else-if="active === 'dashboard'">
           <view class="kpi-grid">
             <view class="kpi-card"><span class="kpi-icon"><UiIcon name="badge-dollar-sign" :size="17" /></span><text>平台交易额(GMV)</text><strong>{{ money(metrics.gmv) }}</strong><small>共 {{ metrics.orderCount }} 笔订单</small></view>
-            <view class="kpi-card"><span class="kpi-icon"><UiIcon name="house" :size="17" /></span><text>入驻农家乐</text><strong>{{ metrics.farmCount }} 家</strong><small>经营中 {{ metrics.farmStats.liveCount }} 家</small></view>
+            <view class="kpi-card"><span class="kpi-icon"><UiIcon name="house" :size="17" /></span><text>入驻门店</text><strong>{{ metrics.farmCount }} 家</strong><small>经营中 {{ metrics.farmStats.liveCount }} 家</small></view>
             <view class="kpi-card"><span class="kpi-icon"><UiIcon name="factory" :size="17" /></span><text>合作供应商</text><strong>{{ metrics.supplierCount }} 家</strong><small>待审核 {{ store.pendingSuppliers }} 家</small></view>
             <view class="kpi-card"><span class="kpi-icon"><UiIcon name="package-check" :size="17" /></span><text>履约订单</text><strong>{{ metrics.orderCount.toLocaleString('zh-CN') }} 单</strong><small>待发货 {{ metrics.orderStats.pending }} 单</small></view>
           </view>
@@ -2174,36 +2125,6 @@ onBeforeUnmount(() => {
           <view v-if="!reportRows.length" class="empty-state">当前筛选暂无有效订单</view>
         </section>
 
-        <section v-else-if="active === 'bookings'" class="data-panel booking-panel">
-          <view class="booking-filters">
-            <view class="field"><text>预约日期</text><DatePicker v-model="bookingDateFilter" placeholder="请选择日期" /></view>
-            <view class="field"><text>门店</text><SearchableSelect v-model="bookingFarmFilter" :options="bookingFarmOptions" search-placeholder="筛选门店" /></view>
-            <view class="field"><text>状态</text><SearchableSelect v-model="bookingStatusFilter" :options="bookingStatusOptions" search-placeholder="筛选状态" /></view>
-            <label class="field"><text>用户</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="bookingUserFilter" placeholder="请输入用户 ID" /></view></label>
-            <button v-if="bookingDateFilter || bookingFarmFilter || bookingStatusFilter !== '全部' || bookingUserFilter || bookingObjectIds.length" class="button secondary" @click="activeTodoFilter = null; bookingDateFilter = ''; bookingFarmFilter = ''; bookingStatusFilter = '全部'; bookingUserFilter = ''; bookingObjectIds = []">清除筛选</button>
-          </view>
-          <view class="booking-table-scroll">
-            <view class="table-row table-head booking-grid"><text>预约</text><text>门店 / 用户</text><text>时段 / 人数</text><text>金额</text><text>状态 / 更新时间</text><text>操作</text></view>
-            <view v-for="item in filteredBookings" :key="item.id" class="table-row booking-grid">
-              <view><strong>{{ item.date }}</strong><small>{{ item.id }}</small></view>
-              <view><strong>{{ item.farmName }}</strong><small>{{ item.userId }}</small></view>
-              <view><strong>{{ item.session }}</strong><small>{{ item.people }} 人</small></view>
-              <view><strong>{{ item.amount ? money(item.amount) : '待录入' }}</strong><small v-if="item.amountConfirmedAt">{{ item.amountConfirmedAt }}</small></view>
-              <view><span class="status" :class="item.status">{{ bookingStatusText(item.status) }}</span><small>{{ item.updatedAt || item.createdAt }}</small></view>
-              <view class="booking-actions">
-                <button v-if="item.status === 'submitted' && store.can('booking.confirm')" :disabled="isOperating(`booking-${item.id}`)" @click="confirmBooking(item)">确认</button>
-                <template v-if="item.status === 'confirmed'">
-                  <input v-if="store.can('booking.complete')" v-model.number="bookingAmounts[item.id]" aria-label="实际消费金额" type="number" min="0.01" step="0.01" placeholder="实收金额" />
-                  <button v-if="store.can('booking.complete')" :disabled="isOperating(`booking-${item.id}`)" @click="completeBooking(item)">完成</button>
-                  <button v-if="store.can('booking.cancel')" class="danger" :disabled="isOperating(`booking-${item.id}`)" @click="cancelBooking(item)">取消</button>
-                </template>
-                <text v-if="item.status === 'completed' || item.status === 'cancelled'">—</text>
-              </view>
-            </view>
-          </view>
-          <view v-if="!filteredBookings.length" class="empty-state">没有符合条件的预约</view>
-        </section>
-
         <section v-else-if="active === 'suppliers'" class="data-panel">
           <view class="stat-strip three">
             <view><small>合作供应商</small><strong>{{ supplierStatCounts.cooperating }} 家</strong></view>
@@ -2214,8 +2135,7 @@ onBeforeUnmount(() => {
           <view class="supplier-table-scroll">
           <view class="table-row table-head supplier-grid"><text>供应商</text><text>主营品类</text><text>商品数</text><text>资质与状态</text><text>操作</text></view>
           <view v-for="item in pagedSuppliers" :key="item.id" class="table-row supplier-grid">
-            <view><strong>{{ item.name }}</strong><small>{{ item.region }} · {{ item.coop ? '供销社' : (item.name.includes('合作社') ? '合作社' : '供应商') }}</small></view><view><strong>{{ item.category }}</strong><small>{{ item.region }}</small></view><text>{{ supplierProducts(item).length }}</text>
-            <view><span class="status" :class="item.status">{{ item.certified ? '已认证' : '待认证' }} · {{ statusText(item.status) }}</span><small v-if="item.cooperationPauseReason" class="pause-reason">暂停原因：{{ item.cooperationPauseReason }}<template v-if="item.cooperationPausedBy"> · {{ item.cooperationPausedBy }}</template></small></view>
+            <view><strong>{{ item.name }}</strong><small>{{ item.region }} · {{ item.coop ? '供销社' : (item.name.includes('合作社') ? '合作社' : '供应商') }}</small><small v-if="item.cooperationPauseReason">暂停原因：{{ item.cooperationPauseReason }}</small></view><view><strong>{{ item.category }}</strong><small>{{ item.region }}</small></view><text>{{ supplierProducts(item).length }}</text>
              <view class="row-actions"><button @click="openDetail('supplier', item.id)">详情</button><button v-if="store.can('supplier.update')" @click="openSupplierEdit(item)">修改</button><button v-if="item.certified && (store.can('supplier.account.update') || store.can('supplier.account.freeze'))" @click="openSupplierAccount(item)">账号信息</button><button v-if="!item.certified && item.status === 'pending' && store.can('supplier.audit')" :disabled="isOperating(`supplier-${item.id}`)" @click="runOperation(`supplier-${item.id}`, () => store.auditSupplier(item.id, true), '审核通过')">{{ isOperating(`supplier-${item.id}`) ? '处理中...' : '通过' }}</button><button v-if="!item.certified && item.status === 'pending' && store.can('supplier.audit')" class="danger" :disabled="isOperating(`supplier-${item.id}`)" @click="runOperation(`supplier-${item.id}`, () => store.auditSupplier(item.id, false), '已驳回')">驳回</button><button v-if="!item.certified && item.status === 'paused' && store.can('supplier.audit')" @click="runOperation(`supplier-${item.id}`, () => store.restoreSupplierPending(item.id), '已恢复待处理')">恢复待处理</button><button v-if="item.certified && item.status === 'cooperating' && store.can('supplier.pause')" class="danger" @click="openSupplierPause(item)">暂停合作</button><button v-if="item.certified && item.status === 'paused' && store.can('supplier.pause')" @click="runOperation(`supplier-${item.id}`, () => store.resumeSupplier(item.id), '已恢复合作')">恢复合作</button></view>
           </view>
           </view>
@@ -2235,26 +2155,13 @@ onBeforeUnmount(() => {
           <view v-if="!filteredCategories.length" class="empty-state">暂无品类</view>
           <PaginationBar :page="page" :page-size="pageSize" :total="filteredCategories.length" @change="page = $event" />
         </section>
-        <section v-else-if="active === 'routes'" class="data-panel">
-          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="15" /><input v-model="routeSearch" placeholder="请输入线路名称" /></view></label><view class="field"><text>城市</text><SearchableSelect v-model="routeCityFilter" :options="routeCityFilterOptions" search-placeholder="搜索城市" placeholder="请选择城市" /></view></view>
-          <view class="table-row table-head route-grid"><text>线路</text><text>城市</text><text>参考价</text><text>描述</text><text>操作</text></view>
-          <view v-for="item in filteredRoutes" :key="item.id" class="table-row route-grid">
-            <view class="route-cell"><BusinessImage class="route-thumb" :src="item.image" mode="aspectFill" /><strong>{{ item.name }}</strong></view>
-            <text>{{ item.city }}</text>
-            <text>¥{{ formatNumber(item.price) }}</text>
-            <text>{{ item.description }}</text>
-            <view class="row-actions"><button v-if="store.can('route.manage')" @click="openRouteEdit(item)">编辑</button><button v-if="store.can('route.manage')" class="danger" @click="removeRoute(item)">删除</button></view>
-          </view>
-          <view v-if="!store.routes.length" class="empty-state">暂无旅游线路</view>
-        </section>
-
         <section v-else-if="active === 'products'" class="data-panel">
           <view class="goods-tools"><view class="filter-bar"><view class="field"><text>审核状态</text><SearchableSelect v-model="productReviewFilter" :options="productReviewOptions" class="is-wide" search-placeholder="搜索商品审核状态" placeholder="请选择审核状态" /></view><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="productKeyword" placeholder="请输入商品名称" /></view></label><view class="field"><text>供应商</text><SearchableSelect v-model="productSupplierFilter" :options="productSupplierFilterOptions" class="is-wide" search-placeholder="搜索供应商" placeholder="请选择供应商" /></view><view class="field"><text>渠道</text><SearchableSelect v-model="productChannelFilter" :options="catalogChannelFilterOptions" search-placeholder="搜索商品渠道" placeholder="请选择渠道" /></view><view class="field"><text>品类</text><SearchableSelect v-model="productCategoryFilter" :options="productCategoryFilterOptions" search-placeholder="搜索商品品类" placeholder="请选择品类" /></view><view class="field"><text>状态</text><SearchableSelect v-model="productStatusFilter" :options="productStatusOptions" search-placeholder="搜索商品状态" placeholder="请选择状态" /></view></view><text class="goods-count">共 {{ unifiedProductRows.length }} 个商品 · 统一目录与共享库存</text></view>
           <view v-if="productReviewFilter === '正式商品'" class="product-table-scroll">
           <view class="table-row table-head unified-product-grid"><text>商品</text><text>渠道</text><text>品类</text><text>价格</text><text>库存</text><text>状态</text><text>操作</text></view>
           <view v-for="product in pagedUnifiedProductRows" :key="product.id" class="table-row unified-product-grid">
             <view class="product-cell"><BusinessImage class="product-thumb" :src="product.image" mode="aspectFit" /><view><strong>{{ product.name }}</strong><view class="tag-row"><span v-for="tag in product.tags.slice(0, 3)" :key="tag" class="product-tag">{{ tag }}</span></view></view></view>
-            <view class="channel-tags"><span class="channel-tag" :class="{ live: product.channel === 'live', store: product.channel === 'store' }">{{ product.channel === 'store' ? '门店商品' : product.channel === 'live' ? '直播商品' : '全部商品' }}</span></view>
+            <view class="channel-tags"><span class="channel-tag" :class="{ live: product.channel === 'live', store: product.channel === 'store' }">{{ product.channel === 'store' ? '门店商品' : product.channel === 'live' ? '用户端商品' : '全部商品' }}</span></view>
             <view class="category-label"><BusinessImage class="category-thumb" :src="productCategoryImage(product.category, dictionaryState)" :fallback="defaultProductCategoryImage(product.category)" :error-fallback="defaultProductCategoryImage()" :show-error="false" mode="aspectFill" /><text :title="product.category">{{ product.category }}</text></view>
             <view class="price-cell">
               <strong>零售 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.retailPrice || 0) }}</strong><small class="sku-no">供货 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.cost || 0) }} · MOQ {{ activeCatalogSkus(product)[0]?.minimumOrderQuantity || 1 }} · 一级 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.level1Amount || 0) }} · 二级 ¥{{ formatNumber(activeCatalogSkus(product)[0]?.level2Amount || 0) }}</small>
@@ -2286,7 +2193,7 @@ onBeforeUnmount(() => {
           <section class="panel pricing-defaults-panel">
             <view class="panel-head"><view><h2>商品默认价格配置</h2><text>保存后仅预填后续新增商品，历史商品不批量覆盖</text></view><button class="button primary" @click="savePricingDefaults">保存默认配置</button></view>
             <view class="pricing-defaults-grid">
-              <label class="field"><text>推客佣金 %</text><input v-model.number="pricingDefaultsForm.promoterCommissionRate" type="number" min="0" max="100" /></label>
+              <label class="field"><text>业务员佣金 %</text><input v-model.number="pricingDefaultsForm.promoterCommissionRate" type="number" min="0" max="100" /></label>
               <label class="field"><text>门店佣金 %</text><input v-model.number="pricingDefaultsForm.storeCommissionRate" type="number" min="0" max="100" /></label>
               <label class="field"><text>一级分销金额</text><input v-model.number="pricingDefaultsForm.level1Amount" type="number" min="0" step="0.01" /></label>
               <label class="field"><text>二级分销金额</text><input v-model.number="pricingDefaultsForm.level2Amount" type="number" min="0" step="0.01" /></label>
@@ -2356,14 +2263,14 @@ onBeforeUnmount(() => {
           <view class="filter-chips solid"><button v-for="tab in ['门店列表','门店账号']" :key="tab" :class="{ active: farmTab === tab }" @click="farmTab = tab; page = 1">{{ tab }}</button></view>
           <template v-if="farmTab === '门店列表'">
           <view class="stat-strip three">
-            <view><small>入驻农家乐</small><strong>{{ metrics.farmStats.total }} 家</strong><span class="positive">经营中 {{ metrics.farmStats.liveCount }} 家</span></view>
+            <view><small>入驻门店</small><strong>{{ metrics.farmStats.total }} 家</strong><span class="positive">经营中 {{ metrics.farmStats.liveCount }} 家</span></view>
             <view><small>已开通小程序</small><strong>{{ metrics.farmStats.liveCount }} 个</strong><span>{{ metrics.farmStats.configuring }} 家配置中</span></view>
             <view><small>门店自有商品</small><strong>{{ metrics.farmStats.selfProducts }} 个</strong><span class="pending-text">待审核 {{ metrics.farmStats.pendingSelfProducts }} 个</span></view>
           </view>
           <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="farmKeyword" placeholder="请输入门店名称" /></view></label><view class="field"><text>城市</text><SearchableSelect v-model="farmCityFilter" :options="farmCityFilterOptions" search-placeholder="搜索城市" placeholder="请选择城市" /></view><view class="field"><text>状态</text><SearchableSelect v-model="farmStatusFilter" :options="farmStatusFilterOptions" search-placeholder="搜索门店状态" placeholder="请选择状态" /></view></view>
           <view class="farm-table-scroll">
-          <view class="table-row table-head farm-grid"><text>农家乐门店</text><text>区域</text><text>小程序</text><text>已选品</text><text>本月 GMV</text><text>人气值</text><text>状态</text><text>操作</text></view>
-          <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><BusinessImage class="farm-thumb" :src="item.image" mode="aspectFit" @click="previewImage" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><text>{{ item.livePopularity.toLocaleString('zh-CN') }}</text><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button v-if="store.can('farm.manage')" @click="openFarmEdit(item)">修改</button></view></view>
+          <view class="table-row table-head farm-grid"><text>门店</text><text>区域</text><text>小程序</text><text>已选品</text><text>本月 GMV</text><text>状态</text><text>操作</text></view>
+          <view v-for="item in pagedFarms" :key="item.id" class="table-row farm-grid"><view class="product-cell"><BusinessImage class="farm-thumb" :src="item.image" mode="aspectFit" @click="previewImage" /><view><strong>{{ item.name }}</strong><small>{{ item.adminDesc || item.tags[0] }}</small></view></view><text>{{ item.region }}</text><text>{{ item.status === 'pending' ? '配置中' : '已上线' }}</text><text>{{ item.selectedCount }} SKU</text><strong>{{ money(item.gmv) }}</strong><span class="status" :class="item.status">{{ item.status === 'active' ? '经营中' : item.status === 'pending' ? '筹备中' : '已停用' }}</span><view class="row-actions"><button @click="openDetail('farm', item.id)">详情</button><button v-if="store.can('farm.manage')" @click="openFarmEdit(item)">修改</button></view></view>
           </view>
           <view v-if="!filteredFarms.length" class="empty-state">没有符合条件的门店</view><PaginationBar :page="page" :page-size="pageSize" :total="filteredFarms.length" @change="page = $event" />
           </template>
@@ -2380,39 +2287,43 @@ onBeforeUnmount(() => {
 
         <section v-else-if="active === 'promoters'" class="data-panel">
           <view class="stat-strip four">
-            <view><small>本期应结佣金</small><strong>{{ money(metrics.promoterStats.pendingCommission) }}</strong><span>待结算 · T+7 周期</span></view>
-            <view><small>活跃推客</small><strong>{{ metrics.promoterStats.activePromoters }} 人</strong><span class="positive">未结算 {{ store.promoters.filter((p) => !p.settled).length }} 人</span></view>
-            <view><small>带货主播</small><strong>{{ metrics.promoterStats.liveHosts }} 人</strong><span>本月直播 {{ metrics.promoterStats.liveSessions }} 场</span></view>
-            <view><small>累计锁粉</small><strong>{{ metrics.promoterStats.lockedFans.toLocaleString('zh-CN') }}</strong><span class="positive">带货 GMV ¥{{ formatNumber(store.promoters.reduce((sum, p) => sum + p.gmv, 0)) }}</span></view>
+            <view><small>发展门店</small><strong>{{ promoterBizStats.developedStores }} 家</strong><span>门店账号覆盖</span></view>
+            <view><small>成交门店</small><strong>{{ promoterBizStats.dealStores }} 家</strong><span class="positive">有订货记录的门店</span></view>
+            <view><small>订货金额</small><strong>¥{{ formatNumber(promoterBizStats.orderAmount) }}</strong><span>门店订货合计</span></view>
+            <view><small>业绩贡献</small><strong>¥{{ formatNumber(promoterBizStats.commissionContribution) }}</strong><span>业务员佣金合计</span></view>
           </view>
-          <view class="filter-chips solid"><button v-for="item in ['推客排行','主播排行']" :key="item" :class="{ active: promoterRankTab === item }" @click="promoterRankTab = item; page = 1">{{ item }}</button></view>
-          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="请输入推客名称" /></view></label><view class="field"><text>类型</text><SearchableSelect v-model="promoterTypeFilter" :options="promoterTypeOptions" search-placeholder="搜索推客类型" placeholder="请选择类型" /></view><view class="field"><text>等级</text><SearchableSelect v-model="promoterLevelFilter" :options="promoterLevelFilterOptions" search-placeholder="搜索推客等级" placeholder="请选择等级" /></view><view class="field"><text>状态</text><SearchableSelect v-model="promoterSettleFilter" :options="promoterSettleFilterOptions" search-placeholder="搜索结算状态" placeholder="请选择状态" /></view></view>
+          <view class="filter-chips solid"><button v-for="item in ['业务员排行','主播排行']" :key="item" :class="{ active: promoterRankTab === item }" @click="promoterRankTab = item; page = 1">{{ item }}</button></view>
+          <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="promoterKeyword" placeholder="请输入业务员名称" /></view></label><view class="field"><text>类型</text><SearchableSelect v-model="promoterTypeFilter" :options="promoterTypeOptions" search-placeholder="搜索业务员类型" placeholder="请选择类型" /></view><view class="field"><text>等级</text><SearchableSelect v-model="promoterLevelFilter" :options="promoterLevelFilterOptions" search-placeholder="搜索业务员等级" placeholder="请选择等级" /></view><view class="field"><text>状态</text><SearchableSelect v-model="promoterSettleFilter" :options="promoterSettleFilterOptions" search-placeholder="搜索结算状态" placeholder="请选择状态" /></view></view>
           <view class="promoter-table-scroll">
-          <view class="table-row table-head promoter-grid"><text>推客 / 主播</text><text>类型</text><text>锁粉数</text><text>订单</text><text>带货 GMV</text><text>佣金</text><text>状态</text><text>操作</text></view>
-          <view v-for="item in pagedPromoters" :key="item.id" class="table-row promoter-grid"><view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view><text>{{ item.type || '推客' }}</text><text>{{ item.fans }}</text><text>{{ item.orders }}</text><strong>{{ money(item.gmv) }}</strong><strong class="commission">{{ money(item.commission) }}</strong><span class="status" :class="item.settled ? 'delivered' : 'pending'">{{ item.settled ? '已结算' : '待结算' }}</span><view class="row-actions"><button v-if="store.can('promoter.manage')" @click="openPromoterEdit(item)">修改</button></view></view>
+          <view class="table-row table-head promoter-grid"><text>业务员 / 主播</text><text>类型</text><text>粉丝数</text><text>服务订单</text><text>订货金额</text><text>佣金</text><text>状态</text><text>操作</text></view>
+          <view v-for="item in pagedPromoters" :key="item.id" class="table-row promoter-grid"><view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view><text>{{ promoterTypeLabel(item.type) }}</text><text>{{ item.fans }}</text><text>{{ item.orders }}</text><strong>{{ money(item.gmv) }}</strong><strong class="commission">{{ money(item.commission) }}</strong><span class="status" :class="item.settled ? 'delivered' : 'pending'">{{ item.settled ? '已结算' : '待结算' }}</span><view class="row-actions"><button v-if="store.can('promoter.manage')" @click="openPromoterEdit(item)">修改</button></view></view>
           </view>
-          <view v-if="!visiblePromoters.length" class="empty-state">没有符合条件的推客</view><PaginationBar :page="page" :page-size="pageSize" :total="visiblePromoters.length" @change="page = $event" />
+          <view v-if="!visiblePromoters.length" class="empty-state">没有符合条件的业务员</view><PaginationBar :page="page" :page-size="pageSize" :total="visiblePromoters.length" @change="page = $event" />
         </section>
+
+        <section v-else-if="active === 'users'" class="data-panel"><AdminUsersPanel /></section>
+
+        <section v-else-if="active === 'leaders'" class="data-panel"><AdminLeadersPanel /></section>
 
         <section v-else-if="active === 'commissions'" class="data-panel">
           <view class="filter-chips commission-filter-tabs"><button v-for="item in commissionTabOptions" :key="item.value" :class="{ active: commissionTab === item.value }" @click="commissionTab = item.value; page = 1">{{ item.label }}</button></view>
           <template v-if="commissionTab === '佣金结算'">
-            <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="请输入单号 / 金额 / 推客" /></view></label><view class="field"><text>状态</text><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" search-placeholder="搜索结算状态" placeholder="请选择状态" /></view></view>
+            <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="commissionKeyword" placeholder="请输入单号 / 金额 / 业务员" /></view></label><view class="field"><text>状态</text><SearchableSelect v-model="commissionStatusFilter" :options="commissionStatusOptions" search-placeholder="搜索结算状态" placeholder="请选择状态" /></view></view>
             <view class="commission-status-table">
-              <view class="panel-head"><h2>推客结算状态</h2><text>未结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) > 0).length }} 人 · 已结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) <= 0).length }} 人</text></view>
-              <view class="table-row table-head commission-status-grid"><text>推客</text><text>类型</text><text>待结佣金</text><text>结算状态</text></view>
+              <view class="panel-head"><h2>业务员结算状态</h2><text>未结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) > 0).length }} 人 · 已结算 {{ store.promoters.filter((p) => pendingShareAmount(p.id) <= 0).length }} 人</text></view>
+              <view class="table-row table-head commission-status-grid"><text>业务员</text><text>类型</text><text>待结佣金</text><text>结算状态</text></view>
               <view v-for="item in pagedPromoterCommissionRows" :key="item.id" class="table-row commission-status-grid" :class="pendingShareAmount(item.id) <= 0 ? 'status-settled' : 'status-unsettled'">
                 <view><strong>{{ item.name }}</strong><small>{{ item.level }}</small></view>
-                <text>{{ item.type || '推客' }}</text>
+                <text>{{ item.type || '业务员' }}</text>
                 <strong>{{ money(pendingShareAmount(item.id)) }}</strong>
                 <span class="status" :class="pendingShareAmount(item.id) <= 0 ? 'delivered' : 'pending'">{{ pendingShareAmount(item.id) <= 0 ? '已结算' : '未结算' }}</span>
               </view>
-              <view v-if="!filteredPromoterCommissionRows.length" class="empty-state">暂无推客结算数据</view>
+              <view v-if="!filteredPromoterCommissionRows.length" class="empty-state">暂无业务员结算数据</view>
               <PaginationBar :page="page" :page-size="pageSize" :total="filteredPromoterCommissionRows.length" @change="page = $event" />
             </view>
             <view class="settlement-history"><view class="panel-head"><h2>佣金结算记录</h2><text>累计 {{ money(filteredCommissionRecords.reduce((sum, item) => sum + item.amount, 0)) }}</text></view>
               <view v-if="!filteredCommissionRecords.length" class="empty-state">暂无佣金流水</view>
-              <view v-for="record in pagedCommissionRecords" :key="record.id" class="history-row"><strong>{{ record.id }} · {{ money(record.amount) }}</strong><small>佣金结算 · {{ record.items.length }} 位推客 · {{ record.createdAt }}</small><view class="history-items"><view v-for="item in record.items" :key="item.promoterId"><span>{{ item.promoterName }}</span><small>{{ item.promoterId }}</small><b>{{ money(item.amount) }}</b></view></view></view>
+              <view v-for="record in pagedCommissionRecords" :key="record.id" class="history-row"><strong>{{ record.id }} · {{ money(record.amount) }}</strong><small>佣金结算 · {{ record.items.length }} 位业务员 · {{ record.createdAt }}</small><view class="history-items"><view v-for="item in record.items" :key="item.promoterId"><span>{{ item.promoterName }}</span><small>{{ item.promoterId }}</small><b>{{ money(item.amount) }}</b></view></view></view>
               <PaginationBar :page="commissionHistoryPage" :page-size="pageSize" :total="filteredCommissionRecords.length" @change="commissionHistoryPage = $event" />
             </view>
           </template>
@@ -2422,7 +2333,7 @@ onBeforeUnmount(() => {
               <view class="withdrawal-table-scroll">
               <view class="table-row table-head withdrawal-grid"><text>申请人</text><text>金额</text><text>方式</text><text>申请时间</text><text>状态</text><text>备注</text><text>操作</text></view>
               <view v-for="item in filteredWithdrawals" :key="item.id" class="table-row withdrawal-grid">
-                <view><strong>{{ item.requesterType === 'user' ? '用户' : '推客' }} · {{ item.requesterId }}</strong><small>{{ item.id }}</small></view><strong>{{ money(item.amount) }}</strong><text>{{ item.method }}</text><text>{{ item.createdAt }}</text><span class="status" :class="item.status">{{ withdrawalStatusText(item.status) }}</span><text>{{ item.reviewedNote || '—' }}</text>
+                <view><strong>{{ item.requesterType === 'user' ? '用户' : '业务员' }} · {{ item.requesterId }}</strong><small>{{ item.id }}</small></view><strong>{{ money(item.amount) }}</strong><text>{{ item.method }}</text><text>{{ item.createdAt }}</text><span class="status" :class="item.status">{{ withdrawalStatusText(item.status) }}</span><text>{{ item.reviewedNote || '—' }}</text>
                 <view class="row-actions"><template v-if="item.status === 'pending' && store.can('withdrawal.review')"><button @click="confirmAction('确认通过该提现申请？', () => approveWithdrawal(item.id))">通过</button><button class="danger" @click="openWithdrawalReject(item.id)">驳回</button></template><text v-else>—</text></view>
               </view>
               </view>
@@ -2439,13 +2350,20 @@ onBeforeUnmount(() => {
           </template>
           <template v-else-if="commissionTab === '佣金规则'">
             <view class="filter-bar"><label class="field is-search"><text>关键词</text><view class="filter-control"><UiIcon name="search" :size="16" /><input v-model="ruleKeyword" placeholder="请输入规则名称" /></view></label></view>
-            <view class="commission-rules"><view class="panel-head"><h2>佣金规则</h2><text>本地模拟配置 · 点击编辑调整比例</text></view><view class="commission-rule-grid"><view v-for="rule in filteredRules" :key="rule.id" class="commission-rule-card"><view class="rule-top"><view class="rule-icon"><UiIcon :name="commissionRuleIcon(rule.targetType)" :size="17" /></view><button v-if="store.can('commission.manage')" class="compact-button" @click="openCommission(rule)">编辑</button></view><strong class="rule-name">{{ rule.name }}</strong><view class="rule-rate">{{ rule.rate }}<small>%</small></view><small class="rule-meta">{{ rule.targetType === 'farm' ? '门店推广' : rule.targetType === 'product' ? '商品推广' : '直播推广' }} · 更新于 {{ rule.updatedAt }}</small></view></view></view>
+            <view class="commission-rules"><view class="panel-head"><h2>佣金规则</h2><text>本地模拟配置 · 点击编辑调整比例</text></view><view class="commission-rule-grid"><view v-for="rule in filteredRules" :key="rule.id" class="commission-rule-card"><view class="rule-top"><view class="rule-icon"><UiIcon :name="commissionRuleIcon(rule.targetType)" :size="17" /></view><button v-if="store.can('commission.manage')" class="compact-button" @click="openCommission(rule)">编辑</button></view><strong class="rule-name">{{ rule.name }}</strong><view class="rule-rate">{{ rule.rate }}<small>%</small></view><small class="rule-meta">{{ rule.targetType === 'farm' ? '门店推广' : rule.targetType === 'product' ? '商品推广' : '门店推广' }} · 更新于 {{ rule.updatedAt }}</small></view></view></view>
           </template>
           <template v-else-if="commissionTab === '消费分成'">
-            <view class="commission-rules"><view class="panel-head"><h2>消费分成设置</h2><text>用户消费后按正式绑定给推客 / 店员分成 · 全局比例</text></view><view class="share-config-row"><label class="field"><text>推客分成比例（%）</text><input v-model.number="shareConfig.promoterRate" type="number" min="0" max="100" /></label><label class="field"><text>店员分成比例（%）</text><input v-model.number="shareConfig.staffRate" type="number" min="0" max="100" /></label><button v-if="store.can('commission.manage')" class="button primary" @click="saveShareConfig">保存比例</button></view></view>
+            <view class="commission-rules"><view class="panel-head"><h2>消费分成设置</h2><text>用户消费后按正式绑定给业务员 / 店员分成 · 全局比例</text></view><view class="share-config-row"><label class="field"><text>业务员分成比例（%）</text><input v-model.number="shareConfig.promoterRate" type="number" min="0" max="100" /></label><label class="field"><text>店员分成比例（%）</text><input v-model.number="shareConfig.staffRate" type="number" min="0" max="100" /></label><button v-if="store.can('commission.manage')" class="button primary" @click="saveShareConfig">保存比例</button></view></view>
             <view class="settlement-history"><view class="panel-head"><h2>消费分成记录</h2><text>共 {{ shareRecords.length }} 笔 · 累计 {{ money(shareRecords.reduce((sum, item) => sum + item.amount, 0)) }}</text></view>
               <view v-if="!shareRecords.length" class="empty-state">暂无消费分成记录</view>
-              <view v-for="record in shareRecords" :key="record.id" class="history-row"><strong>{{ record.userId }} · {{ record.orderId }} · 消费 {{ money(record.orderAmount) }}</strong><small>{{ record.role === 'promoter' ? '推客' : '店员' }} 分成 {{ record.rate }}% · {{ money(record.amount) }} · {{ record.createdAt }}</small></view>
+              <view v-for="record in shareRecords" :key="record.id" class="history-row"><strong>{{ record.userId }} · {{ record.orderId }} · 消费 {{ money(record.orderAmount) }}</strong><small>{{ record.role === 'promoter' ? '业务员' : '店员' }} 分成 {{ record.rate }}% · {{ money(record.amount) }} · {{ record.createdAt }}</small></view>
+            </view>
+          </template>
+          <template v-else-if="commissionTab === '团长分成'">
+            <view class="commission-rules"><view class="panel-head"><h2>团长分成设置</h2><text>下级用户下单后按比例分成给一级 / 二级团长 · 商品级覆盖在商品库维护</text></view><view class="share-config-row"><label class="field"><text>一级团长分成比例（%）</text><input v-model.number="leaderShareForm.level1Rate" type="number" min="0" max="100" /></label><label class="field"><text>二级团长分成比例（%）</text><input v-model.number="leaderShareForm.level2Rate" type="number" min="0" max="100" /></label><button v-if="store.can('leader.manage')" class="button primary" @click="saveLeaderShareRates">保存比例</button></view></view>
+            <view class="settlement-history"><view class="panel-head"><h2>团长分成记录</h2><text>共 {{ leaderCommissionLedger.length }} 笔 · 累计 {{ money(leaderCommissionLedger.reduce((sum, item) => sum + item.amount, 0)) }}</text></view>
+              <view v-if="!leaderCommissionLedger.length" class="empty-state">暂无团长分成记录</view>
+              <view v-for="record in leaderCommissionLedger" :key="record.id" class="history-row"><strong>{{ record.leaderName }} · {{ record.orderId }} · {{ money(record.amount) }}</strong><small>{{ record.levelLabel }} · {{ record.statusLabel }} · {{ record.createdAt }}</small></view>
             </view>
           </template>
         </section>
@@ -2495,7 +2413,7 @@ onBeforeUnmount(() => {
 
      <view v-if="dialog && !workPage" class="modal-mask" :class="{ 'work-modal-mask': !['withdrawal-reject', 'supplier-pause', 'recovery-verify'].includes(dialog) }" @click.self="closeOverlay">
        <view class="modal" role="dialog" aria-modal="true" @keydown="trapFocus">
-         <view class="modal-head"><view><h2>{{ dialog === 'withdrawal-reject' ? '驳回提现申请' : dialog === 'supplier-pause' ? '暂停供应商合作' : dialog === 'recovery-verify' ? (selectedRecoveryTask?.handlerKey ? '重试恢复任务' : '人工核验恢复任务') : dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'route' ? '新增旅游线路' : dialog === 'route-edit' ? '编辑旅游线路' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增推客' : dialog === 'promoter-edit' ? '编辑推客' : dialog === 'farm-edit' ? '编辑农家乐门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增农家乐门店' }}</h2><p>{{ dialog === 'recovery-verify' ? '只有重试成功或人工回读确认后，任务才会关闭' : dialog === 'supplier-pause' ? '暂停后供应商和司机仍可登录并处理存量订单，但不能接收新订单或新增司机' : '保存后立即写入本地演示数据' }}</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
+          <view class="modal-head"><view><h2>{{ dialog === 'withdrawal-reject' ? '驳回提现申请' : dialog === 'supplier-pause' ? '暂停供应商合作' : dialog === 'recovery-verify' ? (selectedRecoveryTask?.handlerKey ? '重试恢复任务' : '人工核验恢复任务') : dialog === 'supplier' ? '邀请供应商入驻' : dialog === 'supplier-edit' ? '编辑供应商' : dialog === 'category' ? '新增品类' : dialog === 'category-edit' ? '编辑品类' : dialog === 'policy' ? '新建价格策略' : dialog === 'policy-edit' ? '编辑价格策略' : dialog === 'after-sale-init' ? '发起售后' : dialog === 'commission' ? '编辑佣金规则' : dialog === 'promoter' ? '新增业务员' : dialog === 'promoter-edit' ? '编辑业务员' : dialog === 'farm-edit' ? '编辑门店' : dialog === 'dict' ? '新增字典项' : dialog === 'dict-edit' ? '编辑字典项' : dialog === 'dict-group' ? '新增分组' : dialog === 'dict-group-edit' ? '编辑分组' : dialog === 'store-account' ? '新增门店账号' : dialog === 'store-account-edit' ? '编辑门店账号' : '新增门店' }}</h2><p>{{ dialog === 'recovery-verify' ? '只有重试成功或人工回读确认后，任务才会关闭' : dialog === 'supplier-pause' ? '暂停后供应商和司机仍可登录并处理存量订单，但不能接收新订单或新增司机' : '保存后立即写入本地演示数据' }}</p></view><button class="icon-button" aria-label="关闭弹窗" @click="closeOverlay"><UiIcon name="x" :size="18" /></button></view>
         <view class="modal-body">
         <template v-if="dialog === 'withdrawal-reject'"><view class="form-card"><label class="field"><text>驳回备注（可选）</text><input v-model="withdrawalNote" placeholder="请输入驳回原因" /></label></view></template>
         <template v-if="dialog === 'supplier-pause'"><view class="form-card"><label class="field"><text>暂停合作原因</text><input v-model="supplierPauseReason" placeholder="必填，恢复合作后仍保留在审计日志" /></label></view></template>
@@ -2533,15 +2451,6 @@ onBeforeUnmount(() => {
           <view v-if="form.categoryType === 'product'" class="field full"><text>品类图片（必传）</text><ImageUploader v-model="form.categoryImage" purpose="product-category" @error="showToast" /></view>
           </view></view>
         </template>
-        <template v-if="dialog === 'route' || dialog === 'route-edit'">
-          <view class="form-card full"><view class="form-card-title">线路信息</view><view class="form-card-grid">
-          <label class="field"><text>线路名称</text><input v-model="form.routeName" placeholder="如：湘西风情两日游" /></label>
-          <label class="field"><text>所属城市</text><input v-model="form.routeCity" placeholder="如：湘西州" /></label>
-          <label class="field"><text>线路描述</text><input v-model="form.routeDesc" placeholder="如：茶园+非遗+农家宴" /></label>
-          <label class="field"><text>参考价格（元）</text><input v-model.number="form.routePrice" type="number" /></label>
-          <view class="field full"><text>线路封面图</text><ImageUploader v-model="form.routeImage" purpose="route-cover" profile="normal" /></view>
-          </view></view>
-        </template>
         <template v-if="dialog === 'dict' || dialog === 'dict-edit'">
           <view class="form-card full"><view class="form-card-title">字典项信息</view><view class="form-card-grid">
           <label class="field"><text>字典编码</text><input v-model="form.dictCode" placeholder="如 pending / transport" :disabled="!activeDictionaryPermissions.editCode" /></label>
@@ -2571,11 +2480,11 @@ onBeforeUnmount(() => {
         <template v-if="dialog === 'after-sale-init'"><view class="form-card full"><view class="form-card-title">售后信息</view><view class="form-card-grid"><label class="field"><text>售后订单</text><input :value="form.id" disabled /></label><view class="field"><text>售后类型</text><SearchableSelect v-model="form.result" :options="afterSaleTypeOptions" search-placeholder="搜索售后类型" /></view><view class="field"><text>售后原因</text><SearchableSelect v-model="form.initIssue" :options="afterReasonSelectOptions" search-placeholder="搜索售后原因" /></view></view></view></template>
         <template v-if="dialog === 'commission'"><view class="form-card full"><view class="form-card-title">佣金规则</view><view class="form-card-grid"><label class="field"><text>佣金比例（1-100%）</text><input v-model.number="form.rate" type="number" min="1" max="100" /></label></view></view></template>
         <template v-if="dialog === 'promoter' || dialog === 'promoter-edit'">
-          <view class="form-card full"><view class="form-card-title">推客信息</view><view class="form-card-grid">
-          <label class="field"><text>推客姓名</text><input v-model="form.name" placeholder="请输入推客姓名" /></label>
-          <view class="field"><text>等级标签</text><SearchableSelect v-model="form.level" :options="promoterLevelOptions" search-placeholder="搜索推客等级" /></view>
-          <view class="field"><text>类型</text><SearchableSelect v-model="form.promoterType" :options="promoterFormTypeOptions" search-placeholder="搜索推客类型" /></view>
-          <view class="field"><text>状态</text><SearchableSelect v-model="form.promoterStatus" :options="promoterStatusOptions" search-placeholder="搜索推客状态" /></view>
+          <view class="form-card full"><view class="form-card-title">业务员信息</view><view class="form-card-grid">
+          <label class="field"><text>业务员姓名</text><input v-model="form.name" placeholder="请输入业务员姓名" /></label>
+          <view class="field"><text>等级标签</text><SearchableSelect v-model="form.level" :options="promoterLevelOptions" search-placeholder="搜索业务员等级" /></view>
+          <view class="field"><text>类型</text><SearchableSelect v-model="form.promoterType" :options="promoterFormTypeOptions" search-placeholder="搜索业务员类型" /></view>
+          <view class="field"><text>状态</text><SearchableSelect v-model="form.promoterStatus" :options="promoterStatusOptions" search-placeholder="搜索业务员状态" /></view>
           </view></view>
         </template>
         <template v-if="dialog === 'farm' || dialog === 'farm-edit'">
@@ -2601,7 +2510,7 @@ onBeforeUnmount(() => {
           <view class="form-card full"><view class="form-card-title">经营数据</view><view class="form-card-grid">
           <label class="field"><text>门店标签</text><input v-model="form.tags" placeholder="逗号分隔，如 柴火土菜,临溪包厢" /></label>
           <label class="field"><text>评分</text><input v-model.number="form.rating" type="number" min="0" max="5" step="0.1" /></label>
-          <label class="field"><text>平均客单价</text><input v-model.number="form.averageSpend" type="number" min="0" /></label><label class="field"><text>人气值</text><input v-model.number="form.livePopularity" type="number" min="0" /></label>
+          <label class="field"><text>平均客单价</text><input v-model.number="form.averageSpend" type="number" min="0" /></label>
           <view class="field"><text>经营状态</text><SearchableSelect v-model="form.farmStatus" :options="farmStatusOptions" search-placeholder="搜索经营状态" /></view>
           </view></view>
         </template>
@@ -2612,7 +2521,7 @@ onBeforeUnmount(() => {
 
     <view v-if="catalogProductDialog" class="modal-mask work-modal-mask" @click.self="catalogProductDialog = false">
       <view class="modal catalog-product-modal" role="dialog" aria-modal="true">
-        <view class="modal-head"><view><h2>{{ store.catalogProducts.some((item) => item.id === catalogProductForm.id) ? '编辑商品' : '新增商品' }}</h2><p>门店、直播与全部商品使用同一商品目录</p></view><button class="icon-button" aria-label="关闭弹窗" @click="catalogProductDialog = false"><UiIcon name="x" :size="18" /></button></view>
+        <view class="modal-head"><view><h2>{{ store.catalogProducts.some((item) => item.id === catalogProductForm.id) ? '编辑商品' : '新增商品' }}</h2><p>门店订货端、用户端与全部商品使用同一商品目录</p></view><button class="icon-button" aria-label="关闭弹窗" @click="catalogProductDialog = false"><UiIcon name="x" :size="18" /></button></view>
         <view class="modal-body catalog-product-body">
         <view class="form-card"><view class="form-card-title">基础信息</view><view class="form-card-grid">
           <label class="field"><text>商品名称</text><input v-model="catalogProductForm.name" placeholder="请输入商品名称" /></label>
@@ -2627,7 +2536,7 @@ onBeforeUnmount(() => {
           <view class="field"><text>商品主图（必传）</text><ImageUploader v-model="catalogProductForm.image" purpose="catalog-main" @error="showToast" /></view>
           <view class="field"><text>商品图库（最多 9 张）</text><ImageUploader v-model="catalogProductForm.images" purpose="catalog-gallery" multiple :max-count="9" @error="showToast" /></view>
           <label class="field"><text>标签（逗号分隔）</text><input v-model="catalogProductForm.tags" placeholder="产地直发,精选" /></label>
-          <label class="field"><text>推客佣金率 %</text><input v-model.number="catalogProductForm.promoterCommissionRate" type="number" min="0" max="100" /></label>
+          <label class="field"><text>业务员佣金率 %</text><input v-model.number="catalogProductForm.promoterCommissionRate" type="number" min="0" max="100" /></label>
           <label class="field"><text>门店佣金率 %</text><input v-model.number="catalogProductForm.storeCommissionRate" type="number" min="0" max="100" /></label>
         </view></view>
         <view class="form-card"><view class="form-card-title">SKU 明细</view>
@@ -2676,7 +2585,7 @@ onBeforeUnmount(() => {
         </view>
         <view v-else-if="detail.type === 'farm' && selectedFarm" class="drawer-list">
           <BusinessImage class="farm-cover" :src="selectedFarm.image" mode="aspectFit" @click="previewImage" /><h3>{{ selectedFarm.name }}</h3><text class="drawer-muted">{{ selectedFarm.region }} · {{ selectedFarm.tags.join(' · ') }}</text>
-          <view class="detail-grid"><view><small>本月 GMV</small><strong>{{ money(selectedFarm.gmv) }}</strong></view><view><small>选品数量</small><strong>{{ selectedFarm.selectedCount }} SKU</strong></view><view><small>月订单</small><strong>{{ selectedFarm.monthlySales }} 单</strong></view><view><small>门店评分</small><strong>{{ selectedFarm.rating }} 分</strong></view><view><small>人气值</small><strong>{{ selectedFarm.livePopularity.toLocaleString('zh-CN') }}</strong></view></view>
+          <view class="detail-grid"><view><small>本月 GMV</small><strong>{{ money(selectedFarm.gmv) }}</strong></view><view><small>选品数量</small><strong>{{ selectedFarm.selectedCount }} SKU</strong></view><view><small>月订单</small><strong>{{ selectedFarm.monthlySales }} 单</strong></view><view><small>门店评分</small><strong>{{ selectedFarm.rating }} 分</strong></view></view>
           <view class="drawer-actions"><button v-if="store.can('farm.manage')" class="button secondary" @click="openFarmEdit(selectedFarm)">修改资料</button></view>
         </view>
         <view v-else-if="detail.type === 'auditLog' && selectedAuditLog" class="drawer-list audit-detail">
@@ -2716,11 +2625,11 @@ h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .pa
 .lower-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:12px; } .rank-row { display:flex; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--color-line); } .rank-row .hot-emoji { width:34px; height:34px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:18px; flex-shrink:0; } .rank-row>view:nth-child(2) { flex:1; min-width:0; } .rank-row .hot-right { text-align:right; flex-shrink:0; } .rank-row .hot-right b { color:var(--admin-green-2); } .rank-row .hot-right small { color:var(--admin-muted); font-size:12px; margin-top:2px; } .rank-row:last-child { border:0; } .rank-row image { width:42px;height:42px;border-radius:var(--radius-icon); } .rank-row strong,.rank-row small { display:block; } .rank-row strong { font-size:12px; } .rank-row small { color:var(--admin-muted);font-size:12px;margin-top:3px; } .rank-row b { color:var(--admin-green-2);font-size:12px; } .rank-no { font-weight:800;color:var(--admin-gold); }
 .todo-row { width:100%;min-height:46px;padding:7px 0;display:flex;align-items:center;gap:11px;background:transparent;border-bottom:1px solid var(--color-line-light);cursor:pointer;text-align:left;color:var(--admin-ink); } .todo-row .todo-emoji { width:28px; height:28px; border-radius:var(--radius-icon); background:var(--color-brand-primary-soft); display:grid; place-items:center; font-size:14px; flex-shrink:0; } .todo-row>view { flex:1; min-width:0; } .todo-row strong,.todo-row small { display:block; } .todo-row strong { font-size:13px; } .todo-row small { color:var(--admin-muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .todo-pill { font-size:12px; font-weight:600; border-radius:var(--radius-nav); padding:3px 10px; background:var(--color-line-light); color:var(--color-ink-2); flex-shrink:0; } .todo-pill.wait { background:var(--color-warning-soft); color:var(--color-warning-dark); } .todo-pill.no { background:var(--color-danger-soft); color:var(--color-danger); }
 .table-row { min-height:var(--admin-row-height); padding:0 17px; display:grid; align-items:center; gap:12px; border-bottom:1px solid var(--color-line-light); font-size:12px; } .table-row:last-of-type { border-bottom:0; } .table-head { min-height:40px; background:var(--color-card-alt); color:var(--admin-muted);font-size:12px;font-weight:700; }
-.report-filters{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px;padding:16px;border-bottom:1px solid var(--admin-line)}.report-filters .field{display:flex;flex-direction:column;gap:6px;min-width:0}.report-filters .field>text{font-size:12px;color:var(--admin-muted)}.report-filters .picker-field,.booking-filters .picker-field,.audit-filters .picker-field{height:var(--admin-control-height);padding:0 9px;border:1px solid var(--color-line);border-radius:var(--admin-radius-control);background:var(--color-card);box-sizing:border-box}.report-filter-error{margin:10px 16px 0;padding:8px 10px;color:var(--color-danger);background:var(--color-danger-soft);border:1px solid var(--color-danger-soft);border-radius:var(--admin-radius-control);font-size:12px}.report-summary{margin:16px}.report-table-scroll{overflow-x:auto;margin:0 16px 16px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel)}.report-grid{grid-template-columns:1fr 2fr .8fr .9fr 1fr;min-width:620px}.report-panel{overflow:visible}
+.report-filters{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px;padding:16px;border-bottom:1px solid var(--admin-line)}.report-filters .field{display:flex;flex-direction:column;gap:6px;min-width:0}.report-filters .field>text{font-size:12px;color:var(--admin-muted)}.report-filters .picker-field,.audit-filters .picker-field{height:var(--admin-control-height);padding:0 9px;border:1px solid var(--color-line);border-radius:var(--admin-radius-control);background:var(--color-card);box-sizing:border-box}.report-filter-error{margin:10px 16px 0;padding:8px 10px;color:var(--color-danger);background:var(--color-danger-soft);border:1px solid var(--color-danger-soft);border-radius:var(--admin-radius-control);font-size:12px}.report-summary{margin:16px}.report-table-scroll{overflow-x:auto;margin:0 16px 16px;border:1px solid var(--color-line);border-radius:var(--admin-radius-panel)}.report-grid{grid-template-columns:1fr 2fr .8fr .9fr 1fr;min-width:620px}.report-panel{overflow:visible}
 @media (max-width: 900px){.report-filters{grid-template-columns:repeat(2,minmax(0,1fr));}.report-filters .field{min-width:0;}.report-filters :deep(.searchable-select){min-width:0;}}
-.supplier-table-scroll{overflow-x:auto;max-width:100%}.order-table-scroll{overflow-x:auto;max-width:100%}.farm-table-scroll{overflow-x:auto;max-width:100%}.product-table-scroll{overflow-x:auto;max-width:100%}.promoter-table-scroll{overflow-x:auto;max-width:100%}.account-table-scroll{overflow-x:auto;max-width:100%}.withdrawal-table-scroll{overflow-x:auto;max-width:100%}.role-table-scroll{overflow-x:auto;max-width:100%}.admin-account-table-scroll{overflow-x:auto;max-width:100%}.supplier-grid { grid-template-columns:1.4fr 1.3fr .55fr 1fr minmax(240px, 1.4fr);min-width:980px; }.supplier-grid .row-actions{flex-wrap:wrap}.dict-grid { grid-template-columns:1.4fr 1.6fr .7fr .6fr 1fr; }.dict-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;flex-wrap:wrap}.dict-tabs{display:flex;flex-wrap:wrap;gap:7px}.dict-tab{display:flex;align-items:center;min-height:32px;padding:0 4px 0 12px;border-radius:var(--admin-radius-control);border:1px solid var(--color-line);background:var(--color-card);color:var(--color-ink)}.dict-tab.active{background:var(--color-brand-primary-soft);border-color:var(--color-line);color:var(--color-brand-primary)}.dict-tab-btn{min-height:28px;padding:0 8px;border:0;background:transparent;color:inherit;font-size:13px;cursor:pointer}.dict-tab.active .dict-tab-btn{font-weight:700}.dict-tool-actions{display:flex;align-items:center;gap:8px}.dict-table{border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);overflow:hidden}.dict-table .table-row{min-height:var(--admin-row-height);padding:0 14px}.dict-table .table-row:nth-child(even){background:var(--color-card-alt)}.dict-table .table-head{min-height:40px;background:var(--color-line-light)}.account-grid { grid-template-columns:1.3fr 1fr 1.3fr .6fr .7fr .7fr 1.2fr; }.product-grid { grid-template-columns:1.6fr .8fr .7fr .8fr .6fr .7fr .6fr .6fr .6fr .8fr; }.order-grid{grid-template-columns:1.2fr 1.4fr .45fr .75fr .6fr .6fr .55fr .6fr .6fr .8fr;min-width:1080px}.farm-grid{grid-template-columns:1.3fr 1.2fr .7fr .8fr .75fr .6fr .7fr .8fr;min-width:860px}
+.supplier-table-scroll{overflow-x:auto;max-width:100%}.order-table-scroll{overflow-x:auto;max-width:100%}.farm-table-scroll{overflow-x:auto;max-width:100%}.product-table-scroll{overflow-x:auto;max-width:100%}.promoter-table-scroll{overflow-x:auto;max-width:100%}.account-table-scroll{overflow-x:auto;max-width:100%}.withdrawal-table-scroll{overflow-x:auto;max-width:100%}.role-table-scroll{overflow-x:auto;max-width:100%}.admin-account-table-scroll{overflow-x:auto;max-width:100%}.supplier-grid { grid-template-columns:1.4fr 1.3fr .55fr 1fr minmax(240px, 1.4fr);min-width:980px; }.supplier-grid .row-actions{flex-wrap:wrap}.dict-grid { grid-template-columns:1.4fr 1.6fr .7fr .6fr 1fr; }.dict-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;flex-wrap:wrap}.dict-tabs{display:flex;flex-wrap:wrap;gap:7px}.dict-tab{display:flex;align-items:center;min-height:32px;padding:0 4px 0 12px;border-radius:var(--admin-radius-control);border:1px solid var(--color-line);background:var(--color-card);color:var(--color-ink)}.dict-tab.active{background:var(--color-brand-primary-soft);border-color:var(--color-line);color:var(--color-brand-primary)}.dict-tab-btn{min-height:28px;padding:0 8px;border:0;background:transparent;color:inherit;font-size:13px;cursor:pointer}.dict-tab.active .dict-tab-btn{font-weight:700}.dict-tool-actions{display:flex;align-items:center;gap:8px}.dict-table{border:1px solid var(--color-line);border-radius:var(--admin-radius-panel);overflow:hidden}.dict-table .table-row{min-height:var(--admin-row-height);padding:0 14px}.dict-table .table-row:nth-child(even){background:var(--color-card-alt)}.dict-table .table-head{min-height:40px;background:var(--color-line-light)}.account-grid { grid-template-columns:1.3fr 1fr 1.3fr .6fr .7fr .7fr 1.2fr; }.product-grid { grid-template-columns:1.6fr .8fr .7fr .8fr .6fr .7fr .6fr .6fr .6fr .8fr; }.order-grid{grid-template-columns:1.2fr 1.4fr .45fr .75fr .6fr .6fr .55fr .6fr .6fr .8fr;min-width:1080px}.farm-grid{grid-template-columns:1.3fr 1.2fr .7fr .8fr .85fr .7fr .8fr;min-width:860px}
 .after-sale-table-scroll{overflow-x:auto;max-width:100%}.after-grid { grid-template-columns:1fr 1.4fr .5fr .7fr .7fr .7fr .7fr minmax(220px,1.2fr);min-width:1040px }.after-grid .row-actions{min-width:220px;flex-wrap:nowrap}.after-grid .row-actions button{white-space:nowrap}.promoter-grid { grid-template-columns:1.2fr 1.1fr .65fr .65fr .9fr .8fr .6fr .8fr;min-width:900px }
-.table-row strong,.table-row small { display:block; } .table-row small { color:var(--admin-muted);font-size:12px;margin-top:2px; } .route-grid { display:grid;grid-template-columns:1.6fr .8fr .7fr 1.4fr .8fr; }.route-cell { display:flex;align-items:center;gap:10px;min-width:0; }.route-thumb { width:42px;height:42px;flex:none;border-radius:var(--radius-icon); }.product-cell { display:flex;align-items:center;gap:10px;min-width:0; } .product-cell image { width:42px;height:42px;border-radius:var(--radius-icon);flex:none; } .product-cell view { min-width:0; } .product-cell strong { overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere; }
+.table-row strong,.table-row small { display:block; } .table-row small { color:var(--admin-muted);font-size:12px;margin-top:2px; } .product-cell { display:flex;align-items:center;gap:10px;min-width:0; } .product-cell image { width:42px;height:42px;border-radius:var(--radius-icon);flex:none; } .product-cell view { min-width:0; } .product-cell strong { overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere; }
 /* 订单表金额/实付列右对齐（order-grid 直接子级 strong 恰为两列金额） */
 .order-grid>strong{text-align:right}
 .order-grid.table-head>text:nth-child(5),.order-grid.table-head>text:nth-child(6){text-align:right}
@@ -2773,7 +2682,6 @@ h1,h2,p { margin: 0; letter-spacing: 0; } .page-head h1 { font-size: 24px; } .pa
 .row-actions button.danger{background:var(--color-card);color:var(--color-danger);border-color:var(--color-danger-soft)}
 
 
-
 .drawer-head-actions{display:flex;align-items:center;gap:8px}
 .mark-read-button{min-height:32px;padding:0 10px;border-radius:var(--admin-radius-control);background:var(--color-brand-primary-soft);color:var(--color-brand-primary);border:1px solid var(--color-line);font-size:13px;display:inline-flex;align-items:center;gap:5px}
 
@@ -2807,8 +2715,6 @@ button, uni-button { text-align: center; }
 .source-pill{display:inline-block;padding:2px 8px;border-radius:var(--radius-nav);font-size:12px;font-weight:600;color:var(--admin-ink)}
 
 
-
-
 /* ===== 行内 emoji（按截图） ===== */
 .row-emoji{display:inline-grid;place-items:center;width:22px;height:22px;margin-right:6px;font-size:14px;background:var(--color-line-light);border-radius:var(--radius-icon);vertical-align:-3px}
 .row-emoji.big{width:38px;height:38px;font-size:20px;border-radius:var(--radius-icon);vertical-align:middle}
@@ -2819,7 +2725,7 @@ button, uni-button { text-align: center; }
 .table-head{min-height:40px;background:var(--color-card-alt);color:var(--color-ink-3);font-weight:600}
 
 
-/* ===== 推客排行标签实底（按截图） ===== */
+/* ===== 业务员排行标签实底（按截图） ===== */
 .filter-chips.solid button{border-radius:var(--admin-radius-control)}
 .filter-chips.solid button.active{background:var(--color-brand-primary-soft);color:var(--color-brand-primary-dark);border-color:var(--color-line);font-weight:700}
 
@@ -2837,8 +2743,6 @@ button, uni-button { text-align: center; }
 .commission-status-grid.status-settled{background:var(--color-success-soft)}
 
 
-
-
 /* ===== 按钮组靠左修复（uni-button 默认 margin:0 auto 会摊开） ===== */
 .filter-chips uni-button, .order-tabs uni-button { margin: 0; }
 
@@ -2854,7 +2758,6 @@ button, uni-button { text-align: center; }
 /* ===== 文字水平居中兜底 ===== */
 
 .filter-chips uni-button, .order-tabs uni-button { text-align: center; }
-
 
 
 /* ===== 按钮文字水平垂直居中（uni-button 默认 display:block 文字顶对齐） ===== */
@@ -3024,11 +2927,11 @@ button, uni-button { text-align: center; }
 .work-page{width:100%;height:calc(100vh - 118px);min-height:calc(100vh - 118px);display:flex;flex-direction:column;overflow:hidden;background:var(--color-card);border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);padding:24px}.work-page-head{display:flex;align-items:flex-start;gap:16px;padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--admin-line)}.work-page-head>.button,.work-page-actions>.button{margin:0}.work-page-head>view{min-width:0;flex:1}.work-page-head h1{margin:0;font-size:24px}.work-page-head p{margin:5px 0 0;color:var(--admin-muted);font-size:13px}.work-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 22px;max-width:1120px;flex:1;min-height:0;overflow-y:auto}.work-form-grid .full,.permission-section.full{grid-column:1/-1}.work-page-actions{display:flex;justify-content:flex-end;gap:10px;flex:none;margin-top:auto;padding:18px 0 max(8px,env(safe-area-inset-bottom));border-top:1px solid var(--admin-line)}.permission-section{padding:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt)}.permission-section h3{margin:0 0 12px;font-size:14px}.permission-groups{display:grid;gap:10px}.permission-group{padding:10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card)}.permission-group.disabled{opacity:.65}.permission-group-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.permission-group-head>view{display:flex;gap:6px}.permission-group-head button{min-height:28px;padding:0 8px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2);font-size:13px}.permission-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.permission-grid.actions{grid-template-columns:repeat(3,minmax(0,1fr))}.permission-grid button{min-height:36px;padding:7px 10px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);background:var(--color-card);color:var(--admin-ink);overflow-wrap:anywhere}.permission-grid button.selected{background:var(--admin-green-soft);border-color:var(--color-line);color:var(--admin-green-2);font-weight:700}.pause-reason{display:block;margin-top:6px;color:var(--color-danger);line-height:1.45;overflow-wrap:anywhere}.system-table-panel{overflow:hidden}.system-table-scroll{overflow-x:auto}.audit-filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;padding:16px 16px 0}.audit-filters .field{min-width:0;margin:0}.audit-grid{grid-template-columns:1.2fr 1fr .8fr 1.4fr 1fr .6fr 1.3fr .7fr;min-width:1120px}.role-grid{grid-template-columns:1.2fr 1fr .8fr .8fr .7fr 1fr;min-width:820px}.admin-account-grid{grid-template-columns:1fr 1fr 1fr .7fr 1.3fr 1fr;min-width:850px}.audit-grid>view strong,.audit-grid>view small{display:block}.audit-grid>view small{margin-top:3px;color:var(--admin-muted)}
 .recovery-verification-summary{display:flex;flex-direction:column;gap:4px;margin-bottom:14px;padding:12px;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt)}.recovery-verification-summary text,.recovery-verification-summary small{color:var(--admin-muted);overflow-wrap:anywhere}.field textarea{width:100%;min-height:108px;padding:10px 11px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control);outline:0;background:var(--color-card);resize:vertical;font:inherit;line-height:1.5}.audit-metadata{margin-top:16px}.audit-metadata small{display:block;margin-bottom:7px;color:var(--admin-muted)}.audit-metadata pre{max-height:320px;margin:0;padding:12px;overflow:auto;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel);background:var(--color-card-alt);color:var(--admin-ink);font:12px/1.55 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .work-modal-mask{left:var(--admin-sidebar-width);top:64px;display:block;padding:24px;background:var(--admin-bg);overflow:hidden}.work-modal-mask .modal{width:100%;max-width:none;height:100%;max-height:100%;min-height:0;border-radius:var(--admin-radius-panel);box-shadow:none}.work-modal-mask .modal:not(.catalog-product-modal){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:0 22px}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:1/-1}
-.booking-filters{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr)) auto;gap:12px;align-items:end;padding:16px;border-bottom:1px solid var(--admin-line)}.booking-filters .field{min-width:0;margin:0}.booking-table-scroll{overflow-x:auto;margin:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel)}.booking-grid{grid-template-columns:1fr 1.4fr 1fr .9fr 1.3fr 1.6fr;min-width:980px}.booking-grid>view strong,.booking-grid>view small{display:block}.booking-grid>view small{margin-top:4px;color:var(--admin-muted);overflow-wrap:anywhere}.booking-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.booking-actions input{width:92px;height:32px;padding:0 7px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control)}.booking-actions button{min-height:32px;padding:0 9px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2)}.booking-actions button.danger{background:var(--color-danger-soft);color:var(--color-danger)}
+.table-scroll{overflow-x:auto;margin:16px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-panel)}.table-grid{grid-template-columns:1fr 1.4fr 1fr .9fr 1.3fr 1.6fr;min-width:980px}.table-grid>view strong,.table-grid>view small{display:block}.table-grid>view small{margin-top:4px;color:var(--admin-muted);overflow-wrap:anywhere}.table-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.table-actions input{width:92px;height:32px;padding:0 7px;border:1px solid var(--admin-line);border-radius:var(--admin-radius-control)}.table-actions button{min-height:32px;padding:0 9px;border-radius:var(--admin-radius-control);background:var(--admin-green-soft);color:var(--admin-green-2)}.table-actions button.danger{background:var(--color-danger-soft);color:var(--color-danger)}
 @media (max-height:768px) and (min-width:769px){.nav-list{padding-bottom:8px}.brand{min-height:54px}.nav-item{min-height:40px}}
 @media(max-width:1180px){.audit-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.work-modal-mask{left:var(--admin-sidebar-width)}.operator-meta{display:none}.operator .logout-button text{display:none}.operator .logout-button{width:32px;height:32px;min-height:32px;margin-left:0;padding:0;flex:none}}
-@media(max-width:768px){.report-filters{grid-template-columns:1fr}.audit-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.booking-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page{padding:18px 14px 96px}.work-page-head{flex-direction:column}.work-form-grid{grid-template-columns:1fr}.work-form-grid .full,.permission-section.full{grid-column:auto}.permission-grid,.permission-grid.actions{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page-actions{flex:none;background:var(--color-card);padding:12px 0 max(12px,env(safe-area-inset-bottom))}.supplier-grid{min-width:980px}.work-modal-mask{left:72px;top:96px;padding:12px}.work-modal-mask .modal:not(.catalog-product-modal){grid-template-columns:1fr}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:auto}}
-@media(max-width:420px){.report-filters{grid-template-columns:1fr}.report-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.report-summary>view:last-child{grid-column:1/-1}.booking-filters{grid-template-columns:1fr}.booking-table-scroll{margin:10px 8px}.permission-grid,.permission-grid.actions{grid-template-columns:1fr}.permission-group-head{align-items:flex-start}.work-page-head h1{font-size:20px}.work-modal-mask{left:56px;padding:8px}}
+@media(max-width:768px){.report-filters{grid-template-columns:1fr}.audit-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page{padding:18px 14px 96px}.work-page-head{flex-direction:column}.work-form-grid{grid-template-columns:1fr}.work-form-grid .full,.permission-section.full{grid-column:auto}.permission-grid,.permission-grid.actions{grid-template-columns:repeat(2,minmax(0,1fr))}.work-page-actions{flex:none;background:var(--color-card);padding:12px 0 max(12px,env(safe-area-inset-bottom))}.supplier-grid{min-width:980px}.work-modal-mask{left:72px;top:96px;padding:12px}.work-modal-mask .modal:not(.catalog-product-modal){grid-template-columns:1fr}.work-modal-mask .modal-head,.work-modal-mask .modal-actions,.work-modal-mask .tier-editor{grid-column:auto}}
+@media(max-width:420px){.report-filters{grid-template-columns:1fr}.report-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.report-summary>view:last-child{grid-column:1/-1}.table-scroll{margin:10px 8px}.permission-grid,.permission-grid.actions{grid-template-columns:1fr}.permission-group-head{align-items:flex-start}.work-page-head h1{font-size:20px}.work-modal-mask{left:56px;padding:8px}}
 .category-label{min-width:0;display:inline-flex;align-items:center;gap:6px}
 .category-label text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .category-thumb{width:32px;height:32px;flex:none;border:1px solid var(--admin-line);border-radius:var(--radius-icon);background:var(--color-card-alt)}
@@ -3038,10 +2941,10 @@ button, uni-button { text-align: center; }
 .admin-workspace{min-width:0}
 .page-head>view:first-child,.panel-head>view,.filter-bar,.toolbar-actions{min-width:0}
 .page-head h1,.page-head p,.work-page-head h1,.work-page-head p{overflow-wrap:anywhere}
-.panel,.data-panel,.work-page,.policy-data-card,.commission-rule-card,.commission-rules,.settlement-history,.report-table-scroll,.booking-table-scroll,.dict-table{border-radius:var(--admin-radius-panel)}
+.panel,.data-panel,.work-page,.policy-data-card,.commission-rule-card,.commission-rules,.settlement-history,.report-table-scroll,.table-scroll,.dict-table{border-radius:var(--admin-radius-panel)}
 .button,.filter-control,.icon-button,.field>input,.field textarea,.picker-field,.upload-button,.compact-button,.mini-button,.period-button{border-radius:var(--admin-radius-control)}
 .button{min-height:var(--admin-control-height)}
-.module-toolbar,.booking-filters,.report-filters,.audit-filters,.dict-toolbar{background:var(--color-card);border-bottom:1px solid var(--admin-line)}
+.module-toolbar,.report-filters,.audit-filters,.dict-toolbar{background:var(--color-card);border-bottom:1px solid var(--admin-line)}
 .module-toolbar,.dict-toolbar{padding:12px 16px}
 .data-panel>.filter-bar,.data-panel>.goods-tools,.data-panel>.filter-chips{margin:0;padding:12px 16px;border-bottom:1px solid var(--admin-line);background:var(--color-card)}
 .data-panel>.filter-chips+.filter-bar{border-top:0}

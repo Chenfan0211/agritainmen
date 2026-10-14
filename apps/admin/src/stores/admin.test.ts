@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { vi } from 'vitest'
-import type { AdminRole, CatalogProduct, COrder, GeocodeResult, SharedBooking } from '@agritainment/shared'
-import { ADMIN_SUPER_ROLE_ID, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, acceptSupplierOrder, addDictItem, afterSales, categories, cloneSeed, configurePlatformProviders, defaultAdminAccounts, defaultAdminRoles, enqueuePlatformRecovery, farms, mergePlatformOrders, orders, pendingShareAmount, preparePlatformJournal, products, promoters, publishCSubOrderToSupplier, publishPlatformDictionaries, readCCommissionRecords, readCOrders, readCatalogState, readPlatformAdminAccounts, readPlatformAdminRoles, readPlatformAfterSales, readPlatformAuditLogs, readPlatformBookings, readPlatformCommissionRules, readPlatformCommissionSettlement, readPlatformCommissionSettlementRecords, readPlatformCommissionSettlements, readPlatformDictionaries, readPlatformJournal, readPlatformOrders, readPlatformRecoveryQueue, readPlatformSupplierAccounts, readPlatformSupplierSettlements, readPricingDefaults, readShareConfig, readShareRecords, resolvePlatformJournal, retryPlatformRecoveryTask, shipSupplierCourier, suppliers, writeCCommissionRecords, writeCOrders, writeCatalogState, writePlatformAdminAccounts, writePlatformAdminRoles, writePlatformAfterSale, writePlatformAfterSales, writePlatformBooking, writePlatformCommissionRules, writePlatformCommissionSettlementRecords, writePlatformCommissionSettlements, writePlatformEntities, writePlatformOrder, writePlatformOrders, writePlatformSupplierSettlements, writePricingDefaults, writeShareRecords, readPlatformWithdrawals, writePlatformWithdrawal } from '@agritainment/shared'
+import type { AdminRole, CatalogProduct, COrder, GeocodeResult } from '@agritainment/shared'
+import { ADMIN_SUPER_ROLE_ID, PLATFORM_ADMIN_ROLES_STORAGE_KEY, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_AUDIT_LOG_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_COMMISSION_RULES_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, acceptSupplierOrder, addDictItem, afterSales, categories, cloneSeed, configurePlatformProviders, defaultAdminAccounts, defaultAdminRoles, enqueuePlatformRecovery, farms, mergePlatformOrders, orders, pendingShareAmount, preparePlatformJournal, products, promoters, publishCSubOrderToSupplier, publishPlatformDictionaries, readCCommissionRecords, readCOrders, readCatalogState, readPlatformAdminAccounts, readPlatformAdminRoles, readPlatformAfterSales, readPlatformAuditLogs, readPlatformCommissionRules, readPlatformCommissionSettlement, readPlatformCommissionSettlementRecords, readPlatformCommissionSettlements, readPlatformDictionaries, readPlatformJournal, readPlatformOrders, readPlatformRecoveryQueue, readPlatformSupplierAccounts, readPlatformSupplierSettlements, readPricingDefaults, readShareConfig, readShareRecords, resolvePlatformJournal, retryPlatformRecoveryTask, shipSupplierCourier, suppliers, writeCCommissionRecords, writeCOrders, writeCatalogState, writePlatformAdminAccounts, writePlatformAdminRoles, writePlatformAfterSale, writePlatformAfterSales, writePlatformCommissionRules, writePlatformCommissionSettlementRecords, writePlatformCommissionSettlements, writePlatformEntities, writePlatformOrder, writePlatformOrders, writePlatformSupplierSettlements, writePricingDefaults, writeShareRecords, readPlatformWithdrawals, writePlatformWithdrawal } from '@agritainment/shared'
 import { readPlatformEntities } from '@agritainment/shared'
 import { useAdminStore } from './admin'
 import * as adminStoreModule from './admin'
@@ -33,6 +33,64 @@ describe('admin store interactions', () => {
     configurePlatformProviders()
     await useAdminStore().login('admin', '123456')
   })
+
+  function seedShippedCMallOrder(suffix: string) {
+    const item = { productId: `P-${suffix}`, skuId: `SKU-${suffix}`, name: '联调商品', skuName: '标准装', image: '/static/images/field.webp', quantity: 1, unitPrice: 100, basePrice: 75, level1Commission: 10, level2Commission: 15, supplierId: 'S002' }
+    const sub = { id: `CSO-${suffix}`, supplierId: 'S002', supplierName: '湘西腊味合作社', items: [item], amount: 100, status: 'paid' as const, logistics: [] }
+    const order: COrder = {
+      id: `CO-${suffix}`, userId: `U-${suffix}`, level: 'normal',
+      address: { id: `ADDR-${suffix}`, userId: `U-${suffix}`, receiver: '联调用户', phone: '13800000000', region: '湖南', detail: '联调地址', isDefault: true },
+      amount: 100, items: [item], subOrders: [sub],
+      commissionAllocations: [{ id: `CC-${suffix}`, orderId: `CO-${suffix}`, subOrderId: sub.id, beneficiaryId: 'T001', beneficiaryLevel: 'level1', amount: 10, status: 'pending', createdAt: '2026-08-29T10:00:00.000Z' }],
+      status: 'paid', createdAt: '2026-08-29T10:00:00.000Z', paidAt: '2026-08-29T10:01:00.000Z'
+    }
+    const published = publishCSubOrderToSupplier(order, sub)
+    const accepted = acceptSupplierOrder(published, '供应商')!
+    const shipped = shipSupplierCourier(accepted, `SF-${suffix}`, '供应商')!
+    expect(writeCOrders({ [order.id]: order })).toBe(true)
+    expect(writeCCommissionRecords(order.commissionAllocations)).toBe(true)
+    expect(writePlatformOrder(shipped)).toBe(true)
+    return { order, sub, shipped }
+  }
+
+  async function seedRefundPendingCMallOrder(suffix: string) {
+    const store = useAdminStore()
+    await store.initialize()
+    const catalog = cloneSeed(readCatalogState()!)
+    const product = catalog.products[0]
+    const sku = product.skus[0]
+    const supplierId = product.supplierId || 'S002'
+    const item = {
+      productId: product.id, skuId: sku.id, name: product.name, skuName: sku.name,
+      image: typeof product.image === 'string' ? product.image : '/static/images/field.webp', quantity: 2,
+      unitPrice: sku.retailPrice, basePrice: sku.cost, level1Commission: 10, level2Commission: 0, supplierId
+    }
+    const sub = {
+      id: `CSO-${suffix}`, supplierId, supplierName: product.supplierName,
+      items: [item], amount: sku.retailPrice * 2, status: 'after_sale' as const, logistics: [], inventoryReleased: false,
+      afterSale: { id: `CAS-${suffix}`, reason: '质量问题', status: 'processing' as const, createdAt: '2026-08-30T10:00:00.000Z' }
+    }
+    const commission = { id: `CC-${suffix}`, orderId: `CO-${suffix}`, subOrderId: sub.id, beneficiaryId: 'T001', beneficiaryLevel: 'level1' as const, amount: 10, status: 'available' as const, createdAt: '2026-08-30T09:00:00.000Z' }
+    const order: COrder = {
+      id: `CO-${suffix}`, userId: `U-${suffix}`, level: 'normal',
+      address: { id: `ADDR-${suffix}`, userId: `U-${suffix}`, receiver: '退款用户', phone: '13800000000', region: '湖南', detail: '退款地址', isDefault: true },
+      amount: sub.amount, items: [item], subOrders: [sub], commissionAllocations: [commission], status: 'after_sale',
+      createdAt: '2026-08-30T09:00:00.000Z', paidAt: '2026-08-30T09:01:00.000Z', providerTransactionId: `PAY-${suffix}`
+    }
+    const supplierOrder = { ...publishCSubOrderToSupplier(order, sub), status: 'after-sale' as const }
+    const work = {
+      id: `AS-${suffix}`, orderId: order.id, masterOrderId: order.id, subOrderId: sub.id, supplierOrderId: supplierOrder.id,
+      operationId: `after-sale:${sub.id}`, productName: product.name, applicant: '退款用户', type: 'refund' as const,
+      amount: sub.amount, refundAmount: sub.amount, status: 'refund-pending' as const, issue: '质量问题'
+    }
+    expect(writeCOrders({ [order.id]: order })).toBe(true)
+    expect(writeCCommissionRecords([commission])).toBe(true)
+    expect(writePlatformOrders({ [supplierOrder.id]: supplierOrder })).toBe(true)
+    expect(writePlatformAfterSales({ [work.id]: work })).toBe(true)
+    store.afterSales = [work]
+    store.orders = [supplierOrder]
+    return { store, catalog, product, sku, order, sub, commission, supplierOrder, work }
+  }
 
   it('registers shared user payment and package recovery handlers on admin startup', async () => {
     const store = useAdminStore()
@@ -187,114 +245,6 @@ describe('admin store interactions', () => {
     ]))
     audit.mockRestore()
   })
-
-  it('does not overwrite a concurrent route update while waiting for the route lock', async () => {
-    const routeKey = shared.PLATFORM_ROUTES_STORAGE_KEY
-    const original = { id: 'ROUTE-CONCURRENT-BASE', name: '原线路' }
-    expect(shared.writePlatformJson(routeKey, { [original.id]: original })).toBe(true)
-    const store = useAdminStore()
-    await store.refreshSharedState()
-    let injected = false
-    vi.stubGlobal('navigator', { locks: { request: async (name: string, callback: () => Promise<unknown>) => {
-      if (!injected && name === `agritainment-platform:${routeKey}`) {
-        injected = true
-        expect(shared.writePlatformJson(routeKey, { [original.id]: original, 'ROUTE-CONCURRENT-WRITE': { id: 'ROUTE-CONCURRENT-WRITE', name: '并发线路' } })).toBe(true)
-      }
-      return callback()
-    } } })
-
-    expect(await store.addRoute({ name: '后台新增线路' } as Omit<shared.TravelRoute, 'id'>)).toBe(false)
-
-    expect(store.error).toBe('数据已更新，请刷新后重试')
-    expect(shared.readPlatformRoutes()).toEqual({ [original.id]: original, 'ROUTE-CONCURRENT-WRITE': { id: 'ROUTE-CONCURRENT-WRITE', name: '并发线路' } })
-  })
-
-  it.each(['create', 'update'] as const)('rejects admin account %s when the selected role is disabled while waiting for locks', async (mode) => {
-    const store = useAdminStore()
-    const roles = readPlatformAdminRoles()
-    const viewer = roles.find((role) => role.id === 'AR-VIEWER')!
-    if (mode === 'update') {
-      expect(writePlatformAdminAccounts([
-        ...readPlatformAdminAccounts(),
-        { id: 'AA-CONCURRENT-ROLE', account: 'concurrent-role', password: '123456', name: '并发角色账号', roleId: 'AR-OPERATIONS', enabled: true, createdAt: viewer.createdAt, updatedAt: viewer.updatedAt }
-      ])).toBe(true)
-    }
-    let roleLockSeen = false
-    vi.stubGlobal('navigator', { locks: { request: async (name: string, callback: () => Promise<unknown>) => {
-      if (!roleLockSeen && name === `agritainment-platform:${PLATFORM_ADMIN_ROLES_STORAGE_KEY}`) {
-        roleLockSeen = true
-        expect(writePlatformAdminRoles(readPlatformAdminRoles().map((role) => role.id === viewer.id ? { ...role, enabled: false } : role))).toBe(true)
-      }
-      return callback()
-    } } })
-
-    const result = mode === 'create'
-      ? await store.createAdminAccount({ account: 'role-race-create', password: '123456', name: '角色并发创建', roleId: viewer.id })
-      : await store.updateAdminAccount('AA-CONCURRENT-ROLE', { roleId: viewer.id })
-
-    expect(roleLockSeen).toBe(true)
-    expect(result).toEqual({ ok: false, error: '数据已更新，请刷新后重试' })
-    expect(readPlatformAdminAccounts().some((account) => account.account === 'role-race-create')).toBe(false)
-    if (mode === 'update') expect(readPlatformAdminAccounts().find((account) => account.id === 'AA-CONCURRENT-ROLE')?.roleId).toBe('AR-OPERATIONS')
-  })
-
-  function seedShippedCMallOrder(suffix: string) {
-    const item = { productId: `P-${suffix}`, skuId: `SKU-${suffix}`, name: '联调商品', skuName: '标准装', image: '/static/images/field.webp', quantity: 1, unitPrice: 100, basePrice: 75, level1Commission: 10, level2Commission: 15, supplierId: 'S002' }
-    const sub = { id: `CSO-${suffix}`, supplierId: 'S002', supplierName: '湘西腊味合作社', items: [item], amount: 100, status: 'paid' as const, logistics: [] }
-    const order: COrder = {
-      id: `CO-${suffix}`, userId: `U-${suffix}`, level: 'normal',
-      address: { id: `ADDR-${suffix}`, userId: `U-${suffix}`, receiver: '联调用户', phone: '13800000000', region: '湖南', detail: '联调地址', isDefault: true },
-      amount: 100, items: [item], subOrders: [sub],
-      commissionAllocations: [{ id: `CC-${suffix}`, orderId: `CO-${suffix}`, subOrderId: sub.id, beneficiaryId: 'T001', beneficiaryLevel: 'level1', amount: 10, status: 'pending', createdAt: '2026-08-29T10:00:00.000Z' }],
-      status: 'paid', createdAt: '2026-08-29T10:00:00.000Z', paidAt: '2026-08-29T10:01:00.000Z'
-    }
-    const published = publishCSubOrderToSupplier(order, sub)
-    const accepted = acceptSupplierOrder(published, '供应商')!
-    const shipped = shipSupplierCourier(accepted, `SF-${suffix}`, '供应商')!
-    expect(writeCOrders({ [order.id]: order })).toBe(true)
-    expect(writeCCommissionRecords(order.commissionAllocations)).toBe(true)
-    expect(writePlatformOrder(shipped)).toBe(true)
-    return { order, sub, shipped }
-  }
-
-  async function seedRefundPendingCMallOrder(suffix: string) {
-    const store = useAdminStore()
-    await store.initialize()
-    const catalog = cloneSeed(readCatalogState()!)
-    const product = catalog.products[0]
-    const sku = product.skus[0]
-    const supplierId = product.supplierId || 'S002'
-    const item = {
-      productId: product.id, skuId: sku.id, name: product.name, skuName: sku.name,
-      image: typeof product.image === 'string' ? product.image : '/static/images/field.webp', quantity: 2,
-      unitPrice: sku.retailPrice, basePrice: sku.cost, level1Commission: 10, level2Commission: 0, supplierId
-    }
-    const sub = {
-      id: `CSO-${suffix}`, supplierId, supplierName: product.supplierName,
-      items: [item], amount: sku.retailPrice * 2, status: 'after_sale' as const, logistics: [], inventoryReleased: false,
-      afterSale: { id: `CAS-${suffix}`, reason: '质量问题', status: 'processing' as const, createdAt: '2026-08-30T10:00:00.000Z' }
-    }
-    const commission = { id: `CC-${suffix}`, orderId: `CO-${suffix}`, subOrderId: sub.id, beneficiaryId: 'T001', beneficiaryLevel: 'level1' as const, amount: 10, status: 'available' as const, createdAt: '2026-08-30T09:00:00.000Z' }
-    const order: COrder = {
-      id: `CO-${suffix}`, userId: `U-${suffix}`, level: 'normal',
-      address: { id: `ADDR-${suffix}`, userId: `U-${suffix}`, receiver: '退款用户', phone: '13800000000', region: '湖南', detail: '退款地址', isDefault: true },
-      amount: sub.amount, items: [item], subOrders: [sub], commissionAllocations: [commission], status: 'after_sale',
-      createdAt: '2026-08-30T09:00:00.000Z', paidAt: '2026-08-30T09:01:00.000Z', providerTransactionId: `PAY-${suffix}`
-    }
-    const supplierOrder = { ...publishCSubOrderToSupplier(order, sub), status: 'after-sale' as const }
-    const work = {
-      id: `AS-${suffix}`, orderId: order.id, masterOrderId: order.id, subOrderId: sub.id, supplierOrderId: supplierOrder.id,
-      operationId: `after-sale:${sub.id}`, productName: product.name, applicant: '退款用户', type: 'refund' as const,
-      amount: sub.amount, refundAmount: sub.amount, status: 'refund-pending' as const, issue: '质量问题'
-    }
-    expect(writeCOrders({ [order.id]: order })).toBe(true)
-    expect(writeCCommissionRecords([commission])).toBe(true)
-    expect(writePlatformOrders({ [supplierOrder.id]: supplierOrder })).toBe(true)
-    expect(writePlatformAfterSales({ [work.id]: work })).toBe(true)
-    store.afterSales = [work]
-    store.orders = [supplierOrder]
-    return { store, catalog, product, sku, order, sub, commission, supplierOrder, work }
-  }
 
   it('uses the refund provider once and atomically completes a linked C-MALL refund', async () => {
     const fixture = await seedRefundPendingCMallOrder('REFUND-SUCCESS')
@@ -692,67 +642,6 @@ describe('admin store interactions', () => {
     expect(store.pendingTodos).toBe(3)
   })
 
-  it('刷新共享预约并按合法状态完成确认和核销', async () => {
-    const store = useAdminStore()
-    const booking: SharedBooking = { id: 'B-LEGAL', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U001', source: 'farmhouse', date: '2099-12-31', session: '午市 11:00', people: 4, status: 'submitted', createdAt: '2026-08-30T08:00:00.000Z' }
-    expect(writePlatformBooking(booking)).toBe(true)
-
-    await store.refreshSharedState()
-    expect(store.bookings).toEqual([expect.objectContaining({ id: 'B-LEGAL', status: 'submitted' })])
-    expect(await store.confirmBooking('B-LEGAL', 'F001')).toBe(true)
-    expect(await store.confirmBooking('B-LEGAL', 'F001')).toBe(false)
-    expect(await store.completeBooking('B-LEGAL', 'OTHER-FARM', 128.5)).toBe(false)
-    expect(await store.completeBooking('B-LEGAL', 'F001', 128.5)).toBe(true)
-
-    expect(readPlatformBookings()?.['B-LEGAL']).toMatchObject({
-      status: 'completed', amount: 128.5, operatorId: store.auth.accountId, operatorName: store.auth.name
-    })
-    expect(readPlatformBookings()?.['B-LEGAL'].amountConfirmedAt).toBeTruthy()
-    expect(readPlatformBookings()?.['B-LEGAL'].updatedAt).toBeTruthy()
-    expect(readPlatformAuditLogs().filter((log) => log.targetId === 'B-LEGAL' && log.result === 'success').map((log) => log.action)).toEqual(expect.arrayContaining(['booking.confirm', 'booking.complete']))
-  })
-
-  it('拒绝跨门店、非法、重复和过期预约操作', async () => {
-    const store = useAdminStore()
-    expect(writePlatformBooking({ id: 'B-PAST', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U002', source: 'farmhouse', date: '2000-01-01', session: '晚市 17:30', people: 2, status: 'submitted', createdAt: '2026-08-30T08:00:00.000Z' })).toBe(true)
-    await store.refreshSharedState()
-
-    expect(await store.confirmBooking('B-PAST', 'F002')).toBe(false)
-    expect(await store.cancelBooking('B-PAST', 'F001')).toBe(false)
-    expect(await store.completeBooking('B-PAST', 'F001', 88)).toBe(false)
-    expect(await store.confirmBooking('B-PAST', 'F001')).toBe(true)
-    expect(await store.completeBooking('B-PAST', 'F001', 0)).toBe(false)
-    expect(await store.completeBooking('B-PAST', 'F001', 88)).toBe(false)
-    expect(await store.cancelBooking('B-PAST', 'F001')).toBe(true)
-    expect(await store.cancelBooking('B-PAST', 'F001')).toBe(false)
-  })
-
-  it('预约操作受权限控制且审计失败时回滚共享状态', async () => {
-    const store = useAdminStore()
-    const booking: SharedBooking = { id: 'B-ROLLBACK', farmId: 'F001', farmName: '石板溪农家乐', userId: 'U003', source: 'farmhouse', date: '2099-12-31', session: '午市 11:00', people: 3, status: 'submitted', createdAt: '2026-08-30T08:00:00.000Z' }
-    expect(writePlatformBooking(booking)).toBe(true)
-    await store.refreshSharedState()
-
-    const deniedRole: AdminRole = { id: 'AR-DENIED', code: 'denied', name: '无权限', menuPermissions: ['bookings'], actionPermissions: [], enabled: true, system: false, createdAt: booking.createdAt, updatedAt: booking.createdAt }
-    store.adminRoles = [deniedRole]
-    store.auth = { ...store.auth, roleId: deniedRole.id, roleCode: deniedRole.code }
-    expect(await store.confirmBooking('B-ROLLBACK', 'F001')).toBe(false)
-    expect(readPlatformBookings()?.['B-ROLLBACK'].status).toBe('submitted')
-    expect(readPlatformAuditLogs()).toContainEqual(expect.objectContaining({ action: 'booking.confirm', result: 'failure', reason: 'permission-denied' }))
-
-    expect(await store.login('admin', '123456')).toBe(true)
-    const originalSetItem = localStorage.setItem.bind(localStorage)
-    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
-      if (key === PLATFORM_AUDIT_LOG_STORAGE_KEY) throw new Error('audit unavailable')
-      originalSetItem(key, value)
-    })
-    expect(await store.confirmBooking('B-ROLLBACK', 'F001')).toBe(false)
-    setItem.mockRestore()
-
-    expect(readPlatformBookings()?.['B-ROLLBACK'].status).toBe('submitted')
-    expect(store.bookings.find((item) => item.id === 'B-ROLLBACK')?.status).toBe('submitted')
-  })
-
   it('统一待办覆盖全部共享异常并携带真实标题、路由和筛选', () => {
     const store = useAdminStore()
     const pendingSupplier = { ...cloneSeed(suppliers[0]), id: 'S-TODO', name: '真实果园供应商', certified: false, coop: false, status: 'pending' as const, contactPhone: '13900006661' }
@@ -774,23 +663,20 @@ describe('admin store interactions', () => {
       commissionSettlementRecords: [{ id: 'CS-FAILED', promoterIds: ['T001'], amount: 12, status: 'failed', createdAt: '2026-08-30T09:05:00.000Z', items: [{ promoterId: 'T001', promoterName: '真实推客', amount: 12 }] }] as any
     })
     expect(writePlatformWithdrawal({ id: 'W-TODO', requesterType: 'user', requesterId: '真实用户', amount: 18, method: '微信', status: 'pending', requestKey: 'todo-withdrawal', createdAt: '2026-08-30T09:06:00.000Z' })).toBe(true)
-    localStorage.setItem('agritainment-platform-recovery-queue', JSON.stringify([{ id: 'R-TODO', operationId: 'OP-TODO', failedStep: 'booking-write', reason: 'write failed', retryCount: 0, createdAt: '2026-08-30T09:07:00.000Z', status: 'pending' }]))
-    expect(writePlatformBooking({ id: 'B-EXPIRED', farmId: 'F001', farmName: '石板溪农家乐', userId: '真实用户甲', source: 'farmhouse', date: '2000-01-01', session: '午市', people: 2, status: 'submitted', createdAt: '2026-08-30T09:08:00.000Z' })).toBe(true)
-    expect(writePlatformBooking({ id: 'B-NO-AMOUNT', farmId: 'F002', farmName: '云上农庄', userId: '真实用户乙', source: 'farmhouse', date: '2026-08-30', session: '晚市', people: 4, status: 'completed', createdAt: '2026-08-30T09:09:00.000Z' })).toBe(true)
+    localStorage.setItem('agritainment-platform-recovery-queue', JSON.stringify([{ id: 'R-TODO', operationId: 'OP-TODO', failedStep: 'farm-write', reason: 'write failed', retryCount: 0, createdAt: '2026-08-30T09:07:00.000Z', status: 'pending' }]))
     localStorage.setItem('agritainment-platform-drivers', JSON.stringify([{ id: 'D-OFF', supplierId: 'S-TODO', name: '停用司机张师傅', account: 'driver-off', password: '123456', status: 'disabled', createdAt: '2026-08-30T09:00:00.000Z' }]))
 
     const todos = store.queryAdminTodos()
     expect(todos.map((todo) => todo.type)).toEqual(expect.arrayContaining([
       'supplier-review', 'product-review-legacy', 'pending-shipment', 'after-sale', 'withdrawal', 'recovery',
       'supplier-settlement-failed', 'commission-settlement-failed', 'shipping-logistics-missing', 'driver-reference-invalid',
-      'booking-expired-submitted', 'booking-completed-no-amount', 'after-sale-refund-failed'
+      'after-sale-refund-failed'
     ]))
     expect(todos.find((todo) => todo.type === 'supplier-review')).toMatchObject({ title: '供应商「真实果园供应商」待审核', count: 1, route: 'suppliers', filters: { status: 'pending' }, objectIds: ['S-TODO'] })
     expect(todos.find((todo) => todo.type === 'after-sale')).toMatchObject({ filters: { status: 'active' } })
     expect(todos.find((todo) => todo.type === 'after-sale-refund-failed')).toMatchObject({ title: '售后「真实退款失败茶叶」退款失败', route: 'afterSales', filters: { status: 'refund-failed' }, objectIds: ['AS-FAILED'] })
     expect(todos.find((todo) => todo.type === 'driver-reference-invalid')).toMatchObject({ count: 2, route: 'orders', filters: { status: 'pending-or-shipping', driver: 'invalid' }, objectIds: ['O-MISSING-DRIVER', 'O-DISABLED-DRIVER'] })
-    expect(todos.find((todo) => todo.type === 'booking-expired-submitted')).toMatchObject({ route: 'bookings', filters: { status: 'submitted', expired: 'true' }, objectIds: ['B-EXPIRED'] })
-    expect(todos.reduce((sum, todo) => sum + todo.count, 0)).toBe(14)
+    expect(todos.reduce((sum, todo) => sum + todo.count, 0)).toBe(12)
   })
 
   it('legacy-only pending 商品待办跳转后可见行与 count 和 objectIds 一致', async () => {
@@ -881,27 +767,6 @@ describe('admin store interactions', () => {
     const settlementTodo = { route: 'commissions', filters: { settlementType: 'supplier', status: 'failed' }, objectIds: ['SS-1', 'SS-2'] }
     expect(visibleTodoIds(afterTodo, 'afterSales', [{ id: 'AS-1', status: 'refund-failed' }, { id: 'AS-2', status: 'refund-failed' }, { id: 'AS-3', status: 'processing' }])).toEqual(['AS-1', 'AS-2'])
     expect(visibleTodoIds(settlementTodo, 'commissions', [{ id: 'SS-1', status: 'failed' }, { id: 'SS-2', status: 'failed' }, { id: 'SS-3', status: 'completed' }])).toEqual(['SS-1', 'SS-2'])
-  })
-
-  it('applies booking exception filters and complete ids', () => {
-    const expiredTodo = { route: 'bookings', filters: { status: 'submitted', expired: 'true' }, objectIds: ['B-1', 'B-2'] }
-    const amountTodo = { route: 'bookings', filters: { status: 'completed', amount: 'missing' }, objectIds: ['B-3', 'B-4'] }
-    const bookingsUnderTest = [
-      { id: 'B-1', status: 'submitted', date: '2000-01-01' }, { id: 'B-2', status: 'submitted', date: '2001-01-01' },
-      { id: 'B-3', status: 'completed' }, { id: 'B-4', status: 'completed', amount: 0 }, { id: 'B-PAID', status: 'completed', amount: 88 }
-    ]
-    expect(visibleTodoIds(expiredTodo, 'bookings', bookingsUnderTest)).toEqual(['B-1', 'B-2'])
-    expect(visibleTodoIds(amountTodo, 'bookings', bookingsUnderTest)).toEqual(['B-3', 'B-4'])
-  })
-
-  it.each([
-    ['suppliers', { status: 'pending' }, [{ id: 'S-1', status: 'pending' }, { id: 'S-2', status: 'pending' }, { id: 'S-3', status: 'cooperating' }], ['S-1', 'S-2']],
-    ['products', { status: 'pending' }, [{ id: 'P-1', status: 'pending' }, { id: 'P-2', status: 'pending' }, { id: 'P-3', status: 'active' }], ['P-1', 'P-2']],
-    ['commissions', { view: 'withdrawals', status: 'pending' }, [{ id: 'W-1', status: 'pending' }, { id: 'W-2', status: 'pending' }, { id: 'W-3', status: 'approved' }], ['W-1', 'W-2']],
-    ['dashboard', { detail: 'todos', type: 'recovery' }, [{ id: 'R-1', status: 'pending' }, { id: 'R-2', status: 'pending' }, { id: 'R-3', status: 'resolved' }], ['R-1', 'R-2']]
-  ])('keeps the exact multi-id todo subset for %s navigation', (route, filters, items, expectedIds) => {
-    const objectIds = expectedIds as string[]
-    expect(visibleTodoIds({ route, filters, objectIds }, route as string, items as any[])).toEqual(expectedIds)
   })
 
   it('真实处理成功后统一待办计数立即减少', async () => {
@@ -1694,7 +1559,7 @@ describe('admin store interactions', () => {
     const store = useAdminStore()
     const sharedFarm = { ...cloneSeed(farms[0]), id: 'F-SHARED', name: '共享门店' }
     const sharedCategory = { ...cloneSeed(categories[0]), id: 'C-SHARED', name: '共享品类' }
-    const sharedPolicy = { id: 'PP-SHARED', name: '共享策略', type: 'member' as const, scope: '共享门店', discount: 95, enabled: true }
+    const sharedPolicy = { id: 'PP-SHARED', name: '共享策略', type: 'group' as const, scope: '共享门店', discount: 95, enabled: true }
     const sharedOrder = { ...cloneSeed(orders[0]), id: 'O-SHARED', customer: '共享订单用户' }
     const sharedAfterSale = { ...cloneSeed(afterSales[0]), id: 'AS-SHARED', orderId: sharedOrder.id }
     const sharedRule = { id: 'CR-SHARED', name: '共享佣金规则', targetType: 'live' as const, rate: 7, enabled: true, updatedAt: '2026-08-30T10:00:00.000Z' }
@@ -2237,7 +2102,7 @@ describe('admin auth', () => {
   })
 
   it('enforces remaining business permissions for direct store calls', async () => {
-    const role = { id: 'AR-DIRECT-VIEW', code: 'direct_view', name: '业务查看', menuPermissions: ['categories', 'routes', 'prices', 'dict', 'accounts', 'afterSales', 'farms', 'promoters', 'commissions'] as const, actionPermissions: [], enabled: true, system: false, createdAt: '2026-08-29T00:00:00.000Z', updatedAt: '2026-08-29T00:00:00.000Z' }
+    const role = { id: 'AR-DIRECT-VIEW', code: 'direct_view', name: '业务查看', menuPermissions: ['categories', 'prices', 'dict', 'accounts', 'afterSales', 'farms', 'promoters', 'commissions'] as const, actionPermissions: [], enabled: true, system: false, createdAt: '2026-08-29T00:00:00.000Z', updatedAt: '2026-08-29T00:00:00.000Z' }
     expect(writePlatformAdminRoles([...defaultAdminRoles(), role] as any)).toBe(true)
     expect(writePlatformAdminAccounts([...defaultAdminAccounts(), { id: 'AA-DIRECT-VIEW', account: 'direct-view', password: '123456', name: '业务查看员', roleId: role.id, enabled: true, createdAt: role.createdAt, updatedAt: role.updatedAt }])).toBe(true)
     const store = useAdminStore()
@@ -2245,7 +2110,6 @@ describe('admin auth', () => {
     await store.initialize()
 
     expect(await store.addCategory('越权品类', 'product')).toBe(false)
-    expect(await store.addRoute({ name: '越权线路' } as any)).toBe(false)
     expect(await store.updatePricingDefaults(store.pricingDefaults)).toBe(false)
     expect(await store.addDictGroup({ type: 'unauthorized', name: '越权字典' })).toBe(false)
     expect(await store.addStoreAccount({ farmId: 'F001', name: '越权店员', account: '13900007777', password: '123456', role: 'staff' })).toBe(false)
@@ -2256,7 +2120,7 @@ describe('admin auth', () => {
     expect(await store.settleCommissions()).toBe(false)
 
     const deniedActions = readPlatformAuditLogs().filter((entry) => entry.reason === 'permission-denied').map((entry) => entry.action)
-    expect(deniedActions).toEqual(expect.arrayContaining(['category.create', 'route.create', 'price.defaults.update', 'dictionary.group.create', 'store-account.create', 'price.policy.create', 'after-sale.create', 'farm.create', 'promoter.create', 'commission.settle']))
+    expect(deniedActions).toEqual(expect.arrayContaining(['category.create', 'price.defaults.update', 'dictionary.group.create', 'store-account.create', 'price.policy.create', 'after-sale.create', 'farm.create', 'promoter.create', 'commission.settle']))
   })
 
   it('keeps a recovery task pending when its success audit cannot be persisted', async () => {

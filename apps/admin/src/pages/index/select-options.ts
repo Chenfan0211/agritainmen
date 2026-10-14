@@ -14,13 +14,13 @@ export const categoryTypeFilterOptions = options([
   ['全部', '全部类型'], ['product', '商品品类'], ['supplier', '供应商品类'], ['general', '通用']
 ])
 export const catalogChannelFilterOptions = options([
-  ['all', '全部商品', ['all', '全部渠道']], ['store', '门店商品', ['store']], ['live', '直播商品', ['live']]
+  ['all', '全部商品', ['all', '全部渠道']], ['store', '门店商品', ['store']], ['live', '用户端商品', ['live', 'user']]
 ])
 export const productStatusOptions = options([
   ['全部', '全部状态'], ['active', '已上架'], ['offline', '已下架'], ['pending', '待审核']
 ])
 export const orderChannelOptions = options([
-  ['全部来源', '全部来源'], ['商城', '商城'], ['直播', '直播'], ['进货', '进货']
+  ['全部来源', '全部来源'], ['商城', '商城'], ['用户端', '用户端'], ['进货', '进货']
 ])
 export const orderStatusOptions = options([
   ['全部', '全部状态'], ['待发货', '待发货'], ['已发货', '已发货'], ['已完成', '已完成'], ['已支付取消', '已支付取消'], ['未支付取消', '未支付取消']
@@ -41,7 +41,7 @@ export const farmStatusFilterOptions = options([
   ['全部门店', '全部门店'], ['经营中', '经营中'], ['筹备中', '筹备中'], ['已停用', '已停用'], ['试点样板', '试点样板']
 ])
 export const promoterTypeOptions = options([
-  ['全部', '全部类型'], ['推客', '推客'], ['主播', '主播'], ['达人', '达人']
+  ['全部', '全部类型'], ['业务员', '业务员'], ['主播', '主播'], ['达人', '达人']
 ])
 export const commissionStatusOptions = options([
   ['全部', '全部结算状态'], ['未结算', '未结算'], ['已结算', '已结算']
@@ -62,13 +62,13 @@ export const accountPromotionOptions = options<boolean>([
   [true, '开启（可生成推广码）'], [false, '关闭']
 ])
 export const policyTypeOptions = options([
-  ['group', '集采价'], ['ladder', '阶梯价'], ['region', '区域价'], ['member', '会员价']
+  ['group', '集采价'], ['ladder', '阶梯价']
 ])
 export const afterSaleTypeOptions = options([
   ['refund', '退款'], ['reship', '补发'], ['claim', '理赔']
 ])
 export const promoterFormTypeOptions = options([
-  ['推客', '推客'], ['主播', '主播'], ['达人', '达人']
+  ['业务员', '业务员'], ['主播', '主播'], ['达人', '达人']
 ])
 export const promoterStatusOptions = options([
   ['active', '启用'], ['paused', '停用']

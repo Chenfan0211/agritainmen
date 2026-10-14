@@ -63,7 +63,7 @@ describe('admin visual contract', () => {
     expect(pageSource).toMatch(/\.main\s*\{[^}]*var\(--admin-sidebar-width\)/s)
     expect(pageSource).toMatch(/@media\(max-width:1280px\)[\s\S]*?--admin-sidebar-width:var\(--admin-sidebar-compact-width\)/)
     expect(pageSource).toContain("{ name: '平台总览'")
-    expect(pageSource).toContain("{ name: '履约作业'")
+    expect(pageSource).toContain("{ name: '用户运营'")
     expect(pageSource).toMatch(/\.nav-item::before \{[^}]*rotate\(45deg\)/)
     expect(pageSource).toMatch(/\.nav-group \{[^}]*font-size: var\(--text-body\)/)
     expect(pageSource).toMatch(/\.nav-item \{[^}]*font-size: var\(--text-subtitle\)/)
@@ -80,7 +80,7 @@ describe('admin visual contract', () => {
     expect(pageSource).toContain('border-radius:var(--admin-radius-panel)')
     expect(pageSource).toContain('border-radius:var(--admin-radius-control)')
     expect(pageSource).toContain('.modal,.catalog-product-modal')
-    expect(pageSource).toContain('.module-toolbar,.booking-filters,.report-filters,.audit-filters,.dict-toolbar')
+    expect(pageSource).toContain('.module-toolbar,.report-filters,.audit-filters,.dict-toolbar')
   })
 
   it('renders operational graphics without visible emoji', () => {
@@ -180,7 +180,7 @@ describe('admin visual contract', () => {
     expect(pageSource).not.toMatch(/\.filter-chips\.solid button\.active\{background:#1d6b44/)
     expect(pageSource).not.toMatch(/\.source-pill\{[^}]*border-radius:999px/)
     expect(pageSource).not.toMatch(/class="source-pill" :class="item\.type === '主播'/)
-    expect(pageSource).toContain('<text>{{ item.type || \'推客\' }}</text>')
+    expect(pageSource).toContain('{{ promoterTypeLabel(item.type) }}')
     expect(pageSource).not.toMatch(/\.table-head\{min-height:42px\}/)
     expect(pageSource).toMatch(/\.table-head\{min-height:40px\}/)
     expect(pageSource).toMatch(/\.table-row:not\(\.table-head\)>text,\.table-row:not\(\.table-head\)>strong,\.table-row:not\(\.table-head\)>view/)
@@ -193,7 +193,8 @@ describe('admin visual contract', () => {
     expect(pageSource).toMatch(/\.switch \{[^}]*border-radius:var\(--radius-nav\)/)
     expect(pageSource).toMatch(/danger-button': dialog === 'supplier-pause' \|\| dialog === 'withdrawal-reject'/)
     expect(pageSource).toMatch(/class="danger" @click="confirmAction\('确认拒绝该售后申请/)
-    expect(pageSource).toMatch(/\.route-grid \{[^}]*grid-template-columns:1\.6fr/)
+    expect(pageSource).toContain('<AdminUsersPanel />')
+    expect(pageSource).toContain('<AdminLeadersPanel />')
     expect(pageSource).toMatch(/\.compact-button\.danger \{[^}]*background:\s*var\(--color-danger-soft\)/)
     expect(pageSource).toMatch(/\.after-evidence-grid \{[^}]*grid-template-columns: repeat\(auto-fill, minmax\(72px, 1fr\)\)/)
     expect(pageSource).toMatch(/\.tier-editor-row \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\) auto/)
@@ -224,10 +225,11 @@ describe('admin visual contract', () => {
     expect(pageSource).not.toContain('picker mode="date"')
     expect(datePickerSource).toContain('height: var(--admin-control-height)')
     expect(datePickerSource).toContain('<UiIcon name="calendar-days"')
-    for (const binding of ['reportFrom', 'reportTo', 'bookingDateFilter', 'logFrom', 'logTo', 'form.validUntil']) {
+    for (const binding of ['reportFrom', 'reportTo', 'logFrom', 'logTo', 'form.validUntil']) {
       expect(pageSource).toContain(`<DatePicker v-model="${binding}"`)
     }
-    expect(pageSource).not.toContain('批量发货')
+    expect(pageSource).toContain('批量发货')
+    expect(pageSource).toContain('batchShipOrders()')
     expect(selectSource).toContain('height: var(--admin-control-height)')
     expect(pageSource).not.toMatch(/\.row-actions button \{ min-height:30px/)
     expect(pageSource).toMatch(/\.row-actions button \{ min-height:32px/)

@@ -46,9 +46,10 @@ describe('admin supplier and RBAC page', () => {
   it('does not expose the generic supplier toggle or fake settlement action', () => {
     expect(source).not.toContain('store.toggleSupplier')
     expect(source).not.toContain("store.recordExport('售后结算'")
-    expect(source).not.toContain('批量发货')
     expect(source).not.toContain('confirmShip')
-    expect(source).not.toContain('batchShip')
+    expect(source).toContain('批量发货')
+    expect(source).toContain('batchShipOrders()')
+    expect(source).toContain('batchShipCandidates')
     expect(source).not.toContain('>发货</button>')
     expect(source).toContain("store.can('report.export')")
     expect(source).toContain("openDetail('order', item.id)")
@@ -130,7 +131,6 @@ describe('admin supplier and RBAC page', () => {
       'PLATFORM_SHARES_STORAGE_KEY',
       'PLATFORM_SETTLEMENTS_STORAGE_KEY',
       'PLATFORM_STORE_ACCOUNTS_STORAGE_KEY',
-      'PLATFORM_ROUTES_STORAGE_KEY',
       'PLATFORM_COMMISSION_RULES_STORAGE_KEY',
       'PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY'
     ]) expect(subscribed).toContain(key)
@@ -138,16 +138,19 @@ describe('admin supplier and RBAC page', () => {
     expect(source).toContain('store.refreshSharedState()')
   })
 
-  it('renders a permission-filtered booking workspace with all required filters and actions', () => {
-    expect(source).toContain("{ key: 'bookings', label: '预约管理'")
-    expect(source).toContain("active === 'bookings'")
-    for (const filter of ['bookingDateFilter', 'bookingFarmFilter', 'bookingStatusFilter', 'bookingUserFilter']) expect(source).toContain(filter)
-    expect(source).toContain("store.can('booking.confirm')")
-    expect(source).toContain("store.can('booking.complete')")
-    expect(source).toContain("store.can('booking.cancel')")
-    expect(source).toContain('store.confirmBooking(item.id, item.farmId)')
-    expect(source).toContain('store.completeBooking(item.id, item.farmId')
-    expect(source).toContain('store.cancelBooking(item.id, item.farmId)')
+  it('renders the user operations workspaces with the leader commission tab', () => {
+    expect(source).toContain("{ key: 'users', label: '用户信息'")
+    expect(source).toContain("{ key: 'leaders', label: '团长管理'")
+    expect(source).toContain("active === 'users'")
+    expect(source).toContain("active === 'leaders'")
+    expect(source).toContain('<AdminUsersPanel />')
+    expect(source).toContain('<AdminLeadersPanel />')
+    expect(source).toContain("'团长分成'")
+    expect(source).toContain('store.updateLeaderShareRates')
+    expect(source).toContain('buildLeaderCommissionLedger')
+    expect(source).toContain('batchShipOrders')
+    expect(source).not.toContain("label: '预约管理'")
+    expect(source).not.toContain("label: '旅游线路'")
   })
 
   it('uses the selected local week or month range for dashboard metrics', () => {
@@ -171,9 +174,9 @@ describe('admin supplier and RBAC page', () => {
     expect(source).not.toContain('黄桃礼盒破损理赔 等')
   })
 
-  it('subscribes booking and driver changes for cross-portal consistency', () => {
+  it('subscribes leader and driver changes for cross-portal consistency', () => {
     const subscribed = source.match(/const platformChangeKeys = \[([^\]]+)\]/)?.[1] || ''
-    expect(subscribed).toContain('PLATFORM_BOOKINGS_STORAGE_KEY')
+    expect(subscribed).toContain('PLATFORM_STORE_ACCOUNTS_STORAGE_KEY')
     expect(subscribed).toContain('PLATFORM_DRIVERS_STORAGE_KEY')
   })
 
@@ -253,8 +256,7 @@ describe('admin supplier and RBAC page', () => {
   })
 
   it('bounds wide tables, work actions and drawers to their local viewport', () => {
-    expect(source).toContain('.booking-table-scroll{overflow-x:auto')
-    expect(source).toContain('.booking-grid{grid-template-columns:')
+    expect(source).toContain('.table-scroll{overflow-x:auto')
     expect(source).toContain('env(safe-area-inset-bottom)')
     expect(source).toContain('.drawer{width:min(var(--admin-drawer-width),100vw)')
     expect(source).toContain('max-width:100vw')
