@@ -38,7 +38,7 @@ export function loadTencentMapSdk(options: { key: string; document?: Document; g
 }
 
 export function deliveryMapSummary(input: { stopCount: number; totalDistanceKm: number; estimatedDurationMinutes: number }): string {
-  return `${input.stopCount} 家农家乐 · ${input.totalDistanceKm.toFixed(1)} km · 约 ${input.estimatedDurationMinutes} 分钟`
+  return `${input.stopCount} 家门店 · ${input.totalDistanceKm.toFixed(1)} km · 约 ${input.estimatedDurationMinutes} 分钟`
 }
 
 export function deliveryMapMarkers(input: {

@@ -270,7 +270,9 @@ describe('门店端现代供应链视觉契约', () => {
 
   it('门店工作台去掉去订货和账号结算字段，快捷入口三列单列资料卡', () => {
     expect(template).not.toContain('去订货')
-    expect(template).not.toContain('门店账号')
+    // 登录页新增「门店账号 / 业务员账号」身份选择，工作台资料卡仍不展示账号与结算字段
+    expect(template).not.toContain('账户 {{')
+    expect(template).not.toContain('账户余额')
     expect(template).not.toContain('登录账号')
     expect(template).not.toContain('结算方式')
     expect(template).not.toContain('class="store-info"')

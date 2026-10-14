@@ -45,7 +45,7 @@
     <view v-else class="empty-order"><UiIcon name="package" :size="28" /><text>订单不存在或已失效</text><button @click="goBack">返回</button></view>
 
     <view v-if="order" class="order-actions">
-      <button class="outline-action" @click="repeatOrder">再次下单</button>
+      <button class="outline-action" @click="repeatOrder">再次采购</button>
       <button v-if="canCancelStoreOrder(order.status)" class="outline-action danger" @click="cancelOrder">取消订单</button>
       <button v-if="order.status === 'delivering'" class="primary-action" @click="confirmReceipt">确认收货</button>
       <button v-if="order.status === 'received' || order.status === 'completed'" class="primary-action" @click="submitAfterSale">发起售后</button>

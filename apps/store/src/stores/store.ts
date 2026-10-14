@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import type { AfterSale, BusinessMediaValue, CatalogState, MockScenario, Order, OrderItem, OrderStatus, PlatformJournalEntry, PlatformRecoveryHandlerKey, PlatformPrincipal, Product, PurchaseStatus, StoreAccount, StoreRole } from '@agritainment/shared'
-import { abortCatalogTransaction, applyCatalogStockOperation, applyPlatformMedia, buildSupplierAccountSeeds, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, ensureCatalogState, initializePlatformRecoveryHandlers, initialCatalogOrderQuantity, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, nextPurchaseStatus, normalizeMinimumOrderQuantity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, prepareCatalogTransaction, pricePolicies, purchaseSteps, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformEntities, readPlatformMedia, readPlatformOrders, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, reconcilePendingPlatformTransactions, resolvePlatformJournal, runLockedPlatformTransaction, storeAccounts, supplierCanReceiveNewOrders, suppliers as supplierSeeds, tieredUnitPrice, validateCatalogSkuOrderQuantity, validateSmsCode, writeCatalogState, writePlatformAfterSale, writePlatformAfterSales, writePlatformOrder, writePlatformOrders } from '@agritainment/shared'
+import { abortCatalogTransaction, applyCatalogStockOperation, applyPlatformMedia, buildSupplierAccountSeeds, buildSupplierPlatformOrders, calcCartTotal, catalogProductToProduct, catalogProductsForAudience, cProducts, cloneSeed, commitCatalogTransaction, createId, createStrictSnapshotRecoveryHandlerRegistration, enqueuePlatformRecovery, ensureCatalogState, initializePlatformRecoveryHandlers, initialCatalogOrderQuantity, markCatalogTransactionStockApplied, mediaValueToImage, mergeEntitySeeds, mergePersistedDefaults, mergePlatformEntities, mergePlatformStoreAccounts, mergePlatformSupplierAccounts, nextPurchaseStatus, normalizeMinimumOrderQuantity, PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, prepareCatalogTransaction, pricePolicies, purchaseSteps, readCatalogState, readCatalogTransactionJournal, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformCollectionRevision, readPlatformEntities, readPlatformMedia, readPlatformOrders, readPlatformRecoveryQueue, readPlatformStoreAccounts, readPlatformSupplierAccounts, reconcilePendingPlatformTransactions, resolvePlatformJournal, round2, runLockedPlatformTransaction, storeAccounts, supplierCanReceiveNewOrders, suppliers as supplierSeeds, tieredUnitPrice, validateCatalogSkuOrderQuantity, validateSmsCode, writeCatalogState, writePlatformAfterSale, writePlatformAfterSales, writePlatformOrder, writePlatformOrders } from '@agritainment/shared'
 import { storeInfo, storeInfoForFarm, storeRepository } from '../services/repository'
+import { businessPriceLevelDiscount, businessPriceLevelLabel, resolveBusinessPriceLevel, type BusinessPriceLevel } from '../price-level'
 
 interface CartLine {
   productId: string
@@ -72,6 +73,8 @@ interface StoreAuthState {
   farmId: string
   tenantId: string
   role: StoreRole | null
+  /** 业务员档位；门店账号为 null，代表按门店价（基准分销价）下单 */
+  priceLevel: BusinessPriceLevel | null
 }
 
 interface StoreTenantSession {
@@ -489,7 +492,7 @@ export const useStoreStore = defineStore('store', {
     checkoutLineKeys: [],
     orders: seedOrders(),
     checkoutError: '',
-    auth: { isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null },
+    auth: { isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null, priceLevel: null },
     tenantSessions: {}
   }),
   getters: {
@@ -515,7 +518,12 @@ export const useStoreStore = defineStore('store', {
         pendingReceipt: state.orders.filter((order) => ['submitted', 'accepted', 'shipped', 'delivering'].includes(order.status)).length,
         savedAmount: Math.round(state.orders.reduce((sum, order) => sum + (order.saved || 0), 0) * 100) / 100
       }
-    }
+    },
+    /** 当前登录身份的分销价折让系数（门店账号为 1） */
+    priceDiscount: (state) => businessPriceLevelDiscount(state.auth.priceLevel),
+    /** 当前登录身份的价格档位文案 */
+    priceLevelLabel: (state) => businessPriceLevelLabel(state.auth.priceLevel),
+    isStoreOwner: (state) => state.auth.role === 'owner'
   },
   actions: {
     async initialize(force = false) {
@@ -531,6 +539,8 @@ export const useStoreStore = defineStore('store', {
         }
         const farmId = this.auth.farmId || 'F001'
         const account = this.currentStoreAccounts().find((item) => item.id === this.auth.accountId)
+        // 运营后台可能调整了业务员档位，登录期间刷新时同步到当前会话
+        if (this.auth.isLoggedIn) this.auth.priceLevel = resolveBusinessPriceLevel(account)
         const data = await storeRepository.loadStore(this.mockScenario, farmId, account)
         const catalog = ensureCatalogState(data.products, cProducts)
         this.$patch({
@@ -546,7 +556,7 @@ export const useStoreStore = defineStore('store', {
         this.cart.forEach((line) => {
           const product = this.products.find((item) => item.id === line.productId)
           const sku = product?.skus.find((item) => item.id === line.skuId) || product?.skus[0]
-          if (product && sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, price: storeUnitPrice(product, sku, line.quantity), retail: product.price, stock: sku.stock })
+          if (product && sku) Object.assign(line, { skuId: sku.id, skuName: sku.name, price: this.unitPriceFor(product, sku, line.quantity), retail: product.price, stock: sku.stock })
         })
         this.orders.forEach((order) => order.items.forEach((line) => {
           const product = this.products.find((item) => item.id === line.productId)
@@ -582,11 +592,15 @@ export const useStoreStore = defineStore('store', {
       const keys = this.cart.filter((line) => !line.unavailable).map(cartLineKey)
       this.checkoutLineKeys = keys.length > 0 && keys.every((key) => this.checkoutLineKeys.includes(key)) ? [] : keys
     },
+    /** 分销单价 = 阶梯价基准 × 当前身份档位折让（门店账号折让系数为 1） */
+    unitPriceFor(product: Product, sku: Product['skus'][number], quantity: number): number {
+      return round2(storeUnitPrice(product, sku, quantity) * businessPriceLevelDiscount(this.auth.priceLevel))
+    },
     repriceCart() {
       this.cart.forEach((line) => {
         const product = this.products.find((item) => item.id === line.productId)
         const sku = product?.skus.find((item) => item.id === line.skuId)
-        if (product && sku) line.price = storeUnitPrice(product, sku, line.quantity)
+        if (product && sku) line.price = this.unitPriceFor(product, sku, line.quantity)
       })
     },
     addToCart(product: Product, skuId?: string, quantity?: number) {
@@ -621,12 +635,12 @@ export const useStoreStore = defineStore('store', {
       }
       if (line) {
         line.quantity = nextQuantity
-        line.price = storeUnitPrice(product, sku, nextQuantity)
+        line.price = this.unitPriceFor(product, sku, nextQuantity)
         line.stock = sku.stock
         line.minimumOrderQuantity = minimumOrderQuantity
         line.unavailable = false
       } else {
-        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, increment), retail: product.price, stock: sku.stock, quantity: increment, minimumOrderQuantity, unavailable: false })
+        this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: sku.image || product.image, price: this.unitPriceFor(product, sku, increment), retail: product.price, stock: sku.stock, quantity: increment, minimumOrderQuantity, unavailable: false })
       }
       const key = cartLineKey({ productId: product.id, skuId: sku.id })
       if (!this.checkoutLineKeys.includes(key)) this.checkoutLineKeys.push(key)
@@ -648,7 +662,7 @@ export const useStoreStore = defineStore('store', {
         return false
       }
       line.quantity = quantity
-      line.price = storeUnitPrice(product, sku, quantity)
+      line.price = this.unitPriceFor(product, sku, quantity)
       line.stock = sku.stock
       line.minimumOrderQuantity = validation.minimumOrderQuantity
       line.unavailable = false
@@ -672,7 +686,7 @@ export const useStoreStore = defineStore('store', {
         line.stock = sku?.stock ?? 0
         line.minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? line.minimumOrderQuantity)
         line.unavailable = !sku || !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
-        if (product && sku) line.price = storeUnitPrice(product, sku, line.quantity)
+        if (product && sku) line.price = this.unitPriceFor(product, sku, line.quantity)
       }
       this.checkoutError = ''
       return true
@@ -692,7 +706,7 @@ export const useStoreStore = defineStore('store', {
         const sku = product?.skus.find((item) => item.id === line.skuId)
         const minimumOrderQuantity = normalizeMinimumOrderQuantity(sku?.minimumOrderQuantity ?? line.minimumOrderQuantity)
         if (!product || !sku) return { ...line, stock: 0, minimumOrderQuantity, unavailable: true }
-        return { ...line, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, line.quantity), retail: product.price, stock: sku.stock, minimumOrderQuantity, unavailable: !validateCatalogSkuOrderQuantity(sku, line.quantity).ok }
+        return { ...line, name: product.name, image: sku.image || product.image, price: this.unitPriceFor(product, sku, line.quantity), retail: product.price, stock: sku.stock, minimumOrderQuantity, unavailable: !validateCatalogSkuOrderQuantity(sku, line.quantity).ok }
       })
       const selectableCartKeys = new Set(this.cart.filter((line) => !line.unavailable).map(cartLineKey))
       this.checkoutLineKeys = this.checkoutLineKeys.filter((key) => selectableCartKeys.has(key))
@@ -768,7 +782,7 @@ export const useStoreStore = defineStore('store', {
       const pricedCart = selectedLines.map((line) => {
         const product = this.products.find((item) => item.id === line.productId)!
         const sku = product.skus.find((item) => item.id === line.skuId)!
-        return { ...line, price: storeUnitPrice(product, sku, line.quantity) }
+        return { ...line, price: this.unitPriceFor(product, sku, line.quantity) }
       })
       const amount = calcCartTotal(pricedCart.map(({ price, quantity }) => ({ price, quantity })))
       const saved = Math.round(pricedCart.reduce((sum, line) => sum + (line.retail - line.price) * line.quantity, 0) * 100) / 100
@@ -1016,14 +1030,14 @@ export const useStoreStore = defineStore('store', {
           const before = line.quantity
           line.quantity = Math.min(line.quantity + quantity, sku.stock)
           if (line.quantity > before) {
-            line.price = storeUnitPrice(product, sku, line.quantity)
+            line.price = this.unitPriceFor(product, sku, line.quantity)
             line.stock = sku.stock
             line.minimumOrderQuantity = normalizeMinimumOrderQuantity(sku.minimumOrderQuantity)
             line.unavailable = !validateCatalogSkuOrderQuantity(sku, line.quantity).ok
             added += 1
           }
         } else {
-          this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: sku.image || product.image, price: storeUnitPrice(product, sku, quantity), retail: product.price, stock: sku.stock, quantity, minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity), unavailable: !validateCatalogSkuOrderQuantity(sku, quantity).ok })
+          this.cart.push({ productId: product.id, skuId: sku.id, skuName: sku.name, name: product.name, image: sku.image || product.image, price: this.unitPriceFor(product, sku, quantity), retail: product.price, stock: sku.stock, quantity, minimumOrderQuantity: normalizeMinimumOrderQuantity(sku.minimumOrderQuantity), unavailable: !validateCatalogSkuOrderQuantity(sku, quantity).ok })
           added += 1
         }
       })
@@ -1048,8 +1062,6 @@ export const useStoreStore = defineStore('store', {
         this.cart = []
         this.orders = seedOrders(account.farmId)
       }
-      this.repriceCart()
-      this.checkoutLineKeys = this.cart.map(cartLineKey)
       const principal: PlatformPrincipal = { actorType: 'store', actorId: account.id, tenantId: account.farmId, status: 'active' }
       this.auth = {
         isLoggedIn: true,
@@ -1058,21 +1070,30 @@ export const useStoreStore = defineStore('store', {
         accountId: account.id,
         farmId: account.farmId,
         tenantId: account.farmId,
-        role: account.role
+        role: account.role,
+        priceLevel: resolveBusinessPriceLevel(account)
       }
       this.info = storeInfoForFarm(account.farmId, account)
+      this.repriceCart()
+      this.checkoutLineKeys = this.cart.map(cartLineKey)
       return true
     },
-    loginWithPassword(phone: string, password: string) {
+    /** 门店/业务员两类角色登录：传入 role 时只接受对应角色的账号 */
+    loginWithPassword(phone: string, password: string, role?: StoreRole) {
       const normalized = phone.trim()
-      const account = this.currentStoreAccounts().find((item) => item.account === normalized && item.password === password && item.enabled)
+      const account = this.currentStoreAccounts().find((item) => item.account === normalized && item.password === password && item.enabled && (!role || item.role === role))
       return account ? this.activateStoreAccount(account) : false
     },
-    loginWithCode(phone: string, code: string) {
+    loginWithCode(phone: string, code: string, role?: StoreRole) {
       if (!validateSmsCode(code)) return false
       const normalized = phone.trim()
-      const account = this.currentStoreAccounts().find((item) => item.account === normalized && item.enabled)
+      const account = this.currentStoreAccounts().find((item) => item.account === normalized && item.enabled && (!role || item.role === role))
       return account ? this.activateStoreAccount(account) : false
+    },
+    /** 登录页身份校验：手机号已存在但角色不符时给出明确提示 */
+    storeAccountRole(phone: string): StoreRole | null {
+      const normalized = phone.trim()
+      return this.currentStoreAccounts().find((item) => item.account === normalized && item.enabled)?.role || null
     },
     async refreshSharedState() {
       if (!this.auth.accountId) return
@@ -1086,7 +1107,7 @@ export const useStoreStore = defineStore('store', {
     logout() {
       this.saveCurrentTenantSession()
       this.checkoutLineKeys = []
-      this.auth = { isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null }
+      this.auth = { isLoggedIn: false, phone: '', principal: null, accountId: '', farmId: '', tenantId: '', role: null, priceLevel: null }
     }
   }
 })

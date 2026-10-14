@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import type { CatalogProduct, CUserLevel } from '@agritainment/shared'
-import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, acceptSupplierOrder, catalogProductToProduct, cloneSeed, configurePlatformProviders, demoCDistributorProfiles, enqueuePlatformRecovery, normalizeMediaReference, preparePlatformJournal, readCAddresses, readCatalogTransactionJournal, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPaymentAttempts, readPendingCatalogTransactions, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformAfterSales, readPlatformJournal, readPlatformOrders, readPlatformRecoveryQueue, readPlatformVoucherOrders, readPlatformWithdrawals, readStoreCatalogSelectionState, readUserBindings, readUserCommercePurchaseIntents, resolvePlatformJournal, retryPlatformRecoveryTask, saveStoreCatalogSelection, shipSupplierCourier, suppliers, todayString, transitionPlatformWithdrawal, updateCatalogStock, upsertPlatformEntity, upsertUserBinding, writeCAddresses, writeCCommissionRecords, readCDistributorProfiles, writeCDistributorProfiles, writeCOrders, writeCUserSession, writeCatalogState, writePlatformCommissionLedger, writePlatformLive, writePlatformOrder, writePlatformWithdrawal, writeUserCommercePurchaseIntents } from '@agritainment/shared'
+import { CATALOG_SCHEMA_VERSION, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_C_COMMISSIONS_STORAGE_KEY, PLATFORM_C_DISTRIBUTORS_STORAGE_KEY, PLATFORM_C_ORDERS_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, PLATFORM_RECOVERY_QUEUE_STORAGE_KEY, PLATFORM_TRANSACTION_JOURNAL_STORAGE_KEY, PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, acceptSupplierOrder, catalogProductToProduct, cloneSeed, configurePlatformProviders, demoCDistributorProfiles, enqueuePlatformRecovery, normalizeMediaReference, preparePlatformJournal, readCAddresses, readCatalogTransactionJournal, readCCommissionRecords, readCOrders, readCUserSession, readCatalogState, readPaymentAttempts, readPendingCatalogTransactions, readPlatformCollectionRevision, readPlatformCommissionLedger, readPlatformAfterSales, readPlatformJournal, readPlatformOrders, readPlatformRecoveryQueue, readPlatformVoucherOrders, readPlatformWithdrawals, readStoreCatalogSelectionState, readUserBindings, readUserCommercePurchaseIntents, resolvePlatformJournal, retryPlatformRecoveryTask, saveStoreCatalogSelection, shipSupplierCourier, suppliers, todayString, transitionPlatformWithdrawal, updateCatalogStock, upsertPlatformEntity, upsertUserBinding, writeCAddresses, writeCCommissionRecords, readCDistributorProfiles, writeCDistributorProfiles, writeCOrders, writeCUserSession, writeCatalogState, writePlatformCommissionLedger, writePlatformOrder, writePlatformWithdrawal, writeUserCommercePurchaseIntents } from '@agritainment/shared'
+import { readStorePackageProjection } from '../services/repository'
 import { migrateUserCommerceData, useUserStore } from './user'
 
 if (!globalThis.localStorage) {
@@ -422,19 +423,18 @@ describe('C端商城 user store', () => {
     expect(readCatalogState()?.products[0].skus[0].stock).toBe(7)
   })
 
-  it('projects live packages from current store selections and hides them after unlisting', async () => {
-    const pkg = catalogProduct('LIVE-PKG', { channel: 'store', productType: 'package', expressDelivery: false })
+  it('projects store packages from current store selections and hides them after unlisting', async () => {
+    const pkg = catalogProduct('PKG-LISTED', { channel: 'store', productType: 'package', expressDelivery: false })
     expect(writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [pkg] })).toBe(true)
-    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: pkg.id, listed: true, skuRetailPrices: { 'LIVE-PKG-SKU': 118 } }, readStoreCatalogSelectionState().revision)).toBeTruthy()
-    writePlatformLive({ id: 'LIVE-VALID', title: '有效套餐直播', host: '主播', viewers: 1, productName: '', productPrice: 0, status: 'live', reminded: false, image: '', linkedFarms: [{ farmId: 'F001', packageIds: [pkg.id] }], city: '湘西州' })
+    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: pkg.id, listed: true, skuRetailPrices: { 'PKG-LISTED-SKU': 118 } }, readStoreCatalogSelectionState().revision)).toBeTruthy()
     const store = allowedStore()
-    store.applyLaunch({ promoter: 'T002', live: 'LIVE-VALID' })
+    store.applyLaunch({ promoter: 'T002' })
     await store.initialize()
-    expect(store.liveFarms[0]?.packages.map((item) => item.id)).toEqual([pkg.id])
+    expect(readStorePackageProjection().map((item) => item.id)).toEqual([pkg.id])
     const selection = readStoreCatalogSelectionState()
-    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: pkg.id, listed: false, skuRetailPrices: { 'LIVE-PKG-SKU': 118 } }, selection.revision)).toBeTruthy()
+    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: pkg.id, listed: false, skuRetailPrices: { 'PKG-LISTED-SKU': 118 } }, selection.revision)).toBeTruthy()
     store.refreshSharedState()
-    expect(store.liveFarms).toEqual([])
+    expect(store.products.filter((item) => item.productType === 'package')).toEqual([])
   })
 
   it('keeps a valid launch referral before the catalog seed finishes', () => {
@@ -2078,7 +2078,7 @@ describe('C端商城 user store', () => {
   it('buys a live package voucher and writes a pending promoter commission', async () => {
     const pkg = catalogProduct('PKG-LIVE', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })
     const store = allowedStore()
-    store.$patch({ userId: 'U-VOUCHER', auth: { isLoggedIn: true, openid: 'openid-voucher' }, liveId: 'LIVE-V', referralPromoterId: 'T002' })
+    store.$patch({ userId: 'U-VOUCHER', auth: { isLoggedIn: true, openid: 'openid-voucher' }, referralPromoterId: 'T002' })
     await store.initialize()
     writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: store.inventoryRevision + 1, products: [pkg] })
     store.applyCatalogState(readCatalogState()!)
@@ -2094,7 +2094,7 @@ describe('C端商城 user store', () => {
     const pkg = catalogProduct('PKG-MOQ', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'], skus: [{ id: 'PKG-MOQ-SKU', name: '三张起购', image: '/static/images/field.webp', retailPrice: 100, cost: 60, stock: 8, level1Amount: 10, level2Amount: 15, minimumOrderQuantity: 3 }] })
     expect(writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 4, products: [pkg] })).toBe(true)
     const store = allowedStore()
-    store.$patch({ userId: 'U-PKG-MOQ', auth: { isLoggedIn: true, openid: 'openid-pkg-moq' }, liveId: 'LIVE-PKG-MOQ', referralPromoterId: 'T002' })
+    store.$patch({ userId: 'U-PKG-MOQ', auth: { isLoggedIn: true, openid: 'openid-pkg-moq' }, referralPromoterId: 'T002' })
     await store.initialize()
     store.products = [catalogProductToProduct(pkg)]
 
@@ -2110,7 +2110,7 @@ describe('C端商城 user store', () => {
     const pkg = catalogProduct('PKG-PAY-FAIL', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })
     writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 4, products: [pkg] })
     const store = allowedStore()
-    store.$patch({ userId: 'U-PKG-PAY-FAIL', auth: { isLoggedIn: true, openid: 'openid-pkg-pay-fail' }, liveId: 'LIVE-PKG-FAIL', referralPromoterId: 'T002' })
+    store.$patch({ userId: 'U-PKG-PAY-FAIL', auth: { isLoggedIn: true, openid: 'openid-pkg-pay-fail' }, referralPromoterId: 'T002' })
     await store.initialize()
     store.products = [catalogProductToProduct(pkg)]
     const before = {
@@ -2146,7 +2146,7 @@ describe('C端商城 user store', () => {
     const pkg = catalogProduct('PKG-INTENT', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })
     writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 5, products: [pkg] })
     const store = allowedStore()
-    store.$patch({ userId: 'U-PKG-INTENT', auth: { isLoggedIn: true, openid: 'openid-pkg-intent' }, liveId: 'LIVE-INTENT', referralPromoterId: 'T002' })
+    store.$patch({ userId: 'U-PKG-INTENT', auth: { isLoggedIn: true, openid: 'openid-pkg-intent' }, referralPromoterId: 'T002' })
     await store.initialize()
     store.products = [catalogProductToProduct(pkg)]
     const transactions = new Map<string, string>()
@@ -2175,7 +2175,7 @@ describe('C端商城 user store', () => {
     expect(Object.keys(persistedIntent).sort()).toEqual(['amount', 'operationId', 'ownerUserId', 'productId', 'quantity', 'skuId'])
     setActivePinia(createPinia())
     const reloaded = allowedStore()
-    reloaded.$patch({ userId: 'U-PKG-INTENT', auth: { isLoggedIn: true, openid: 'openid-pkg-intent' }, liveId: 'LIVE-INTENT', referralPromoterId: 'T002' })
+    reloaded.$patch({ userId: 'U-PKG-INTENT', auth: { isLoggedIn: true, openid: 'openid-pkg-intent' }, referralPromoterId: 'T002' })
     await reloaded.initialize()
     reloaded.refreshCatalog()
     reloaded.products = [catalogProductToProduct(readCatalogState()!.products[0])]
@@ -2189,7 +2189,7 @@ describe('C端商城 user store', () => {
 
     setActivePinia(createPinia())
     const nextPurchase = allowedStore()
-    nextPurchase.$patch({ userId: 'U-PKG-INTENT', auth: { isLoggedIn: true, openid: 'openid-pkg-intent' }, liveId: 'LIVE-INTENT', referralPromoterId: 'T002' })
+    nextPurchase.$patch({ userId: 'U-PKG-INTENT', auth: { isLoggedIn: true, openid: 'openid-pkg-intent' }, referralPromoterId: 'T002' })
     await nextPurchase.initialize()
     nextPurchase.refreshCatalog()
     nextPurchase.products = [catalogProductToProduct(readCatalogState()!.products[0])]
@@ -2205,7 +2205,7 @@ describe('C端商城 user store', () => {
     const pkg = catalogProduct('PKG-REJECT', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })
     writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 3, products: [pkg] })
     const store = allowedStore()
-    store.$patch({ userId: 'U-PKG-REJECT', auth: { isLoggedIn: true, openid: 'openid-pkg-reject' }, liveId: 'LIVE-REJECT' })
+    store.$patch({ userId: 'U-PKG-REJECT', auth: { isLoggedIn: true, openid: 'openid-pkg-reject' } })
     await store.initialize()
     store.products = [catalogProductToProduct(pkg)]
     const before = { pinia: cloneSeed(store.$state), catalog: cloneSeed(readCatalogState()), vouchers: cloneSeed(readPlatformVoucherOrders()), ledger: cloneSeed(readPlatformCommissionLedger()) }
@@ -2230,7 +2230,7 @@ describe('C端商城 user store', () => {
 
     setActivePinia(createPinia())
     const reloaded = allowedStore()
-    reloaded.$patch({ userId: 'U-PKG-REJECT', auth: { isLoggedIn: true, openid: 'openid-pkg-reject' }, liveId: 'LIVE-REJECT' })
+    reloaded.$patch({ userId: 'U-PKG-REJECT', auth: { isLoggedIn: true, openid: 'openid-pkg-reject' } })
     await reloaded.initialize()
     reloaded.products = [catalogProductToProduct(pkg)]
 
@@ -2416,7 +2416,7 @@ describe('C端商城 user store', () => {
     const pkg = catalogProduct('PKG-RECOVERY-TAMPER', { productType: 'package', channel: 'store', expressDelivery: false, farmIds: ['F001'] })
     writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 2, products: [pkg] })
     const store = allowedStore()
-    store.$patch({ userId: 'U-PACKAGE-RECOVERY-TAMPER', auth: { isLoggedIn: true, openid: 'openid-package-recovery-tamper' }, liveId: 'LIVE-TAMPER', referralPromoterId: 'T002' })
+    store.$patch({ userId: 'U-PACKAGE-RECOVERY-TAMPER', auth: { isLoggedIn: true, openid: 'openid-package-recovery-tamper' }, referralPromoterId: 'T002' })
     await store.initialize()
     store.products = [catalogProductToProduct(pkg)]
     expect(await store.buyLivePackage(pkg.id, pkg.skus[0].id)).toBe(true)
@@ -2546,7 +2546,7 @@ describe('C端商城 user store', () => {
     writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [pkg] })
     expect(saveStoreCatalogSelection({ storeId: 'F001', productId: pkg.id, listed: true, skuRetailPrices: { 'PKG-RECOVER-SKU': 100 } }, readStoreCatalogSelectionState().revision)).toBeTruthy()
     const store = allowedStore()
-    store.$patch({ userId: 'U-VOUCHER-RECOVER', auth: { isLoggedIn: true, openid: 'openid-voucher-recover' }, liveId: 'LIVE-RECOVER', referralPromoterId: 'T002' })
+    store.$patch({ userId: 'U-VOUCHER-RECOVER', auth: { isLoggedIn: true, openid: 'openid-voucher-recover' }, referralPromoterId: 'T002' })
     await store.initialize()
     const originalSetItem = localStorage.setItem.bind(localStorage)
     let failed = false
@@ -2590,32 +2590,28 @@ describe('C端商城 user store', () => {
     expect(store.orders.filter((item) => item.id.startsWith('DEMO-ORD')).length).toBe(countAfterReload)
   })
 
-  it('hides a linked live package when every SKU is out of stock', async () => {
-    const store = allowedStore()
-    await store.initialize()
-    const room = store.liveRooms[0]
-    const farm = store.farms[0]
-    const pkg = catalogProductToProduct(catalogProduct('PKG-SOLD-OUT', {
-      productType: 'package', channel: 'store', expressDelivery: false, farmIds: [farm.id],
+  it('hides a listed store package when every SKU is out of stock', async () => {
+    const soldOut = catalogProduct('PKG-SOLD-OUT', {
+      productType: 'package', channel: 'store', expressDelivery: false,
       skus: [{ id: 'PKG-SOLD-OUT-SKU', name: '售罄规格', image: '', retailPrice: 88, cost: 50, stock: 0, level1Amount: 8, level2Amount: 12 }]
-    }))
-    store.$patch({ liveId: room.id, liveRooms: [{ ...room, status: 'live', linkedFarms: [{ farmId: farm.id, packageIds: [pkg.id] }] }], products: [pkg] })
+    })
+    expect(writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [soldOut] })).toBe(true)
+    expect(saveStoreCatalogSelection({ storeId: 'F001', productId: soldOut.id, listed: true, skuRetailPrices: { 'PKG-SOLD-OUT-SKU': 88 } }, readStoreCatalogSelectionState().revision)).toBeTruthy()
 
-    expect(store.liveFarms).toEqual([])
-    expect(store.availableLives).toEqual([])
+    expect(readStorePackageProjection()).toEqual([])
   })
 
-  it('exposes a live room only when it has a linked package with saleable stock', async () => {
+  it('exposes a listed store package with saleable stock to the user catalog', async () => {
     const store = allowedStore()
     await store.initialize()
-    const room = store.liveRooms[0]
     const farm = store.farms[0]
-    const pkg = catalogProductToProduct(catalogProduct('PKG-AVAILABLE', {
+    const pkg = catalogProduct('PKG-AVAILABLE', {
       productType: 'package', channel: 'store', expressDelivery: false, farmIds: [farm.id]
-    }))
-    store.$patch({ liveRooms: [{ ...room, status: 'live', linkedFarms: [{ farmId: farm.id, packageIds: [pkg.id] }] }], products: [pkg] })
+    })
+    expect(writeCatalogState({ schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: [pkg] })).toBe(true)
+    expect(saveStoreCatalogSelection({ storeId: farm.id, productId: pkg.id, listed: true, skuRetailPrices: { 'PKG-AVAILABLE-SKU': 118 } }, readStoreCatalogSelectionState().revision)).toBeTruthy()
 
-    expect(store.availableLives.map((item) => item.id)).toEqual([room.id])
+    expect(readStorePackageProjection().map((item) => item.id)).toEqual([pkg.id])
   })
 
   it('keeps each users demo orders isolated when a second user is seeded', async () => {

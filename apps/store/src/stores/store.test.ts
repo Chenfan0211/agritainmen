@@ -568,6 +568,45 @@ describe('store auth', () => {
     expect(store.info.name).toContain('石板溪')
   })
 
+  it('仅接受与所选身份一致的门店/业务员账号', () => {
+    writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA002' ? { ...item, role: 'staff' as const, priceLevel: 'A' as const } : item))
+    const store = useStoreStore()
+    expect(store.loginWithPassword('13800000002', '123456', 'owner')).toBe(false)
+    expect(store.loginWithPassword('13800000001', '123456', 'staff')).toBe(false)
+    expect(store.storeAccountRole('13800000002')).toBe('staff')
+    expect(store.loginWithPassword('13800000002', '123456', 'staff')).toBe(true)
+    expect(store.auth).toMatchObject({ accountId: 'SA002', role: 'staff', priceLevel: 'A' })
+    expect(store.isStoreOwner).toBe(false)
+    expect(store.priceLevelLabel).toBe('业务员 A 档')
+  })
+
+  it('业务员按档位展示差异化分销价，门店账号按门店价下单', async () => {
+    writeCatalog([catalogProduct({ id: 'LEVEL-P', channel: 'store' })])
+    writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA002' ? { ...item, role: 'staff' as const, priceLevel: 'A' as const } : item))
+    const store = useStoreStore()
+    await store.initialize()
+    const product = store.products.find((item) => item.id === 'LEVEL-P')!
+
+    expect(store.loginWithPassword('13800000001', '123456', 'owner')).toBe(true)
+    expect(store.priceDiscount).toBe(1)
+    expect(store.unitPriceFor(product, product.skus[0], 1)).toBe(20)
+
+    expect(store.loginWithPassword('13800000002', '123456', 'staff')).toBe(true)
+    expect(store.priceDiscount).toBe(0.95)
+    expect(store.unitPriceFor(product, product.skus[0], 1)).toBe(19)
+    store.addToCart(product)
+    expect(store.cart[0].price).toBe(19)
+    expect(store.cartTotal).toBe(19)
+  })
+
+  it('验证码登录同样按身份校验账号角色', () => {
+    writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA002' ? { ...item, role: 'staff' as const, priceLevel: 'C' as const } : item))
+    const store = useStoreStore()
+    expect(store.loginWithCode('13800000002', '123456', 'owner')).toBe(false)
+    expect(store.loginWithCode('13800000002', '123456', 'staff')).toBe(true)
+    expect(store.auth).toMatchObject({ accountId: 'SA002', role: 'staff', priceLevel: 'C' })
+  })
+
   it('rejects disabled accounts for password and sms login', () => {
     writePlatformStoreAccounts(storeAccounts.map((item) => item.id === 'SA003' ? { ...item, enabled: false } : item))
     const store = useStoreStore()

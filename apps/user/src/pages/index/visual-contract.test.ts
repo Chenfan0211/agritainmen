@@ -104,11 +104,11 @@ describe('用户端商城设计稿视觉契约', () => {
     expect(indexPage).not.toMatch(/\.compact-feed\s*\{[^}]*padding-bottom:\s*28px/)
   })
 
-  it('为商品、购物车、结算、订单、地址、物流、售后和直播提供视觉验收入口', () => {
+  it('为商品、购物车、结算、订单、地址、物流、售后和到店套餐提供视觉验收入口', () => {
     for (const view of ['home', 'category', 'cart', 'orders', 'me']) {
       expect(indexPage).toContain(`data-visual-view="user-${view}"`)
     }
-    for (const state of ['detail', 'cart', 'checkout', 'address', 'logistics', 'after-sale', 'live-room']) {
+    for (const state of ['detail', 'cart', 'checkout', 'address', 'logistics', 'after-sale', 'package']) {
       expect(indexPage).toContain(`data-visual-state="user-${state}"`)
     }
   })
@@ -137,7 +137,7 @@ describe('用户端商城设计稿视觉契约', () => {
     expect(indexPage).toMatch(/\.page-content\s*\{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)/s)
     expect(indexPage).toMatch(/\.app-shell\.has-cart-bar \.c-mall,[\s\S]*?\.app-shell\.has-cart-bar \.page-content\s*\{[^}]*padding-bottom:\s*calc\(var\(--mobile-tab-height\)\s*\+\s*var\(--mobile-action-bar-height\)/s)
     expect(indexPage).toMatch(/\.bottom-tabs\s*\{[^}]*background:\s*var\(--mobile-surface\)/s)
-    expect(indexPage).toContain('v-if="!productView && !liveRoomOpen"')
+    expect(indexPage).toContain('v-if="!productView"')
     expect(indexPage).toMatch(/\.product-view\s*\{[^}]*min-height:\s*100vh/s)
     expect(indexPage).not.toMatch(/\.product-view\s*\{[^}]*--mobile-tab-height/s)
     expect(indexPage).toMatch(/\.product-detail-actions\s*\{[^}]*bottom:\s*calc\(16px \+ env\(safe-area-inset-bottom\)\)/s)
@@ -145,7 +145,7 @@ describe('用户端商城设计稿视觉契约', () => {
   })
 
   it('H5 固定层以可用容器宽度为准，避免可见滚动条引发横向偏移', () => {
-    expect(indexPage).toMatch(/@media \(min-width:\s*431px\)[\s\S]*?\.app-shell,[\s\S]*?\.live-room\s*\{[^}]*max-width:\s*430px/s)
+    expect(indexPage).toMatch(/@media \(min-width:\s*431px\)[\s\S]*?\.app-shell,[\s\S]*?\.sheet-mask\s*\{[^}]*max-width:\s*430px/s)
     expect(indexPage).not.toContain('width: min(430px, 100vw)')
   })
 
@@ -212,12 +212,12 @@ describe('用户端商城设计稿视觉契约', () => {
     expect(indexPage).not.toMatch(/\.sheet-scroll\s*\{[^}]*(?<!max-)height:\s*calc\(80vh/)
   })
 
-  it('购物车删除、地址操作和直播套餐在 375px 不再挤成一列', () => {
+  it('购物车删除、地址操作和到店套餐在 375px 不再挤成一列', () => {
     expect(indexPage).toMatch(/\.cart-remove\s*\{[^}]*margin-left:\s*auto/)
     expect(indexPage).toMatch(/@media \(max-width: 375px\)[\s\S]*\.address-actions \{[^}]*width:\s*100%/)
-    expect(indexPage).toMatch(/\.live-package-row\s*\{[^}]*flex-wrap:\s*wrap/)
-    expect(indexPage).toMatch(/\.live-package-actions\s*\{[^}]*width:\s*100%/)
-    expect(indexPage).toMatch(/\.live-buy-btn\s*\{[^}]*margin-left:\s*auto/)
+    expect(indexPage).toMatch(/\.package-row\s*\{[^}]*flex-wrap:\s*wrap/)
+    expect(indexPage).toMatch(/\.package-actions\s*\{[^}]*width:\s*100%/)
+    expect(indexPage).toMatch(/\.package-buy-btn\s*\{[^}]*margin-left:\s*auto/)
   })
 
   it('购物车结算条浮动在 Tab 之上', () => {
@@ -255,21 +255,21 @@ describe('用户端商城设计稿视觉契约', () => {
     expect(indexPage).toContain('cartCategoryAllSelected')
   })
 
-  it('运营页左右 16px，直播间小程序用满屏高度', () => {
+  it('运营页左右 16px，小程序端底部 Tab 与菜单保留安全区', () => {
     expect(operationsPage).toMatch(/\.operation-page\s*\{[^}]*padding:\s*calc\(10px \+ env\(safe-area-inset-top\)\) 16px/)
     expect(operationsPage).toMatch(/class="operation-header theme-head"/)
-    expect(indexPage).toMatch(/\/\* #ifdef MP-WEIXIN \*\/[\s\S]*\.live-room \{ height: 100%/)
+    expect(indexPage).toMatch(/\/\* #ifdef MP-WEIXIN \*\/[\s\S]*\.sheet \{ left: 0; right: 0; width: 100%; max-width: none; transform: none; \}/)
     expect(indexPage).toMatch(/\.tab-item\.active \.tab-icon\s*\{[^}]*background:\s*var\(--mobile-brand-soft\)/s)
-    expect(indexPage).toMatch(/\.live-room-video-wrap\s*\{[^}]*min\(560px,\s*52vh\)/s)
+    expect(indexPage).toMatch(/\.package-banner\s*\{[^}]*background:\s*var\(--mobile-hero-grad\)/s)
     expect(indexPage).toMatch(/\.product-view \.product-detail[\s\S]*?padding:\s*0 0 calc\(70px \+ env\(safe-area-inset-bottom\)\)/)
   })
 
-  it('购物车库存、订单完成态、直播光斑和宫格角标对齐设计稿', () => {
+  it('购物车库存、订单完成态、套餐横幅光斑和宫格角标对齐设计稿', () => {
     expect(indexPage).toContain("库存不足或购买数量未达要求")
     expect(indexPage).toContain('剩余库存')
     expect(indexPage).toContain(":class=\"{ 'is-done': order.status === 'received' }\"")
     expect(indexPage).toMatch(/\.order-status\.is-done\s*\{[^}]*color:\s*var\(--color-success\)/s)
-    expect(indexPage).toMatch(/\.live-banner::after\s*\{[^}]*width:\s*180px/s)
+    expect(indexPage).toMatch(/\.package-banner::after\s*\{[^}]*width:\s*180px/s)
     expect(indexPage).toMatch(/\.pc-tile-badge\s*\{[^}]*background:\s*var\(--mobile-badge\)/s)
     expect(operationsPage).not.toContain('!important')
     expect(operationsPage).toContain('.fan-row .fan-avatar')

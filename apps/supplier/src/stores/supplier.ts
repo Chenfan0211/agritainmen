@@ -1226,7 +1226,7 @@ export const useSupplierStore = defineStore('supplier', {
       if (this.auth.role !== 'supplier') return denied('permission_denied', '无权维护线路')
       const name = input.name.trim()
       const storeIds = [...new Set(input.storeIds.map((id) => id.trim()).filter(Boolean))]
-      if (!name || storeIds.some((id) => !storeDirectory[id])) return denied('invalid_route', '线路名称或农家乐无效')
+      if (!name || storeIds.some((id) => !storeDirectory[id])) return denied('invalid_route', '线路名称或门店无效')
       if (input.driverId) {
         const driver = this.drivers.find((item) => item.id === input.driverId && item.supplierId === this.auth.supplierId && item.status === 'active')
         if (!driver) return denied('invalid_driver', '只能指派启用中的司机')

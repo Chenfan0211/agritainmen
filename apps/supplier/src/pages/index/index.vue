@@ -239,7 +239,7 @@
             <view v-if="supplierNamedRoutes.length" class="content-stack">
               <view v-for="route in supplierNamedRoutes" :key="route.id" class="list-card route-template-card">
                 <view class="row-top"><view class="route-template-heading"><text class="order-no">{{ route.name }}</text><span class="tag" :class="routePublishedStatus(route.id) === '已发布' ? 'out' : ''">{{ routePublishedStatus(route.id) }}</span></view><button class="outline-button mini-button" @click="openNamedRouteEditor(route)">规划</button></view>
-                <text class="route-template-path">{{ route.storeIds.map((id) => storeDirectory[id]?.storeName || id).join(' → ') || '尚未挂农家乐' }}</text>
+                <text class="route-template-path">{{ route.storeIds.map((id) => storeDirectory[id]?.storeName || id).join(' → ') || '尚未挂门店' }}</text>
                 <text class="muted">{{ route.storeIds.length }} 家门店 · 线路司机 {{ namedRouteDriverName(route.driverId) }}</text>
               </view>
             </view>
@@ -251,7 +251,7 @@
             <label class="form-field"><text>线路名称</text><input v-model="namedRouteDraft.name" placeholder="如：东线" /></label>
             <view class="form-field"><text>线路司机</text><picker mode="selector" :range="namedRouteDriverLabels" @change="setRoutePlanDriver($event)"><view class="picker-field">{{ namedRouteDriverName(routePlanDriverId || namedRouteDraft.driverId) }}</view></picker></view>
             <label class="form-field"><text>配送日期</text><input v-model="routePlanDate" class="route-date" type="date" /></label>
-            <view class="form-field"><text>添加农家乐</text><view class="chips"><button v-for="destination in storeOptions" :key="destination.storeId" class="chip" :class="{ active: namedRouteDraft.storeIds.includes(destination.storeId) }" @click="toggleNamedRouteStore(destination.storeId)">{{ destination.storeName }}</button></view></view>
+            <view class="form-field"><text>添加门店</text><view class="chips"><button v-for="destination in storeOptions" :key="destination.storeId" class="chip" :class="{ active: namedRouteDraft.storeIds.includes(destination.storeId) }" @click="toggleNamedRouteStore(destination.storeId)">{{ destination.storeName }}</button></view></view>
             <view v-for="(storeId, index) in namedRouteDraft.storeIds" :key="storeId" class="list-card route-stop">
               <view class="route-number">{{ index + 1 }}</view>
               <view class="row-main"><text>{{ storeDirectory[storeId]?.storeName || storeId }}</text><text class="muted">{{ storeDirectory[storeId]?.address }}</text></view>
@@ -914,7 +914,7 @@ const routeBusy = ref(false)
 const warehouseForm = reactive<{ address: string }>({ address: '' })
 const supplierWorkItems: Array<{ key: SecondaryWorkspace; label: string; icon: string; detail: string }> = [
   { key: 'drivers', label: '司机管理', icon: 'users', detail: '账号与启用状态' },
-  { key: 'routes', label: '线路规划', icon: 'navigation', detail: '命名线路、农家乐顺序与派司机' },
+  { key: 'routes', label: '线路规划', icon: 'navigation', detail: '命名线路、门店顺序与派司机' },
   { key: 'outbound', label: '出仓交接', icon: 'package-check', detail: '司机发起、供应商审核与缺货标记' },
   { key: 'settlements', label: '结算账单', icon: 'package-check', detail: '查看账期和关联订单' },
   { key: 'handovers', label: '交接日志', icon: 'list-tree', detail: '出库和到店交接记录' },
@@ -2061,7 +2061,7 @@ $control: var(--control-size);
 /* #ifdef MP-WEIXIN */
 .login-page { padding-top: calc(24px + var(--status-bar-height)); padding-right: 96px; }
 /* #endif */
-/* #ifndef MP-WEIXIN */
+/* #ifdef H5 */
 .login-page { padding-top: calc(24px + env(safe-area-inset-top)); }
 /* #endif */
 .login-card { width: 100%; max-width: 340px; background: $panel; border: 1px solid $line; border-radius: $radius-card; overflow: hidden; box-shadow: $shadow-card; }
@@ -2089,8 +2089,10 @@ $control: var(--control-size);
 .outline-button.danger { color: $red; border-color: $red; }
 .mine-actions { display: grid; gap: var(--space-gap); margin-top: var(--space-section); }
 .mine-actions button { width: 100%; margin: 0; }
+/* #ifdef H5 */
 .page-pad[data-visual-view="supplier-orders"],
 .mine-page { padding-top: max($space-page, env(safe-area-inset-top)); }
+/* #endif */
 
 // ===== 司机 =====
 .driver-avatar { width: 40px; height: 40px; border-radius: var(--radius-icon); background: $green-soft; display: flex; align-items: center; justify-content: center; color: $green; flex: none; }
@@ -2291,7 +2293,7 @@ $control: var(--control-size);
 .page-pad[data-visual-view="supplier-orders"],
 .mine-page { padding-top: calc(var(--space-page) + var(--status-bar-height)); padding-right: 96px; }
 /* #endif */
-/* #ifndef MP-WEIXIN */
+/* #ifdef H5 */
  .product-work-page { padding-top: 16px; }
 .secondary-workspace { padding-top: max(14px, env(safe-area-inset-top)); }
 /* #endif */

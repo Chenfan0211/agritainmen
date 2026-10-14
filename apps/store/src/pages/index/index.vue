@@ -8,17 +8,21 @@
       </view>
       <view class="login-panel">
       <view class="login-body">
+        <view class="login-roles" role="radiogroup" aria-label="登录身份">
+          <button :class="{ active: loginRole === 'owner' }" role="radio" :aria-checked="loginRole === 'owner'" @click="switchLoginRole('owner')">门店账号</button>
+          <button :class="{ active: loginRole === 'staff' }" role="radio" :aria-checked="loginRole === 'staff'" @click="switchLoginRole('staff')">业务员账号</button>
+        </view>
         <view class="login-tabs">
           <button :class="{ active: loginTab === 'password' }" @click="loginTab = 'password'">密码登录</button>
           <button :class="{ active: loginTab === 'code' }" @click="loginTab = 'code'">验证码登录</button>
         </view>
         <view class="login-fields">
-          <label class="login-field"><text>手机号</text><input v-model="loginPhone" type="number" maxlength="11" placeholder="请输入门店手机号" /></label>
+          <label class="login-field"><text>手机号</text><input v-model="loginPhone" type="number" maxlength="11" :placeholder="loginRole === 'owner' ? '请输入门店账号手机号' : '请输入业务员账号手机号'" /></label>
           <label v-if="loginTab === 'password'" class="login-field"><text>密码</text><input v-model="loginPassword" type="password" placeholder="请输入密码" confirm-type="done" @confirm="submitLogin" /></label>
           <label v-else class="login-field"><text>验证码</text><view class="code-input"><input v-model="loginCode" type="number" maxlength="6" placeholder="请输入验证码" confirm-type="done" @confirm="submitLogin" /><button class="code-button" :disabled="codeCountdown > 0" @click="sendCode">{{ codeCountdown > 0 ? codeCountdown + 's' : '发送验证码' }}</button></view></label>
         </view>
         <button class="login-button" @click="submitLogin">登 录</button>
-        <text class="login-hint">演示手机号 13800000001　密码 123456　验证码 123456</text>
+        <text class="login-hint">{{ loginRole === 'owner' ? '门店演示账号 13800000001 / 123456' : '业务员演示账号 13800000002 / 123456' }}　验证码 123456</text>
       </view>
       </view>
     </view>
@@ -50,10 +54,11 @@
           <view class="detail-price-row">
             <view class="detail-current-price">
               <strong>{{ money(detailUnitPrice) }}</strong>
-              <del v-if="selectedSku && detailUnitPrice !== selectedSku.cost">{{ money(selectedSku.cost) }}</del>
+              <del v-if="selectedSku && detailUnitPrice !== levelPrice(selectedSku.cost)">{{ money(levelPrice(selectedSku.cost)) }}</del>
             </view>
             <text v-if="detailSavePercent > 0" class="detail-saving">较零售价省 {{ detailSavePercent }}%</text>
           </view>
+          <text v-if="!store.isStoreOwner" class="detail-level-badge">{{ store.priceLevelLabel }} 分销价</text>
           <text class="detail-retail-price">建议零售价 {{ money(selectedSku?.price ?? selectedProduct.price) }}</text>
           <text class="detail-product-name">{{ selectedProduct.name }}</text>
           <view class="detail-meta-row">
@@ -71,7 +76,7 @@
           <view class="detail-sku-options" role="radiogroup" aria-label="商品规格">
             <button v-for="sku in selectedProduct.skus" :key="sku.id" class="detail-sku-option" :class="{ active: selectedSkuId === sku.id }" :disabled="!canStartOrder(sku)" role="radio" :aria-checked="selectedSkuId === sku.id" @click="selectDetailSku(sku.id)">
               <text>{{ sku.name }}</text>
-              <small>{{ money(sku.cost) }} · 库存 {{ sku.stock }} · 起订 {{ effectiveMinimumOrderQuantity(sku) }} 件</small>
+              <small>{{ money(levelPrice(sku.cost)) }} · 库存 {{ sku.stock }} · 起订 {{ effectiveMinimumOrderQuantity(sku) }} 件</small>
             </button>
           </view>
           <view class="detail-quantity-row">
@@ -130,7 +135,7 @@
                 <text class="item-title">{{ product.name }}</text>
                 <text class="muted">已售 {{ product.sales.toLocaleString('zh-CN') }} · {{ canStartProductOrder(product) ? stockText(product) : '库存不足' }}</text>
                 <view class="product-foot">
-                  <view class="cost-prices"><strong>{{ money(product.cost) }}</strong><del v-if="product.price > product.cost">{{ money(product.price) }}</del><span v-if="product.price > product.cost">省 {{ savePercent(product) }}%</span></view>
+                  <view class="cost-prices"><strong>{{ money(levelPrice(product.cost)) }}</strong><del v-if="product.price > product.cost">{{ money(product.price) }}</del><span v-if="product.price > product.cost">省 {{ savePercent(product) }}%</span></view>
                   <button class="add-btn" :aria-label="`加入${product.name}到进货单`" :disabled="!canStartProductOrder(product)" @click="addProduct(product)"><UiIcon name="plus" :size="16" /></button>
                 </view>
               </view>
@@ -159,7 +164,7 @@
                     <view class="tag-row"><text v-for="tag in product.tags.slice(0, 2)" :key="tag" class="tag" data-typography-compact>{{ tag }}</text></view>
                     <text class="cat-product-name">{{ product.name }}</text>
                     <text class="cat-stock">已售 {{ product.sales.toLocaleString('zh-CN') }} | 剩余 {{ product.stock }}</text>
-                    <view class="cat-foot"><view class="cat-price-box"><strong class="cat-price">{{ money(product.cost) }}</strong><del v-if="product.price > product.cost" class="cat-original">{{ money(product.price) }}</del></view><button class="cat-add add-btn" :disabled="!canStartProductOrder(product)" :aria-label="`加入${product.name}到进货单`" @click.stop="addProduct(product)"><UiIcon name="plus" :size="16" /></button></view>
+                    <view class="cat-foot"><view class="cat-price-box"><strong class="cat-price">{{ money(levelPrice(product.cost)) }}</strong><del v-if="product.price > product.cost" class="cat-original">{{ money(product.price) }}</del></view><button class="cat-add add-btn" :disabled="!canStartProductOrder(product)" :aria-label="`加入${product.name}到进货单`" @click.stop="addProduct(product)"><UiIcon name="plus" :size="16" /></button></view>
                   </view>
                 </view>
               </view>
@@ -203,9 +208,9 @@
         <view class="mall-hero heading-with-back"><button class="page-back" aria-label="返回" @click="mineSection = 'main'"><UiIcon name="arrow-left" :size="20" /></button><view><text class="mall-hero-title">我的订货单</text><text class="mall-hero-sub">中选科技供应链中台统一履约 · 直配到店</text></view></view>
         <view class="page-pad">
         <view class="order-summary">
-          <view class="order-stat"><small>共订单</small><strong>{{ store.orders.length }} 单</strong></view>
-          <view class="order-stat"><small>待收货</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
-          <view class="order-stat order-stat--amount"><small>本月进货</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
+          <view class="order-stat"><small>采购订单数</small><strong>{{ store.orders.length }} 单</strong></view>
+          <view class="order-stat"><small>待收货数量</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
+          <view class="order-stat order-stat--amount"><small>月采购额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
         </view>
         <view class="chip-scroll"><view class="chips order-chips"><button v-for="item in orderFilters" :key="item.key" :class="{ active: orderFilter === item.key }" @click="orderFilter = item.key">{{ item.label }}<text class="chip-count" data-typography-compact>{{ item.count }}</text></button></view></view>
         <view v-if="filteredOrders.length" class="order-list">
@@ -240,14 +245,15 @@
               <text>{{ store.info.name }}</text>
               <small>{{ store.info.region }} · {{ store.info.contact }}</small>
               <small class="store-identity-address">地址 {{ store.info.address }}</small>
+              <small class="store-identity-level">{{ store.isStoreOwner ? '门店账号 · 门店价' : `业务员账号 · ${store.priceLevelLabel}` }}</small>
             </view>
           </view>
         </view>
         <view class="metric-band store-metrics">
-          <view><small>本月进货额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
-          <view><small>订货单数</small><strong>{{ store.orderMetrics.orderCount }}</strong></view>
-          <view><small>待收货</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
-          <view><small>累计节省</small><strong>{{ money(store.orderMetrics.savedAmount) }}</strong></view>
+          <view><small>月采购额</small><strong>{{ money(store.orderMetrics.monthAmount) }}</strong></view>
+          <view><small>采购订单数</small><strong>{{ store.orderMetrics.orderCount }}</strong></view>
+          <view><small>待收货数量</small><strong>{{ store.orderMetrics.pendingReceipt }}</strong></view>
+          <view><small>节省金额</small><strong>{{ money(store.orderMetrics.savedAmount) }}</strong></view>
         </view>
         <view class="page-pad store-body">
           <view class="section-head compact"><view><span></span><text>快捷入口</text></view></view>
@@ -389,7 +395,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
-import type { BusinessMediaValue, PriceTier, Product } from '@agritainment/shared'
+import type { BusinessMediaValue, PriceTier, Product, StoreRole } from '@agritainment/shared'
 import { tieredUnitPrice } from '@agritainment/shared'
 import { PLATFORM_AFTERSALES_STORAGE_KEY, PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_ENTITIES_STORAGE_KEY, PLATFORM_MEDIA_STORAGE_KEY, PLATFORM_ORDERS_STORAGE_KEY, PLATFORM_STORE_ACCOUNTS_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, installKeyboardButtonSupport, matchesPolicyScope, mediaValueToImage, money, normalizeMinimumOrderQuantity, productCategoryImage, readPlatformAfterSaleStatus, readPlatformDictionaries, subscribePlatformChanges, validateCatalogSkuOrderQuantity, validatePhone } from '@agritainment/shared'
 import { BusinessImage } from '@agritainment/ui'
@@ -570,6 +576,10 @@ const sheetTitle = computed(() => {
 
 function savePercent(product: Product) {
   return Math.max(0, Math.round((1 - product.cost / product.price) * 100))
+}
+/** 分销价展示：按当前登录身份的档位折让（业务员差异价） */
+function levelPrice(base: number) {
+  return Math.round(base * store.priceDiscount * 100) / 100
 }
 function ladderTiersFor(product: Product | null | undefined): PriceTier[] {
   if (!product) return []
@@ -798,11 +808,19 @@ function copyPhone() {
 }
 
 const loginTab = ref<'password' | 'code'>('password')
+const loginRole = ref<StoreRole>('owner')
 const loginPhone = ref('13800000001')
 const loginPassword = ref('123456')
 const loginCode = ref('123456')
 const codeCountdown = ref(0)
 let codeTimer: ReturnType<typeof setInterval> | null = null
+function switchLoginRole(role: StoreRole) {
+  if (loginRole.value === role) return
+  loginRole.value = role
+  loginPhone.value = role === 'owner' ? '13800000001' : '13800000002'
+  loginPassword.value = '123456'
+  loginCode.value = '123456'
+}
 function sendCode() {
   if (!validatePhone(loginPhone.value)) return toast('请输入正确的手机号')
   if (codeCountdown.value > 0) return
@@ -815,9 +833,14 @@ function sendCode() {
 }
 function submitLogin() {
   const ok = loginTab.value === 'password'
-    ? store.loginWithPassword(loginPhone.value, loginPassword.value)
-    : store.loginWithCode(loginPhone.value, loginCode.value)
+    ? store.loginWithPassword(loginPhone.value, loginPassword.value, loginRole.value)
+    : store.loginWithCode(loginPhone.value, loginCode.value, loginRole.value)
   if (!ok) {
+    const role = store.storeAccountRole(loginPhone.value)
+    if (role && role !== loginRole.value) {
+      toast(role === 'owner' ? '该手机号是门店账号，请切换为门店账号登录' : '该手机号是业务员账号，请切换为业务员账号登录')
+      return
+    }
     toast(loginTab.value === 'password' ? '手机号或密码错误（演示 13800000001 / 123456）' : '手机号或验证码错误（演示验证码 123456）')
     return
   }
@@ -1059,6 +1082,7 @@ onBeforeUnmount(() => {
 .detail-current-price del { color:var(--farm-muted);font-size:13px; }
 .detail-saving { flex:none;padding:4px 7px;border-radius:4px;background:var(--farm-green-soft);color:var(--farm-red);font-size:12px;font-weight:800; }
 .detail-retail-price { display:block;margin-top:4px;color:var(--farm-muted);font-size:12px; }
+.detail-level-badge { display:inline-block;margin-top:6px;padding:3px 8px;border-radius:var(--radius-icon);background:var(--farm-green-soft);color:var(--farm-green);font-size:11px;font-weight:800; }
 .detail-product-name { display:-webkit-box;margin-top:8px;overflow:hidden;color:var(--farm-ink);font-size:18px;font-weight:800;line-height:1.42;-webkit-box-orient:vertical;-webkit-line-clamp:2;word-break:break-all; }
 .detail-meta-row { margin-top:6px;display:flex;align-items:center;gap:7px 12px;flex-wrap:wrap;color:var(--farm-muted);font-size:12px; }
 .detail-meta-row .is-in-stock { color:var(--store-ok);font-weight:700; }
@@ -1235,6 +1259,7 @@ onBeforeUnmount(() => {
 .store-identity text { font-size:15px;font-weight:800; }
 .store-identity small { margin-top:3px;font-size:11px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .store-identity .store-identity-address { overflow:visible;text-overflow:unset;white-space:normal;word-break:break-word; }
+.store-identity .store-identity-level { margin-top:6px;padding:3px 8px;border-radius:var(--radius-icon);background:var(--store-glass);color:var(--store-on-brand);font-size:11px;font-weight:800;display:inline-block;width:auto;overflow:visible;text-overflow:unset;white-space:normal; }
 .metric-band { margin:14px 16px 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--mobile-surface);border:1px solid var(--store-line);border-radius:16px;box-shadow:var(--store-shadow-hero); }
 .metric-band view { padding:13px 0;text-align:center;border-right:1px solid var(--store-line-light); }
 .metric-band view:last-child { border:0; }
@@ -1372,6 +1397,9 @@ onBeforeUnmount(() => {
 .pc-login-sub{display:block;margin-top:9px;font-size:13px;color:var(--store-on-brand);opacity:.85}
 .login-panel{margin-top:auto;width:100%;background:var(--mobile-surface);border-radius:26px 26px 0 0;box-shadow:var(--store-shadow-hero)}
 .login-body{padding:26px 24px 28px}
+.login-roles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.login-roles button{min-height:var(--mobile-touch-target);height:auto;padding:4px 8px;border:1px solid var(--color-line);border-radius:12px;background:var(--mobile-surface);color:var(--farm-muted);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.login-roles button.active{background:var(--store-gradient);border-color:transparent;color:var(--store-on-brand);font-weight:800}
 .login-tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--mobile-surface-subtle);border-radius:12px;padding:4px;gap:4px;margin-bottom:0}
 .login-tabs button{flex:1;min-height:var(--mobile-touch-target);height:auto;padding:3px 8px;border-radius:9px;font-size:14px;font-weight:700;color:var(--farm-muted);display:flex;align-items:center;justify-content:center}
 .login-tabs button.active{background:var(--mobile-surface);color:var(--farm-green);box-shadow:var(--mobile-shadow-card);font-weight:800}

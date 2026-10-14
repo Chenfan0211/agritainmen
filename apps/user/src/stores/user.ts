@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { AfterSale, BusinessMediaValue, CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, CProduct, CProductSku, CUserLevel, CommissionLedgerEntry, FarmStore, LiveRoom, MockScenario, Order, PaymentAttempt, PlatformJournalEntry, Product, UserBinding, UserCommercePurchaseIntent, VoucherOrder, WithdrawalRequest } from '@agritainment/shared'
+import type { AfterSale, BusinessMediaValue, CatalogState, CAddress, CCartItem, CCommissionAllocation, CCommissionChain, CDistributorProfile, COrder, CProduct, CProductSku, CUserLevel, CommissionLedgerEntry, FarmStore, MockScenario, Order, PaymentAttempt, PlatformJournalEntry, Product, UserBinding, UserCommercePurchaseIntent, VoucherOrder, WithdrawalRequest } from '@agritainment/shared'
 import {
   initialCatalogOrderQuantity,
   CATALOG_SCHEMA_VERSION, abortCatalogTransaction, allocateCCommissions, applyCatalogStockOperation, beginPaymentAttempt, buildSupplierAccountSeeds, cPriceForSku, catalogProductToCProduct, catalogProductsForAudience, cloneSeed, commitCatalogTransaction, cProducts as cProductSeeds, createId, demoCDistributorProfiles, deriveCOrderStatus, ensureCatalogState, ensureConfirmedPaymentRecoveryTask, markCatalogTransactionStockApplied, mergePlatformEntities, mergePlatformSupplierAccounts, migrateLegacyCatalog, normalizeCAddresses, normalizeCCommissionRecords, normalizeCOrders, normalizeCProducts, normalizeMinimumOrderQuantity, prepareCatalogTransaction, products as storeProductSeeds, promoters, readCAddresses, readCCommissionRecords, readCatalogState, readCOrders, readCUserSession, readCDistributorProfiles, writeCDistributorProfiles, readPendingCatalogTransactions, readPlatformJson, round2, seedCCommerceData,
@@ -7,7 +7,7 @@ import {
 } from '@agritainment/shared'
 import { seedDemoUserCart, seedDemoUserDistributor } from '../data/demo-distributor'
 import { seedDemoUserOrders } from '../data/demo-orders'
-import { readLivePackageProjection, readLiveRoomProjection, userRepository } from '../services/repository'
+import { readStorePackageProjection, userRepository } from '../services/repository'
 
 interface CartLine extends CCartItem { stock: number; unavailable?: boolean }
 
@@ -633,18 +633,6 @@ function unavailableSupplierName(supplierIds: string[]): string | null {
   return null
 }
 
-function saleableLiveFarms(state: Pick<UserState, 'farms' | 'liveRooms' | 'products'>, liveId: string) {
-  const live = state.liveRooms.find((item) => item.id === liveId)
-  if (live?.status !== 'live' || !live.linkedFarms?.length) return []
-  return live.linkedFarms.map((linked) => {
-    const farm = state.farms.find((item) => item.id === linked.farmId && item.status === 'active')
-    const packages = linked.packageIds
-      .map((id) => state.products.find((product) => product.id === id))
-      .filter((product): product is Product => !!product && product.status === 'active' && product.skus.some((sku) => sku.stock > 0))
-    return { farm, packages }
-  }).filter((group): group is { farm: FarmStore; packages: Product[] } => !!group.farm && group.packages.length > 0)
-}
-
 function buildUserAfterSaleCase(order: COrder, sub: COrder['subOrders'][number], evidenceImages?: BusinessMediaValue[]): AfterSale {
   const amount = round2(sub.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0))
   const quantity = sub.items.reduce((sum, item) => sum + item.quantity, 0)
@@ -683,8 +671,6 @@ interface UserState {
   products: Product[]
   cProducts: CProduct[]
   inventoryRevision: number
-  liveRooms: LiveRoom[]
-  liveId: string
   launchProductId: string
   promoterId: string
   promoterName: string
@@ -790,13 +776,10 @@ function syncPersistedFulfillment(orders: Record<string, COrder>): Record<string
 
 export const useUserStore = defineStore('user', {
   state: (): UserState => ({
-    initialized: false, loading: false, withdrawalsTick: 0, distributorTick: 0, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, liveRooms: [], liveId: '', launchProductId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
+    initialized: false, loading: false, withdrawalsTick: 0, distributorTick: 0, error: '', mockScenario: 'normal', farms: [], products: [], cProducts: [], inventoryRevision: 0, launchProductId: '', promoterId: '', promoterName: '', referralPromoterId: '', userId: '',
     cart: [], orders: [], addresses: [], commissionRecords: [], auth: { isLoggedIn: false, openid: '' }, checkoutError: '', entryChecked: false, entryRestricted: false
   }),
   getters: {
-    currentLive: (state) => state.liveRooms.find((item) => item.id === state.liveId) || null,
-    availableLives: (state) => state.liveRooms.filter((room) => saleableLiveFarms(state, room.id).length > 0),
-    liveFarms: (state) => saleableLiveFarms(state, state.liveId),
     distributorProfiles: (state): Record<string, CDistributorProfile> => { void state.distributorTick; return readCDistributorProfiles() || {} },
     level: (state): CUserLevel => { void state.distributorTick; return (readCDistributorProfiles()?.[state.userId]?.status === 'active' ? readCDistributorProfiles()?.[state.userId]?.level : 'normal') || 'normal' },
     currentDistributor: (state) => {
@@ -969,7 +952,7 @@ export const useUserStore = defineStore('user', {
         const savedCommissionRecords = normalizeCCommissionRecords(Array.isArray(rawCommissionRecords) ? rawCommissionRecords : [])
         if (Object.values(readPlatformJournal()).some((entry) => entry.status === 'recovery-pending')) this.error = '存在待恢复数据，请联系管理员'
         this.$patch({
-          farms: data.farms, products: data.products, liveRooms: data.liveRooms,
+          farms: data.farms, products: data.products,
           orders: this.userId ? Object.values(savedOrders).filter((item) => item.userId === this.userId) : [],
           addresses: this.userId ? Object.values(savedAddresses).filter((item) => item.userId === this.userId) : [],
           commissionRecords: this.userId ? savedCommissionRecords : [], initialized: true
@@ -981,10 +964,8 @@ export const useUserStore = defineStore('user', {
       } catch (error) { this.error = error instanceof Error ? error.message : '数据加载失败' } finally { this.loading = false }
     },
     applyLaunch(query: Record<string, string | undefined>) {
-      const savedLive = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-live-id') : ''
       const savedName = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-promoter-name') : ''
       const savedPromoter = typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('agritainment-user-promoter-id') : ''
-      this.liveId = query.live || (typeof savedLive === 'string' ? savedLive : '') || ''
       this.launchProductId = query.product?.trim() || ''
       this.promoterName = query.promoterName || (typeof savedName === 'string' ? savedName : '') || ''
       if (!this.userId && this.auth.isLoggedIn && this.auth.openid) this.userId = resolveUserIdentity(this.auth.openid)
@@ -998,7 +979,6 @@ export const useUserStore = defineStore('user', {
       this.referralPromoterId = this.promoterId
       this.entryChecked = true
       this.entryRestricted = !this.promoterId
-      if (this.liveId && typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-live-id', this.liveId)
       if (this.promoterId && typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-promoter-id', this.promoterId)
       if (this.promoterName && typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync('agritainment-user-promoter-name', this.promoterName)
     },
@@ -1032,8 +1012,7 @@ export const useUserStore = defineStore('user', {
     },
     async refreshSharedState() {
       this.refreshCatalog()
-      this.products = readLivePackageProjection()
-      this.liveRooms = readLiveRoomProjection(this.products)
+      this.products = readStorePackageProjection()
       const persisted = normalizeCOrders(readCOrders() || {})
       const synced = syncPersistedFulfillment(persisted)
       const addresses = normalizeCAddresses(readCAddresses() || {})
@@ -1390,7 +1369,7 @@ export const useUserStore = defineStore('user', {
       if (!payment.value?.transactionId) { this.checkoutError = '支付失败，请稍后重试'; return false }
       const promoterId = this.referralPromoterId || readUserBindings()?.[this.userId]?.promoterId || this.promoterId || undefined
       const voucher: VoucherOrder = {
-        id, userId: this.userId, promoterId, liveId: this.liveId || undefined, farmId: product.farmIds[0] || 'F001',
+        id, userId: this.userId, promoterId, farmId: product.farmIds[0] || 'F001',
         productId, skuId, quantity: qty, amount: lockedAmount, status: 'paid', createdAt: nowString(), providerTransactionId: payment.value.transactionId
       }
       const rate = product.promoterCommissionRate ?? product.commissionRate ?? 0

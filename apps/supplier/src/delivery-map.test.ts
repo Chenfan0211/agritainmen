@@ -4,7 +4,7 @@ import { deliveryMapMarkers, deliveryMapSummary, routeOptimizationWarningText } 
 
 describe('delivery route map', () => {
   it('summarizes farm count and driving distance', () => {
-    expect(deliveryMapSummary({ stopCount: 2, totalDistanceKm: 12.34, estimatedDurationMinutes: 40 })).toBe('2 家农家乐 · 12.3 km · 约 40 分钟')
+    expect(deliveryMapSummary({ stopCount: 2, totalDistanceKm: 12.34, estimatedDurationMinutes: 40 })).toBe('2 家门店 · 12.3 km · 约 40 分钟')
   })
 
   it('keeps the overlay and H5 canvas in the map component', () => {

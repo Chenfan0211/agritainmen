@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
-import type { BusinessMediaValue, CAddress, COrder, CProduct, CProductSku, CSubOrder, PaymentAttempt, Product } from '@agritainment/shared'
+import type { BusinessMediaValue, CAddress, COrder, CProduct, CProductSku, CSubOrder, CUserLevel, PaymentAttempt, Product } from '@agritainment/shared'
 import { PLATFORM_CATALOG_STORAGE_KEY, PLATFORM_COMMISSION_LEDGER_STORAGE_KEY, PLATFORM_PAYMENT_ATTEMPTS_STORAGE_KEY, PLATFORM_VOUCHERS_STORAGE_KEY, PLATFORM_WITHDRAWALS_STORAGE_KEY, createPlatformDictionaryCache, defaultProductCategoryImage, displayProductTags, installKeyboardButtonSupport, money, normalizeMinimumOrderQuantity, productCategoryImage, readCDistributorProfiles, readCOrders, readPlatformDictionaries, readUserBindings, resolveProductChannels, subscribePlatformChanges, validateCatalogSkuOrderQuantity } from '@agritainment/shared'
 import { BusinessImage, ImageUploader } from '@agritainment/ui'
 import UiIcon from '../../components/UiIcon.vue'
-import { LIVE_VIDEO_POSTER, LIVE_VIDEO_URL } from '../../config/live'
 import { isDemoOrderId } from '../../data/demo-orders'
 import { projectDistributorOperations } from '../../services/distributor-operations'
 import { useUserStore } from '../../stores/user'
@@ -19,8 +18,8 @@ const operationsTick = ref(0)
 const shareProductId = ref('')
 const searchText = ref('')
 const activeCategory = ref('全部')
-const sheet = ref<'detail' | 'cart' | 'checkout' | 'address' | 'logistics' | 'after-sale' | null>(null)
-const liveRoomOpen = ref(false)
+const sheet = ref<'detail' | 'cart' | 'checkout' | 'address' | 'logistics' | 'after-sale' | 'package' | null>(null)
+const loginLevel = ref<CUserLevel>('normal')
 const selectedProduct = ref<CProduct | null>(null)
 const productView = ref(false)
 const selectedSkuId = ref('')
@@ -99,8 +98,23 @@ const visibleProducts = computed(() => store.cProducts.filter((product) => {
 const selectedSku = computed(() => selectedProduct.value?.skus.find((sku) => sku.id === selectedSkuId.value) || selectedProduct.value?.skus[0] || null)
 const selectedSubtotal = computed(() => selectedPrice.value * selectedQty.value)
 const selectedPrice = computed(() => selectedSku.value ? store.priceForSku(selectedSku.value) : 0)
-const roleLabel = computed(() => ({ normal: '普通用户', level1: '一级分销商', level2: '二级分销商' }[store.level]))
-const featuredLive = computed(() => store.availableLives.find((item) => item.id === store.liveId) || store.availableLives[0] || null)
+const levelLabels: Record<CUserLevel, string> = { normal: '普通用户', level1: '一级团长', level2: '二级团长' }
+const roleLabel = computed(() => levelLabels[store.level])
+const loginLevelLabel = computed(() => levelLabels[loginLevel.value])
+/** 到店套餐：门店在订货端上架的套餐商品，按门店归组，用户端到店自提核销 */
+const packageGroups = computed(() => {
+  const groups = new Map<string, { farmId: string; farmName: string; packages: Product[] }>()
+  store.products.forEach((product) => {
+    if (product.productType !== 'package') return
+    const farmId = product.farmIds[0] || 'F001'
+    const farmName = store.farms.find((farm) => farm.id === farmId)?.name || '中选科技供应链门店'
+    const group = groups.get(farmId) || { farmId, farmName, packages: [] }
+    group.packages.push(product)
+    groups.set(farmId, group)
+  })
+  return [...groups.values()].filter((group) => group.packages.some((item) => item.skus.some((sku) => canStartOrder(sku))))
+})
+const packageCount = computed(() => packageGroups.value.reduce((sum, group) => sum + group.packages.length, 0))
 const withdrawalRequests = computed(() => Array.isArray(store.withdrawalRequests) ? store.withdrawalRequests : [])
 const operations = computed(() => {
   void operationsTick.value
@@ -156,6 +170,7 @@ async function authorize() {
   try {
     await store.wechatLogin()
     store.applyLaunch(launchQuery)
+    store.setDemoDistributorLevel(loginLevel.value)
     store.seedDemoData()
     await store.initialize(true)
   } finally {
@@ -310,14 +325,9 @@ async function logout() {
   toast('已退出登录')
 }
 
-function openLive() {
-  if (!featuredLive.value) return toast('当前直播暂无有效套餐')
-  store.liveId = featuredLive.value.id
-  liveRoomOpen.value = true
-}
-
-function closeLiveRoom() {
-  liveRoomOpen.value = false
+function openPackages() {
+  if (!packageCount.value) return toast('当前暂无到店套餐')
+  sheet.value = 'package'
 }
 
 async function buyPackage(item: Product) {
@@ -363,7 +373,7 @@ onBeforeUnmount(() => {
       <view class="auth-brand">
         <view class="auth-mark"><UiIcon name="shield-check" :size="30" /></view>
         <text class="auth-brand-name">该入口暂不可访问</text>
-        <text class="auth-brand-sub">请通过有效推客分享链接进入商城</text>
+        <text class="auth-brand-sub">请通过有效团长分享链接进入商城</text>
       </view>
       <view class="auth-card">
         <view class="auth-wxbadge"><UiIcon name="message-circle" :size="26" /></view>
@@ -381,8 +391,13 @@ onBeforeUnmount(() => {
       </view>
       <view class="auth-card">
         <view class="auth-wxbadge"><UiIcon name="message-circle" :size="26" /></view>
+        <view class="auth-roles" role="radiogroup" aria-label="登录身份">
+          <button :class="{ active: loginLevel === 'normal' }" role="radio" :aria-checked="loginLevel === 'normal'" @click="loginLevel = 'normal'">普通用户</button>
+          <button :class="{ active: loginLevel === 'level1' }" role="radio" :aria-checked="loginLevel === 'level1'" @click="loginLevel = 'level1'">一级团长</button>
+          <button :class="{ active: loginLevel === 'level2' }" role="radio" :aria-checked="loginLevel === 'level2'" @click="loginLevel = 'level2'">二级团长</button>
+        </view>
         <button class="auth-btn" :disabled="authorizing" @click="authorize"><UiIcon name="door-open" :size="18" />{{ authorizing ? '授权中...' : '微信一键授权' }}</button>
-        <text class="auth-tip">演示环境，授权后可查看商品与订单</text>
+        <text class="auth-tip">当前身份：{{ loginLevelLabel }} · 演示环境，授权后可查看商品与订单</text>
       </view>
     </view>
 
@@ -392,12 +407,11 @@ onBeforeUnmount(() => {
         <view class="page-content product-detail" data-visual-state="user-detail">
           <view class="gallery">
             <BusinessImage class="gallery-image" :src="selectedProduct.image" mode="aspectFill" />
-            <text class="live-tag">直播平台商品</text>
             <text class="gallery-dots">1 / 1</text>
           </view>
           <text class="pv-name">{{ selectedProduct.name }}</text>
           <view class="pv-meta"><text class="sup">{{ selectedProduct.supplierName }}</text><strong>¥{{ selectedPrice.toFixed(2) }}</strong></view>
-          <view class="pv-tags"><text v-for="tag in displayProductTags(selectedProduct, 'live').filter((tag) => tag !== '直播平台商品')" :key="tag" class="tag">{{ tag }}</text></view>
+          <view class="pv-tags"><text v-for="tag in displayProductTags(selectedProduct, 'store').filter((tag) => tag !== '门店商品')" :key="tag" class="tag">{{ tag }}</text></view>
           <view class="shipnote"><UiIcon name="truck" :size="15" />快递配送 · 运费 ¥0 · 产地直发</view>
           <view class="product-detail-actions"><button class="outline-btn" @click="shareProduct(selectedProduct)"><UiIcon name="link" :size="16" />分享商品</button><button class="primary-btn" :disabled="!canStartProductOrder(selectedProduct)" @click="addProduct(selectedProduct)">加入购物车</button></view>
         </view>
@@ -413,14 +427,14 @@ onBeforeUnmount(() => {
         </view>
 
         <view class="search-box"><UiIcon name="search" :size="16" /><input v-model="searchText" class="search-input" placeholder="搜索商品、供应商或标签" /></view>
-        <view class="live-banner" @click="openLive">
-          <BusinessImage v-if="featuredLive" class="live-banner-cover" :src="featuredLive.image" :fallback="LIVE_VIDEO_POSTER" mode="aspectFill" />
+        <view class="package-banner" @click="openPackages">
+          <view class="package-banner-mark"><UiIcon name="store" :size="26" /></view>
           <view>
-            <text class="banner-kicker">产地直播</text>
-            <text class="banner-title">{{ featuredLive ? featuredLive.title : '暂无有效直播' }}</text>
-            <text class="banner-sub">{{ featuredLive ? `${featuredLive.host} · ${featuredLive.viewers.toLocaleString('zh-CN')} 人关注` : '新鲜好物持续上新' }}</text>
+            <text class="banner-kicker">门店套餐</text>
+            <text class="banner-title">{{ packageCount ? `${packageCount} 款到店套餐` : '暂无到店套餐' }}</text>
+            <text class="banner-sub">门店自提 · 到店核销 · 支持团长分佣</text>
           </view>
-          <view class="banner-play"><UiIcon name="play" :size="17" /></view>
+          <view class="banner-play"><UiIcon name="chevron-right" :size="17" /></view>
         </view>
 
         <view class="section-line"><text>推荐好物</text><small class="meta-text">{{ visibleProducts.length }} 件</small></view>
@@ -428,7 +442,6 @@ onBeforeUnmount(() => {
           <view v-for="product in visibleProducts" :key="product.id" class="product-card" @click="openProduct(product)">
             <view class="product-image-wrap">
               <BusinessImage class="product-image" :src="product.image" mode="aspectFill" />
-              <text class="live-tag">直播平台商品</text>
             </view>
             <view class="product-body"><text class="product-name">{{ product.name }}</text><text class="product-meta">库存 {{ product.skus.reduce((sum, sku) => sum + sku.stock, 0) }}</text><view class="product-foot"><view class="product-price-box"><text class="product-price">¥{{ store.priceForSku(product.skus[0]).toFixed(2) }}</text><del v-if="(product.skus[0]?.basePrice ?? 0) > store.priceForSku(product.skus[0])" class="product-original">¥{{ (product.skus[0]?.basePrice ?? 0).toFixed(2) }}</del></view><button class="product-action" :aria-label="`加入${product.name}到购物车`" :disabled="!canStartProductOrder(product)" @click.stop="addProduct(product)"><UiIcon name="plus" :size="15" /></button></view></view>
           </view>
@@ -490,35 +503,35 @@ onBeforeUnmount(() => {
           <view v-if="!isDemoOrderId(order.id) && order.status === 'pending_payment' && paymentConfirmationPending(order)" class="payment-confirmation">支付结果确认中</view>
           <view v-if="!isDemoOrderId(order.id)" class="order-actions"><button v-if="order.status === 'pending_payment' && !paymentConfirmationPending(order)" class="primary-small" @click="pay(order)">模拟支付</button><button v-if="order.status === 'pending_payment' && paymentConfirmationQueryable(order)" class="primary-small" @click="pay(order)">查询支付结果</button><button v-if="order.status === 'pending_payment' && !paymentConfirmationPending(order)" class="outline-small" @click="cancelPendingOrder(order)">取消订单</button></view>
         </view>
-        <view v-if="store.vouchers.length" class="order-card voucher-card"><view class="order-head"><view><text class="order-id">券订单</text><text class="order-time">直播 / 门店套餐</text></view><text class="order-status muted">共 {{ store.vouchers.length }} 张</text></view><view v-for="voucher in store.vouchers" :key="voucher.id" class="vrow"><view class="voucher-thumb"><UiIcon name="badge-percent" :size="19" /></view><view class="vrow-main"><text>{{ voucher.id }}</text><small class="meta-text">数量 {{ voucher.quantity }} · ¥{{ voucher.amount.toFixed(2) }} · {{ voucher.status === 'paid' ? '待核销' : voucher.status === 'redeemed' ? '已核销' : '已退款' }}</small></view><strong class="strong-text">¥{{ voucher.amount.toFixed(2) }}</strong></view></view>
+        <view v-if="store.vouchers.length" class="order-card voucher-card"><view class="order-head"><view><text class="order-id">券订单</text><text class="order-time">门店套餐</text></view><text class="order-status muted">共 {{ store.vouchers.length }} 张</text></view><view v-for="voucher in store.vouchers" :key="voucher.id" class="vrow"><view class="voucher-thumb"><UiIcon name="badge-percent" :size="19" /></view><view class="vrow-main"><text>{{ voucher.id }}</text><small class="meta-text">数量 {{ voucher.quantity }} · ¥{{ voucher.amount.toFixed(2) }} · {{ voucher.status === 'paid' ? '待核销' : voucher.status === 'redeemed' ? '已核销' : '已退款' }}</small></view><strong class="strong-text">¥{{ voucher.amount.toFixed(2) }}</strong></view></view>
       </view>
 
       <view v-else class="page-content me-page" data-visual-view="user-me">
-        <view class="page-heading theme-head"><text class="page-title">我的</text><text class="page-sub">分销与订单都在这里管理</text></view>
+        <view class="page-heading theme-head"><text class="page-title">我的</text><text class="page-sub">团长与订单都在这里管理</text></view>
         <view class="profile-panel"><view class="avatar">{{ roleLabel.slice(0, 1) }}</view><view class="profile-main"><text class="profile-role">{{ roleLabel }}</text><text class="profile-id">用户 {{ store.userId || '演示用户' }}</text></view><text class="profile-state">已登录</text></view>
         <view class="role-switch">
           <button :class="{ active: store.level === 'normal' }" @click="store.setDemoDistributorLevel('normal')">普通用户</button>
-          <button :class="{ active: store.level === 'level1' }" @click="store.setDemoDistributorLevel('level1')">一级分销商</button>
-          <button :class="{ active: store.level === 'level2' }" @click="store.setDemoDistributorLevel('level2')">二级分销商</button>
+          <button :class="{ active: store.level === 'level1' }" @click="store.setDemoDistributorLevel('level1')">一级团长</button>
+          <button :class="{ active: store.level === 'level2' }" @click="store.setDemoDistributorLevel('level2')">二级团长</button>
         </view>
         <view v-if="store.currentDistributor" class="operations-hero commission-summary"><text>销售统计</text><view><view><strong>¥{{ store.pendingCommission.toFixed(2) }}</strong><small>待结算收入</small></view><view><strong>¥{{ store.availableCommission.toFixed(2) }}</strong><small>可提现收入</small></view><view><strong>¥{{ operations.personalPerformance.toFixed(2) }}</strong><small>个人业绩</small></view><view><strong>¥{{ operations.teamPerformance.toFixed(2) }}</strong><small>团队业绩</small></view></view></view>
-<view v-if="store.currentDistributor" class="operations-grid pc-tile-grid"><button class="pc-tile pc-tile--coral" @click="openOperations('income')"><view class="pc-tile-icon"><UiIcon name="badge-dollar-sign" :size="26" /></view><text class="pc-tile-label">我的收入</text></button><button class="pc-tile pc-tile--blue" @click="openOperations('fans')"><view class="pc-tile-icon"><UiIcon name="user-round-check" :size="26" /><text v-if="operations.directFans.length" class="pc-tile-badge">{{ operations.directFans.length > 99 ? '99+' : operations.directFans.length }}</text></view><text class="pc-tile-label">我的粉丝</text></button><button class="pc-tile pc-tile--green" @click="openOperations('orders')"><view class="pc-tile-icon"><UiIcon name="package-check" :size="26" /><text v-if="operations.teamOrders.length" class="pc-tile-badge">{{ operations.teamOrders.length > 99 ? '99+' : operations.teamOrders.length }}</text></view><text class="pc-tile-label">团队订单</text></button><button class="pc-tile pc-tile--amber" @click="openOperations('performance')"><view class="pc-tile-icon"><UiIcon name="chart-no-axes-combined" :size="26" /></view><text class="pc-tile-label">团队业绩</text></button></view>
+<view v-if="store.currentDistributor" class="operations-grid pc-tile-grid"><button class="pc-tile pc-tile--coral" @click="openOperations('income')"><view class="pc-tile-icon"><UiIcon name="badge-dollar-sign" :size="26" /></view><text class="pc-tile-label">我的收入</text></button><button class="pc-tile pc-tile--blue" @click="openOperations('fans')"><view class="pc-tile-icon"><UiIcon name="user-round-check" :size="26" /><text v-if="operations.directFans.length" class="pc-tile-badge">{{ operations.directFans.length > 99 ? '99+' : operations.directFans.length }}</text></view><text class="pc-tile-label">下级用户</text></button><button class="pc-tile pc-tile--green" @click="openOperations('orders')"><view class="pc-tile-icon"><UiIcon name="package-check" :size="26" /><text v-if="operations.teamOrders.length" class="pc-tile-badge">{{ operations.teamOrders.length > 99 ? '99+' : operations.teamOrders.length }}</text></view><text class="pc-tile-label">团队订单</text></button><button class="pc-tile pc-tile--amber" @click="openOperations('performance')"><view class="pc-tile-icon"><UiIcon name="chart-no-axes-combined" :size="26" /></view><text class="pc-tile-label">团队业绩</text></button></view>
         <view v-else class="normal-summary"><UiIcon name="shield-check" :size="19" /><view><text>安心购物</text><small>订单、地址与售后服务都在这里</small></view></view>
         <view class="order-entry" @click="openMyOrders"><view><text>我的订单</text><small>查看全部订单</small></view><UiIcon name="chevron-right" :size="17" /></view>
         <template v-if="store.currentDistributor">
-          <view class="referral-panel"><view><text>{{ store.level === 'normal' ? '推荐关系' : '我的上级' }}</text><small class="meta-text">{{ store.level === 'normal' ? (store.referralPromoterId ? `已绑定推荐人 ${store.referralPromoterId}` : '暂无有效推荐关系') : (store.currentDistributor?.parentPromoterId ? `一级分销商 ${store.currentDistributor.parentPromoterId}` : '平台直营分销商') }}</small></view><UiIcon name="chevron-right" :size="16" /></view>
+          <view class="referral-panel"><view><text>{{ store.level === 'normal' ? '推荐关系' : '我的上级' }}</text><small class="meta-text">{{ store.level === 'normal' ? (store.referralPromoterId ? `已绑定推荐人 ${store.referralPromoterId}` : '暂无有效推荐关系') : (store.currentDistributor?.parentPromoterId ? `一级团长 ${store.currentDistributor.parentPromoterId}` : '平台直营团长') }}</small></view><UiIcon name="chevron-right" :size="16" /></view>
           <view class="section-line"><text>佣金明细</text><small class="meta-text">{{ store.myCommissionRecords.length }} 笔</small></view>
-          <view v-if="!store.myCommissionRecords.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="badge-dollar-sign" :size="24" /></view><text>确认收货后，分销佣金会在这里显示</text></view>
-          <view v-for="record in store.myCommissionRecords" :key="record.id" class="commission-row"><view><text>{{ record.beneficiaryLevel === 'level1' ? '一级分佣' : '二级分佣' }}</text><small class="meta-text">{{ formatDate(record.createdAt) }} · {{ record.status === 'available' ? '可用' : record.status === 'pending' ? '待结算' : record.status === 'withdrawn' ? '已提现' : '已冲正' }}</small></view><strong class="strong-text" :class="{ reversed: record.status === 'reversed' }">{{ record.amount < 0 ? '' : '+' }}¥{{ record.amount.toFixed(2) }}</strong></view>
+          <view v-if="!store.myCommissionRecords.length" class="empty-block compact pc-empty"><view class="pc-state-icon"><UiIcon name="badge-dollar-sign" :size="24" /></view><text>确认收货后，团长分佣会在这里显示</text></view>
+          <view v-for="record in store.myCommissionRecords" :key="record.id" class="commission-row"><view><text>{{ record.beneficiaryLevel === 'level1' ? '一级团长分佣' : '二级团长分佣' }}</text><small class="meta-text">{{ formatDate(record.createdAt) }} · {{ record.status === 'available' ? '可用' : record.status === 'pending' ? '待结算' : record.status === 'withdrawn' ? '已提现' : '已冲正' }}</small></view><strong class="strong-text" :class="{ reversed: record.status === 'reversed' }">{{ record.amount < 0 ? '' : '+' }}¥{{ record.amount.toFixed(2) }}</strong></view>
           <view v-if="withdrawalRequests.length" class="withdrawal-history"><view class="section-line"><text>提现申请</text><small class="meta-text">{{ withdrawalRequests.length }} 笔</small></view><view v-for="request in withdrawalRequests" :key="request.id" class="commission-row"><view><text>{{ request.method }} · {{ withdrawalStatusLabel(request.status) }}</text><small class="meta-text">{{ formatDate(request.createdAt) }}<text v-if="request.reviewedNote"> · {{ request.reviewedNote }}</text></small></view><strong class="strong-text">¥{{ request.amount.toFixed(2) }}</strong></view></view>
         </template>
-        <view class="settings-list"><view @click="openAddressManager(false)"><UiIcon name="map-pin" :size="17" /><text>收货地址</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region : '未设置' }}</small><UiIcon name="chevron-right" :size="15" /></view><view class="live-entry" @click="openLive"><UiIcon name="play" :size="17" /><text>直播/推客活动</text><small class="meta-text">进入活动专区</small><UiIcon name="chevron-right" :size="15" /></view></view>
+        <view class="settings-list"><view @click="openAddressManager(false)"><UiIcon name="map-pin" :size="17" /><text>收货地址</text><small class="meta-text">{{ store.defaultAddress ? store.defaultAddress.region : '未设置' }}</small><UiIcon name="chevron-right" :size="15" /></view><view class="package-entry" @click="openPackages"><UiIcon name="store" :size="17" /><text>到店套餐</text><small class="meta-text">门店自提 · 到店核销</small><UiIcon name="chevron-right" :size="15" /></view></view>
         <button class="logout-button logout-danger" @click="logout">退出登录</button>
       </view>
 
       <view v-if="store.cart.length && activeTab !== 'cart'" class="cart-bar" @click="activeTab = 'cart'"><view class="cart-bar-icon"><UiIcon name="shopping-cart" :size="19" /><small>{{ store.cartCount }}</small></view><view class="cart-bar-total"><text>购物车合计</text><strong>¥{{ store.cartTotal.toFixed(2) }}</strong></view><button @click.stop="activeTab = 'cart'">去购物车</button></view>
       </template>
-      <view v-if="!productView && !liveRoomOpen" class="bottom-tabs">
+      <view v-if="!productView" class="bottom-tabs">
         <view class="tab-item" :class="{ active: activeTab === 'home' }" @click="activeTab = 'home'"><view class="tab-icon"><UiIcon name="house" :size="20" /></view><text>首页</text></view>
         <view class="tab-item" :class="{ active: activeTab === 'category' }" @click="activeTab = 'category'"><view class="tab-icon"><UiIcon name="layout-dashboard" :size="20" /></view><text>分类</text></view>
         <view class="tab-item" :class="{ active: activeTab === 'cart' }" @click="activeTab = 'cart'"><view class="tab-icon tab-icon-wrap"><UiIcon name="shopping-cart" :size="20" /><small v-if="store.cartCount">{{ store.cartCount }}</small></view><text>购物车</text></view>
@@ -526,25 +539,8 @@ onBeforeUnmount(() => {
       </view>
     </template>
 
-    <view v-if="liveRoomOpen && featuredLive" class="live-room" data-visual-state="user-live-room">
-      <view class="live-room-video-wrap">
-        <video class="live-room-video" :src="LIVE_VIDEO_URL" :poster="LIVE_VIDEO_POSTER" autoplay controls object-fit="cover" />
-        <view class="live-room-play"><UiIcon name="play" :size="26" /></view>
-        <view class="live-room-top"><text class="live-badge">直播中</text><button aria-label="关闭直播间" @click="closeLiveRoom"><UiIcon name="x" :size="18" /></button></view>
-      </view>
-      <view class="live-room-body">
-        <view v-if="!store.liveFarms.length" class="live-empty">
-          <view class="pc-state-icon"><UiIcon name="package" :size="28" /></view>
-          <text>当前直播暂无有效套餐</text>
-          <small>主播正在准备下一场产地直播<br>开播后可在此直接购买直播套餐</small>
-          <button class="outline-btn" @click="closeLiveRoom"><UiIcon name="house" :size="15" />返回商城逛逛</button>
-        </view>
-        <view v-for="group in store.liveFarms" :key="group.farm!.id" class="live-package-group"><text class="sku-label">{{ group.farm!.name }}</text><view v-for="item in group.packages" :key="item.id" class="live-package-row"><view><text>{{ item.name }}</text><small class="meta-text">{{ item.skus.filter((sku) => canStartOrder(sku)).length }} 个可售规格</small><small v-if="!item.skus.some((sku) => canStartOrder(sku))" class="stock-warning">库存不足或购买数量未达要求</small></view><view class="live-package-actions"><strong class="strong-text">¥{{ item.price.toFixed(2) }}</strong><button class="outline-btn live-buy-btn" :disabled="!item.skus.some((sku) => canStartOrder(sku))" @click="buyPackage(item)">立即购买</button></view></view></view>
-      </view>
-    </view>
-
     <view v-if="sheet" class="sheet-mask" @click.self="sheet = null"><view class="sheet">
-      <view class="sheet-head"><text>{{ sheet === 'detail' ? '选择规格' : sheet === 'cart' ? '购物车结算' : sheet === 'checkout' ? '确认订单' : sheet === 'address' ? '收货地址' : sheet === 'logistics' ? '物流详情' : sheet === 'after-sale' ? '申请售后' : '直播活动' }}</text><button aria-label="关闭" @click="sheet = null"><UiIcon name="x" :size="16" /></button></view>
+      <view class="sheet-head"><text>{{ sheet === 'detail' ? '选择规格' : sheet === 'cart' ? '购物车结算' : sheet === 'checkout' ? '确认订单' : sheet === 'address' ? '收货地址' : sheet === 'logistics' ? '物流详情' : sheet === 'after-sale' ? '申请售后' : '到店套餐' }}</text><button aria-label="关闭" @click="sheet = null"><UiIcon name="x" :size="16" /></button></view>
       <scroll-view class="sheet-scroll" scroll-y>
       <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="detail-content product-detail" data-visual-state="user-detail">
         <view class="sku-sum">
@@ -629,6 +625,16 @@ onBeforeUnmount(() => {
         <view class="after-sale-reason"><text>售后原因</text><view class="after-sale-chips"><button v-for="reason in ['运输破损', '质量问题', '少发漏发', '七天无理由', '其他']" :key="reason" :class="{ active: afterSaleReason === reason }" @click="afterSaleReason = reason">{{ reason }}</button></view></view>
         <view class="after-sale-evidence"><text>上传凭证（1-6 张，可选）</text><ImageUploader v-model="afterSaleEvidence" multiple :max-count="6" purpose="after-sale" profile="license" /></view>
         <text class="after-sale-tip">提交后客服将结合凭证审核</text>
+      </view>
+      <view v-else-if="sheet === 'package'" class="package-sheet" data-visual-state="user-package">
+        <view v-if="!packageCount" class="empty-sheet"><view class="pc-state-icon"><UiIcon name="store" :size="28" /></view><text>当前暂无到店套餐</text><small>门店在订货端上架套餐后<br>可在此下单到店自提核销</small><button class="outline-btn" @click="sheet = null"><UiIcon name="house" :size="15" />返回商城逛逛</button></view>
+        <view v-for="group in packageGroups" :key="group.farmId" class="package-group">
+          <text class="sku-label">{{ group.farmName }}</text>
+          <view v-for="item in group.packages" :key="item.id" class="package-row">
+            <view><text>{{ item.name }}</text><small class="meta-text">{{ item.skus.filter((sku) => canStartOrder(sku)).length }} 个可售规格 · 到店自提</small><small v-if="!item.skus.some((sku) => canStartOrder(sku))" class="stock-warning">库存不足或购买数量未达要求</small></view>
+            <view class="package-actions"><strong class="strong-text">¥{{ item.price.toFixed(2) }}</strong><button class="outline-btn package-buy-btn" :disabled="!item.skus.some((sku) => canStartOrder(sku))" @click="buyPackage(item)">立即购买</button></view>
+          </view>
+        </view>
       </view>
       </scroll-view>
       <view v-if="sheet === 'detail' && selectedProduct && selectedSku" class="product-detail-actions sheet-foot"><button class="primary-btn" :disabled="!canStartOrder(selectedSku)" @click="addSelectedToCart"><UiIcon name="shopping-cart" :size="16" />加入购物车</button></view>
@@ -821,7 +827,7 @@ onBeforeUnmount(() => {
 }
 .search-input { min-width: 0; flex: 1; height: 100%; color: var(--mobile-text); font-size: 13px; }
 
-.live-banner {
+.package-banner {
   position: relative;
   display: flex;
   overflow: hidden;
@@ -833,7 +839,7 @@ onBeforeUnmount(() => {
   background: var(--mobile-hero-grad);
   color: var(--color-on-brand);
 }
-.live-banner::after {
+.package-banner::after {
   content: "";
   position: absolute;
   top: -70px;
@@ -843,8 +849,8 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--color-on-brand) 14%, transparent), transparent 70%);
 }
-.live-banner-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .28; }
-.live-banner > view:not(.banner-play) { position: relative; z-index: 1; min-width: 0; flex: 1; }
+.package-banner > view:not(.banner-play) { position: relative; z-index: 1; min-width: 0; flex: 1; }
+.package-banner-mark { position: relative; z-index: 1; display: grid; width: 42px; height: 42px; flex: none; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--color-on-brand) 20%, transparent); }
 .banner-kicker,
 .banner-title,
 .banner-sub { display: block; }
@@ -891,21 +897,6 @@ onBeforeUnmount(() => {
 }
 .product-image-wrap { position: relative; }
 .product-image { display: block; width: 100%; aspect-ratio: 1 / 1; background: var(--mobile-surface-subtle); object-fit: cover; }
-.live-tag {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  display: inline-flex;
-  height: 22px;
-  align-items: center;
-  padding: 0 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-on-brand) 94%, transparent);
-  color: var(--mobile-brand);
-  font-size: 11px;
-  font-weight: 800;
-}
-
 .product-body {
   display: flex;
   min-width: 0;
@@ -1642,7 +1633,6 @@ onBeforeUnmount(() => {
   border-radius: 18px;
 }
 .gallery-image { display: block; width: 100%; height: 100%; object-fit: cover; }
-.gallery .live-tag { top: 10px; left: 10px; height: 24px; padding: 0 9px; border-radius: 7px; font-size: 11.5px; }
 .gallery-dots {
   position: absolute;
   right: 10px;
@@ -1700,7 +1690,6 @@ onBeforeUnmount(() => {
 .heading-with-back { display: flex; align-items: center; gap: 8px; }
 .page-back,
 .sheet-head button,
-.live-room-top button { display: grid; width: 44px; height: 44px; flex: none; place-items: center; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; }
 
 .bottom-tabs {
   position: fixed;
@@ -2011,69 +2000,9 @@ onBeforeUnmount(() => {
 .after-sale-tip { display: block; margin-top: 12px; color: var(--mobile-muted); font-size: 12px; }
 .stock-warning { display: block; margin-top: 4px; color: var(--mobile-danger); font-size: 12px; }
 
-.live-room { position: fixed; z-index: 40; top: 0; display: flex; height: 100vh; flex-direction: column; overflow: auto; background: var(--mobile-brand-deep); }
-.live-room-video-wrap { position: relative; width: 100%; height: min(560px, 52vh); min-height: 240px; background: var(--mobile-hero-grad); }
-.live-room-video { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .55; }
-.live-room-play {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: 68px;
-  height: 68px;
-  place-items: center;
-  border: 1.5px solid color-mix(in srgb, var(--color-on-brand) 40%, transparent);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-on-brand) 16%, transparent);
-  color: var(--color-on-brand);
-  transform: translate(-50%, -50%);
-}
-.live-room-top {
-  position: absolute;
-  z-index: 20;
-  top: 52px;
-  right: 14px;
-  left: 14px;
-  display: flex;
-  align-items: center;
-  padding-right: 96px;
-  color: var(--color-on-brand);
-}
-.live-badge {
-  display: inline-flex;
-  height: 26px;
-  align-items: center;
-  padding: 0 10px;
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--mobile-badge) 92%, transparent);
-  color: var(--color-on-brand);
-  font-size: 11.5px;
-  font-weight: 800;
-}
-.live-room-top button {
-  margin-left: auto;
-  width: 34px;
-  height: 34px;
-  border: 1px solid color-mix(in srgb, var(--color-on-brand) 28%, transparent);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-on-brand) 14%, transparent);
-  color: var(--color-on-brand);
-}
-.live-room-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  margin-top: -22px;
-  padding: 18px 16px;
-  border-radius: 22px 22px 0 0;
-  background: var(--mobile-surface);
-}
-.live-empty { display: flex; flex-direction: column; align-items: center; padding-top: 26px; }
-.live-empty text { margin-top: 14px; font-size: 15px; font-weight: 800; }
-.live-empty small { margin-top: 8px; color: var(--mobile-muted); font-size: 12px; line-height: 1.7; }
-.live-empty .outline-btn { margin-top: 22px; height: 44px; padding: 0 34px; border-radius: 22px; color: var(--mobile-text); }
-.live-package-group { width: 100%; margin-bottom: 18px; text-align: left; }
-.live-package-row {
+.package-sheet .empty-sheet .outline-btn { margin-top: 22px; height: 44px; padding: 0 34px; border-radius: 22px; color: var(--mobile-text); }
+.package-group { width: 100%; margin-bottom: 18px; text-align: left; }
+.package-row {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
@@ -2086,12 +2015,12 @@ onBeforeUnmount(() => {
   border-radius: var(--mobile-radius-card);
   background: var(--mobile-surface);
 }
-.live-package-row > view:first-child { min-width: 0; flex: 1 1 100%; }
-.live-package-row text { display: block; font-size: 13px; font-weight: 800; }
-.live-package-row .meta-text { display: block; margin-top: 4px; color: var(--mobile-muted); font-size: 12px; }
-.live-package-actions { display: flex; width: 100%; flex: none; align-items: center; justify-content: space-between; gap: 8px; }
-.live-package-actions .strong-text { color: var(--mobile-price); font-size: 15px; }
-.live-buy-btn { min-height: var(--mobile-control-compact); margin-left: auto; padding: 0 11px; }
+.package-row > view:first-child { min-width: 0; flex: 1 1 100%; }
+.package-row text { display: block; font-size: 13px; font-weight: 800; }
+.package-row .meta-text { display: block; margin-top: 4px; color: var(--mobile-muted); font-size: 12px; }
+.package-actions { display: flex; width: 100%; flex: none; align-items: center; justify-content: space-between; gap: 8px; }
+.package-actions .strong-text { color: var(--mobile-price); font-size: 15px; }
+.package-buy-btn { min-height: var(--mobile-control-compact); margin-left: auto; padding: 0 11px; }
 
 /* Mobile readability contrast */
 .supplier-name,.stock-text,.order-time {
@@ -2105,16 +2034,14 @@ onBeforeUnmount(() => {
 
   .app-shell,
   .bottom-tabs,
-  .sheet-mask,
-  .live-room {
+  .sheet-mask {
     width: 100%;
     max-width: 430px;
   }
 
   .app-shell { margin: 0 auto; box-shadow: var(--shadow-card); }
   .bottom-tabs,
-  .sheet-mask,
-  .live-room { right: auto; left: 50%; transform: translateX(-50%); }
+  .sheet-mask { right: auto; left: 50%; transform: translateX(-50%); }
   .cart-bar { left:50%; right:auto; width:406px; transform:translateX(-50%); }
   .cart-checkout { left: 50%; right: auto; width: 406px; transform: translateX(-50%); }
   .product-detail-actions { left:50%; right:auto; width:406px; transform:translateX(-50%); }
@@ -2127,12 +2054,9 @@ onBeforeUnmount(() => {
 .page-heading,
 .loading-state { padding-top: calc(12px + var(--status-bar-height)); padding-right: 96px; }
 .auth-page { padding-top: calc(24px + var(--status-bar-height)); padding-right: 96px; }
-.live-room-top { padding-top: calc(10px + var(--status-bar-height)); padding-right: 96px; }
-.live-room { height: 100%; }
 .app-shell,
 .bottom-tabs,
 .sheet-mask,
-.live-room,
 .sheet { left: 0; right: 0; width: 100%; max-width: none; transform: none; }
 /* #endif */
 

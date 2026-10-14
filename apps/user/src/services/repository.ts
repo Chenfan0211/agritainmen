@@ -1,7 +1,8 @@
-import { CATALOG_SCHEMA_VERSION, applyPlatformEntities, applyPlatformMedia, catalogProductToStoreProduct, cloneSeed, cProducts, farms, liveRooms, mergePlatformLives, migrateLegacyCatalog, mockDelay, products, readCProducts, readCatalogState, readStoreCatalogSelections } from '@agritainment/shared'
+import { CATALOG_SCHEMA_VERSION, applyPlatformEntities, applyPlatformMedia, catalogProductToStoreProduct, cloneSeed, cProducts, farms, migrateLegacyCatalog, mockDelay, products, readCProducts, readCatalogState, readStoreCatalogSelections } from '@agritainment/shared'
 import type { MockScenario } from '@agritainment/shared'
 
-export function readLivePackageProjection() {
+/** 门店套餐券投影：门店在订货端上架、带库存的套餐商品，用于用户端到店自提核销 */
+export function readStorePackageProjection() {
   const catalog = readCatalogState() || { schemaVersion: CATALOG_SCHEMA_VERSION, revision: 0, products: migrateLegacyCatalog(cloneSeed(products), readCProducts() || cProducts), appliedOperations: {} }
   return readStoreCatalogSelections()
     .filter((selection) => selection.listed)
@@ -14,33 +15,18 @@ export function readLivePackageProjection() {
     })
 }
 
-export function readLiveRoomProjection(packageProducts = readLivePackageProjection()) {
-  const validPackagesByFarm = new Map<string, Set<string>>()
-  packageProducts.forEach((product) => product.farmIds.forEach((farmId) => {
-    const ids = validPackagesByFarm.get(farmId) || new Set<string>()
-    ids.add(product.id)
-    validPackagesByFarm.set(farmId, ids)
-  }))
-  return mergePlatformLives(cloneSeed(liveRooms)).map((room) => {
-    if (room.status !== 'live' || !room.linkedFarms?.length) return room
-    const hasValidPackage = room.linkedFarms.some((linked) => linked.packageIds.some((id) => validPackagesByFarm.get(linked.farmId)?.has(id)))
-    return hasValidPackage ? room : { ...room, status: 'preview' as const }
-  })
-}
-
 export const userRepository = {
   loadDashboard: (scenario: MockScenario = 'normal') => {
     const storeFarms = cloneSeed(farms)
     const seedAll = cloneSeed(products)
     applyPlatformEntities(seedAll, storeFarms, null, null, null)
-    const packageProducts = readLivePackageProjection()
+    const packageProducts = readStorePackageProjection()
     applyPlatformMedia(storeFarms, packageProducts)
-    const mergedLives = readLiveRoomProjection(packageProducts)
     return mockDelay(
-      { farms: storeFarms, products: packageProducts, catalogStoreProducts: seedAll, liveRooms: mergedLives, cProducts: cloneSeed(readCProducts() || cProducts) },
+      { farms: storeFarms, products: packageProducts, catalogStoreProducts: seedAll, cProducts: cloneSeed(readCProducts() || cProducts) },
       180,
       scenario,
-      { farms: [], products: [], catalogStoreProducts: [], liveRooms: [], cProducts: [] }
+      { farms: [], products: [], catalogStoreProducts: [], cProducts: [] }
     )
   }
 }

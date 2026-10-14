@@ -14,7 +14,7 @@ onLoad((query) => {
   if (['income', 'fans', 'orders', 'performance'].includes(query?.type || '')) type.value = query!.type as OperationType
 })
 
-const title = computed(() => ({ income: '我的收入', fans: '我的粉丝', orders: '团队订单', performance: '团队业绩' })[type.value])
+const title = computed(() => ({ income: '我的收入', fans: '我的下级用户', orders: '团队订单', performance: '团队业绩' })[type.value])
 const data = computed(() => projectDistributorOperations({
   promoterId: store.currentDistributor?.promoterId || '',
   orders: Object.values(readCOrders() || {}),
@@ -36,7 +36,7 @@ function withdraw() {
   <view class="operation-page" :data-visual-view="`user-operations-${type}`">
     <view class="operation-header theme-head"><button class="page-back" aria-label="返回" @click="back"><UiIcon name="arrow-left" :size="21" /></button><text>{{ title }}</text><view></view></view>
 
-    <view v-if="!store.currentDistributor" class="empty no-distributor pc-empty" data-visual-state="user-operations-no-distributor"><view class="pc-state-icon"><UiIcon name="shield-check" :size="28" /></view><text>当前身份暂无推广数据</text><small>绑定推客身份后可查看收入、粉丝和团队业绩</small><button class="primary-btn" @click="back">返回个人中心</button></view>
+    <view v-if="!store.currentDistributor" class="empty no-distributor pc-empty" data-visual-state="user-operations-no-distributor"><view class="pc-state-icon"><UiIcon name="shield-check" :size="28" /></view><text>当前身份暂无推广数据</text><small>成为一级/二级团长后可查看收入、下级用户和团队业绩</small><button class="primary-btn" @click="back">返回个人中心</button></view>
 
     <template v-else>
     <template v-if="type === 'income'">
@@ -44,12 +44,12 @@ function withdraw() {
       <view class="metric-grid"><view><small>累计收入</small><strong>¥{{ (settledIncome + store.pendingCommission).toFixed(2) }}</strong></view><view><small>已结算</small><strong>¥{{ settledIncome.toFixed(2) }}</strong></view><view><small>待结算</small><strong>¥{{ store.pendingCommission.toFixed(2) }}</strong></view><view><small>已提现</small><strong>¥{{ withdrawnIncome.toFixed(2) }}</strong></view></view>
       <view class="section-title">收入明细</view>
       <view v-if="!store.myCommissionRecords.length" class="empty pc-empty"><view class="pc-state-icon"><UiIcon name="badge-dollar-sign" :size="26" /></view><text>暂无收入记录</text></view>
-      <view v-for="record in store.myCommissionRecords" :key="record.id" class="list-row"><view><text>{{ record.beneficiaryLevel === 'level1' ? '一级分佣' : '二级分佣' }}</text><small>{{ formatDate(record.createdAt) }} · {{ record.status === 'available' ? '可提现' : record.status === 'pending' ? '待结算' : record.status === 'withdrawn' ? '已提现' : '已冲正' }}</small></view><strong>¥{{ record.amount.toFixed(2) }}</strong></view>
+      <view v-for="record in store.myCommissionRecords" :key="record.id" class="list-row"><view><text>{{ record.beneficiaryLevel === 'level1' ? '一级团长分佣' : '二级团长分佣' }}</text><small>{{ formatDate(record.createdAt) }} · {{ record.status === 'available' ? '可提现' : record.status === 'pending' ? '待结算' : record.status === 'withdrawn' ? '已提现' : '已冲正' }}</small></view><strong>¥{{ record.amount.toFixed(2) }}</strong></view>
     </template>
 
     <template v-else-if="type === 'fans'">
-      <view class="summary-line" data-operation-view="fans"><view><strong>{{ data.directFans.length }}</strong><small>直属粉丝</small></view><view><strong>{{ data.teamPromoterIds.length }}</strong><small>团队分销商</small></view></view>
-      <view v-if="!data.directFans.length" class="empty pc-empty"><view class="pc-state-icon"><UiIcon name="user-round-check" :size="26" /></view><text>暂无已绑定粉丝</text></view>
+      <view class="summary-line" data-operation-view="fans"><view><strong>{{ data.directFans.length }}</strong><small>直属用户</small></view><view><strong>{{ data.teamPromoterIds.length }}</strong><small>下级团长</small></view></view>
+      <view v-if="!data.directFans.length" class="empty pc-empty"><view class="pc-state-icon"><UiIcon name="user-round-check" :size="26" /></view><text>暂无已绑定下级用户</text></view>
       <view v-for="fan in data.directFans" :key="fan.userId" class="fan-row"><view class="fan-avatar">{{ fan.userId.slice(-1) }}</view><view><text>用户 {{ fan.userId }}</text><small>{{ formatDate(fan.boundAt) }}</small></view><text class="bound-tag">已绑定</text></view>
     </template>
 
@@ -60,7 +60,7 @@ function withdraw() {
     </template>
 
     <template v-else>
-      <view class="performance-hero" data-operation-view="performance"><small>累计团队业绩（元）</small><strong>{{ data.teamPerformance.toFixed(2) }}</strong><view><text>{{ data.teamOrders.length }} 笔有效订单</text><text>{{ data.teamPromoterIds.length }} 名团队分销商</text></view></view>
+      <view class="performance-hero" data-operation-view="performance"><small>累计团队业绩（元）</small><strong>{{ data.teamPerformance.toFixed(2) }}</strong><view><text>{{ data.teamOrders.length }} 笔有效订单</text><text>{{ data.teamPromoterIds.length }} 名下级团长</text></view></view>
       <view class="metric-grid performance-grid"><view><small>个人业绩</small><strong>¥{{ data.personalPerformance.toFixed(2) }}</strong></view><view><small>团队业绩</small><strong>¥{{ data.teamPerformance.toFixed(2) }}</strong></view></view>
       <view class="section-title">业绩订单</view>
       <view v-if="!data.teamOrders.length" class="empty pc-empty"><view class="pc-state-icon"><UiIcon name="chart-no-axes-combined" :size="26" /></view><text>暂无团队业绩</text></view>

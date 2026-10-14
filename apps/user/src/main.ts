@@ -5,7 +5,7 @@ import './media-runtime'
 import App from './App.vue'
 import { migrateUserCommerceData } from './stores/user'
 
-const persistedKeys = ['farms', 'liveRooms', 'products', 'cProducts', 'auth'] as const
+const persistedKeys = ['farms', 'products', 'cProducts', 'auth'] as const
 
 export function createApp() {
   purgeRetiredAllianceData()

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 describe('用户端移动商城契约', () => {
   const source = readFileSync(resolve(import.meta.dirname, 'index.vue'), 'utf8')
+  const operationsSource = readFileSync(resolve(import.meta.dirname, '../operations/index.vue'), 'utf8')
   const pages = readFileSync(resolve(import.meta.dirname, '../../pages.json'), 'utf8')
 
   it('使用四栏导航并将订单入口收进个人中心', () => {
@@ -16,9 +17,11 @@ describe('用户端移动商城契约', () => {
     expect(source).toContain('查看全部订单')
   })
 
-  it('分销身份显示四个运营入口且商品分享带推广人与商品参数', () => {
+  it('团长身份显示四个运营入口且商品分享带推广人与商品参数', () => {
     expect(source).toContain('我的收入')
-    expect(source).toContain('我的粉丝')
+    // 宫格入口名受「不超过四字」限制，下级用户入口在宫格显示为「下级用户」，完整名称在运营页标题
+    expect(source).toContain('<text class="pc-tile-label">下级用户</text>')
+    expect(operationsSource).toContain('我的下级用户')
     expect(source).toContain('团队订单')
     expect(source).toContain('团队业绩')
     expect(source).toContain('promoter=${store.currentDistributor.promoterId}')

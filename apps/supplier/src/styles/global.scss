@@ -62,7 +62,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--color-brand
 /* #ifdef MP-WEIXIN */
 .page-state { padding-top: calc(80px + var(--status-bar-height)); padding-right: 96px; }
 /* #endif */
-/* #ifndef MP-WEIXIN */
+/* #ifdef H5 */
 .page-state { padding-top: calc(80px + env(safe-area-inset-top)); }
 /* #endif */
 
@@ -71,7 +71,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--color-brand
 /* #ifdef MP-WEIXIN */
 .hero { padding-top: calc(12px + var(--status-bar-height)); padding-right: 96px; }
 /* #endif */
-/* #ifndef MP-WEIXIN */
+/* #ifdef H5 */
 .hero { padding-top: calc(12px + env(safe-area-inset-top)); }
 /* #endif */
 .hero-top { display: flex; align-items: center; gap: 10px; min-width: 0; }

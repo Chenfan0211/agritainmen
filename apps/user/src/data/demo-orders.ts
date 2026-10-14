@@ -73,8 +73,8 @@ export function seedDemoUserOrders(userId: string): boolean {
 
   const voucherCreatedAt = at(72)
   const vouchers: VoucherOrder[] = [
-    { id: `DEMO-VOUCHER-${idScope}-001`, userId, promoterId: 'T001', liveId: 'LIVE-DEMO', farmId: 'F001', productId: 'P007', skuId: 'P007-4P', quantity: 1, amount: 288, status: 'paid', createdAt: voucherCreatedAt },
-    { id: `DEMO-VOUCHER-${idScope}-002`, userId, promoterId: 'T001', liveId: 'LIVE-DEMO', farmId: 'F002', productId: 'P055', skuId: 'P055-1', quantity: 1, amount: 268, status: 'refunded', createdAt: at(120), redeemedAt: at(96), refundedAt: at(24) }
+    { id: `DEMO-VOUCHER-${idScope}-001`, userId, promoterId: 'T001', farmId: 'F001', productId: 'P007', skuId: 'P007-4P', quantity: 1, amount: 288, status: 'paid', createdAt: voucherCreatedAt },
+    { id: `DEMO-VOUCHER-${idScope}-002`, userId, promoterId: 'T001', farmId: 'F002', productId: 'P055', skuId: 'P055-1', quantity: 1, amount: 268, status: 'refunded', createdAt: at(120), redeemedAt: at(96), refundedAt: at(24) }
   ]
   if (!vouchers.every((voucher) => writePlatformVoucherOrder(voucher))) return false
   writeStorageFlag(demoOrderSeedMarker(userId))
