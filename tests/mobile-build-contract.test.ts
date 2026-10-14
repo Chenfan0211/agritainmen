@@ -6,7 +6,7 @@ const root = resolve(import.meta.dirname, '..')
 
 describe('mobile portal build contract', () => {
   it('keeps H5 and WeChat builds available for every mobile portal', () => {
-    for (const app of ['farmhouse', 'user', 'store', 'supplier', 'promoter']) {
+    for (const app of ['user', 'store', 'supplier']) {
       const manifest = JSON.parse(readFileSync(resolve(root, `apps/${app}/package.json`), 'utf8')) as {
         scripts?: Record<string, string>
         dependencies?: Record<string, string>
@@ -18,7 +18,7 @@ describe('mobile portal build contract', () => {
   })
 
   it('resolves shared UI through workspace packages for WeChat builds', () => {
-    for (const app of ['farmhouse', 'user', 'store', 'supplier', 'promoter']) {
+    for (const app of ['user', 'store', 'supplier']) {
       const viteConfig = readFileSync(resolve(root, `apps/${app}/vite.config.ts`), 'utf8')
       expect(viteConfig, `${app} preserves workspace package paths`).toContain('preserveSymlinks: true')
       expect(viteConfig, `${app} avoids cross-root UI chunks`).not.toContain("{ find: '@agritainment/ui'")

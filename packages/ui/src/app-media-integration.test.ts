@@ -5,8 +5,8 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const workspaceRoot = resolve(import.meta.dirname, '../../..')
-const appNames = ['user', 'farmhouse', 'promoter', 'store', 'supplier', 'dashboard'] as const
-const miniProgramApps = new Set(['user', 'farmhouse', 'promoter', 'supplier'])
+const appNames = ['user', 'store', 'supplier'] as const
+const miniProgramApps = new Set(['user', 'supplier'])
 const activeApps = ['admin', ...appNames] as const
 
 function read(relativePath: string): string {
@@ -93,9 +93,7 @@ describe('cross-app media runtime wiring', () => {
 
 describe('cross-app business image boundary', () => {
   it.each(appNames)('%s 不把业务媒体值直接传给原生 image', (appName) => {
-    const pagePaths = appName === 'dashboard'
-      ? [`apps/${appName}/src/pages/index/index.vue`, `apps/${appName}/src/pages/login/index.vue`]
-      : [`apps/${appName}/src/pages/index/index.vue`]
+    const pagePaths = [`apps/${appName}/src/pages/index/index.vue`]
     for (const pagePath of pagePaths) {
       const source = read(pagePath)
       const nativeDynamicSources = [...source.matchAll(/<(?:image|img)\b[^>]*\s:src="([^"]+)"[^>]*>/g)]

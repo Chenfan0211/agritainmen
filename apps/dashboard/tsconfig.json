@@ -1,9 +1,0 @@
-{
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "types": ["@dcloudio/types", "vite/client"],
-    "baseUrl": ".",
-    "resolveJsonModule": true
-  },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "e2e/**/*.ts", "../../packages/shared/src/**/*.ts", "../../packages/ui/src/**/*.ts", "../../packages/ui/src/**/*.vue", "playwright.config.ts", "vite.config.ts"]
-}

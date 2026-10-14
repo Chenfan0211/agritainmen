@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '../../..')
 const themePath = resolve(import.meta.dirname, 'mobile-theme.scss')
-const mobileApps = ['farmhouse', 'user', 'store', 'supplier', 'promoter']
-const ownedMobileApps = ['user', 'store', 'promoter']
+const mobileApps = ['user', 'store', 'supplier']
+const ownedMobileApps = ['user', 'store']
 
 describe('shared mobile visual theme', () => {
   it('defines the shared mobile design contract', () => {
@@ -147,10 +147,8 @@ describe('shared mobile visual theme', () => {
   it('lets short mobile sheets shrink instead of locking 80vh height', () => {
     const sources = [
       readFileSync(themePath, 'utf8'),
-      readFileSync(resolve(root, 'apps/farmhouse/src/styles/index-page.scss'), 'utf8'),
       readFileSync(resolve(root, 'apps/store/src/pages/index/index.vue'), 'utf8'),
       readFileSync(resolve(root, 'apps/user/src/pages/index/index.vue'), 'utf8'),
-      readFileSync(resolve(root, 'apps/promoter/src/pages/index/index.vue'), 'utf8'),
       readFileSync(resolve(root, 'apps/supplier/src/styles/global.scss'), 'utf8'),
       readFileSync(resolve(root, 'apps/supplier/src/pages/index/index.vue'), 'utf8')
     ]
@@ -171,7 +169,7 @@ describe('shared mobile visual theme', () => {
   it('aligns each pages.json background with that portal own --mobile-bg', () => {
     // pages.json 控制小程序启动底色，必须与该端 --mobile-bg 最终解析值一致，否则启动瞬间会出现色差闪烁。
     const designTokens = readFileSync(resolve(root, 'packages/ui/src/design-tokens.css'), 'utf8')
-    const tokenOf: Record<string, string | null> = { user: '--color-user-bg', promoter: '--color-bg', store: null }
+    const tokenOf: Record<string, string | null> = { user: '--color-user-bg', store: null }
     for (const app of ownedMobileApps) {
       const pages = JSON.parse(readFileSync(resolve(root, `apps/${app}/src/pages.json`), 'utf8'))
       const globalStyle = readFileSync(resolve(root, `apps/${app}/src/styles/global.scss`), 'utf8')

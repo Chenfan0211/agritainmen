@@ -9,7 +9,7 @@ import { chromium } from '@playwright/test'
 
 const root = new URL('..', import.meta.url)
 const rootPath = fileURLToPath(root)
-const mobileApps = ['farmhouse', 'promoter', 'store', 'supplier', 'user']
+const mobileApps = ['store', 'supplier', 'user']
 const size = 64
 const color = '#1f2a22'
 

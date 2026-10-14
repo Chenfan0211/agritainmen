@@ -12,16 +12,6 @@ const portals = [
     name: '门店端',
     path: 'apps/store/src/pages/index/index.vue',
     keys: ['PLATFORM_STORE_ACCOUNTS_STORAGE_KEY', 'PLATFORM_ENTITIES_STORAGE_KEY', 'PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY']
-  },
-  {
-    name: '农家乐端',
-    path: 'apps/farmhouse/src/pages/index/index.vue',
-    keys: ['PLATFORM_STORE_ACCOUNTS_STORAGE_KEY', 'PLATFORM_ENTITIES_STORAGE_KEY', 'PLATFORM_BOOKINGS_STORAGE_KEY']
-  },
-  {
-    name: '推客端',
-    path: 'apps/promoter/src/pages/index/index.vue',
-    keys: ['PLATFORM_PROMOTER_ACCOUNTS_STORAGE_KEY', 'PLATFORM_ENTITIES_STORAGE_KEY', 'PLATFORM_LIVES_STORAGE_KEY']
   }
 ] as const
 

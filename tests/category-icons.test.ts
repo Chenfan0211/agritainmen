@@ -7,16 +7,14 @@ const source = (path: string) => readFileSync(resolve(root, path), 'utf8')
 
 describe('商品分类图片跨端契约', () => {
   it('移动业务端分类筛选统一使用共享品类图片', () => {
-    const farmhouse = source('apps/farmhouse/src/pages/index/index.vue')
     const user = source('apps/user/src/pages/index/index.vue')
     const store = source('apps/store/src/pages/index/index.vue')
 
-    for (const page of [farmhouse, user, store]) {
+    for (const page of [user, store]) {
       expect(page).toContain('productCategoryImage')
       expect(page).toContain('<BusinessImage')
       expect(page).not.toContain('categoryIconName')
     }
-    expect(farmhouse).toContain(':src="productCategoryImage(item, dictionaryState)"')
     expect(user).toContain(':src="productCategoryImage(category, dictionaryState)"')
     expect(store).toContain(':src="productCategoryImage(item.key, dictionaryState)"')
   })

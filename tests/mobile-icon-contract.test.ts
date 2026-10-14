@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '..')
-const mobileApps = ['farmhouse', 'promoter', 'store', 'supplier', 'user'] as const
+const mobileApps = ['store', 'supplier', 'user'] as const
 
 function iconNames(app: string): string[] {
   return readdirSync(resolve(root, `apps/${app}/src/static/icons`))

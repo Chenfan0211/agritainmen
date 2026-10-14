@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const root = resolve(import.meta.dirname, '..')
-const apps = ['admin', 'farmhouse', 'store', 'user', 'supplier']
+const apps = ['admin', 'store', 'user', 'supplier']
 const files = [
   'agricultural-products.webp', 'prepared-foods.webp', 'ingredients-seasonings.webp',
   'featured-ingredients.webp', 'local-specialties.webp', 'souvenirs.webp',
@@ -53,7 +53,7 @@ describe('商品品类实拍图资产', () => {
     }
   })
 
-  it('母版和五端资源均为 512 方形 WebP、大小合规且哈希一致', () => {
+  it('母版和四端资源均为 512 方形 WebP、大小合规且哈希一致', () => {
     for (const file of files) {
       const master = resolve(root, 'assets/product-categories/master', file)
       expect(existsSync(master), `缺少母版 ${file}`).toBe(true)

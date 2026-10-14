@@ -6,11 +6,8 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const apps = [
-  { app: 'dashboard', prefix: '/dashboard/' },
   { app: 'admin', prefix: '/admin/' },
-  { app: 'farmhouse', prefix: '/farmhouse/' },
   { app: 'store', prefix: '/store/' },
-  { app: 'promoter', prefix: '/promoter/' },
   { app: 'user', prefix: '/user/' },
   { app: 'supplier', prefix: '/supplier/' }
 ]

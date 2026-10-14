@@ -5,8 +5,8 @@ import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const apps = ['dashboard', 'admin', 'farmhouse', 'store', 'promoter', 'user', 'supplier']
-const productCategoryImageApps = ['admin', 'farmhouse', 'store', 'user', 'supplier']
+const apps = ['admin', 'store', 'user', 'supplier']
+const productCategoryImageApps = ['admin', 'store', 'user', 'supplier']
 const productCategoryImageFiles = [
   'agricultural-products.webp', 'prepared-foods.webp', 'ingredients-seasonings.webp',
   'featured-ingredients.webp', 'local-specialties.webp', 'souvenirs.webp',
@@ -107,10 +107,6 @@ function extractAssetReferences(content) {
 function resolveAssetReference(app, output, sourceFile, reference) {
   const clean = cleanReference(reference)
   if (!clean) return null
-
-  // Dashboard aggregates shared demo records but never exposes their image
-  // metadata. Its dedicated build check also forbids emitting static/images.
-  if (app === 'dashboard' && /\.(?:js|mjs)$/.test(sourceFile) && clean.startsWith('/dashboard/static/images/')) return null
 
   let file
   let publicPath

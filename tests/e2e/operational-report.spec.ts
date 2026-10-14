@@ -16,14 +16,6 @@ async function selectOption(select: import('@playwright/test').Locator, page: im
   await page.getByRole('option', { name, exact: true }).click()
 }
 
-async function loginFarmhouseManager(page: import('@playwright/test').Page) {
-  await page.locator('.tabbar uni-button').nth(3).click()
-  await page.locator('.login-prompt .primary-button').click()
-  await page.locator('.login-sheet .primary-button').click()
-  await expect(page.locator('.member-hero')).toBeVisible()
-  await page.locator('.roles uni-button', { hasText: '店长' }).click()
-}
-
 test('admin operational report filters, dimensions and exports current rows', async ({ page }) => {
   await page.goto('/admin/')
   await page.evaluate(() => localStorage.clear())
@@ -165,30 +157,3 @@ test('admin todo navigation keeps every matching order id visible and can be cle
   await expect(orderSelects.nth(3).locator('.searchable-select__trigger')).toContainText('全部售后')
 })
 
-test('farmhouse manager verifies a confirmed shared booking from the page', async ({ page }, testInfo) => {
-  const baseURL = String(testInfo.project.use.baseURL || '')
-  await page.goto(baseURL.includes(':8791') ? 'http://127.0.0.1:8792/' : '/farmhouse/')
-  await page.evaluate(() => {
-    localStorage.clear()
-    localStorage.setItem('agritainment-platform-bookings', JSON.stringify({
-      'B-CONFIRMED-PAGE': {
-        id: 'B-CONFIRMED-PAGE', farmId: 'F001', farmName: '页面已确认预约', userId: 'U-PAGE', source: 'farmhouse',
-        date: '2026-08-31', session: '午市 11:30', people: 4, amount: 328, status: 'confirmed', createdAt: '2026-08-30T10:00:00.000Z'
-      }
-    }))
-  })
-  await page.reload()
-  await loginFarmhouseManager(page)
-  await page.locator('.workbench uni-button', { hasText: '订单核销' }).click()
-  const booking = page.locator('.verify-item').filter({ hasText: '页面已确认预约' })
-  await expect(booking.locator('.verify-status')).toHaveText('已确认')
-  await booking.locator('.verify-btn').click()
-  const verifyDialog = page.locator('.uni-modal').filter({ hasText: '核销预订' })
-  await expect(verifyDialog).toBeVisible()
-  await verifyDialog.getByText('OK', { exact: true }).click()
-  await expect(booking.locator('.verify-status')).toHaveText('已核销')
-  await expect.poll(() => page.evaluate(() => {
-    const bookings = JSON.parse(localStorage.getItem('agritainment-platform-bookings') || '{}') as Record<string, { status?: string; amount?: number }>
-    return bookings['B-CONFIRMED-PAGE']
-  })).toMatchObject({ status: 'completed', amount: 328 })
-})

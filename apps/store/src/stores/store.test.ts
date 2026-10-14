@@ -4,7 +4,6 @@ import { resolve } from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import type { CatalogProduct, CatalogState } from '@agritainment/shared'
 import { applyCatalogStockOperation, catalogProductToProduct, cloneSeed, enqueuePlatformRecovery, markCatalogTransactionStockApplied, prepareCatalogTransaction, readCatalogState, readPendingCatalogTransactions, readPlatformAfterSales, readPlatformEntities, readPlatformOrders, readPlatformRecoveryQueue, retryPlatformRecoveryTask, storeAccounts, suppliers, updateCatalogStock, upsertPlatformEntity, upsertStoreCatalogSelection, writeCatalogState, writePlatformOrder, writePlatformStoreAccounts } from '@agritainment/shared'
-import { promoterRepository } from '../../../promoter/src/services/repository'
 import { deriveStoreMetrics, storeCatalog } from '../services/repository'
 import { useStoreStore } from './store'
 import * as shared from '@agritainment/shared'
@@ -545,27 +544,6 @@ describe('store ordering store interactions', () => {
     expect(store.orderMetrics.orderCount).toBe(3)
     expect(store.orderMetrics.pendingReceipt).toBe(1)
     expect(store.orderMetrics.savedAmount).toBe(60)
-  })
-})
-
-describe('promoter live package candidates', () => {
-  beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
-
-  it('only returns listed package selections for their selected stores', async () => {
-    writeCatalog([
-      catalogProduct({ id: 'PACKAGE', channel: 'store', productType: 'package', expressDelivery: false }),
-      catalogProduct({ id: 'UNLISTED', channel: 'store', productType: 'package', expressDelivery: false }),
-      catalogProduct({ id: 'GOODS', channel: 'all', productType: 'goods', expressDelivery: true })
-    ])
-    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'PACKAGE', listed: true, retailPrice: 66 })).toBe(true)
-    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'UNLISTED', listed: false, retailPrice: 77 })).toBe(true)
-    expect(upsertStoreCatalogSelection({ storeId: 'F001', productId: 'GOODS', listed: true, retailPrice: 88 })).toBe(true)
-
-    const dashboard = await promoterRepository.loadDashboard()
-
-    expect(dashboard.products).toEqual([
-      expect.objectContaining({ id: 'PACKAGE', farmIds: ['F001'], price: 66, productType: 'package' })
-    ])
   })
 })
 

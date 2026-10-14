@@ -7,11 +7,8 @@ const portArgumentIndex = process.argv.findIndex((argument) => argument === '--p
 const inlinePort = process.argv.find((argument) => argument.startsWith('--port='))?.slice('--port='.length)
 const port = Number(inlinePort || (portArgumentIndex >= 0 ? process.argv[portArgumentIndex + 1] : '') || process.env.PORT || 8780)
 const apps = {
-  '/dashboard/': 'apps/dashboard/dist/single-origin/dashboard',
   '/admin/': 'apps/admin/dist/single-origin/admin',
-  '/farmhouse/': 'apps/farmhouse/dist/single-origin/farmhouse',
   '/store/': 'apps/store/dist/single-origin/store',
-  '/promoter/': 'apps/promoter/dist/single-origin/promoter',
   '/user/': 'apps/user/dist/single-origin/user',
   '/supplier/': 'apps/supplier/dist/single-origin/supplier'
 }
@@ -56,11 +53,8 @@ const server = createServer((request, response) => {
   if (url === '/') {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
     const meta = {
-      '/dashboard/': ['产业驾驶舱', '监管监测 · 产业赋能', '#25332d'],
       '/admin/': ['管理后台', '供应链运营管理', '#17633f'],
-      '/farmhouse/': ['农家乐门店端', '门店 · 预订 · 商城 · 会员', '#1f6b47'],
       '/store/': ['门店订货商城', '供货价直采 · 中台直配', '#20714a'],
-      '/promoter/': ['推客分销端', '直播 · 分享 · 分成', '#1e6952'],
       '/user/': ['用户商城', '购物 · 售后 · 分销', '#1d6b4e'],
       '/supplier/': ['供应商配送', '订单 · 线路 · 交接 · 结算', '#17633f']
     }

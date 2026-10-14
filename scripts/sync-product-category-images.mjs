@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const sourceDirectory = join(root, 'assets', 'product-categories', 'master')
-const apps = ['admin', 'farmhouse', 'store', 'user', 'supplier']
+const apps = ['admin', 'store', 'user', 'supplier']
 const files = [
   'agricultural-products.webp', 'prepared-foods.webp', 'ingredients-seasonings.webp',
   'featured-ingredients.webp', 'local-specialties.webp', 'souvenirs.webp',

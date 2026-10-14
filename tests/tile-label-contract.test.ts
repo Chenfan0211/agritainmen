@@ -6,10 +6,8 @@ const root = resolve(import.meta.dirname, '..')
 const source = (path: string) => readFileSync(resolve(root, path), 'utf8')
 
 const pages = [
-  'apps/farmhouse/src/pages/index/index.vue',
   'apps/user/src/pages/index/index.vue',
   'apps/store/src/pages/index/index.vue',
-  'apps/promoter/src/pages/index/index.vue',
   'apps/supplier/src/pages/index/index.vue'
 ]
 
