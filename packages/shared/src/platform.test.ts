@@ -7,7 +7,6 @@ import {
   PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY,
   PLATFORM_CATALOG_STORAGE_KEY,
   PlatformEventBus,
-  readPlatformRoutes,
   applyCatalogStockOperation,
   cProducts,
   compactCatalogAppliedOperations,
@@ -20,9 +19,6 @@ import {
   readCatalogLegacyMigrationMarker,
   writeCInventoryState,
   writeCatalogState,
-  writePlatformRoute,
-  mergePlatformRoutes,
-  removePlatformRoute,
   createPlatformRepository
 } from './index'
 import type { CatalogState, CatalogStockOperation, CatalogTransactionJournalEntry, PlatformPrincipal, PlatformRepository } from './index'
@@ -463,14 +459,5 @@ describe('catalog history retention', () => {
     expect(applied?.state.appliedOperations?.['catalog:fingerprint'].requestFingerprint).toContain('"quantity":-1')
     expect(applyCatalogStockOperation('catalog:fingerprint', changes, applied!.state.revision)?.applied).toBe(false)
     expect(applyCatalogStockOperation('catalog:fingerprint', [{ ...changes[0], quantity: -2 }], applied!.state.revision)).toBeNull()
-  })
-  it('publishes and merges platform travel routes with removal marking', () => {
-    const route = { id: 'ROUTE-TEST', name: '湘西风情线', description: '古丈茶园+非遗', price: 199, city: '湘西州', image: '/static/images/mountain.webp' }
-    expect(writePlatformRoute(route)).toBe(true)
-    expect(readPlatformRoutes()?.['ROUTE-TEST']).toMatchObject({ name: '湘西风情线' })
-    expect(mergePlatformRoutes([]).map((item) => item.id)).toContain('ROUTE-TEST')
-    removePlatformRoute('ROUTE-TEST')
-    expect(readPlatformRoutes()?.['ROUTE-TEST']).toBe(null)
-    expect(mergePlatformRoutes([route]).map((item) => item.id)).not.toContain('ROUTE-TEST')
   })
 })

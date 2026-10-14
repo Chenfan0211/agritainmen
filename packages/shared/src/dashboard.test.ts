@@ -32,7 +32,6 @@ function source(): DashboardDataSource {
       }
     ],
     promoters: [{ id: 'P1', name: '主播甲', level: '金牌', fans: 100, orders: 12, gmv: 900, commission: 30, status: 'active' }],
-    lives: [{ id: 'L1', title: '助农直播', host: '主播甲', viewers: 300, productName: '蔬菜套餐', productPrice: 99, status: 'live', reminded: false, image: '', farmId: 'F-CS', promoterId: 'P1', city: '长沙市' }],
     catalog: {
       schemaVersion: 2,
       revision: 1,
@@ -56,9 +55,6 @@ function source(): DashboardDataSource {
       { id: 'VO2', userId: 'U1', farmId: 'F-CS', productId: 'CP1', skuId: 'SKU1', quantity: 1, amount: 100, status: 'refunded', createdAt: '2026-08-24T10:00:00.000Z' },
       { id: 'DEMO-VO3', userId: 'U1', farmId: 'F-CS', productId: 'CP1', skuId: 'SKU1', quantity: 1, amount: 100, status: 'paid', createdAt: '2026-08-24T10:00:00.000Z' }
     ],
-    bookings: [
-      { id: 'B1', farmId: 'F-CS', farmName: '长沙示范门店', userId: 'U1', source: 'farmhouse', date: '2026-08-24', session: '午餐', people: 4, amount: 80, status: 'completed', createdAt: '2026-08-23T10:00:00.000Z' }
-    ],
     fulfillmentOrders: [
       { id: 'PO1', farmId: 'F-CS', amount: 100, status: 'delivered', createdAt: '2026-08-23T10:00:00.000Z' },
       { id: 'PO2', farmId: 'F-CS', amount: 100, status: 'pending', createdAt: '2026-08-20T10:00:00.000Z' }
@@ -81,7 +77,7 @@ describe('dashboard snapshot aggregator', () => {
     expect(snapshot.cityProfiles).toEqual([
       expect.objectContaining({
         cityCode: '4301', cityName: '长沙市', storeCount: 1, activeStoreCount: 1,
-        activeStaffCount: 1, transactionAmount: 380, orderCount: 3, bookingAmount: 80
+        activeStaffCount: 1, transactionAmount: 300, orderCount: 2
       })
     ])
     expect(snapshot.cityMapPoints).toEqual([
@@ -89,7 +85,7 @@ describe('dashboard snapshot aggregator', () => {
     ])
     expect(snapshot.farmProfiles.find((item) => item.farmId === 'F-CS')).toMatchObject({
       cityCode: '4301', districtCode: '430104', cityName: '长沙市', districtName: '岳麓区',
-      activeStaffCount: 1, transactionAmount: 380, orderCount: 3, bookingCount: 1, voucherCount: 1
+      activeStaffCount: 1, transactionAmount: 300, orderCount: 2, voucherCount: 1
     })
   })
 
@@ -102,8 +98,8 @@ describe('dashboard snapshot aggregator', () => {
 
     expect(snapshot.overview.storeCount).toBe(1)
     expect(snapshot.overview.activeStaffCount).toBe(1)
-    expect(snapshot.overview.transactionAmount).toBe(380)
-    expect(snapshot.overview.transactionOrderCount).toBe(3)
+    expect(snapshot.overview.transactionAmount).toBe(300)
+    expect(snapshot.overview.transactionOrderCount).toBe(2)
     expect(snapshot.mapPoints).toHaveLength(1)
     expect(snapshot.mapPoints[0].farmId).toBe('F-CS')
     expect(snapshot.unlocatedStoreCount).toBe(0)
@@ -117,8 +113,8 @@ describe('dashboard snapshot aggregator', () => {
       now
     })
 
-    expect(snapshot.overview.transactionAmount).toBe(530)
-    expect(snapshot.overview.transactionOrderCount).toBe(4)
+    expect(snapshot.overview.transactionAmount).toBe(450)
+    expect(snapshot.overview.transactionOrderCount).toBe(3)
     expect(snapshot.overview.lowStockSkuCount).toBe(1)
     expect(snapshot.unlocatedStoreCount).toBe(1)
     expect(snapshot.risks.some((item) => item.rule === 'store-location-failed')).toBe(true)
@@ -158,7 +154,7 @@ describe('dashboard snapshot aggregator', () => {
     })
 
     expect(snapshot.overview.supplierCount).toBe(1)
-    expect(snapshot.overview.promoterHostCount).toBe(1)
+    expect(snapshot.overview.promoterHostCount).toBe(0)
   })
 
   it('counts embedded C-order after-sales and calculates period-over-period growth', () => {
@@ -189,8 +185,8 @@ describe('dashboard snapshot aggregator', () => {
       range: { start: '2026-08-01T00:00:00.000Z', end: '2026-08-25T23:59:59.999Z' }, now
     })
 
-    expect(snapshot.overview.transactionAmount).toBe(430)
-    expect(snapshot.overview.transactionOrderCount).toBe(4)
+    expect(snapshot.overview.transactionAmount).toBe(350)
+    expect(snapshot.overview.transactionOrderCount).toBe(3)
     expect(snapshot.service.paidOrderCount).toBe(2)
   })
 
@@ -306,7 +302,6 @@ describe('dashboard snapshot aggregator', () => {
     const data = source()
     data.cOrders = []
     data.voucherOrders = []
-    data.bookings = []
     data.fulfillmentOrders = []
     data.afterSales = []
 
@@ -319,26 +314,6 @@ describe('dashboard snapshot aggregator', () => {
     expect(snapshot.service.afterSaleRate).toBeNull()
     expect(snapshot.service.voucherRedemptionRate).toBeNull()
     expect(snapshot.regionRanking[0].growthRate).toBeNull()
-  })
-
-  it('counts confirmed bookings without amounts and reports the missing amount', () => {
-    const data = source()
-    data.bookings.push({
-      id: 'B-MISSING', farmId: 'F-CS', farmName: '长沙示范门店', userId: 'U2', source: 'farmhouse',
-      date: '2026-08-25', session: '晚餐', people: 2, status: 'confirmed', createdAt: '2026-08-24T11:00:00.000Z'
-    })
-
-    const snapshot = buildDashboardSnapshot(data, {
-      principal: { id: 'D11', name: '长沙监管员', role: 'regulator', regionCodes: ['4301'], status: 'active' },
-      range: { start: '2026-08-01T00:00:00.000Z', end: '2026-08-25T23:59:59.999Z' }, now
-    })
-
-    expect(snapshot.overview.transactionAmount).toBe(380)
-    expect(snapshot.overview.transactionOrderCount).toBe(4)
-    expect(snapshot.risks.find((risk) => risk.rule === 'booking-amount-missing')?.subjects).toMatchObject([
-      { type: 'booking', id: 'B-MISSING' },
-      { type: 'farm', id: 'F-CS', name: '长沙示范门店' }
-    ])
   })
 
   it('nets completed sub-order refunds and excludes fully refunded C orders', () => {
@@ -358,10 +333,10 @@ describe('dashboard snapshot aggregator', () => {
       range: { start: '2026-08-01T00:00:00.000Z', end: '2026-08-25T23:59:59.999Z' }, now
     })
 
-    expect(snapshot.overview.transactionAmount).toBe(300)
-    expect(snapshot.overview.transactionOrderCount).toBe(3)
+    expect(snapshot.overview.transactionAmount).toBe(220)
+    expect(snapshot.overview.transactionOrderCount).toBe(2)
     expect(snapshot.service.paidOrderCount).toBe(1)
-    expect(snapshot.mapPoints[0].transactionAmount).toBe(300)
+    expect(snapshot.mapPoints[0].transactionAmount).toBe(220)
   })
 
   it('aggregates settlement amounts from authorized fulfillment order ids', () => {
@@ -518,7 +493,7 @@ describe('dashboard snapshot aggregator', () => {
       range: { start: '2026-08-01T00:00:00.000Z', end: '2026-08-25T23:59:59.999Z' }, now
     })
 
-    expect(snapshot.domainFreshness.find((item) => item.domain === 'lives')).toEqual({ domain: 'lives', stale: false })
+    expect(snapshot.domainFreshness.find((item) => item.domain === 'settlements')).toEqual({ domain: 'settlements', stale: false })
   })
 
   it('provides actionable subjects with names and details for every risk', () => {

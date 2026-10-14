@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   farmhouseExperiences,
-  liveRooms,
-  mergePlatformLives,
   readPlatformExperiences,
-  readPlatformLives,
   readShareRecords,
   readUserBindings,
   seedPlatformDemoData,
@@ -51,8 +48,5 @@ describe('platform demo seed merge', () => {
 
     expect(readPlatformExperiences()?.EXP001).toMatchObject({ id: 'EXP001', farmId: 'F001', status: 'active' })
 
-    const t002Lives = mergePlatformLives(liveRooms).filter((item) => item.promoterId === 'T002')
-    expect(t002Lives.length).toBeGreaterThanOrEqual(1)
-    expect(readPlatformLives()?.L015 || t002Lives[0]).toMatchObject({ promoterId: 'T002' })
   })
 })

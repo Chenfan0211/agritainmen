@@ -226,11 +226,11 @@ describe('platform dictionaries', () => {
     expect(business).toEqual(expect.arrayContaining([
       'productCategory', 'supplierCategory', 'generalCategory', 'productTag', 'farmTag', 'routeTag',
       'serviceCategory', 'afterSaleReason', 'qualificationType', 'promoterType', 'promoterLevel',
-      'liveHostRole', 'bookingSession', 'roomNotice', 'unit', 'logistics', 'withdrawMethod'
+      'roomNotice', 'unit', 'logistics', 'withdrawMethod'
     ]))
     expect(system).toEqual(expect.arrayContaining([
       'supplierStatus', 'productStatus', 'farmStatus', 'orderStatus', 'fulfillmentStatus', 'afterSaleStatus',
-      'promoterStatus', 'liveStatus', 'bookingStatus', 'voucherStatus', 'settlementStatus', 'commissionStatus',
+      'promoterStatus', 'voucherStatus', 'settlementStatus', 'commissionStatus',
       'productSource', 'productType', 'catalogChannel', 'deliveryMode', 'afterSaleType', 'refundMethod',
       'refundMode', 'pricePolicyType', 'accountRole', 'memberLevel', 'commissionTargetType'
     ]))
@@ -372,8 +372,6 @@ it('seeds business dictionary items so editor options are readable out of the bo
   const editable = [
     'promoterType',
     'promoterLevel',
-    'liveHostRole',
-    'bookingSession',
     'roomNotice',
     'withdrawMethod',
     'qualificationType',

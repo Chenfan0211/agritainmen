@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { CATALOG_SCHEMA_VERSION, C_COMMERCE_SCHEMA_VERSION, DEFAULT_PRICING_DEFAULTS, PLATFORM_CONFIG_STORAGE_KEY, PLATFORM_PRICING_DEFAULTS_STORAGE_KEY, PLATFORM_SHARE_CONFIG_STORAGE_KEY, PLATFORM_STORE_CATALOG_SELECTIONS_STORAGE_KEY, allocateCatalogCommissions, allocateStoreCatalogCommission, applyCatalogStockOperation, buildPortalUrl, catalogPriceForSku, catalogProductToCProduct, catalogProductToProduct, catalogProductsForAudience, categoryIconName, commitCatalogTransaction, deriveCOrderStatus, ensureCatalogState, ensureCCommerceSchemaVersion, ensureStoreCatalogSelectionDefaults, markCatalogTransactionStockApplied, mergeCSubOrderFulfillment, migrateLegacyCatalog, normalizeCAddresses, normalizeCOrders, normalizeCProducts, PLATFORM_C_INVENTORY_STORAGE_KEY, PLATFORM_C_PRODUCTS_STORAGE_KEY, prepareCatalogTransaction, readCAddresses, readCatalogState, readCatalogTransactionJournal, readCCommerceSchemaVersion, readCInventoryState, readCProducts, readCCommissionRecords, readPendingCatalogTransactions, readPricingDefaults, readShareConfig, readStoreCatalogSelectionState, readStoreCatalogSelections, removeCAddress, resolveCReferralChain, saveCatalogProduct, saveStoreCatalogSelection, seedCCommerceData, updateCatalogStock, upsertStoreCatalogSelection, writeCatalogState, writeCAddresses, writeCCommissionRecords, writeCInventoryState, writePricingDefaults, writeShareConfig, publishCSubOrderToSupplier, syncCSubOrderFromSupplier, readVersionedRecord, writeVersionedRecord, normalizeMinimumOrderQuantity, validateCatalogSkuOrderQuantity } from './index'
-import type { CProduct, CProductSku, CatalogProduct, CatalogState, Order, OrderItem, OrderStatus, PlatformMedia, SupplierFulfillment } from './index'
+import type { AdminMenuKey, AdminPermissionCode, CProduct, CProductSku, CatalogProduct, CatalogState, Order, OrderItem, OrderStatus, PlatformMedia, SupplierFulfillment } from './index'
 
 if (!globalThis.localStorage) {
   const storage = new Map<string, string>()
@@ -13,8 +13,8 @@ if (!globalThis.localStorage) {
     get length() { return storage.size }
   } as unknown as Storage
 }
-import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformLives, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformFarmPopularity, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode, acceptSupplierOrder, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, deriveTodayFarmhouseQuantities, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, mergePlatformSupplierAccounts, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, writePlatformDrivers, todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_LIVE, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
-import { defaultAdminAccounts, defaultAdminRoles, readPlatformAdminRoles, seedPlatformAdminSecurity, writePlatformAdminAccounts, writePlatformAdminRoles } from './index'
+import { PERSISTENCE_VERSION, afterSales, allocateCCommissions, calcCartTotal, calcMargin, cPriceForSku, cProducts, derivePlatformMetrics, farms, markShareSettled, mergeEntitySeeds, migratePersistedState, nextCOrderStatus, nextPurchaseStatus, orders, pendingShareAmount, pendingShareTotal, readPlatformAfterSaleStatus, resolveShare, getOrCreateUserId, resolveUserIdentity, resolveUserIdByOpenid, simulateWechatLogin, splitCOrderItems, writePlatformAfterSale, writeShareRecords, writeUserLink, persistedEnvelope, products, promoters, selectPersistedState, applyPlatformMedia, emptyPlatformMedia, mergePersistedDefaults, mergePlatformStoreAccounts, upsertPlatformFarm, upsertPlatformProduct, suppliers, toCsv, validateAccountPassword, validatePhone, validatePricePolicy, validateSmsCode, acceptSupplierOrder, assignSupplierDriver, authenticateSupplier, buildSupplierAccountSeeds, computeShortage, confirmCourierDelivered, demoDrivers, deriveSupplierMetrics, deriveTodayFarmhouseQuantities, driverActiveTaskCounts, ensureSupplierFulfillment, findActiveDriver, findDriverByAccount, handoverSupplierIn, handoverSupplierOut, mergePlatformDrivers, mergePlatformSupplierAccounts, readPlatformDrivers, reassignSupplierDriver, shipSupplierCourier, writePlatformDrivers, todayString, clearPlatformJson, markShortageHandled, PLATFORM_ORDERS_STORAGE_KEY, readPlatformOrders, writePlatformOrder, CHANNEL_TAG_STORE, EXPRESS_DELIVERY_TAG, displayProductTags, isExpressDeliverable, productChannelTags, resolveProductChannels, storeCommissionAmount, storeGrossMargin } from './index'
+import { ALL_ADMIN_ACTION_PERMISSIONS, ALL_ADMIN_MENU_KEYS, RETIRED_PLATFORM_STORAGE_KEYS, clearRetiredPlatformData, defaultAdminAccounts, defaultAdminRoles, readPlatformAdminRoles, seedPlatformAdminSecurity, writePlatformAdminAccounts, writePlatformAdminRoles } from './index'
 
 describe('C端分销商城 helpers', () => {
   beforeEach(() => localStorage.clear())
@@ -551,27 +551,6 @@ describe('platform media library', () => {
   })
 
 
-  it('applies published farm popularity over seeds', () => {
-    const farm = { ...farms[0], image: '/static/images/farmhouse.webp', livePopularity: 100 }
-    const media = { farms: {}, products: {}, farmPopularity: { [farm.id]: 8888 }, updatedAt: '2026-08-17T00:00:00.000Z' }
-    applyPlatformMedia([farm], [], media)
-    expect(farm.livePopularity).toBe(8888)
-  })
-
-  it('keeps original popularity when media has no record', () => {
-    const farm = { ...farms[0], livePopularity: 100 }
-    applyPlatformMedia([farm], [], { farms: {}, products: {}, updatedAt: '' })
-    expect(farm.livePopularity).toBe(100)
-  })
-
-  it('upserts farm popularity and preserves legacy image records', () => {
-    let media: PlatformMedia = { farms: { F999: 'data:image/png;base64,XXX' }, products: {}, farmPopularity: {}, updatedAt: '' }
-    media = upsertPlatformFarmPopularity(media, 'F999', 4321)
-    expect(media.farmPopularity?.['F999']).toBe(4321)
-    expect(media.farms['F999']).toBe('data:image/png;base64,XXX')
-    media = upsertPlatformFarmPopularity(media, 'F999', -5)
-    expect(media.farmPopularity?.['F999']).toBe(0)
-  })
 })
 
 describe('platform business channels', () => {
@@ -593,24 +572,6 @@ describe('platform business channels', () => {
     expect(readShareConfig()).toEqual({ promoterRate: 5, staffRate: 3 })
   })
 
-
-  it('removes seed lives marked as removed', () => {
-    localStorage.setItem('agritainment-platform-lives', JSON.stringify({ L001: null }))
-    const seed = { id: 'L001', title: 'a', host: 'h', viewers: 0, productName: 'p', productPrice: 1, status: 'live' as const, reminded: false, image: '/i.webp', city: '湘西州' }
-    expect(mergePlatformLives([seed])).toEqual([])
-  })
-
-  it('keeps published override over seeds', () => {
-    localStorage.setItem('agritainment-platform-lives', JSON.stringify({ L001: { id: 'L001', title: 'new', host: 'h', viewers: 0, productName: 'p', productPrice: 1, status: 'preview' as const, reminded: false, image: '/i.webp', city: '湘西州' } }))
-    const seed = { id: 'L001', title: 'old', host: 'h', viewers: 0, productName: 'p', productPrice: 1, status: 'live' as const, reminded: false, image: '/i.webp', city: '湘西州' }
-    expect(mergePlatformLives([seed])[0].title).toBe('new')
-  })
-
-  it('merges published lives over seeds', () => {
-    localStorage.removeItem('agritainment-platform-lives')
-    const seed = { id: 'L001', title: 'a', host: 'h', viewers: 0, productName: 'p', productPrice: 1, status: 'live' as const, reminded: false, image: '/i.webp', city: '湘西州' }
-    expect(mergePlatformLives([seed])).toEqual([seed])
-  })
 
   it('merges published store accounts by id and keeps extra rows', () => {
     const defaults = [{ id: 'SA001', farmId: 'F1', name: 'A', account: 'a', password: '1', role: 'owner' as const, enabled: true }]
@@ -822,35 +783,75 @@ describe('supplier fulfillment helpers', () => {
   })
 })
 
-describe('admin booking role migration', () => {
+describe('admin menu contract migration', () => {
   beforeEach(() => localStorage.clear())
 
-  it('grants booking menu and actions to the existing operational roles', () => {
-    const roles = defaultAdminRoles()
-    for (const code of ['super_admin', 'operations', 'reviewer']) {
-      const role = roles.find((item) => item.code === code)!
-      expect(role.menuPermissions).toContain('bookings')
-      expect(role.actionPermissions).toEqual(expect.arrayContaining(['booking.confirm', 'booking.complete', 'booking.cancel']))
-    }
-    expect(roles.find((item) => item.code === 'finance')?.menuPermissions).not.toContain('bookings')
+  it('ships seventeen menu keys with user operations and without booking or route menus', () => {
+    expect(ALL_ADMIN_MENU_KEYS).toHaveLength(17)
+    expect(ALL_ADMIN_MENU_KEYS).toEqual(expect.arrayContaining(['users', 'leaders']))
+    expect(ALL_ADMIN_MENU_KEYS as string[]).not.toContain('bookings')
+    expect(ALL_ADMIN_MENU_KEYS as string[]).not.toContain('routes')
+    expect(ALL_ADMIN_ACTION_PERMISSIONS).toEqual(expect.arrayContaining(['user.view', 'leader.manage', 'leader.price.manage', 'leader.withdrawal.review']))
+    expect(ALL_ADMIN_ACTION_PERMISSIONS).not.toContain('route.manage')
+    expect(ALL_ADMIN_ACTION_PERMISSIONS).not.toContain('booking.confirm')
   })
 
-  it('migrates persisted system roles without changing a custom role', () => {
+  it('grants the user operations menus to the operational and finance roles', () => {
+    const roles = defaultAdminRoles()
+    const operations = roles.find((item) => item.code === 'operations')!
+    expect(operations.menuPermissions).toEqual(expect.arrayContaining(['users', 'leaders']))
+    expect(operations.actionPermissions).toEqual(expect.arrayContaining(['user.view', 'leader.manage', 'leader.price.manage']))
+    expect(roles.find((item) => item.code === 'reviewer')?.menuPermissions as string[]).not.toContain('bookings')
+    expect(roles.find((item) => item.code === 'finance')?.actionPermissions).toContain('leader.withdrawal.review')
+  })
+
+  it('prunes retired booking and route menus from persisted roles and leaves a custom role menus untouched', () => {
     const legacyRoles = defaultAdminRoles().map((role) => ({
       ...role,
-      menuPermissions: role.menuPermissions.filter((item) => item !== 'bookings'),
-      actionPermissions: role.actionPermissions.filter((item) => !item.startsWith('booking.'))
+      menuPermissions: [...role.menuPermissions, 'bookings', 'routes'] as unknown as AdminMenuKey[],
+      actionPermissions: [...role.actionPermissions, 'booking.confirm', 'booking.complete', 'booking.cancel', 'route.manage']
     }))
-    const customRole = { ...legacyRoles[4], id: 'AR-CUSTOM', code: 'custom', name: '自定义', system: false, menuPermissions: ['dashboard'] as const satisfies readonly ['dashboard'], actionPermissions: [] }
+    const customRole = { ...legacyRoles[4], id: 'AR-CUSTOM', code: 'custom', name: '自定义', system: false, menuPermissions: ['dashboard'] as AdminMenuKey[], actionPermissions: [] as AdminPermissionCode[] }
     expect(writePlatformAdminRoles([...legacyRoles, { ...customRole, menuPermissions: [...customRole.menuPermissions] }])).toBe(true)
     expect(writePlatformAdminAccounts(defaultAdminAccounts())).toBe(true)
 
     expect(seedPlatformAdminSecurity()).toBe(true)
 
     const migrated = readPlatformAdminRoles()
-    expect(migrated.find((role) => role.code === 'operations')?.menuPermissions).toContain('bookings')
-    expect(migrated.find((role) => role.code === 'reviewer')?.actionPermissions).toContain('booking.confirm')
+    const migratedOperations = migrated.find((role) => role.code === 'operations')!
+    expect(migratedOperations.menuPermissions as string[]).not.toContain('bookings')
+    expect(migratedOperations.menuPermissions as string[]).not.toContain('routes')
+    expect(migratedOperations.actionPermissions).not.toContain('booking.confirm')
+    expect(migratedOperations.actionPermissions).not.toContain('route.manage')
     expect(migrated.find((role) => role.code === 'custom')).toMatchObject({ menuPermissions: ['dashboard'], actionPermissions: [] })
+  })
+})
+
+describe('retired platform data cleanup', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('purges the retired booking, route and live collections exactly once', () => {
+    RETIRED_PLATFORM_STORAGE_KEYS.forEach((key) => localStorage.setItem(key, JSON.stringify({ legacy: true })))
+    expect(localStorage.getItem(RETIRED_PLATFORM_STORAGE_KEYS[0])).not.toBeNull()
+
+    expect(clearRetiredPlatformData()).toBe(true)
+    RETIRED_PLATFORM_STORAGE_KEYS.forEach((key) => expect(localStorage.getItem(key), key).toBeNull())
+
+    // 幂等：清理完成后写入标记键，重放的遗留数据不会再次触发清理
+    localStorage.setItem(RETIRED_PLATFORM_STORAGE_KEYS[1], JSON.stringify({ legacy: true }))
+    expect(clearRetiredPlatformData()).toBe(true)
+    expect(localStorage.getItem(RETIRED_PLATFORM_STORAGE_KEYS[1])).not.toBeNull()
+  })
+
+  it('drops retired keys from persisted state while migrating an older envelope', () => {
+    const migrated = migratePersistedState(
+      { version: 7, state: { bookings: ['B1'], routes: ['R1'], lives: ['L1'], travelRoutes: ['T1'], liveRooms: ['L1'], keep: 'ok' } },
+      { keep: 'default' }
+    ) as Record<string, unknown>
+    expect(migrated.keep).toBe('ok')
+    for (const key of ['bookings', 'routes', 'lives', 'travelRoutes', 'liveRooms']) {
+      expect(migrated, key).not.toHaveProperty(key)
+    }
   })
 })
 
@@ -922,14 +923,14 @@ describe('supplier date dimension and shortage handling', () => {
 
 
 describe('商品渠道标签与分佣辅助函数', () => {
-  it('解析渠道标签：门店商品与直播平台商品', () => {
+  it('解析渠道标签：门店商品与用户端商品', () => {
     const storeProduct = { id: 'P1', source: 'platform' as const }
     const liveProduct: CProduct = { id: 'C1', name: '测试商品', category: '土特产', supplierId: 'S1', supplierName: '供应商', image: '', tags: [], status: 'active', shippingType: 'courier', skus: [] }
     const both = { id: 'P2', source: 'platform' as const, channels: { store: true, live: true } }
     expect(resolveProductChannels(storeProduct)).toEqual({ store: true, live: false })
     expect(resolveProductChannels(liveProduct)).toEqual({ store: false, live: true })
     expect(resolveProductChannels(both)).toEqual({ store: true, live: true })
-    expect(productChannelTags(both)).toEqual([CHANNEL_TAG_STORE, CHANNEL_TAG_LIVE])
+    expect(productChannelTags(both)).toEqual(['门店商品', '用户端商品'])
   })
 
   it('展示标签：渠道标签 + 自由标签 + 快递直发', () => {

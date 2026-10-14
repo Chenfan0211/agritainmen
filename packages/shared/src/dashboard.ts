@@ -3,9 +3,7 @@ import type {
   CatalogState,
   CommissionLedgerEntry,
   FarmStore,
-  LiveRoom,
   Promoter,
-  SharedBooking,
   StoreAccount,
   Supplier,
   SupplierSettlementRecord,
@@ -47,7 +45,8 @@ export interface DashboardCOrder {
   dataOrigin?: 'dashboard_demo'
 }
 
-export type DashboardBooking = SharedBooking & { amount?: number; dataOrigin?: 'dashboard_demo' }
+
+
 export type DashboardVoucherOrder = VoucherOrder & { dataOrigin?: 'dashboard_demo' }
 
 export interface DashboardFulfillmentOrder {
@@ -72,7 +71,6 @@ export interface DashboardFulfillmentOrder {
 export type DashboardDemoDataset =
   | 'consumerOrders'
   | 'vouchers'
-  | 'bookings'
   | 'afterSales'
   | 'fulfillmentOrders'
   | 'supplierSettlements'
@@ -85,7 +83,7 @@ export interface DashboardDemoSupplementInfo {
   generatedAt: string
 }
 
-export type DashboardDataDomain = 'farms' | 'accounts' | 'catalog' | 'orders' | 'bookings' | 'vouchers' | 'afterSales' | 'lives' | 'settlements'
+export type DashboardDataDomain = 'farms' | 'accounts' | 'catalog' | 'orders' | 'vouchers' | 'afterSales' | 'settlements'
 
 export interface DashboardDataFreshness {
   domain: DashboardDataDomain
@@ -98,11 +96,9 @@ export interface DashboardDataSource {
   storeAccounts: StoreAccount[]
   suppliers: Supplier[]
   promoters: Promoter[]
-  lives: LiveRoom[]
   catalog: CatalogState | null
   cOrders: DashboardCOrder[]
   voucherOrders: DashboardVoucherOrder[]
-  bookings: DashboardBooking[]
   fulfillmentOrders: DashboardFulfillmentOrder[]
   afterSales: Array<Pick<AfterSale, 'id' | 'orderId' | 'status' | 'amount'> & { dataOrigin?: 'dashboard_demo' }>
   supplierSettlements?: SupplierSettlementRecord[]
@@ -115,7 +111,7 @@ export interface DashboardDataSource {
 export type DashboardRiskLevel = 'critical' | 'warning' | 'notice'
 
 export interface DashboardRiskSubject {
-  type: 'farm' | 'supplier' | 'order' | 'sku' | 'booking' | 'dataset'
+  type: 'farm' | 'supplier' | 'order' | 'sku' | 'dataset'
   id: string
   name: string
   farmId?: string
@@ -192,8 +188,6 @@ export interface DashboardFarmProfile {
   activeStaffCount: number
   transactionAmount: number
   orderCount: number
-  bookingCount: number
-  bookingAmount: number
   voucherCount: number
   redeemedVoucherCount: number
   riskCount: number
@@ -209,7 +203,6 @@ export interface DashboardCityProfile {
   activeStaffCount: number
   transactionAmount: number
   orderCount: number
-  bookingAmount: number
   voucherRate: number | null
   fulfillmentRate: number | null
   afterSaleRate: number | null
@@ -307,12 +300,12 @@ export interface DashboardSnapshot {
 }
 
 const DASHBOARD_DATA_DOMAINS: DashboardDataDomain[] = [
-  'farms', 'accounts', 'catalog', 'orders', 'bookings', 'vouchers', 'afterSales', 'lives', 'settlements'
+  'farms', 'accounts', 'catalog', 'orders', 'vouchers', 'afterSales', 'settlements'
 ]
 
 const DASHBOARD_DATA_DOMAIN_NAMES: Record<DashboardDataDomain, string> = {
-  farms: '门店', accounts: '账号', catalog: '商品目录', orders: '订单', bookings: '预约', vouchers: '券订单',
-  afterSales: '售后', lives: '直播', settlements: '结算'
+  farms: '门店', accounts: '账号', catalog: '商品目录', orders: '订单', vouchers: '券订单',
+  afterSales: '售后', settlements: '结算'
 }
 
 const round = (value: number, digits = 2) => Number(value.toFixed(digits))
@@ -416,10 +409,6 @@ function cOrderNetAmount(order: DashboardCOrder): number {
   return round(Math.max(0, Number(order.amount || 0) - refunded))
 }
 
-function bookingAmount(booking: DashboardBooking): number | null {
-  const amount = Number(booking.amount)
-  return Number.isFinite(amount) && amount >= 0 ? amount : null
-}
 
 function rankingRegion(farm: FarmStore, allowedCodes: string[]): { code: string; name: string } | null {
   const code = farmRegionCode(farm)
@@ -505,17 +494,12 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
   const filterVouchers = (targetRange: DashboardRange) => source.voucherOrders.filter((order) => (
     !isDemoId(order.id) && order.status !== 'refunded' && inRange(order.createdAt, targetRange) && allowedFarmIds.has(order.farmId)
   ))
-  const filterBookings = (targetRange: DashboardRange) => source.bookings.filter((booking) => (
-    ['confirmed', 'completed'].includes(booking.status) && inRange(booking.createdAt, targetRange) && allowedFarmIds.has(booking.farmId)
-  ))
 
   const cOrders = filterCOrders(range)
   const vouchers = filterVouchers(range)
-  const bookings = filterBookings(range)
   const comparisonRange = previousRange(range)
   const previousCOrders = comparisonRange ? filterCOrders(comparisonRange) : []
   const previousVouchers = comparisonRange ? filterVouchers(comparisonRange) : []
-  const previousBookings = comparisonRange ? filterBookings(comparisonRange) : []
   const scopedFulfillmentOrders = source.fulfillmentOrders.filter((order) => {
     if (isDemoId(order.id) || !inRange(order.createdAt, range)) return false
     const farmId = order.farmId || farmByName.get(order.customer || '')?.id
@@ -526,9 +510,8 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
   const transactionAmount = round(
     cOrders.reduce((sum, order) => sum + cOrderNetAmount(order), 0)
     + vouchers.reduce((sum, order) => sum + Number(order.amount || 0), 0)
-    + bookings.reduce((sum, booking) => sum + (bookingAmount(booking) ?? 0), 0)
   )
-  const transactionOrderCount = cOrders.length + vouchers.length + bookings.length
+  const transactionOrderCount = cOrders.length + vouchers.length
   let unattributedDataCount = cOrders.filter((order) => !orderFarmId(order)).length
     + fulfillmentOrders.filter((order) => !order.farmId && !farmByName.has(order.customer || '')).length
 
@@ -545,15 +528,8 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
   const cooperatingSuppliers = source.suppliers.filter((supplier) => (
     supplier.status === 'cooperating' && (includeUnattributed || supplierIds.has(supplier.id))
   ))
-  const activeLives = source.lives.filter((live) => (
-    live.status === 'live' && (live.farmId ? allowedFarmIds.has(live.farmId) : includeUnattributed)
-  ))
   const validPromoterIds = new Set(source.promoters.filter((promoter) => promoter.status === 'active').map((promoter) => promoter.id))
   const activePromoterIds = new Set(includeUnattributed ? validPromoterIds : [])
-  activeLives.forEach((live) => {
-    if (live.promoterId && validPromoterIds.has(live.promoterId)) activePromoterIds.add(live.promoterId)
-    else activePromoterIds.add(`host:${live.host}`)
-  })
   const supplierSettlementRecords = (source.supplierSettlements || []).filter((record) => inRange(record.createdAt, range))
   const fulfillmentOrderById = new Map(source.fulfillmentOrders.filter((order) => {
     if (isDemoId(order.id) || !orderValid(order.status)) return false
@@ -634,10 +610,8 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
   }
   cOrders.forEach((order) => addFarmTransaction(transactionByFarm, orderFarmId(order), cOrderNetAmount(order)))
   vouchers.forEach((order) => addFarmTransaction(transactionByFarm, order.farmId, order.amount))
-  bookings.forEach((booking) => addFarmTransaction(transactionByFarm, booking.farmId, booking.amount || 0))
   previousCOrders.forEach((order) => addFarmTransaction(previousTransactionByFarm, orderFarmId(order), cOrderNetAmount(order)))
   previousVouchers.forEach((order) => addFarmTransaction(previousTransactionByFarm, order.farmId, order.amount))
-  previousBookings.forEach((booking) => addFarmTransaction(previousTransactionByFarm, booking.farmId, booking.amount || 0))
 
   const mapPoints = allowedFarms.flatMap((farm): DashboardMapPoint[] => {
     const located = locationOf(farm)
@@ -653,24 +627,6 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
   const unlocatedFarms = allowedFarms.filter((farm) => !isResolvedFarmLocation(farm))
 
   const risks: DashboardRisk[] = []
-  bookings.filter((booking) => bookingAmount(booking) === null).forEach((booking) => {
-    const farm = farmById.get(booking.farmId)
-    risks.push({
-      id: `booking-amount:${booking.id}`, rule: 'booking-amount-missing', level: 'warning',
-      title: '预约金额待补充', description: `${booking.farmName}的已确认预约缺少有效金额`, count: 1,
-      farmId: booking.farmId,
-      subjects: [
-        {
-          type: 'booking', id: booking.id, name: `预约${booking.id}`, farmId: booking.farmId,
-          regionCode: farm ? farmRegionCode(farm) : undefined, occurredAt: booking.createdAt, detail: '已确认预约缺少有效金额',
-          ...(booking.dataOrigin ? { dataOrigin: booking.dataOrigin } : {})
-        },
-        farm
-          ? farmSubject(farm, '该门店预约金额待补充', booking.createdAt)
-          : { type: 'farm', id: booking.farmId, name: booking.farmName, farmId: booking.farmId, occurredAt: booking.createdAt, detail: '该门店预约金额待补充' }
-      ]
-    })
-  })
   unlocatedFarms.forEach((farm) => {
     const locationRisk = farmLocationRisk(farm)
     risks.push({
@@ -747,7 +703,6 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
   }
   cOrders.forEach((order) => addTrend(order.createdAt, cOrderNetAmount(order)))
   vouchers.forEach((order) => addTrend(order.createdAt, order.amount))
-  bookings.forEach((booking) => addTrend(booking.createdAt, booking.amount || 0))
   const trend = [...trendMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, amount: round(value.amount), orderCount: value.orderCount }))
 
   const rankMap = new Map<string, DashboardRegionRank>()
@@ -852,19 +807,17 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
       })
     })
   }
-  const currentTransactionCount = cOrders.length + vouchers.length + bookings.length
-  const previousTransactionCount = previousCOrders.length + previousVouchers.length + previousBookings.length
+  const currentTransactionCount = cOrders.length + vouchers.length
+  const previousTransactionCount = previousCOrders.length + previousVouchers.length
   const transactionGrowth = calculateGrowthRate(currentTransactionCount, previousTransactionCount)
-  const bookingGrowth = calculateGrowthRate(bookings.length, previousBookings.length)
-  if ((transactionGrowth !== null && transactionGrowth > 20) || (bookingGrowth !== null && bookingGrowth > 20)) suggestions.push({
+  if (transactionGrowth !== null && transactionGrowth > 20) suggestions.push({
     id: 'transaction:growth', rule: 'transaction-growth', priority: 'medium', title: '承接增长需求',
-    description: `订单量环比增长${transactionGrowth ?? '--'}%${bookingGrowth !== null && bookingGrowth > 20 ? `，预约量环比增长${bookingGrowth}%` : ''}`,
+    description: `订单量环比增长${transactionGrowth ?? '--'}%`,
     action: '开发对应套餐或商品并提前组织供给',
     evidence: [
       ...(transactionGrowth !== null ? [{ metric: 'transactionGrowth', value: transactionGrowth, threshold: 20, unit: '%' }] : []),
-      ...(bookingGrowth !== null ? [{ metric: 'bookingGrowth', value: bookingGrowth, threshold: 20, unit: '%' }] : [])
     ],
-    subjects: [{ type: 'dataset', id: 'orders', name: '订单', detail: '订单或预约量环比增长超过20%' }]
+    subjects: [{ type: 'dataset', id: 'orders', name: '订单', detail: '订单量环比增长超过20%' }]
   })
   if (failedSupplierSettlementCount) suggestions.push({
     id: 'settlement:coordinate', rule: 'settlement-coordination', priority: 'high', title: '处理结算异常',
@@ -878,13 +831,6 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
     if (account.role === 'staff' && account.enabled && allowedFarmIds.has(account.farmId)) {
       activeStaffByFarm.set(account.farmId, (activeStaffByFarm.get(account.farmId) || 0) + 1)
     }
-  })
-  const bookingStatsByFarm = new Map<string, { count: number; amount: number }>()
-  bookings.forEach((booking) => {
-    const current = bookingStatsByFarm.get(booking.farmId) || { count: 0, amount: 0 }
-    current.count += 1
-    current.amount += bookingAmount(booking) || 0
-    bookingStatsByFarm.set(booking.farmId, current)
   })
   const voucherStatsByFarm = new Map<string, { count: number; redeemed: number }>()
   vouchers.forEach((voucher) => {
@@ -928,7 +874,6 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
     const cityCode = districtCode.length >= 4 ? districtCode.slice(0, 4) : ''
     const location = isResolvedFarmLocation(farm) ? farm.location : undefined
     const transaction = transactionByFarm.get(farm.id) || { amount: 0, count: 0 }
-    const booking = bookingStatsByFarm.get(farm.id) || { count: 0, amount: 0 }
     const voucher = voucherStatsByFarm.get(farm.id) || { count: 0, redeemed: 0 }
     return {
       farmId: farm.id,
@@ -943,8 +888,6 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
       activeStaffCount: activeStaffByFarm.get(farm.id) || 0,
       transactionAmount: round(transaction.amount),
       orderCount: transaction.count,
-      bookingCount: booking.count,
-      bookingAmount: round(booking.amount),
       voucherCount: voucher.count,
       redeemedVoucherCount: voucher.redeemed,
       riskCount: riskIdsByFarm.get(farm.id)?.size || 0
@@ -968,7 +911,7 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
     const current = cityProfileMap.get(farm.cityCode) || {
       cityCode: farm.cityCode, cityName: dashboardRegion(farm.cityCode)!.name,
       storeCount: 0, activeStoreCount: 0, activeStaffCount: 0, transactionAmount: 0, orderCount: 0,
-      bookingAmount: 0, voucherRate: null, fulfillmentRate: null, afterSaleRate: null, riskCount: 0, growthRate: null,
+      voucherRate: null, fulfillmentRate: null, afterSaleRate: null, riskCount: 0, growthRate: null,
       coordinateCount: 0, longitudeTotal: 0, latitudeTotal: 0, eligibleVoucherCount: 0, redeemedVoucherCount: 0,
       fulfillmentTotal: 0, fulfillmentCompleted: 0, paidOrderCount: 0, afterSaleCount: 0, previousAmount: 0
     }
@@ -977,7 +920,6 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
     current.activeStaffCount += farm.activeStaffCount
     current.transactionAmount += farm.transactionAmount
     current.orderCount += farm.orderCount
-    current.bookingAmount += farm.bookingAmount
     current.riskCount += farm.riskCount
     current.previousAmount += previousTransactionByFarm.get(farm.farmId)?.amount || 0
     const voucher = voucherStatsByFarm.get(farm.farmId)
@@ -1008,7 +950,6 @@ export function buildDashboardSnapshot(source: DashboardDataSource, options: Das
     activeStaffCount: city.activeStaffCount,
     transactionAmount: round(city.transactionAmount),
     orderCount: city.orderCount,
-    bookingAmount: round(city.bookingAmount),
     voucherRate: city.eligibleVoucherCount ? round(city.redeemedVoucherCount / city.eligibleVoucherCount * 100, 1) : null,
     fulfillmentRate: city.fulfillmentTotal ? round(city.fulfillmentCompleted / city.fulfillmentTotal * 100, 1) : null,
     afterSaleRate: city.paidOrderCount ? round(city.afterSaleCount / city.paidOrderCount * 100, 1) : null,

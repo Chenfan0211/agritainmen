@@ -2,10 +2,8 @@ import {
   afterSales,
   cProducts,
   farms,
-  liveRooms,
   mergePlatformAfterSales,
   mergePlatformEntities,
-  mergePlatformLives,
   mergePlatformOrders,
   mergePlatformStoreAccounts,
   migrateLegacyCatalog,
@@ -15,11 +13,8 @@ import {
   readCatalogState,
   readCOrders,
   readPlatformAfterSales,
-  readPlatformBookings,
   readPlatformCommissionLedger,
   readPlatformEntities,
-  readPlatformLives,
-  readPlatformLivesUpdatedAt,
   readPlatformOrders,
   readPlatformPromoterAccounts,
   readPlatformStoreAccounts,
@@ -52,7 +47,6 @@ export function createPlatformDashboardDataSource(): DashboardDataSource {
   const mergedStoreAccounts = mergePlatformStoreAccounts(storeAccounts, readPlatformStoreAccounts())
   const cOrders = Object.values(readCOrders() || {})
   const voucherOrders = Object.values(readPlatformVoucherOrders() || {})
-  const bookings = Object.values(readPlatformBookings() || {})
   const fulfillmentOrders = mergePlatformOrders(orders, readPlatformOrders())
   const mergedAfterSales = mergePlatformAfterSales(afterSales, readPlatformAfterSales())
   const supplierSettlements = Object.values(readPlatformSupplierSettlements() || {})
@@ -63,11 +57,9 @@ export function createPlatformDashboardDataSource(): DashboardDataSource {
     storeAccounts: mergedStoreAccounts,
     suppliers: mergedSuppliers,
     promoters: mergedPromoters,
-    lives: mergePlatformLives(liveRooms).filter((room) => room !== null),
     catalog,
     cOrders,
     voucherOrders,
-    bookings,
     fulfillmentOrders,
     afterSales: mergedAfterSales,
     supplierSettlements,
@@ -80,10 +72,8 @@ export function createPlatformDashboardDataSource(): DashboardDataSource {
         ...cOrders.map((order) => order.createdAt),
         ...fulfillmentOrders.flatMap((order) => [order.createdAt, order.supplierFulfillment?.updatedAt])
       ]),
-      bookings: latestTimestamp(bookings.flatMap((booking) => [booking.updatedAt, booking.createdAt])),
       vouchers: latestTimestamp(voucherOrders.flatMap((order) => [order.refundedAt, order.redeemedAt, order.createdAt])),
       afterSales: latestTimestamp(mergedAfterSales.flatMap((item) => item.history?.map((event) => event.time) || [])),
-      lives: readPlatformLivesUpdatedAt(),
       settlements: latestTimestamp([
         ...supplierSettlements.map((record) => record.createdAt),
         ...commissionLedger.flatMap((entry) => [entry.updatedAt, entry.createdAt])

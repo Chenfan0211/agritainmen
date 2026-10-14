@@ -58,7 +58,7 @@ export const BUSINESS_DICTIONARY_TYPES = [
 
 export const SYSTEM_DICTIONARY_TYPES = [
   'supplierStatus', 'productStatus', 'farmStatus', 'orderStatus', 'fulfillmentStatus', 'afterSaleStatus',
-  'promoterStatus', 'liveStatus', 'bookingStatus', 'voucherStatus', 'settlementStatus', 'commissionStatus',
+  'promoterStatus', 'bookingStatus', 'voucherStatus', 'settlementStatus', 'commissionStatus',
   'productSource', 'productType', 'catalogChannel', 'deliveryMode', 'afterSaleType', 'refundMethod',
   'refundMode', 'pricePolicyType', 'accountRole', 'memberLevel', 'commissionTargetType'
 ] as const
@@ -79,14 +79,13 @@ const builtInLabels: Readonly<Record<string, Readonly<Record<string, string>>>> 
   fulfillmentStatus: { submitted: '待接单', accepted: '已接单', shipped: '已发货', delivering: '配送中', received: '已收货', completed: '已完成', cancelled: '已取消' },
   afterSaleStatus: { processing: '售后中', rejected: '售后拒绝', 'refund-pending': '待退款', 'return-pending': '待退货', refunded: '已退款', 'refund-failed': '退款失败' },
   promoterStatus: { active: '启用', paused: '停用', pending: '待审核' },
-  liveStatus: { preview: '预告', live: '直播中', ended: '已结束' },
   bookingStatus: { submitted: '待确认', confirmed: '已确认', rejected: '已拒绝', cancelled: '已取消', completed: '已完成' },
   voucherStatus: { paid: '待核销', redeemed: '已核销', refunded: '已退款' },
   settlementStatus: { settled: '已结算', pending: '待结算', processing: '处理中' },
   commissionStatus: { pending: '待入账', available: '可提现', completed: '已完成' },
   productSource: { platform: '平台商品', farmhouse: '门店商品' },
   productType: { goods: '实物商品', package: '套餐券' },
-  catalogChannel: { store: '门店', live: '直播', all: '全渠道' },
+  catalogChannel: { store: '门店', live: '用户端', all: '全渠道' },
   deliveryMode: { pickup: '到店自提', courier: '快递配送' },
   afterSaleType: { refund: '退款', return: '退货退款', reship: '补发', claim: '理赔' },
   refundMethod: { return: '退货退款', only: '仅退款' },
@@ -94,7 +93,7 @@ const builtInLabels: Readonly<Record<string, Readonly<Record<string, string>>>> 
   pricePolicyType: { normal: '普通策略', tiered: '阶梯策略' },
   accountRole: { owner: '店主', staff: '店员', customer: '客户', manager: '管理员' },
   memberLevel: { normal: '普通会员', silver: '银卡会员', gold: '金卡会员' },
-  commissionTargetType: { farm: '门店', product: '商品', live: '直播' }
+  commissionTargetType: { farm: '门店', product: '商品' }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

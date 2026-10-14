@@ -13,7 +13,7 @@ export type PurchaseStatus = 'submitted' | 'accepted' | 'shipped' | 'delivering'
 export type MockScenario = 'normal' | 'empty' | 'failure'
 export type FarmAvailability = 'bookable' | 'full' | 'closed'
 export type CommissionStatus = 'pending' | 'available' | 'completed' | 'settled' | 'reversed'
-export const PERSISTENCE_VERSION = 7
+export const PERSISTENCE_VERSION = 8
 
 export interface Sku {
   id: string
@@ -498,7 +498,7 @@ export const PLATFORM_PRODUCTION_RECOVERY_HANDLER_KEYS = [
   'supplier-commit-v1', 'supplier-fulfillment-sync-v1',
   'admin-fulfillment-v1', 'admin-settlement-v1', 'admin-after-sale-v1',
   'user-commerce-recovery-v1', 'farmhouse-commerce-recovery-v1', 'admin-commission-rule-v1',
-  'admin-supplier-settlement-v1', 'admin-commission-settlement-v1', 'admin-booking-v1',
+  'admin-supplier-settlement-v1', 'admin-commission-settlement-v1',
   'admin-failure-audit-v1',
   'catalog-product-review-v1'
 ] as const
@@ -952,7 +952,7 @@ export async function retryPlatformRecoveryTask(id: string, resolvedBy: string, 
   }
   return { ok: false, code: 'recovery-lock-set-changed', message: '恢复事务集合持续变化，请重试' }
 }
-export type AdminMenuKey = 'dashboard' | 'reports' | 'bookings' | 'suppliers' | 'products' | 'categories' | 'routes' | 'prices' | 'orders' | 'afterSales' | 'farms' | 'promoters' | 'commissions' | 'dict' | 'logs' | 'roles' | 'accounts'
+export type AdminMenuKey = 'dashboard' | 'reports' | 'suppliers' | 'products' | 'categories' | 'prices' | 'orders' | 'afterSales' | 'farms' | 'promoters' | 'commissions' | 'users' | 'leaders' | 'dict' | 'logs' | 'roles' | 'accounts'
 export type AdminPermissionCode = string
 
 export interface AdminRole {
@@ -983,13 +983,13 @@ export const ADMIN_SUPER_ROLE_ID = 'AR-SUPER'
 export const ADMIN_SUPER_ACCOUNT_ID = 'AA-SUPER'
 const ADMIN_SEED_AT = '2026-08-29T00:00:00.000Z'
 
-export const ALL_ADMIN_MENU_KEYS: AdminMenuKey[] = ['dashboard', 'reports', 'bookings', 'suppliers', 'products', 'categories', 'routes', 'prices', 'orders', 'afterSales', 'farms', 'promoters', 'commissions', 'dict', 'logs', 'roles', 'accounts']
+export const ALL_ADMIN_MENU_KEYS: AdminMenuKey[] = ['dashboard', 'reports', 'suppliers', 'products', 'categories', 'prices', 'orders', 'afterSales', 'farms', 'promoters', 'commissions', 'users', 'leaders', 'dict', 'logs', 'roles', 'accounts']
 export const ALL_ADMIN_ACTION_PERMISSIONS: AdminPermissionCode[] = [
   'supplier.create', 'supplier.update', 'supplier.audit', 'supplier.pause', 'supplier.account.update', 'supplier.account.freeze',
-  'product.create', 'product.update', 'product.audit', 'product.status', 'category.manage', 'route.manage', 'price.manage',
+  'product.create', 'product.update', 'product.audit', 'product.status', 'category.manage', 'price.manage',
   'order.ship', 'order.confirm', 'afterSale.manage', 'farm.manage', 'storeAccount.manage', 'promoter.manage',
   'commission.manage', 'withdrawal.review', 'dictionary.manage', 'report.export', 'recovery.resolve', 'audit.export',
-  'booking.confirm', 'booking.complete', 'booking.cancel',
+  'user.view', 'leader.manage', 'leader.price.manage', 'leader.withdrawal.review',
   'admin.role.create', 'admin.role.update', 'admin.role.permissions', 'admin.account.create', 'admin.account.update', 'admin.account.status'
 ]
 
@@ -997,9 +997,9 @@ export function defaultAdminRoles(): AdminRole[] {
   const make = (id: string, code: string, name: string, menuPermissions: AdminMenuKey[], actionPermissions: AdminPermissionCode[], system = true): AdminRole => ({ id, code, name, menuPermissions, actionPermissions, enabled: true, system, createdAt: ADMIN_SEED_AT, updatedAt: ADMIN_SEED_AT })
   return [
     make(ADMIN_SUPER_ROLE_ID, 'super_admin', '超级管理员', [...ALL_ADMIN_MENU_KEYS], [...ALL_ADMIN_ACTION_PERMISSIONS]),
-    make('AR-OPERATIONS', 'operations', '运营', ['dashboard', 'reports', 'bookings', 'suppliers', 'products', 'categories', 'routes', 'prices', 'orders', 'afterSales', 'farms', 'promoters'], ['supplier.create', 'supplier.update', 'supplier.pause', 'supplier.account.update', 'supplier.account.freeze', 'product.create', 'product.update', 'product.status', 'category.manage', 'route.manage', 'price.manage', 'order.ship', 'order.confirm', 'afterSale.manage', 'farm.manage', 'promoter.manage', 'report.export', 'booking.confirm', 'booking.complete', 'booking.cancel']),
-    make('AR-REVIEWER', 'reviewer', '审核', ['dashboard', 'bookings', 'suppliers', 'products', 'afterSales'], ['supplier.audit', 'product.audit', 'product.status', 'afterSale.manage', 'booking.confirm', 'booking.complete', 'booking.cancel']),
-    make('AR-FINANCE', 'finance', '财务', ['dashboard', 'reports', 'orders', 'afterSales', 'commissions'], ['commission.manage', 'withdrawal.review', 'report.export']),
+    make('AR-OPERATIONS', 'operations', '运营', ['dashboard', 'reports', 'suppliers', 'products', 'categories', 'prices', 'orders', 'afterSales', 'farms', 'promoters', 'users', 'leaders'], ['supplier.create', 'supplier.update', 'supplier.pause', 'supplier.account.update', 'supplier.account.freeze', 'product.create', 'product.update', 'product.status', 'category.manage', 'price.manage', 'order.ship', 'order.confirm', 'afterSale.manage', 'farm.manage', 'promoter.manage', 'report.export', 'user.view', 'leader.manage', 'leader.price.manage']),
+    make('AR-REVIEWER', 'reviewer', '审核', ['dashboard', 'suppliers', 'products', 'afterSales'], ['supplier.audit', 'product.audit', 'product.status', 'afterSale.manage']),
+    make('AR-FINANCE', 'finance', '财务', ['dashboard', 'reports', 'orders', 'afterSales', 'commissions', 'leaders'], ['commission.manage', 'withdrawal.review', 'leader.withdrawal.review', 'report.export']),
     make('AR-VIEWER', 'viewer', '只读', ['dashboard', 'reports'], [])
   ]
 }
@@ -1034,14 +1034,17 @@ export function seedPlatformAdminSecurity(): boolean {
   const existingRoles = readPlatformAdminRoles()
   const existingAccounts = readPlatformAdminAccounts()
   const defaults = defaultAdminRoles()
-  const bookingMenus = new Set(['super_admin', 'operations', 'reviewer'])
   const productAuditRoles = new Set(['super_admin', 'reviewer'])
+  // 预约管理与旅游线路已按功能清单移除：从历史角色里剔除对应菜单键与动作权限，避免残留死权限。
+  const retiredMenus = new Set<string>(['bookings', 'routes'])
+  const retiredPermissions = new Set<string>(['route.manage', 'booking.confirm', 'booking.complete', 'booking.cancel'])
   const roles = existingRoles.length ? existingRoles.map((role) => {
-    if (!role.system || (!bookingMenus.has(role.code) && !productAuditRoles.has(role.code))) return role
+    const menuPermissions = [...new Set([...role.menuPermissions.filter((menu) => !retiredMenus.has(menu)), ...(productAuditRoles.has(role.code) ? ['products' as AdminMenuKey] : [])])]
+    const actionPermissions = [...new Set([...role.actionPermissions.filter((permission) => !retiredPermissions.has(permission)), ...(productAuditRoles.has(role.code) ? ['product.audit'] : [])])]
     return {
       ...role,
-      menuPermissions: [...new Set([...role.menuPermissions, ...(bookingMenus.has(role.code) ? ['bookings' as AdminMenuKey] : []), ...(productAuditRoles.has(role.code) ? ['products' as AdminMenuKey] : [])])],
-      actionPermissions: [...new Set([...role.actionPermissions, ...(bookingMenus.has(role.code) ? ['booking.confirm', 'booking.complete', 'booking.cancel'] : []), ...(productAuditRoles.has(role.code) ? ['product.audit'] : [])])]
+      menuPermissions,
+      actionPermissions
     }
   }) : defaults
   const accounts = existingAccounts.length ? existingAccounts : defaultAdminAccounts()
@@ -1230,7 +1233,7 @@ export function reconcilePendingPlatformTransactions(input?: PlatformRecoveryHan
 export * from './providers'
 
 export const CHANNEL_TAG_STORE = '门店商品'
-export const CHANNEL_TAG_LIVE = '直播平台商品'
+export const CHANNEL_TAG_LIVE = '用户端商品'
 export const EXPRESS_DELIVERY_TAG = '快递直发'
 
 export function resolveProductChannels(input: { channels?: { store?: boolean; live?: boolean }; source?: ProductSource }): { store: boolean; live: boolean } {
@@ -1343,6 +1346,14 @@ export interface DictItem {
 
 export type StoreRole = 'owner' | 'staff'
 
+/**
+ * 业务员分销价档位：门店端支持门店 / 业务员两类角色登录，
+ * 业务员按所属档位展示差异化分销价（A 档 95 折、B 档 97 折、C 档为基准分销价）。
+ */
+export type StorePriceLevel = 'A' | 'B' | 'C'
+
+export const STORE_PRICE_LEVELS: readonly StorePriceLevel[] = ['A', 'B', 'C']
+
 export interface StoreAccount {
   id: string
   farmId: string
@@ -1352,6 +1363,7 @@ export interface StoreAccount {
   role: StoreRole
   enabled: boolean
   promoEnabled?: boolean
+  priceLevel?: StorePriceLevel
   createdAt?: string
 }
 
@@ -1393,7 +1405,7 @@ export interface FarmStore {
   core?: boolean
   city: string
   availability: FarmAvailability
-  livePopularity: number
+  /** 门店人气值（历史叫"直播人气"，产地直播移除后作为门店人气指标保留）。 */
   address: string
   regionCode?: string
   structuredAddress?: FarmAdministrativeAddress
@@ -1497,23 +1509,11 @@ export interface Order {
   fulfillmentEvents?: FulfillmentEvent[]
 }
 
-export interface Booking {
-  id: string
-  type: 'room' | 'package' | 'service'
-  name: string
-  date: string
-  session: string
-  people: number
-  status: 'reserved' | 'confirmed' | 'completed' | 'cancelled'
-  emoji?: string
-  image?: string
-  amount?: number
-}
 
 export interface PricePolicy {
   id: string
   name: string
-  type: 'group' | 'ladder' | 'region' | 'member'
+  type: 'group' | 'ladder'
   scope: string
   discount: number
   enabled: boolean
@@ -1567,23 +1567,6 @@ export interface Promoter {
   status: 'active' | 'paused'
 }
 
-export interface LiveRoom {
-  id: string
-  title: string
-  host: string
-  hostRole?: string
-  viewers: number
-  productName: string
-  productPrice: number
-  status: 'live' | 'preview'
-  reminded: boolean
-  emoji?: string
-  image: BusinessMediaValue
-  farmId?: string
-  promoterId?: string
-  linkedFarms?: Array<{ farmId: string; packageIds: string[] }>
-  city: string
-}
 
 export interface OrderItem {
   productId: string
@@ -1775,16 +1758,6 @@ export interface CommissionSettlementRecord {
   status?: string
   createdAt: string
   items: Array<{ promoterId: string; promoterName: string; amount: number }>
-}
-
-export interface TravelRoute {
-  id: string
-  name: string
-  description: string
-  meta?: string
-  price: number
-  city: string
-  image: BusinessMediaValue
 }
 
 export interface PurchaseOrder {
@@ -2020,7 +1993,7 @@ export const dictItems: DictItem[] = [
 
 export const storeAccounts: StoreAccount[] = [
   { id: 'SA001', farmId: 'F001', name: '王店长', account: '13800000001', password: '123456', role: 'owner', enabled: true, createdAt: '2026-08-01 09:00' },
-  { id: 'SA002', farmId: 'F001', name: '李店员', account: '13800000002', password: '123456', role: 'staff', enabled: true, promoEnabled: true, createdAt: '2026-08-01 09:00' },
+  { id: 'SA002', farmId: 'F001', name: '李店员', account: '13800000002', password: '123456', role: 'staff', enabled: true, promoEnabled: true, priceLevel: 'A', createdAt: '2026-08-01 09:00' },
   { id: 'SA003', farmId: 'F002', name: '张店长', account: '13800000003', password: '123456', role: 'owner', enabled: true, createdAt: '2026-08-01 09:00' },
   { id: 'SA004', farmId: 'F003', name: '王店长', account: '13800000004', password: '123456', role: 'owner', enabled: true, createdAt: '2026-08-02 10:00' },
   { id: 'SA005', farmId: 'F003', name: '李店员', account: '13800000005', password: '123456', role: 'staff', enabled: true, createdAt: '2026-08-02 10:00' },
@@ -2089,36 +2062,36 @@ export function productCategoryImage(category: string, state: PlatformDictionary
 }
 
 const rawFarms: Array<Omit<FarmStore, 'address' | 'location' | 'locationStatus' | 'locationError' | 'structuredAddress' | 'regionCode'>> = [
-  { id: 'F001', core: true, emoji: '🏡', adminDesc: '样板店 · 柴火土菜', name: '石板溪农家乐', region: '湘西州永顺县', city: '湘西州', availability: 'bookable', livePopularity: 9842, distance: 0.8, rating: 4.9, monthlySales: 1280, averageSpend: 78, status: 'active', selectedCount: 86, gmv: 42860, image: '/static/images/farmhouse.webp', tags: ['柴火土菜', '临溪包厢', '可直播'], storeTags: ['柴火土灶', '山泉养鱼', '亲子研学'] },
-  { id: 'F002', core: true, emoji: '⛰', adminDesc: '山景民宿', name: '云上人家山景农庄', region: '张家界永定区', city: '张家界市', availability: 'bookable', livePopularity: 8657, distance: 1.1, rating: 4.8, monthlySales: 960, averageSpend: 120, status: 'active', selectedCount: 64, gmv: 38420, image: '/static/images/mountain.webp', tags: ['山景民宿', '家宴大厅'] },
-  { id: 'F003', core: true, emoji: '🌾', adminDesc: '亲子研学', name: '稻香村生态农庄', region: '常德桃源县', city: '常德市', availability: 'full', livePopularity: 7321, distance: 1.6, rating: 4.7, monthlySales: 720, averageSpend: 65, status: 'active', selectedCount: 52, gmv: 31200, image: '/static/images/field.webp', tags: ['亲子研学', '研学基地'] },
-  { id: 'F004', core: true, emoji: '🍊', name: '橘子洲畔农家院', region: '长沙湘江新区', city: '长沙市', availability: 'bookable', livePopularity: 6890, distance: 2.0, rating: 4.6, monthlySales: 680, averageSpend: 88, status: 'active', selectedCount: 40, gmv: 26800, image: '/static/images/field.webp', tags: ['湘江夜景', '江畔餐厅'] },
-  { id: 'F005', core: true, emoji: '🏮', adminDesc: '红色研学', name: '韶山红色记忆农庄', region: '湘潭韶山市', city: '湘潭市', availability: 'closed', livePopularity: 6204, distance: 3.5, rating: 4.7, monthlySales: 610, averageSpend: 68, status: 'pending', selectedCount: 12, gmv: 0, image: '/static/images/field.webp', tags: ['红色研学'] },
-  { id: 'F006', emoji: '⛰', adminDesc: '南岳祈福 · 山野土菜', name: '衡山南岳农家乐', region: '衡阳市南岳区', city: '衡阳市', availability: 'bookable', livePopularity: 5210, distance: 2.6, rating: 4.6, monthlySales: 520, averageSpend: 72, status: 'active', selectedCount: 28, gmv: 18900, image: '/static/images/mountain.webp', tags: ['南岳祈福', '山野土菜'] },
-  { id: 'F007', emoji: '🍵', adminDesc: '云溪茶香 · 山野民宿', name: '炎陵云溪农庄', region: '株洲炎陵县', city: '株洲市', availability: 'bookable', livePopularity: 4680, distance: 3.1, rating: 4.5, monthlySales: 430, averageSpend: 66, status: 'active', selectedCount: 22, gmv: 15200, image: '/static/images/tea.webp', tags: ['茶山民宿', '云海日出'] },
-  { id: 'F008', emoji: '🐟', adminDesc: '洞庭湖畔 · 全鱼宴', name: '岳阳洞庭渔村', region: '岳阳市君山区', city: '岳阳市', availability: 'full', livePopularity: 3980, distance: 4.2, rating: 4.4, monthlySales: 360, averageSpend: 88, status: 'pending', selectedCount: 10, gmv: 0, image: '/static/images/field.webp', tags: ['全鱼宴', '湖景'] },
-  { id: 'F009', emoji: '🏞', adminDesc: '崀山丹霞人家', name: '邵阳崀山人家', region: '邵阳市新宁县', city: '邵阳市', availability: 'bookable', livePopularity: 4520, distance: 2.9, rating: 4.7, monthlySales: 470, averageSpend: 70, status: 'active', selectedCount: 26, gmv: 17600, image: '/static/images/farmhouse.webp', tags: ['丹霞风光', '柴火饭'] },
-  { id: 'F010', emoji: '🍃', adminDesc: '安化茶乡小院', name: '益阳安化茶乡小院', region: '益阳市安化县', city: '益阳市', availability: 'closed', livePopularity: 2150, distance: 5.0, rating: 4.3, monthlySales: 280, averageSpend: 60, status: 'paused', selectedCount: 8, gmv: 0, image: '/static/images/tea.webp', tags: ['黑茶体验', '民宿'] },
-  { id: 'F011', emoji: '🐠', adminDesc: '侗寨风味 · 河鲜码头', name: '怀化侗乡渔寨', region: '怀化市洪江区', city: '怀化市', availability: 'bookable', livePopularity: 3320, distance: 3.8, rating: 4.5, monthlySales: 410, averageSpend: 76, status: 'active', selectedCount: 18, gmv: 14200, image: '/static/images/field.webp', tags: ['侗寨风情', '河鲜'] },
-  { id: 'F012', emoji: '🌶', adminDesc: '十八洞苗家院 · 筹备中', name: '湘西十八洞苗家院', region: '湘西州花垣县', city: '湘西州', availability: 'closed', livePopularity: 1860, distance: 6.2, rating: 4.4, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 6, gmv: 0, image: '/static/images/farmhouse.webp', tags: ['苗家酸汤', '即将开业'] },
-  { id: 'F013', emoji: '🪷', adminDesc: '柳叶湖景 · 荷香餐厅', name: '常德柳叶湖荷香农庄', region: '常德市武陵区', city: '常德市', availability: 'bookable', livePopularity: 2980, distance: 2.8, rating: 4.6, monthlySales: 520, averageSpend: 82, status: 'active', selectedCount: 24, gmv: 19800, image: '/static/images/mountain.webp', tags: ['湖景餐厅', '荷塘月色'] },
-  { id: 'F014', emoji: '🏞', adminDesc: '神农谷林间民宿', name: '株洲神农谷山居', region: '株洲市炎陵县', city: '株洲市', availability: 'closed', livePopularity: 1520, distance: 4.6, rating: 4.3, monthlySales: 0, averageSpend: 0, status: 'paused', selectedCount: 5, gmv: 0, image: '/static/images/field.webp', tags: ['森林康养', '暂停营业'] },
-  { id: 'F015', emoji: '🐔', adminDesc: '乌石山野土鸡庄', name: '湘潭乌石土鸡农庄', region: '湘潭市湘潭县', city: '湘潭市', availability: 'bookable', livePopularity: 2650, distance: 3.4, rating: 4.5, monthlySales: 380, averageSpend: 68, status: 'active', selectedCount: 16, gmv: 12800, image: '/static/images/farmhouse.webp', tags: ['散养土鸡', '柴火灶'] },
-  { id: 'F016', emoji: '🐟', adminDesc: '捞刀河畔 · 渔家土菜', name: '长沙捞刀河渔家乐', region: '长沙市开福区', city: '长沙市', availability: 'bookable', livePopularity: 3860, distance: 2.4, rating: 4.6, monthlySales: 460, averageSpend: 82, status: 'active', selectedCount: 22, gmv: 17600, image: '/static/images/field.webp', tags: ['河鲜渔家', '临水包厢'] },
-  { id: 'F017', emoji: '⛰', adminDesc: '酒埠江山水人家', name: '株洲酒埠江山水农庄', region: '株洲市攸县', city: '株洲市', availability: 'bookable', livePopularity: 2460, distance: 3.6, rating: 4.4, monthlySales: 320, averageSpend: 70, status: 'active', selectedCount: 14, gmv: 11600, image: '/static/images/mountain.webp', tags: ['水库鱼', '山水民宿'] },
-  { id: 'F018', emoji: '🏘', adminDesc: '古村人家 · 明清院落', name: '岳阳张谷英古村农家', region: '岳阳市岳阳县', city: '岳阳市', availability: 'bookable', livePopularity: 3120, distance: 3.9, rating: 4.6, monthlySales: 440, averageSpend: 76, status: 'active', selectedCount: 20, gmv: 15200, image: '/static/images/farmhouse.webp', tags: ['古村文化', '土灶菜'] },
-  { id: 'F019', emoji: '🌄', adminDesc: '祝融峰下 · 云海人家', name: '衡山祝融云海人家', region: '衡阳市南岳区', city: '衡阳市', availability: 'bookable', livePopularity: 3540, distance: 3.0, rating: 4.7, monthlySales: 500, averageSpend: 74, status: 'active', selectedCount: 24, gmv: 18400, image: '/static/images/mountain.webp', tags: ['云海日出', '衡山土菜'] },
-  { id: 'F020', emoji: '🏞', adminDesc: '东江湖畔 · 渔村人家', name: '郴州东江湖人家', region: '郴州市资兴市', city: '郴州市', availability: 'bookable', livePopularity: 4280, distance: 3.2, rating: 4.7, monthlySales: 540, averageSpend: 86, status: 'active', selectedCount: 26, gmv: 21000, image: '/static/images/field.webp', tags: ['东江湖鲜', '环湖民宿'] },
-  { id: 'F021', emoji: '🛖', adminDesc: '九嶷山麓 · 瑶寨风情', name: '永州九嶷山瑶寨', region: '永州市宁远县', city: '永州市', availability: 'bookable', livePopularity: 2680, distance: 4.1, rating: 4.5, monthlySales: 360, averageSpend: 66, status: 'active', selectedCount: 16, gmv: 12800, image: '/static/images/farmhouse.webp', tags: ['瑶家油茶', '长桌宴'] },
-  { id: 'F022', emoji: '🌾', adminDesc: '紫鹊界梯田人家', name: '娄底紫鹊界梯田农庄', region: '娄底市新化县', city: '娄底市', availability: 'bookable', livePopularity: 2980, distance: 4.4, rating: 4.6, monthlySales: 420, averageSpend: 72, status: 'active', selectedCount: 18, gmv: 15800, image: '/static/images/field.webp', tags: ['梯田风光', '柴火腊肉'] },
-  { id: 'F023', emoji: '🏜', adminDesc: '崀山丹霞客栈', name: '邵阳崀山丹霞客栈', region: '邵阳市新宁县', city: '邵阳市', availability: 'closed', livePopularity: 2240, distance: 3.7, rating: 4.4, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 8, gmv: 0, image: '/static/images/mountain.webp', tags: ['丹霞奇观', '即将开业'] },
-  { id: 'F024', emoji: '🏮', adminDesc: '洪江古商城驿站', name: '怀化洪江古商城驿站', region: '怀化市洪江区', city: '怀化市', availability: 'bookable', livePopularity: 2760, distance: 3.5, rating: 4.5, monthlySales: 400, averageSpend: 78, status: 'active', selectedCount: 18, gmv: 14600, image: '/static/images/farmhouse.webp', tags: ['古商城', '明清客栈'] },
-  { id: 'F025', emoji: '🦢', adminDesc: '白马湖畔 · 田园餐厅', name: '常德桃源白马湖农庄', region: '常德市桃源县', city: '常德市', availability: 'bookable', livePopularity: 2320, distance: 2.7, rating: 4.5, monthlySales: 380, averageSpend: 70, status: 'active', selectedCount: 16, gmv: 13800, image: '/static/images/field.webp', tags: ['田园风光', '土家腊肉'] },
-  { id: 'F026', emoji: '🏞', adminDesc: '武陵源溪畔小院', name: '张家界武陵源溪畔院', region: '张家界市武陵源区', city: '张家界市', availability: 'bookable', livePopularity: 4120, distance: 2.2, rating: 4.7, monthlySales: 520, averageSpend: 90, status: 'active', selectedCount: 26, gmv: 19600, image: '/static/images/mountain.webp', tags: ['溪畔民宿', '张家界景'] },
-  { id: 'F027', emoji: '🎋', adminDesc: '芦花小院 · 洞庭人家', name: '益阳沅江芦花小院', region: '益阳市沅江市', city: '益阳市', availability: 'closed', livePopularity: 1680, distance: 4.8, rating: 4.3, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 6, gmv: 0, image: '/static/images/field.webp', tags: ['芦苇荡', '筹备中'] },
-  { id: 'F028', emoji: '🏔', adminDesc: '矮寨大桥 · 峡谷人家', name: '湘西矮寨峡谷人家', region: '湘西州吉首市', city: '湘西州', availability: 'bookable', livePopularity: 3480, distance: 2.9, rating: 4.6, monthlySales: 480, averageSpend: 74, status: 'active', selectedCount: 22, gmv: 17200, image: '/static/images/farmhouse.webp', tags: ['峡谷风光', '苗家酸汤'] },
-  { id: 'F029', emoji: '🌉', adminDesc: '窑湾江畔 · 夜泊人家', name: '湘潭窑湾江畔农庄', region: '湘潭市雨湖区', city: '湘潭市', availability: 'closed', livePopularity: 1420, distance: 3.3, rating: 4.2, monthlySales: 0, averageSpend: 0, status: 'paused', selectedCount: 4, gmv: 0, image: '/static/images/field.webp', tags: ['江畔夜景', '暂停营业'] },
-  { id: 'F030', emoji: '🪷', adminDesc: '洋湖湿地 · 荷塘月色', name: '长沙洋湖荷塘月色院', region: '长沙市岳麓区', city: '长沙市', availability: 'closed', livePopularity: 1980, distance: 2.6, rating: 4.4, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 10, gmv: 0, image: '/static/images/field.webp', tags: ['湿地公园', '荷塘餐厅'] },
+  { id: 'F001', core: true, emoji: '🏡', adminDesc: '样板店 · 柴火土菜', name: '石板溪农家乐', region: '湘西州永顺县', city: '湘西州', availability: 'bookable', distance: 0.8, rating: 4.9, monthlySales: 1280, averageSpend: 78, status: 'active', selectedCount: 86, gmv: 42860, image: '/static/images/farmhouse.webp', tags: ['柴火土菜', '临溪包厢', '可停车'], storeTags: ['柴火土灶', '山泉养鱼', '亲子研学'] },
+  { id: 'F002', core: true, emoji: '⛰', adminDesc: '山景民宿', name: '云上人家山景农庄', region: '张家界永定区', city: '张家界市', availability: 'bookable', distance: 1.1, rating: 4.8, monthlySales: 960, averageSpend: 120, status: 'active', selectedCount: 64, gmv: 38420, image: '/static/images/mountain.webp', tags: ['山景民宿', '家宴大厅'] },
+  { id: 'F003', core: true, emoji: '🌾', adminDesc: '亲子研学', name: '稻香村生态农庄', region: '常德桃源县', city: '常德市', availability: 'full', distance: 1.6, rating: 4.7, monthlySales: 720, averageSpend: 65, status: 'active', selectedCount: 52, gmv: 31200, image: '/static/images/field.webp', tags: ['亲子研学', '研学基地'] },
+  { id: 'F004', core: true, emoji: '🍊', name: '橘子洲畔农家院', region: '长沙湘江新区', city: '长沙市', availability: 'bookable', distance: 2.0, rating: 4.6, monthlySales: 680, averageSpend: 88, status: 'active', selectedCount: 40, gmv: 26800, image: '/static/images/field.webp', tags: ['湘江夜景', '江畔餐厅'] },
+  { id: 'F005', core: true, emoji: '🏮', adminDesc: '红色研学', name: '韶山红色记忆农庄', region: '湘潭韶山市', city: '湘潭市', availability: 'closed', distance: 3.5, rating: 4.7, monthlySales: 610, averageSpend: 68, status: 'pending', selectedCount: 12, gmv: 0, image: '/static/images/field.webp', tags: ['红色研学'] },
+  { id: 'F006', emoji: '⛰', adminDesc: '南岳祈福 · 山野土菜', name: '衡山南岳农家乐', region: '衡阳市南岳区', city: '衡阳市', availability: 'bookable', distance: 2.6, rating: 4.6, monthlySales: 520, averageSpend: 72, status: 'active', selectedCount: 28, gmv: 18900, image: '/static/images/mountain.webp', tags: ['南岳祈福', '山野土菜'] },
+  { id: 'F007', emoji: '🍵', adminDesc: '云溪茶香 · 山野民宿', name: '炎陵云溪农庄', region: '株洲炎陵县', city: '株洲市', availability: 'bookable', distance: 3.1, rating: 4.5, monthlySales: 430, averageSpend: 66, status: 'active', selectedCount: 22, gmv: 15200, image: '/static/images/tea.webp', tags: ['茶山民宿', '云海日出'] },
+  { id: 'F008', emoji: '🐟', adminDesc: '洞庭湖畔 · 全鱼宴', name: '岳阳洞庭渔村', region: '岳阳市君山区', city: '岳阳市', availability: 'full', distance: 4.2, rating: 4.4, monthlySales: 360, averageSpend: 88, status: 'pending', selectedCount: 10, gmv: 0, image: '/static/images/field.webp', tags: ['全鱼宴', '湖景'] },
+  { id: 'F009', emoji: '🏞', adminDesc: '崀山丹霞人家', name: '邵阳崀山人家', region: '邵阳市新宁县', city: '邵阳市', availability: 'bookable', distance: 2.9, rating: 4.7, monthlySales: 470, averageSpend: 70, status: 'active', selectedCount: 26, gmv: 17600, image: '/static/images/farmhouse.webp', tags: ['丹霞风光', '柴火饭'] },
+  { id: 'F010', emoji: '🍃', adminDesc: '安化茶乡小院', name: '益阳安化茶乡小院', region: '益阳市安化县', city: '益阳市', availability: 'closed', distance: 5.0, rating: 4.3, monthlySales: 280, averageSpend: 60, status: 'paused', selectedCount: 8, gmv: 0, image: '/static/images/tea.webp', tags: ['黑茶体验', '民宿'] },
+  { id: 'F011', emoji: '🐠', adminDesc: '侗寨风味 · 河鲜码头', name: '怀化侗乡渔寨', region: '怀化市洪江区', city: '怀化市', availability: 'bookable', distance: 3.8, rating: 4.5, monthlySales: 410, averageSpend: 76, status: 'active', selectedCount: 18, gmv: 14200, image: '/static/images/field.webp', tags: ['侗寨风情', '河鲜'] },
+  { id: 'F012', emoji: '🌶', adminDesc: '十八洞苗家院 · 筹备中', name: '湘西十八洞苗家院', region: '湘西州花垣县', city: '湘西州', availability: 'closed', distance: 6.2, rating: 4.4, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 6, gmv: 0, image: '/static/images/farmhouse.webp', tags: ['苗家酸汤', '即将开业'] },
+  { id: 'F013', emoji: '🪷', adminDesc: '柳叶湖景 · 荷香餐厅', name: '常德柳叶湖荷香农庄', region: '常德市武陵区', city: '常德市', availability: 'bookable', distance: 2.8, rating: 4.6, monthlySales: 520, averageSpend: 82, status: 'active', selectedCount: 24, gmv: 19800, image: '/static/images/mountain.webp', tags: ['湖景餐厅', '荷塘月色'] },
+  { id: 'F014', emoji: '🏞', adminDesc: '神农谷林间民宿', name: '株洲神农谷山居', region: '株洲市炎陵县', city: '株洲市', availability: 'closed', distance: 4.6, rating: 4.3, monthlySales: 0, averageSpend: 0, status: 'paused', selectedCount: 5, gmv: 0, image: '/static/images/field.webp', tags: ['森林康养', '暂停营业'] },
+  { id: 'F015', emoji: '🐔', adminDesc: '乌石山野土鸡庄', name: '湘潭乌石土鸡农庄', region: '湘潭市湘潭县', city: '湘潭市', availability: 'bookable', distance: 3.4, rating: 4.5, monthlySales: 380, averageSpend: 68, status: 'active', selectedCount: 16, gmv: 12800, image: '/static/images/farmhouse.webp', tags: ['散养土鸡', '柴火灶'] },
+  { id: 'F016', emoji: '🐟', adminDesc: '捞刀河畔 · 渔家土菜', name: '长沙捞刀河渔家乐', region: '长沙市开福区', city: '长沙市', availability: 'bookable', distance: 2.4, rating: 4.6, monthlySales: 460, averageSpend: 82, status: 'active', selectedCount: 22, gmv: 17600, image: '/static/images/field.webp', tags: ['河鲜渔家', '临水包厢'] },
+  { id: 'F017', emoji: '⛰', adminDesc: '酒埠江山水人家', name: '株洲酒埠江山水农庄', region: '株洲市攸县', city: '株洲市', availability: 'bookable', distance: 3.6, rating: 4.4, monthlySales: 320, averageSpend: 70, status: 'active', selectedCount: 14, gmv: 11600, image: '/static/images/mountain.webp', tags: ['水库鱼', '山水民宿'] },
+  { id: 'F018', emoji: '🏘', adminDesc: '古村人家 · 明清院落', name: '岳阳张谷英古村农家', region: '岳阳市岳阳县', city: '岳阳市', availability: 'bookable', distance: 3.9, rating: 4.6, monthlySales: 440, averageSpend: 76, status: 'active', selectedCount: 20, gmv: 15200, image: '/static/images/farmhouse.webp', tags: ['古村文化', '土灶菜'] },
+  { id: 'F019', emoji: '🌄', adminDesc: '祝融峰下 · 云海人家', name: '衡山祝融云海人家', region: '衡阳市南岳区', city: '衡阳市', availability: 'bookable', distance: 3.0, rating: 4.7, monthlySales: 500, averageSpend: 74, status: 'active', selectedCount: 24, gmv: 18400, image: '/static/images/mountain.webp', tags: ['云海日出', '衡山土菜'] },
+  { id: 'F020', emoji: '🏞', adminDesc: '东江湖畔 · 渔村人家', name: '郴州东江湖人家', region: '郴州市资兴市', city: '郴州市', availability: 'bookable', distance: 3.2, rating: 4.7, monthlySales: 540, averageSpend: 86, status: 'active', selectedCount: 26, gmv: 21000, image: '/static/images/field.webp', tags: ['东江湖鲜', '环湖民宿'] },
+  { id: 'F021', emoji: '🛖', adminDesc: '九嶷山麓 · 瑶寨风情', name: '永州九嶷山瑶寨', region: '永州市宁远县', city: '永州市', availability: 'bookable', distance: 4.1, rating: 4.5, monthlySales: 360, averageSpend: 66, status: 'active', selectedCount: 16, gmv: 12800, image: '/static/images/farmhouse.webp', tags: ['瑶家油茶', '长桌宴'] },
+  { id: 'F022', emoji: '🌾', adminDesc: '紫鹊界梯田人家', name: '娄底紫鹊界梯田农庄', region: '娄底市新化县', city: '娄底市', availability: 'bookable', distance: 4.4, rating: 4.6, monthlySales: 420, averageSpend: 72, status: 'active', selectedCount: 18, gmv: 15800, image: '/static/images/field.webp', tags: ['梯田风光', '柴火腊肉'] },
+  { id: 'F023', emoji: '🏜', adminDesc: '崀山丹霞客栈', name: '邵阳崀山丹霞客栈', region: '邵阳市新宁县', city: '邵阳市', availability: 'closed', distance: 3.7, rating: 4.4, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 8, gmv: 0, image: '/static/images/mountain.webp', tags: ['丹霞奇观', '即将开业'] },
+  { id: 'F024', emoji: '🏮', adminDesc: '洪江古商城驿站', name: '怀化洪江古商城驿站', region: '怀化市洪江区', city: '怀化市', availability: 'bookable', distance: 3.5, rating: 4.5, monthlySales: 400, averageSpend: 78, status: 'active', selectedCount: 18, gmv: 14600, image: '/static/images/farmhouse.webp', tags: ['古商城', '明清客栈'] },
+  { id: 'F025', emoji: '🦢', adminDesc: '白马湖畔 · 田园餐厅', name: '常德桃源白马湖农庄', region: '常德市桃源县', city: '常德市', availability: 'bookable', distance: 2.7, rating: 4.5, monthlySales: 380, averageSpend: 70, status: 'active', selectedCount: 16, gmv: 13800, image: '/static/images/field.webp', tags: ['田园风光', '土家腊肉'] },
+  { id: 'F026', emoji: '🏞', adminDesc: '武陵源溪畔小院', name: '张家界武陵源溪畔院', region: '张家界市武陵源区', city: '张家界市', availability: 'bookable', distance: 2.2, rating: 4.7, monthlySales: 520, averageSpend: 90, status: 'active', selectedCount: 26, gmv: 19600, image: '/static/images/mountain.webp', tags: ['溪畔民宿', '张家界景'] },
+  { id: 'F027', emoji: '🎋', adminDesc: '芦花小院 · 洞庭人家', name: '益阳沅江芦花小院', region: '益阳市沅江市', city: '益阳市', availability: 'closed', distance: 4.8, rating: 4.3, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 6, gmv: 0, image: '/static/images/field.webp', tags: ['芦苇荡', '筹备中'] },
+  { id: 'F028', emoji: '🏔', adminDesc: '矮寨大桥 · 峡谷人家', name: '湘西矮寨峡谷人家', region: '湘西州吉首市', city: '湘西州', availability: 'bookable', distance: 2.9, rating: 4.6, monthlySales: 480, averageSpend: 74, status: 'active', selectedCount: 22, gmv: 17200, image: '/static/images/farmhouse.webp', tags: ['峡谷风光', '苗家酸汤'] },
+  { id: 'F029', emoji: '🌉', adminDesc: '窑湾江畔 · 夜泊人家', name: '湘潭窑湾江畔农庄', region: '湘潭市雨湖区', city: '湘潭市', availability: 'closed', distance: 3.3, rating: 4.2, monthlySales: 0, averageSpend: 0, status: 'paused', selectedCount: 4, gmv: 0, image: '/static/images/field.webp', tags: ['江畔夜景', '暂停营业'] },
+  { id: 'F030', emoji: '🪷', adminDesc: '洋湖湿地 · 荷塘月色', name: '长沙洋湖荷塘月色院', region: '长沙市岳麓区', city: '长沙市', availability: 'closed', distance: 2.6, rating: 4.4, monthlySales: 0, averageSpend: 0, status: 'pending', selectedCount: 10, gmv: 0, image: '/static/images/field.webp', tags: ['湿地公园', '荷塘餐厅'] },
 ]
 
 const FARM_CITY_INDEX: Record<string, { adCode: string; longitude: number; latitude: number; district: string }> = {
@@ -2253,23 +2226,17 @@ export const pricePolicies: PricePolicy[] = [
     { minQty: 200, maxQty: 499, price: 37, discountOff: 38 },
     { minQty: 500, maxQty: null, price: 35, discountOff: 42 }
   ] },
-  { id: 'R003', name: '湘西区域扶持价', type: 'region', scope: '湘西州门店', discount: 8, enabled: true },
-  { id: 'R004', name: '金牌会员专享价', type: 'member', scope: '金牌会员', discount: 6, enabled: false },
   { id: 'R005', name: '生鲜果蔬集采价', type: 'group', scope: '生鲜类目', discount: 12, enabled: true },
   { id: 'R006', name: '餐具耗材阶梯价', type: 'ladder', scope: '打包/耗材类', discount: 20, enabled: true, tiers: [
     { minQty: 1, maxQty: 99, price: 1.2, discountOff: 15 },
     { minQty: 100, maxQty: 499, price: 1, discountOff: 25 },
     { minQty: 500, maxQty: null, price: 0.8, discountOff: 35 }
   ] },
-  { id: 'R007', name: '长沙城区配送价', type: 'region', scope: '长沙城区门店', discount: 5, enabled: false },
-  { id: 'R008', name: '钻石会员特供价', type: 'member', scope: '钻石会员', discount: 10, enabled: true },
   { id: 'R009', name: '蜂蜜/土特产阶梯价', type: 'ladder', scope: '蜂蜜/土特产类目', discount: 15, enabled: true, tiers: [
     { minQty: 1, maxQty: 49, price: 88, discountOff: 10 },
     { minQty: 50, maxQty: 199, price: 82, discountOff: 16 },
     { minQty: 200, maxQty: null, price: 78, discountOff: 20 }
   ] },
-  { id: 'R010', name: '湘西州配送补贴价', type: 'region', scope: '湘西州门店', discount: 6, enabled: true },
-  { id: 'R011', name: '银牌会员优惠价', type: 'member', scope: '银牌会员', discount: 4, enabled: true },
   { id: 'R012', name: '茶酒礼盒集采价', type: 'group', scope: '茶酒礼盒类目', discount: 15, enabled: true },
   { id: 'R013', name: '农产品集采价', type: 'group', scope: '农产品类目', discount: 10, enabled: true },
   { id: 'R014', name: '预制菜阶梯价', type: 'ladder', scope: '预制菜类目', discount: 18, enabled: true, tiers: [
@@ -2277,16 +2244,14 @@ export const pricePolicies: PricePolicy[] = [
     { minQty: 100, maxQty: 499, price: 35.5, discountOff: 22 },
     { minQty: 500, maxQty: null, price: 33, discountOff: 28 }
   ] },
-  { id: 'R015', name: '张家界区域价', type: 'region', scope: '张家界市门店', discount: 7, enabled: true },
-  { id: 'R016', name: '会员日全场价', type: 'member', scope: '会员日全场', discount: 5, enabled: true },
   { id: 'R017', name: '民宿耗材集采价', type: 'group', scope: '民宿耗材类目', discount: 12, enabled: true },
   { id: 'R018', name: '土特产阶梯价', type: 'ladder', scope: '土特产类目', discount: 16, enabled: true, tiers: [
     { minQty: 1, maxQty: 49, price: 42.8, discountOff: 10 },
     { minQty: 50, maxQty: 199, price: 39.9, discountOff: 16 },
     { minQty: 200, maxQty: null, price: 36.5, discountOff: 23 }
   ] },
-  { id: 'R019', name: '长沙周边配送价', type: 'region', scope: '长沙城区门店', discount: 4, enabled: false },
-  { id: 'R020', name: '大客户协议价', type: 'member', scope: '大客户协议', discount: 12, enabled: true }
+  { id: 'R021', name: '门店分销价', type: 'group', scope: '全部门店订货端商品', discount: 0, enabled: true },
+  { id: 'R022', name: '业务员分销价', type: 'group', scope: '业务员 A / B / C 档', discount: 0, enabled: true }
 ]
 
 export const afterSales: AfterSale[] = [
@@ -2448,23 +2413,6 @@ export const supplierSettlements: SupplierSettlementRecord[] = [
 ]
 
 
-export const liveRooms: LiveRoom[] = [
-  { id: 'L001', emoji: '🐔', title: '石板溪掌柜带你吃土鸡宴', host: '山里阿强', hostRole: '推客主播', viewers: 32000, productName: '四人套餐券', productPrice: 288, status: 'live', reminded: false, image: '/static/images/farmhouse.webp', farmId: 'F001', city: '湘西州', promoterId: 'T001', linkedFarms: [{ farmId: 'F001', packageIds: ['P007', 'P053'] }, { farmId: 'F002', packageIds: ['P055'] }] },
-  { id: 'L002', emoji: '🍑', title: '炎陵黄桃产地直发抢鲜', host: '湘农达人', hostRole: '助农主播', viewers: 18000, productName: '黄桃礼盒', productPrice: 68, status: 'live', reminded: false, image: '/static/images/peach.webp', farmId: 'F002', city: '张家界市', promoterId: 'T001', linkedFarms: [{ farmId: 'F001', packageIds: ['P007'] }, { farmId: 'F002', packageIds: ['P055'] }] },
-  { id: 'L003', emoji: '🍵', title: '安化黑茶 · 老茶人开仓', host: '茶香小妹', viewers: 9560, productName: '黑茶礼盒', productPrice: 128, status: 'live', reminded: false, image: '/static/images/tea.webp', city: '益阳市' },
-  { id: 'L004', emoji: '🥓', title: '湘西腊味节专场直播', host: '腊味老李', viewers: 0, productName: '柴火腊肉', productPrice: 59.9, status: 'preview', reminded: false, image: '/static/images/bacon.webp', farmId: 'F001', city: '湘西州' },
-  { id: 'L005', emoji: '🐟', title: '东江湖鲜开捕节 · 刁子鱼直发', host: '洞庭湖渔哥', hostRole: '推客主播', viewers: 15200, productName: '风干刁子鱼', productPrice: 42.8, status: 'live', reminded: false, image: '/static/images/field.webp', farmId: 'F020', city: '郴州市', promoterId: 'T001', linkedFarms: [{ farmId: 'F003', packageIds: ['P054'] }, { farmId: 'F006', packageIds: ['P065'] }] },
-  { id: 'L006', emoji: '🦆', title: '临武鸭卤味工厂专场', host: '岳阳小龙虾哥', hostRole: '带货主播', viewers: 12800, productName: '酱板鸭', productPrice: 58, status: 'live', reminded: false, image: '/static/images/bacon.webp', farmId: 'F020', city: '郴州市' },
-  { id: 'L007', emoji: '🍊', title: '麻阳冰糖橙开园直播', host: '郴州雾漫姑娘', hostRole: '推客主播', viewers: 8900, productName: '冰糖橙礼盒', productPrice: 59.9, status: 'live', reminded: false, image: '/static/images/peach.webp', farmId: 'F024', city: '怀化市' },
-  { id: 'L008', emoji: '🍵', title: '张家界莓茶尝鲜 · 土家神茶', host: '茶园春晓', hostRole: '带货主播', viewers: 0, productName: '莓茶礼盒', productPrice: 168, status: 'preview', reminded: false, image: '/static/images/tea.webp', farmId: 'F026', city: '张家界市' },
-  { id: 'L009', emoji: '🪷', title: '湘莲莲子羹秋冬上新', host: '高山银针姐', hostRole: '助农主播', viewers: 0, productName: '莲子羹', productPrice: 46, status: 'preview', reminded: false, image: '/static/images/field.webp', farmId: 'F029', city: '湘潭市' },
-  { id: 'L010', emoji: '🧋', title: '常德擂茶夜话 · 老字号开讲', host: '常德柳叶姐', hostRole: '推客主播', viewers: 7300, productName: '常德擂茶', productPrice: 25.8, status: 'live', reminded: false, image: '/static/images/field.webp', farmId: 'F025', city: '常德市' },
-  { id: 'L011', emoji: '🍠', title: '永州香芋大集 · 粉糯爆款', host: '永州香芋哥', hostRole: '推客主播', viewers: 0, productName: '江永香芋', productPrice: 32.8, status: 'preview', reminded: false, image: '/static/images/field.webp', farmId: 'F021', city: '永州市' },
-  { id: 'L012', emoji: '🌶', title: '双峰辣酱下饭专场', host: '娄底辣酱哥', hostRole: '推客主播', viewers: 11200, productName: '双峰辣酱', productPrice: 29.9, status: 'live', reminded: false, image: '/static/images/chili.webp', farmId: 'F022', city: '娄底市' },
-  { id: 'L013', emoji: '🐟', title: '洞庭湖鲜开渔季 · 刁子鱼秒杀', host: '山里阿强', hostRole: '推客主播', viewers: 12400, productName: '风干刁子鱼', productPrice: 42.8, status: 'live', reminded: false, image: '/static/images/field.webp', farmId: 'F020', city: '郴州市', promoterId: 'T001', linkedFarms: [{ farmId: 'F003', packageIds: ['P054'] }, { farmId: 'F006', packageIds: ['P065'] }] },
-  { id: 'L014', emoji: '🍵', title: '高山云雾茶 · 春日采茶慢直播', host: '张同学', hostRole: '推客主播', viewers: 0, productName: '高山云雾茶', productPrice: 128, status: 'preview', reminded: false, image: '/static/images/tea.webp', farmId: 'F002', city: '张家界市', promoterId: 'T001', linkedFarms: [{ farmId: 'F002', packageIds: ['P055'] }] },
-  { id: 'L015', emoji: '🥓', title: '山里阿强腊味夜市', host: '山里阿强', hostRole: '推客主播', viewers: 8600, productName: '柴火腊肉', productPrice: 59.9, status: 'live', reminded: false, image: '/static/images/bacon.webp', farmId: 'F001', city: '湘西州', promoterId: 'T002', linkedFarms: [{ farmId: 'F001', packageIds: ['P007'] }] }
-]
 
 export const members: Member[] = [
   { id: 'M001', name: '王女士', level: 'gold', balance: 386.5, points: 2860, phone: '138****6688', memberNo: 'SBX·8829', cumulativeCommission: 1286, fans: 68, monthlyOrders: 23 },
@@ -2480,13 +2428,10 @@ export const members: Member[] = [
 export const commissionRules: CommissionRule[] = [
   { id: 'CR001', name: '门店推广佣金', targetType: 'farm', rate: 8, enabled: true, updatedAt: '2026-08-11 09:00' },
   { id: 'CR002', name: '商品推广佣金', targetType: 'product', rate: 12, enabled: true, updatedAt: '2026-08-11 09:00' },
-  { id: 'CR003', name: '直播推广佣金', targetType: 'live', rate: 10, enabled: true, updatedAt: '2026-08-11 09:00' },
   { id: 'CR004', name: '门店带客佣金', targetType: 'farm', rate: 6, enabled: true, updatedAt: '2026-08-12 09:00' },
   { id: 'CR005', name: '生鲜品类推广佣金', targetType: 'product', rate: 10, enabled: true, updatedAt: '2026-08-12 09:00' },
-  { id: 'CR006', name: '联名直播佣金', targetType: 'live', rate: 15, enabled: false, updatedAt: '2026-08-12 09:00' },
   { id: 'CR007', name: '门店会员转化佣金', targetType: 'farm', rate: 5, enabled: true, updatedAt: '2026-08-12 14:00' },
   { id: 'CR008', name: '年货专场佣金', targetType: 'product', rate: 18, enabled: false, updatedAt: '2026-08-12 14:00' },
-  { id: 'CR009', name: '助农直播扶持佣金', targetType: 'live', rate: 12, enabled: true, updatedAt: '2026-08-13 09:30' },
   { id: 'CR010', name: '民宿推广佣金', targetType: 'farm', rate: 9, enabled: true, updatedAt: '2026-08-13 09:30' },
   { id: 'CR011', name: '茶酒类目佣金', targetType: 'product', rate: 14, enabled: true, updatedAt: '2026-08-13 10:00' },
   { id: 'CR012', name: '跨店联播佣金', targetType: 'live', rate: 8, enabled: true, updatedAt: '2026-08-13 10:00' }
@@ -2513,15 +2458,6 @@ export const farmhouseFoods = [
   { id: 'FD10', emoji: '🍲', name: '柴火豆腐', description: '石磨豆浆 · 柴火慢炖', price: 28, image: '/static/images/chili.webp' }
 ]
 
-export const travelRoutes: TravelRoute[] = [
-  { id: 'RT01', name: '湘西土家风情 2 日游', description: '凤凰古城 · 矮寨大桥 · 农家土菜宴', meta: '含 3 家合作农家乐 · 沿途特产采购', price: 399, city: '湘西州', image: '/static/images/farmhouse.webp' },
-  { id: 'RT02', name: '张家界山水康养 3 日游', description: '天门山 · 大峡谷 · 山景民宿农庄', meta: '含 4 家合作农家乐 · 直播同款好物', price: 599, city: '张家界市', image: '/static/images/mountain.webp' },
-  { id: 'RT03', name: '长沙窑文化一日游', description: '铜官窑 · 靖港古镇 · 渔家土菜', meta: '含 2 家合作农家乐 · 非遗体验', price: 299, city: '长沙市', image: '/static/images/farmhouse.webp' },
-  { id: 'RT04', name: '常德桃花源二日游', description: '桃花源 · 柳叶湖 · 擂茶宴', meta: '含 2 家合作农家乐 · 田园民宿', price: 469, city: '常德市', image: '/static/images/field.webp' },
-  { id: 'RT05', name: '怀化侗族风情三日游', description: '洪江古商城 · 通道侗寨 · 合拢宴', meta: '含 3 家合作农家乐 · 侗歌侗舞', price: 629, city: '怀化市', image: '/static/images/farmhouse.webp' },
-  { id: 'RT06', name: '邵阳崀山丹霞二日游', description: '崀山八角寨 · 辣椒峰 · 农家腊味宴', meta: '含 2 家合作农家乐 · 丹霞日出', price: 459, city: '邵阳市', image: '/static/images/mountain.webp' }
-]
-
 export interface DerivedPlatformMetrics {
   gmv: number
   farmCount: number
@@ -2531,7 +2467,7 @@ export interface DerivedPlatformMetrics {
   orderStats: { total: number; pending: number; shipping: number }
   afterSaleStats: { settlement: number; count: number; processing: number; resolved: number; rate: string }
   farmStats: { total: number; liveCount: number; configuring: number; selfProducts: number; pendingSelfProducts: number }
-  promoterStats: { pendingCommission: number; activePromoters: number; liveHosts: number; liveSessions: number; lockedFans: number }
+  promoterStats: { pendingCommission: number; activePromoters: number; lockedFans: number }
   hotProducts: Array<{ name: string; supplier: string; amount: number; units: number; image: string }>
   categoryShares: Array<{ name: string; value: number }>
   dailyTrend: Array<{ label: string; amount: number; count: number }>
@@ -2588,12 +2524,9 @@ export function derivePlatformMetrics(input: {
     selfProducts: farmhouseProducts.length,
     pendingSelfProducts: farmhouseProducts.filter((product) => product.status === 'pending').length,
   }
-  const liveHosts = promoters.filter((promoter) => promoter.type === '主播' || promoter.type === '达人').length
   const promoterStats = {
     pendingCommission: Math.round(promoters.filter((promoter) => !promoter.settled).reduce((sum, promoter) => sum + promoter.commission, 0) * 100) / 100,
     activePromoters: promoters.filter((promoter) => promoter.status === 'active').length,
-    liveHosts,
-    liveSessions: promoters.filter((promoter) => promoter.type === '主播').length,
     lockedFans: promoters.reduce((sum, promoter) => sum + promoter.fans, 0),
   }
   const productMap = new Map(products.map((product) => [product.id, product]))
@@ -2758,6 +2691,9 @@ export function selectPersistedState<T>(state: T, keys?: readonly (keyof T)[]): 
   return Object.fromEntries(Object.entries(state as PersistedObject).filter(([key]) => !transientStateKeys.has(key) && (!allowed || allowed.has(key)))) as Partial<T>
 }
 
+/** 已按功能清单移除的业务域，迁移时从落盘状态里剔除。 */
+const retiredPersistedStateKeys = ['bookings', 'routes', 'lives', 'travelRoutes', 'liveRooms'] as const
+
 const stateMigrations: Record<number, StateMigration> = {
   1: (state) => state,
   2: (state, defaults) => {
@@ -2839,6 +2775,10 @@ const stateMigrations: Record<number, StateMigration> = {
         return { ...record, items: promoterIds.map((promoterId, index) => ({ promoterId, promoterName: promoterId, amount: promoterIds.length === 1 || index === 0 ? amount : 0 })) }
       })
     }
+     return state
+  },
+  8: (state) => {
+    retiredPersistedStateKeys.forEach((key) => delete state[key])
     return state
   }
 }
@@ -2852,6 +2792,7 @@ export function migratePersistedState<T>(saved: unknown, defaults: T, version = 
   for (let nextVersion = savedVersion + 1; nextVersion <= version; nextVersion += 1) {
     migrated = (stateMigrations[nextVersion] || ((state) => state))(migrated, defaults as PersistedObject)
   }
+  if (savedVersion > 0 && savedVersion < version) clearRetiredPlatformData()
   return mergePersisted(defaults, migrated) as T
 }
 
@@ -2912,7 +2853,6 @@ export const PLATFORM_MEDIA_STORAGE_KEY = 'agritainment-platform-media'
 export interface PlatformMedia {
   farms: Record<string, BusinessMediaValue>
   products: Record<string, { image: BusinessMediaValue; images?: BusinessMediaValue[] }>
-  farmPopularity?: Record<string, number>
   updatedAt: string
 }
 
@@ -2952,7 +2892,7 @@ function platformMediaStorage(): PlatformMediaStorage | null {
 }
 
 export function emptyPlatformMedia(): PlatformMedia {
-  return { farms: {}, products: {}, farmPopularity: {}, updatedAt: '' }
+  return { farms: {}, products: {}, updatedAt: '' }
 }
 
 export function readPlatformMedia(): PlatformMedia | null {
@@ -2967,7 +2907,6 @@ export function readPlatformMedia(): PlatformMedia | null {
         return {
           farms: media.farms as Record<string, BusinessMediaValue>,
           products: media.products as Record<string, { image: BusinessMediaValue; images?: BusinessMediaValue[] }>,
-          farmPopularity: media.farmPopularity && typeof media.farmPopularity === 'object' ? media.farmPopularity as Record<string, number> : {},
           updatedAt: typeof media.updatedAt === 'string' ? media.updatedAt : ''
         }
       }
@@ -3003,13 +2942,6 @@ export function upsertPlatformFarm(media: PlatformMedia | null, id: string, imag
   return { ...base, farms, updatedAt: new Date().toISOString() }
 }
 
-/** 发布门店人气值：人气值始终写入（0 也有效），无删除语义 */
-export function upsertPlatformFarmPopularity(media: PlatformMedia | null, id: string, value: number): PlatformMedia {
-  const base = media ?? emptyPlatformMedia()
-  const farmPopularity = { ...(base.farmPopularity || {}) }
-  farmPopularity[id] = Math.max(0, Math.round(value))
-  return { ...base, farmPopularity, updatedAt: new Date().toISOString() }
-}
 
 /** 发布商品图片：主图/详情图任一为上传图则写入，否则删除对应记录 */
 export function upsertPlatformProduct(media: PlatformMedia | null, id: string, image: BusinessMediaValue, images?: BusinessMediaValue[]): PlatformMedia {
@@ -3035,8 +2967,6 @@ export function applyPlatformMedia(
     farms.forEach((farm) => {
       const override = media.farms[farm.id]
       if (override) farm.image = override
-      const popularity = media.farmPopularity?.[farm.id]
-      if (typeof popularity === 'number') farm.livePopularity = popularity
     })
   }
   if (Array.isArray(products)) {
@@ -3052,7 +2982,6 @@ export function applyPlatformMedia(
 
 
 // ===== 共享业务数据通道：H5 同源共享，小程序回退种子 =====
-export const PLATFORM_LIVES_STORAGE_KEY = 'agritainment-platform-lives'
 export const PLATFORM_BINDINGS_STORAGE_KEY = 'agritainment-platform-bindings'
 export const PLATFORM_CONFIG_STORAGE_KEY = 'agritainment-platform-config'
 export const PLATFORM_SHARES_STORAGE_KEY = 'agritainment-platform-shares'
@@ -3069,6 +2998,10 @@ export interface UserBinding {
 export interface ShareConfig {
   promoterRate: number
   staffRate: number
+  /** 一级团长分成比例（%）；未配置时不下发。 */
+  leaderLevel1Rate?: number
+  /** 二级团长分成比例（%）；未配置时不下发。 */
+  leaderLevel2Rate?: number
 }
 
 export interface ShareRecord {
@@ -3244,42 +3177,6 @@ export function writeVersionedRecord<T>(key: string, next: VersionedStorageRecor
   return writePlatformJson(key, cloneSeed(next))
 }
 
-/** 推客直播：创建/更新即发布，用户端合并读取；下架写 null 删除标记，防止种子直播复活 */
-export function readPlatformLives(): Record<string, LiveRoom | null> | null {
-  const lives = readPlatformJson<Record<string, LiveRoom | null>>(PLATFORM_LIVES_STORAGE_KEY)
-  return lives && typeof lives === 'object' ? lives : null
-}
-export function writePlatformLive(room: LiveRoom): boolean {
-  const lives = readPlatformLives() ?? {}
-  const written = writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, { ...lives, [room.id]: room })
-  if (written) writePlatformJson(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY, new Date().toISOString())
-  return written
-}
-export function removePlatformLive(id: string): boolean {
-  if (!id?.trim()) return false
-  const lives = readPlatformLives() ?? {}
-  lives[id] = null
-  if (!writePlatformJson(PLATFORM_LIVES_STORAGE_KEY, lives)) return false
-  writePlatformJson(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY, new Date().toISOString())
-  return true
-}
-export function mergePlatformLives(rooms: LiveRoom[]): LiveRoom[] {
-  const published = readPlatformLives()
-  if (!published) return rooms
-  const merged = [...rooms]
-  Object.entries(published).forEach(([id, room]) => {
-    if (room === null) {
-      const index = merged.findIndex((item) => item.id === id)
-      if (index >= 0) merged.splice(index, 1)
-      return
-    }
-    const index = merged.findIndex((item) => item.id === id)
-    if (index >= 0) merged[index] = room
-    else merged.unshift(room)
-  })
-  return merged
-}
-
 /** 用户绑定：临时可覆盖，下单后正式锁定 */
 export function readUserBindings(): Record<string, UserBinding> | null {
   const bindings = readPlatformJson<Record<string, UserBinding>>(PLATFORM_BINDINGS_STORAGE_KEY)
@@ -3307,14 +3204,22 @@ export const DEFAULT_SHARE_CONFIG: ShareConfig = { promoterRate: 5, staffRate: 3
 export function readShareConfig(): ShareConfig {
   const saved = readPlatformJson<Partial<ShareConfig>>(PLATFORM_SHARE_CONFIG_STORAGE_KEY)
     || readPlatformJson<Partial<ShareConfig>>(PLATFORM_CONFIG_STORAGE_KEY)
+  const shareRateOrUndefined = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  const leaderLevel1Rate = shareRateOrUndefined(saved?.leaderLevel1Rate)
+  const leaderLevel2Rate = shareRateOrUndefined(saved?.leaderLevel2Rate)
   return {
     promoterRate: typeof saved?.promoterRate === 'number' ? saved.promoterRate : DEFAULT_SHARE_CONFIG.promoterRate,
-    staffRate: typeof saved?.staffRate === 'number' ? saved.staffRate : DEFAULT_SHARE_CONFIG.staffRate
+    staffRate: typeof saved?.staffRate === 'number' ? saved.staffRate : DEFAULT_SHARE_CONFIG.staffRate,
+    ...(leaderLevel1Rate === undefined ? {} : { leaderLevel1Rate }),
+    ...(leaderLevel2Rate === undefined ? {} : { leaderLevel2Rate })
   }
 }
 export function writeShareConfig(config: ShareConfig): boolean {
   if (![config.promoterRate, config.staffRate].every((value) => Number.isFinite(value) && value >= 0 && value <= 100)) return false
-  return writePlatformJson(PLATFORM_SHARE_CONFIG_STORAGE_KEY, { promoterRate: round2(config.promoterRate), staffRate: round2(config.staffRate) })
+  const next: ShareConfig = { promoterRate: round2(config.promoterRate), staffRate: round2(config.staffRate) }
+  if (typeof config.leaderLevel1Rate === 'number' && Number.isFinite(config.leaderLevel1Rate)) next.leaderLevel1Rate = round2(config.leaderLevel1Rate)
+  if (typeof config.leaderLevel2Rate === 'number' && Number.isFinite(config.leaderLevel2Rate)) next.leaderLevel2Rate = round2(config.leaderLevel2Rate)
+  return writePlatformJson(PLATFORM_SHARE_CONFIG_STORAGE_KEY, next)
 }
 
 export function readPricingDefaults(): PricingDefaults {
@@ -3424,8 +3329,6 @@ export function seedPlatformDemoData(): void {
   farmhouseExperiences.forEach((experience) => {
     if (!readPlatformExperiences()?.[experience.id]) writePlatformExperience(cloneSeed(experience))
   })
-  const t002Live = liveRooms.find((room) => room.id === 'L015')
-  if (t002Live && !(readPlatformLives() || {})['L015']) writePlatformLive(cloneSeed(t002Live))
 }
 
 // ===== 中台主数据发布：admin 维护的商品/门店/供应商/价格策略/品类全字段发布，其他应用读取覆盖 =====
@@ -6467,25 +6370,6 @@ export * from './platform-repository'
 export * from './platform-event-bus'
 
 // ===== 兼容层：平台共享数据引擎（按方案 B2 重建） =====
-export interface SharedBooking {
-  id: string
-  farmId: string
-  farmName: string
-  userId: string
-  source: 'farmhouse'
-  date: string
-  session: string
-  people: number
-  amount?: number
-  amountConfirmedAt?: string
-  bookingType?: Booking['type']
-  resourceName?: string
-  operatorId?: string
-  operatorName?: string
-  status: 'submitted' | 'confirmed' | 'rejected' | 'cancelled' | 'completed'
-  createdAt: string
-  updatedAt?: string
-}
 
 export interface VoucherOrder {
   id: string
@@ -6556,7 +6440,6 @@ export interface PlatformChange {
   source: 'write' | 'storage' | string
   publishedAt?: number
 }
-export const PLATFORM_BOOKINGS_STORAGE_KEY = 'agritainment-platform-bookings'
 export const PLATFORM_VOUCHERS_STORAGE_KEY = 'agritainment-platform-vouchers'
 export const PLATFORM_USER_COMMERCE_INTENTS_STORAGE_KEY = 'agritainment-platform-user-commerce-intents'
 export const PLATFORM_COMMISSION_LEDGER_STORAGE_KEY = 'agritainment-platform-commission-ledger'
@@ -6566,10 +6449,35 @@ export const PLATFORM_SUPPLIER_ACCOUNTS_STORAGE_KEY = 'agritainment-platform-sup
 export const PLATFORM_SUPPLIER_SETTLEMENTS_STORAGE_KEY = 'agritainment-platform-supplier-settlements'
 export const PLATFORM_COMMISSION_RULES_STORAGE_KEY = 'agritainment-platform-commission-rules'
 export const PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY = 'agritainment-platform-commission-settlement-records'
-export const PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY = 'agritainment-platform-lives-updated-at'
-export const PLATFORM_ROUTES_STORAGE_KEY = 'agritainment-platform-routes'
 export const PLATFORM_EXPERIENCES_STORAGE_KEY = 'agritainment-platform-experiences'
 export const PLATFORM_CATALOG_LEGACY_MIGRATION_MARKER_STORAGE_KEY = 'agritainment-platform-catalog-legacy-migration-marker'
+const PLATFORM_RETIRED_DATA_MARKER_STORAGE_KEY = 'agritainment-platform-retired-data-cleared-v8'
+
+/**
+ * 已按功能清单移除的业务域（预约管理 / 旅游线路 / 产地直播）在本地存储里的遗留集合键。
+ * 保留导出，便于排查与测试断言。
+ */
+export const RETIRED_PLATFORM_STORAGE_KEYS = [
+  'agritainment-platform-bookings',
+  'agritainment-platform-routes',
+  'agritainment-platform-lives',
+  'agritainment-platform-lives-updated-at',
+  'agritainment-platform-experiences'
+] as const
+
+/**
+ * 一次性清理：清掉已移除业务域的本地存储遗留集合。
+ * 幂等：清理完成后写入标记键，重复调用不会重复写入。
+ */
+export function clearRetiredPlatformData(): boolean {
+  try {
+    if (readPlatformJson<boolean>(PLATFORM_RETIRED_DATA_MARKER_STORAGE_KEY) === true) return true
+    RETIRED_PLATFORM_STORAGE_KEYS.forEach((key) => clearPlatformJson(key))
+    return writePlatformJson(PLATFORM_RETIRED_DATA_MARKER_STORAGE_KEY, true)
+  } catch {
+    return false
+  }
+}
 
 // ===== 兼容层：字典运行时与平台变更订阅 =====
 export interface PlatformDictionaryCache {
@@ -6663,19 +6571,6 @@ export function createPlatformDictionaryCache(options: { read?: () => PlatformDi
 }
 
 // ===== 兼容层：平台共享 CRUD 引擎 =====
-type PersistedBooking = Omit<SharedBooking, 'source'> & { source?: string }
-
-export function readPlatformBookings(): Record<string, SharedBooking> | null {
-  const data = readPlatformJson<Record<string, PersistedBooking>>(PLATFORM_BOOKINGS_STORAGE_KEY)
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
-  return Object.fromEntries(Object.entries(data).filter(([, booking]) => booking?.source === 'farmhouse')) as Record<string, SharedBooking>
-}
-export function writePlatformBooking(booking: SharedBooking): boolean {
-  if (!booking?.id || booking.source !== 'farmhouse' || !booking.farmId || !booking.date || !booking.session || !Number.isInteger(booking.people) || booking.people <= 0) return false
-  const bookings = readPlatformBookings() ?? {}
-  return writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, { ...bookings, [booking.id]: { ...booking, updatedAt: booking.updatedAt || booking.createdAt } })
-}
-
 const RETIRED_ALLIANCE_STATE_STORAGE_KEY = 'agritainment-alliance-discovery'
 const RETIRED_ALLIANCE_RECOVERY_HANDLER_KEY = 'alliance-withdrawal-v1'
 const RETIRED_ALLIANCE_OPERATION_PREFIX = 'alliance-withdrawal-'
@@ -6688,12 +6583,6 @@ function isRetiredAllianceRecovery(value: { operationId?: string; handlerKey?: s
 
 export function purgeRetiredAllianceData(): void {
   if (readPlatformJson<unknown>(RETIRED_ALLIANCE_STATE_STORAGE_KEY) !== null) clearPlatformJson(RETIRED_ALLIANCE_STATE_STORAGE_KEY)
-
-  const bookings = readPlatformJson<Record<string, PersistedBooking>>(PLATFORM_BOOKINGS_STORAGE_KEY)
-  if (bookings && typeof bookings === 'object' && !Array.isArray(bookings)) {
-    const activeBookings = Object.fromEntries(Object.entries(bookings).filter(([, booking]) => booking?.source !== 'alliance'))
-    if (Object.keys(activeBookings).length !== Object.keys(bookings).length) writePlatformJson(PLATFORM_BOOKINGS_STORAGE_KEY, activeBookings)
-  }
 
   const journals = readPlatformJournal()
   const activeJournals = Object.fromEntries(Object.entries(journals).filter(([, journal]) => !isRetiredAllianceRecovery(journal)))
@@ -6834,33 +6723,6 @@ export function readPlatformCommissionSettlementRecords(): Record<string, Commis
 export function writePlatformCommissionSettlementRecords(records: Record<string, CommissionSettlementRecord>): boolean {
   return !!records && typeof records === 'object' && !Array.isArray(records) && writePlatformJson(PLATFORM_COMMISSION_SETTLEMENT_RECORDS_STORAGE_KEY, records)
 }
-export function readPlatformLivesUpdatedAt(): string | undefined {
-  const updatedAt = readPlatformJson<unknown>(PLATFORM_LIVES_UPDATED_AT_STORAGE_KEY)
-  return typeof updatedAt === 'string' && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : undefined
-}
-export function readPlatformRoutes(): Record<string, TravelRoute | null> | null {
-  const data = readPlatformJson<Record<string, TravelRoute | null>>(PLATFORM_ROUTES_STORAGE_KEY)
-  return data && typeof data === 'object' ? data : null
-}
-export function writePlatformRoute(route: TravelRoute): boolean {
-  if (!route?.id) return false
-  const routes = readPlatformRoutes() ?? {}
-  return writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, { ...routes, [route.id]: route })
-}
-export function removePlatformRoute(id: string): boolean {
-  if (!id?.trim()) return false
-  const routes = readPlatformRoutes() ?? {}
-  routes[id] = null
-  return writePlatformJson(PLATFORM_ROUTES_STORAGE_KEY, routes)
-}
-export function mergePlatformRoutes(routes: TravelRoute[]): TravelRoute[] {
-  const merged = new Map<string, TravelRoute>()
-  routes.forEach((r) => { if (r) merged.set(r.id, r) })
-  const shared = readPlatformRoutes()
-  if (shared) Object.entries(shared).forEach(([id, r]) => { if (r) merged.set(id, r); else merged.delete(id) })
-  return Array.from(merged.values())
-}
-
 // ===== 兼容层：供应商拆单引擎 =====
 export function buildSupplierPlatformOrders(input: {
   sourceOrderId: string
@@ -7073,8 +6935,6 @@ const dictGroupSeeds: DictGroupSeed[] = [
   { id: 'DG05', type: 'orderStatus', name: '订单状态', scope: 'system', locked: true, enabled: true },
   { id: 'DG06', type: 'afterSaleStatus', name: '售后状态', scope: 'system', locked: true, enabled: true },
   { id: 'DG07', type: 'promoterStatus', name: '推客状态', scope: 'system', locked: true, enabled: true },
-  { id: 'DG08', type: 'liveStatus', name: '直播状态', scope: 'system', locked: true, enabled: true },
-  { id: 'DG09', type: 'bookingStatus', name: '预约状态', scope: 'system', locked: true, enabled: true },
   { id: 'DG10', type: 'unit', name: '商品单位', scope: 'business', locked: false, enabled: true },
   { id: 'DG11', type: 'logistics', name: '物流公司', scope: 'business', locked: false, enabled: true },
   { id: 'DG12', type: 'productCategory', name: '商品品类', scope: 'business', locked: false, enabled: true },
@@ -7087,8 +6947,6 @@ const dictGroupSeeds: DictGroupSeed[] = [
   { id: 'DG18', type: 'serviceCategory', name: '体验分类', scope: 'business', locked: false, enabled: true },
   { id: 'DG20', type: 'promoterType', name: '推客类型', scope: 'business', locked: false, enabled: true },
   { id: 'DG21', type: 'promoterLevel', name: '推客等级', scope: 'business', locked: false, enabled: true },
-  { id: 'DG22', type: 'liveHostRole', name: '直播角色', scope: 'business', locked: false, enabled: true },
-  { id: 'DG23', type: 'bookingSession', name: '预约时段', scope: 'business', locked: false, enabled: true },
   { id: 'DG24', type: 'roomNotice', name: '包厢须知', scope: 'business', locked: false, enabled: true },
   { id: 'DG25', type: 'withdrawMethod', name: '提现方式', scope: 'business', locked: false, enabled: true },
   { id: 'DG26', type: 'fulfillmentStatus', name: '履约状态', scope: 'system', locked: true, enabled: true },
@@ -7137,9 +6995,6 @@ const dictItemSeeds: DictItemSeed[] = [
   { id: 'DIAS03', type: 'afterSaleStatus', code: 'refunded', label: '已退款', enabled: true, sort: 3 },
   { id: 'DIPR01', type: 'promoterStatus', code: 'active', label: '启用', enabled: true, sort: 1 },
   { id: 'DIPR02', type: 'promoterStatus', code: 'paused', label: '停用', enabled: true, sort: 2 },
-  { id: 'DILV01', type: 'liveStatus', code: 'preview', label: '预告', enabled: true, sort: 1 },
-  { id: 'DILV02', type: 'liveStatus', code: 'live', label: '直播中', enabled: true, sort: 2 },
-  { id: 'DILV03', type: 'liveStatus', code: 'ended', label: '已结束', enabled: true, sort: 3 },
   { id: 'DIPS01', type: 'productSource', code: 'platform', label: '平台商品', enabled: true, sort: 1 },
   { id: 'DIPS02', type: 'productSource', code: 'farmhouse', label: '门店商品', enabled: true, sort: 2 },
   { id: 'DIPT01', type: 'productType', code: 'goods', label: '实物商品', enabled: true, sort: 1 },
@@ -7166,10 +7021,6 @@ const dictItemSeeds: DictItemSeed[] = [
   { id: 'DPT02', type: 'promoterType', code: 'anchor', label: '直播主播', enabled: true, sort: 2 },
   { id: 'DPL01', type: 'promoterLevel', code: 'bronze', label: '青铜', enabled: true, sort: 1 },
   { id: 'DPL02', type: 'promoterLevel', code: 'silver', label: '白银', enabled: true, sort: 2 },
-  { id: 'DHR01', type: 'liveHostRole', code: 'banker', label: '店长主播', enabled: true, sort: 1 },
-  { id: 'DHR02', type: 'liveHostRole', code: 'promoter', label: '推客主播', enabled: true, sort: 2 },
-  { id: 'DBS01', type: 'bookingSession', code: 'lunch', label: '午市 11:00', enabled: true, sort: 1 },
-  { id: 'DBS02', type: 'bookingSession', code: 'dinner', label: '晚市 17:30', enabled: true, sort: 2 },
   { id: 'DRN01', type: 'roomNotice', code: 'deposit', label: '需预付定金', enabled: true, sort: 1 },
   { id: 'DRN02', type: 'roomNotice', code: 'min-spend', label: '有最低消费', enabled: true, sort: 2 },
   { id: 'DWM01', type: 'withdrawMethod', code: 'wechat', label: '微信提现', enabled: true, sort: 1 },

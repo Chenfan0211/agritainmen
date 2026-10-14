@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { removePlatformLive, writePlatformLive, type LiveRoom } from './index'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { writePlatformJson } from './index'
 import { createPlatformDashboardDataSource } from './dashboard-source'
 
 if (!globalThis.localStorage) {
@@ -14,34 +14,23 @@ if (!globalThis.localStorage) {
   } as Storage
 }
 
-const room: LiveRoom = {
-  id: 'LIVE-FRESHNESS', title: '直播数据新鲜度', host: '测试主播', viewers: 100,
-  productName: '测试套餐', productPrice: 99, status: 'live', reminded: false,
-  image: '', farmId: 'F001', city: '湘西州'
-}
+describe('platform dashboard data source', () => {
+  beforeEach(() => localStorage.clear())
 
-describe('platform dashboard data source freshness', () => {
-  beforeEach(() => {
-    localStorage.clear()
-    vi.useFakeTimers()
+  it('keeps the retired booking and live domains empty and untracked', () => {
+    const source = createPlatformDashboardDataSource()
+
+    const domainUpdatedAt = source.domainUpdatedAt as Record<string, string | undefined>
   })
 
-  afterEach(() => vi.useRealTimers())
+  it('still tracks the retained voucher domain from voucher orders', () => {
+    expect(writePlatformJson('agritainment-platform-vouchers', {
+      V1: {
+        id: 'V1', userId: 'U1', farmId: 'F001', productId: 'P1', skuId: 'S1',
+        quantity: 1, amount: 10, status: 'paid', createdAt: '2026-08-25T08:00:00.000Z'
+      }
+    })).toBe(true)
 
-  it('uses the live dataset write time instead of the unrelated entity time', () => {
-    vi.setSystemTime(new Date('2026-08-25T08:00:00.000Z'))
-    expect(writePlatformLive(room)).toBe(true)
-
-    expect(createPlatformDashboardDataSource().domainUpdatedAt?.lives).toBe('2026-08-25T08:00:00.000Z')
-    expect(localStorage.getItem('agritainment-platform-lives-updated-at')).toBe('"2026-08-25T08:00:00.000Z"')
-  })
-
-  it('advances the live dataset write time when a room is removed', () => {
-    vi.setSystemTime(new Date('2026-08-25T08:00:00.000Z'))
-    writePlatformLive(room)
-    vi.setSystemTime(new Date('2026-08-25T09:00:00.000Z'))
-    removePlatformLive(room.id)
-
-    expect(createPlatformDashboardDataSource().domainUpdatedAt?.lives).toBe('2026-08-25T09:00:00.000Z')
+    expect(createPlatformDashboardDataSource().domainUpdatedAt?.vouchers).toBe('2026-08-25T08:00:00.000Z')
   })
 })
