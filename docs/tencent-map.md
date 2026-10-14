@@ -1,6 +1,6 @@
 # 腾讯地图接入
 
-驾驶舱在线底图、后台地址解析、外部坐标转换和 H5 导航统一使用腾讯地图。业务数据继续存储 GCJ-02 坐标，历史 `provider: 'amap'` 记录只读兼容，不做批量重算。
+供应商端配送底图、后台地址解析和外部坐标转换统一使用腾讯地图。业务数据继续存储 GCJ-02 坐标，历史 `provider: 'amap'` 记录只读兼容，不做批量重算。
 
 ## 环境变量
 
@@ -29,19 +29,19 @@ TENCENT_MAP_TIMEOUT_MS=5000
 - `POST /api/tencent-map/translate`：请求 `{ "source": "WGS84", "locations": [...] }`，固定返回 `coordinateSystem: "GCJ-02"`。
 - `POST /api/tencent-map/direction`：请求 `{ "origin": { "longitude", "latitude" }, "stops": [{ "storeId", "longitude", "latitude" }] }`，返回驾车距离、预计时长、折线和分段。站点顺序由业务侧先排好，网关只负责路算。
 
-`pnpm --filter @agritainment/supplier dev:h5` 也会在 Vite 开发服务中挂载同一网关。司机 H5 底图使用 `VITE_TENCENT_MAP_JS_KEY`，不读取 Secret。
+供应商端只产出微信小程序，司机底图使用小程序原生 `map` 组件（`apps/supplier/src/components/DeliveryRouteMap.vue` 的 `#ifdef MP-WEIXIN` 分支），不加载腾讯 JS SDK，也不读取 Secret。
 
 坐标来源支持 `GCJ-02`、`WGS84`、`SOGOU`、`BAIDU`、`MAPBAR` 和 `SOGOU_MERCATOR`。GCJ-02 只校验后原样返回，不调用腾讯配额。
 
 ## 本地与生产
 
-`pnpm --filter @agritainment/admin dev:h5` 会在 Vite 开发服务中挂载网关。`pnpm serve:single-origin` 也会在同源入口挂载网关。
+运营后台 `pnpm dev:admin` 会在 Vite 开发服务中挂载网关。微信小程序开发态使用 `pnpm dev:gateway` 启动独立网关（默认 `http://127.0.0.1:8790/api/tencent-map/*`），并把网关绝对地址写入 `VITE_TENCENT_MAP_GATEWAY`——小程序不能使用相对路径请求。
 
 生产环境可让 Nginx 将接口转发至运行网关的 Node 服务：
 
 ```nginx
 location /api/tencent-map/ {
-    proxy_pass http://127.0.0.1:8780;
+    proxy_pass http://127.0.0.1:8790;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;

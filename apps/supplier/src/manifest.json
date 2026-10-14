@@ -5,16 +5,6 @@
   "versionName": "0.1.0",
   "versionCode": 100,
   "transformPx": false,
-  "h5": {
-    "title": "中选科技供应商配送工作台",
-    "router": {
-      "mode": "hash",
-      "base": "/"
-    },
-    "devServer": {
-      "port": 5178
-    }
-  },
   "mp-weixin": {
     "appid": "touristappid",
     "setting": {

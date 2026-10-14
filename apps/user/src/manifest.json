@@ -5,6 +5,5 @@
   "versionName": "0.1.0",
   "versionCode": 100,
   "transformPx": false,
-  "h5": { "title": "中选科技商城", "router": { "mode": "hash", "base": "/" } },
   "mp-weixin": { "appid": "touristappid", "setting": { "urlCheck": false }, "usingComponents": true }
 }

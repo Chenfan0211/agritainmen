@@ -7,10 +7,9 @@ const supplierRoot = join(root, 'apps', 'supplier')
 const sourceIcons = join(supplierRoot, 'src', 'static', 'icons')
 const generatedIconsScript = join(root, 'scripts', 'svg-icons-to-png.mjs')
 const mpDist = join(supplierRoot, 'dist', 'build', 'mp-weixin')
-const h5Dist = join(supplierRoot, 'dist', 'build', 'h5')
 
-const expectedIcons = ['calendar-check', 'check', 'chevron-left', 'chevron-right', 'layout-dashboard', 'list-tree', 'map-pin', 'navigation', 'package', 'package-check', 'search', 'user-round', 'users', 'x']
-const removedSvgs = ['arrow-left', 'arrow-right', 'badge-dollar-sign', 'badge-percent', 'bell-ring', 'bell', 'calendar-days', 'chart-no-axes-combined', 'chevron-down', 'credit-card', 'crown', 'door-open', 'download', 'factory', 'headset', 'house', 'link', 'megaphone', 'package-plus', 'phone', 'play', 'plus', 'radio', 'shield-check', 'shopping-bag', 'shopping-cart', 'sprout', 'store', 'tags', 'trophy', 'truck', 'user-round-check', 'utensils']
+const expectedIcons = ['arrow-left', 'chevron-left', 'chevron-right', 'layout-dashboard', 'list-tree', 'map-pin', 'navigation', 'package', 'package-check', 'search', 'store', 'user-round', 'users', 'x']
+const removedSvgs = ['calendar-check', 'calendar-days', 'badge-dollar-sign', 'badge-percent', 'bell-ring', 'bell', 'chart-no-axes-combined', 'chevron-down', 'credit-card', 'crown', 'door-open', 'download', 'factory', 'headset', 'house', 'link', 'megaphone', 'package-plus', 'phone', 'play', 'plus', 'radio', 'route', 'shield-check', 'shopping-bag', 'shopping-cart', 'sprout', 'tags', 'trophy', 'truck', 'user-round-check', 'utensils']
 
 function fail(message) {
   throw new Error(`[supplier-assets] ${message}`)
@@ -40,9 +39,9 @@ for (const name of expectedIcons) {
 }
 
 const generatorSource = readFileSync(generatedIconsScript, 'utf8')
-const generatedList = generatorSource.match(/const names = \[([^\]]+)\]/s)?.[1] || ''
-const generatedNames = generatedList.match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) || []
-if (JSON.stringify(generatedNames) !== JSON.stringify(expectedIcons)) fail('PNG 生成脚本的图标源列表与保留图标列表不一致')
+// 生成脚本按「源码实际使用到的图标」动态取图，不再维护静态清单；这里校验它确实按使用方推导。
+if (!generatorSource.includes('usedIconNames(app)')) fail('PNG 生成脚本未按源码实际使用的图标推导图标清单')
+if (!generatorSource.includes("const mobileApps = ['store', 'supplier', 'user']")) fail('PNG 生成脚本的移动端清单不是 store/supplier/user')
 for (const name of expectedIcons) {
   if (!existsSync(join(sourceIcons, `${name}.svg`))) fail(`PNG 生成源不存在: ${name}.svg`)
 }
@@ -69,8 +68,4 @@ if (JSON.stringify(actualIconFiles) !== JSON.stringify(expectedIconFiles)) {
   fail(`MP 产物 static/icons 应为 ${expectedIconFiles.length} 个 PNG/SVG`)
 }
 
-const h5Css = filesContaining(h5Dist, '.css', 'safe-area-inset-top')
-if (!h5Css.length) fail('H5 CSS 未找到 safe-area-inset-top')
-if (filesContaining(h5Dist, '.css', '--status-bar-height').length) fail('H5 CSS 不应包含 --status-bar-height')
-
-console.log(`[supplier-assets] passed: source ${pngs.length} PNG + ${svgs.length} SVG, MP ${mpIconFiles.length} icons, H5/MP safe-area branches verified`)
+console.log(`[supplier-assets] passed: source ${pngs.length} PNG + ${svgs.length} SVG, MP ${mpIconFiles.length} icons, MP safe-area branch verified`)
