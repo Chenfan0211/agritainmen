@@ -386,4 +386,10 @@ describe('admin supplier and RBAC page', () => {
     expect(source).toMatch(/promoterKeyword[\s\S]*promoterSettleFilter/)
     expect(source).toMatch(/dictKeyword[\s\S]*dictStatusFilter/)
   })
+  it('exports the current module as a real xlsx workbook instead of csv', () => {
+    expect(source).toContain('toXlsx(rows, { sheetName: titles[active.value].title })')
+    expect(source).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(source).toContain('.xlsx')
+    expect(source).not.toContain('text/csv')
+  })
 })

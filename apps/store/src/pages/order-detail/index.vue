@@ -145,10 +145,10 @@ async function advanceOrder() { if (!order.value || !await store.advanceOrder(or
 .step { min-width:0;display:grid;justify-items:center;gap:5px;position:relative; }
 .step:not(:last-child)::after { content:"";position:absolute;left:calc(50% + 12px);right:calc(-50% + 12px);top:11px;height:2px;background:var(--store-line); }
 .step.done:not(:last-child)::after { background:var(--farm-green); }
-.step-dot { width:23px;height:23px;border-radius:50%;display:grid;place-items:center;background:var(--store-line);color:var(--farm-muted);font-size:11px;font-weight:800;position:relative;z-index:1; }
+.step-dot { width:23px;height:23px;border-radius:50%;display:grid;place-items:center;background:var(--store-line);color:var(--farm-muted);font-size:12px;font-weight:800;position:relative;z-index:1; }
 .step.done .step-dot { background:var(--farm-green);color:var(--store-on-brand); }
 .step.current .step-dot { box-shadow:0 0 0 4px var(--farm-green-soft); }
-.step small { color:var(--farm-muted);font-size:10px;text-align:center;white-space:nowrap; }
+.step small { color:var(--farm-muted);font-size:12px;text-align:center;white-space:nowrap; }
 .step.done small { color:var(--farm-green);font-weight:800; }
 .order-lines { display:grid;gap:12px; }
 .order-line { display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:10px;align-items:center; }
@@ -172,7 +172,7 @@ async function advanceOrder() { if (!order.value || !await store.advanceOrder(or
 .empty-order { min-height:50vh;display:grid;place-items:center;align-content:center;gap:12px;color:var(--farm-muted); }
 .empty-order button { min-height:40px;padding:0 18px;border-radius:var(--mobile-radius-pill);background:var(--farm-green);color:var(--store-on-brand);font-weight:800; }
 .order-actions { position:fixed;left:0;right:0;bottom:0;z-index:20;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--mobile-surface);border-top:1px solid var(--store-line-light);display:flex;gap:8px;align-items:center;overflow-x:auto;box-shadow:0 -10px 24px -18px rgba(90,50,10,.45); }
-.order-actions button { flex:0 0 auto;min-width:96px;min-height:43px;padding:0 12px;border-radius:var(--mobile-radius-pill);font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap; }
+.order-actions button { flex:0 0 auto;min-width:96px;min-height:43px;padding:0 12px;border-radius:var(--mobile-radius-pill);font-size:13px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap; }
 .outline-action { background:var(--mobile-surface);border:1px solid var(--store-line);color:var(--farm-ink); }
 .outline-action.danger { color:var(--farm-red); }
 .primary-action { background:var(--store-gradient);color:var(--store-on-brand);box-shadow:var(--store-shadow-cart); }

@@ -7,7 +7,8 @@ const SOURCE_EXTENSIONS = new Set(['.css', '.scss', '.ts', '.vue'])
 const DECORATIVE_SELECTOR = /(?:^|[^\w-])(?:[\w-]*icon[\w-]*|glyph|decorative)(?:$|[^\w-])/i
 const INTERACTIVE_SELECTOR = /(?:button|\bbtn\b|actions?\b|input|select|textarea|tabbar|tab-item|nav(?:-|\b)|menu-item)/i
 const AUXILIARY_SELECTOR = /(?:\bsmall\b|meta|muted|note|hint|helper|\bsub\b|-sub\b|time|spec|footer)/i
-const MIN_TEXT_PX = 11
+/** 业务文字与图表文字下限：与 docs/design/zhulv-design-tokens.md 的 caption 12px 对齐。 */
+const MIN_TEXT_PX = 12
 
 function lineAt(source, index) {
   return source.slice(0, index).split('\n').length

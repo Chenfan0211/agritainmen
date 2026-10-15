@@ -1,11 +1,11 @@
 export const UI_TYPOGRAPHY = Object.freeze({
-  caption: 11,
+  caption: 12,
   meta: 12,
   bodySmall: 13,
   body: 14,
   subtitle: 16,
   title: 20,
-  chartCompact: 11,
+  chartCompact: 12,
   chartLabel: 12,
   chartTooltip: 13
 })

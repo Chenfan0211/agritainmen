@@ -108,7 +108,7 @@ async function submit() {
 .store-main { min-width:0; }
 .card-title-row { display:flex;align-items:center;gap:8px;min-width:0; }
 .card-title { font-size:15px;font-weight:800;color:var(--farm-ink); }
-.store-tag { flex:none;padding:2px 7px;border-radius:var(--mobile-radius-pill);background:var(--farm-green-soft);color:var(--farm-green);font-size:11px;font-weight:800; }
+.store-tag { flex:none;padding:2px 7px;border-radius:var(--mobile-radius-pill);background:var(--farm-green-soft);color:var(--farm-green);font-size:12px;font-weight:800; }
 .card-line { display:block;margin-top:6px;color:var(--farm-muted);font-size:12px;line-height:1.5; }
 .section-head { display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px; }
 .section-meta { color:var(--farm-muted);font-size:12px; }
@@ -124,8 +124,8 @@ async function submit() {
 .payment-icon { width:34px;height:34px;border-radius:10px;background:var(--mobile-surface);color:var(--farm-green);display:grid;place-items:center; }
 .payment-main text,.payment-main small { display:block; }
 .payment-main text { font-size:13px;font-weight:800; }
-.payment-main small { margin-top:3px;color:var(--farm-muted);font-size:11px;line-height:1.4; }
-.payment-selected { color:var(--farm-green);font-size:12px;font-weight:800; }
+.payment-main small { margin-top:3px;color:var(--farm-muted);font-size:12px;line-height:1.4; }
+.payment-selected { color:var(--farm-green);font-size:13px;font-weight:800; }
 .amount-card { display:grid;gap:11px; }
 .amount-row { display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--farm-muted);font-size:13px; }
 .amount-row strong { color:var(--farm-ink);font-size:14px;font-weight:800; }
@@ -134,7 +134,7 @@ async function submit() {
 .amount-row.total strong { color:var(--farm-red);font-size:19px; }
 .submit-bar { position:fixed;left:0;right:0;bottom:0;z-index:20;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--mobile-surface);border-top:1px solid var(--store-line-light);display:flex;align-items:center;gap:14px;box-shadow:0 -10px 24px -18px rgba(90,50,10,.45); }
 .submit-total { flex:1;min-width:0; }
-.submit-total small { display:block;color:var(--farm-muted);font-size:11px; }
+.submit-total small { display:block;color:var(--farm-muted);font-size:12px; }
 .submit-total strong { display:block;margin-top:2px;color:var(--farm-red);font-size:19px;font-weight:800; }
 .submit-button { min-width:160px;height:46px;padding:0 20px;border-radius:var(--mobile-radius-pill);background:var(--store-gradient);color:var(--store-on-brand);font-size:15px;font-weight:800;display:inline-flex;align-items:center;justify-content:center; }
 @media (min-width:431px) { .store-subpage { max-width:430px;margin:0 auto;box-shadow:var(--store-shadow-hero); } .submit-bar { left:50%;right:auto;width:430px;transform:translateX(-50%); } }

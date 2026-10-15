@@ -313,7 +313,7 @@ function withdraw() {
   border-radius: var(--mobile-radius-control);
   background: var(--mobile-brand-soft);
   color: var(--mobile-brand-deep);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 

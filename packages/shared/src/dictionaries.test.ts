@@ -224,9 +224,9 @@ describe('platform dictionaries', () => {
     const system = state.groups.filter((group) => group.scope === 'system' && group.locked).map((group) => group.type)
 
     expect(business).toEqual(expect.arrayContaining([
-      'productCategory', 'supplierCategory', 'generalCategory', 'productTag', 'farmTag', 'routeTag',
-      'serviceCategory', 'afterSaleReason', 'qualificationType', 'promoterType', 'promoterLevel',
-      'roomNotice', 'unit', 'logistics', 'withdrawMethod'
+      'productCategory', 'supplierCategory', 'generalCategory', 'productTag', 'farmTag',
+      'afterSaleReason', 'qualificationType', 'promoterType', 'promoterLevel',
+      'unit', 'logistics', 'withdrawMethod'
     ]))
     expect(system).toEqual(expect.arrayContaining([
       'supplierStatus', 'productStatus', 'farmStatus', 'orderStatus', 'fulfillmentStatus', 'afterSaleStatus',
@@ -372,10 +372,10 @@ it('seeds business dictionary items so editor options are readable out of the bo
   const editable = [
     'promoterType',
     'promoterLevel',
-    'roomNotice',
+    'afterSaleReason',
     'withdrawMethod',
     'qualificationType',
-    'serviceCategory'
+    'logistics'
   ] as const
   for (const type of editable) {
     const options = getDictOptions(type, { state })

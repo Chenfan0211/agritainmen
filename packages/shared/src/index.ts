@@ -6365,6 +6365,7 @@ export * from './regions'
 export * from './dashboard'
 export * from './dashboard-source'
 export * from './geocoding'
+export * from './xlsx'
 export * from './dictionaries'
 export * from './platform-repository'
 export * from './platform-event-bus'
@@ -6942,12 +6943,9 @@ const dictGroupSeeds: DictGroupSeed[] = [
   { id: 'DG14', type: 'generalCategory', name: '通用品类', scope: 'business', locked: false, enabled: true },
   { id: 'DG15', type: 'productTag', name: '商品标签', scope: 'business', locked: false, enabled: true },
   { id: 'DG16', type: 'farmTag', name: '门店标签', scope: 'business', locked: false, enabled: true },
-  { id: 'DG17', type: 'routeTag', name: '线路标签', scope: 'business', locked: false, enabled: true },
   { id: 'DG19', type: 'qualificationType', name: '供应商资质', scope: 'business', locked: false, enabled: true },
-  { id: 'DG18', type: 'serviceCategory', name: '体验分类', scope: 'business', locked: false, enabled: true },
   { id: 'DG20', type: 'promoterType', name: '推客类型', scope: 'business', locked: false, enabled: true },
   { id: 'DG21', type: 'promoterLevel', name: '推客等级', scope: 'business', locked: false, enabled: true },
-  { id: 'DG24', type: 'roomNotice', name: '包厢须知', scope: 'business', locked: false, enabled: true },
   { id: 'DG25', type: 'withdrawMethod', name: '提现方式', scope: 'business', locked: false, enabled: true },
   { id: 'DG26', type: 'fulfillmentStatus', name: '履约状态', scope: 'system', locked: true, enabled: true },
   { id: 'DG27', type: 'voucherStatus', name: '核销状态', scope: 'system', locked: true, enabled: true },
@@ -7018,17 +7016,12 @@ const dictItemSeeds: DictItemSeed[] = [
   { id: 'DSC02', type: 'supplierCategory', code: 'C002', label: '综合品类', enabled: true, sort: 2 },
   { id: 'DGC01', type: 'generalCategory', code: 'G001', label: '通用分类', enabled: true, sort: 1 },
   { id: 'DPT01', type: 'promoterType', code: 'promoter', label: '普通推客', enabled: true, sort: 1 },
-  { id: 'DPT02', type: 'promoterType', code: 'anchor', label: '直播主播', enabled: true, sort: 2 },
   { id: 'DPL01', type: 'promoterLevel', code: 'bronze', label: '青铜', enabled: true, sort: 1 },
   { id: 'DPL02', type: 'promoterLevel', code: 'silver', label: '白银', enabled: true, sort: 2 },
-  { id: 'DRN01', type: 'roomNotice', code: 'deposit', label: '需预付定金', enabled: true, sort: 1 },
-  { id: 'DRN02', type: 'roomNotice', code: 'min-spend', label: '有最低消费', enabled: true, sort: 2 },
   { id: 'DWM01', type: 'withdrawMethod', code: 'wechat', label: '微信提现', enabled: true, sort: 1 },
   { id: 'DWM02', type: 'withdrawMethod', code: 'bank', label: '银行卡', enabled: true, sort: 2 },
   { id: 'DQT01', type: 'qualificationType', code: 'business-license', label: '营业执照', enabled: true, sort: 1 },
   { id: 'DQT02', type: 'qualificationType', code: 'food-license', label: '食品经营许可证', enabled: true, sort: 2 },
-  { id: 'DSE01', type: 'serviceCategory', code: 'pick', label: '采摘体验', enabled: true, sort: 1 },
-  { id: 'DSE02', type: 'serviceCategory', code: 'cook', label: '柴火现做', enabled: true, sort: 2 },
   { id: 'DUNIT01', type: 'unit', code: 'box', label: '盒', enabled: true, sort: 1 },
   { id: 'DLEX01', type: 'logistics', code: 'sf', label: '顺丰速运', enabled: true, sort: 1 }
 ];

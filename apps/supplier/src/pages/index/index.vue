@@ -2367,7 +2367,7 @@ $control: var(--control-size);
 .route-mode-tabs button.active { background: $green; color: $on-brand; font-weight: 700; }
 .route-stop-actions { display: grid; grid-template-columns: repeat(2, $control); gap: 6px; flex: none; }
 .route-stop-actions .primary-button { grid-column: 1 / -1; min-width: 0; width: calc($control * 2 + 6px); padding: 0 6px; }
-.route-contact-button { font-size: 12px; }
+.route-contact-button { font-size: 13px; }
 .store-action-hint { align-self: center; padding: 12px; }
 .shortage-allocate-row > input { width: 82px; height: 40px; padding: 0 8px; border: 1px solid $line; border-radius: $radius-button; background: $panel; color: $ink; text-align: center; }
 .shortage-note-input { width: 100%; height: 38px; margin-top: 6px; padding: 0 9px; border: 1px solid $line; border-radius: $radius-button; background: $bg; color: $ink; text-align: left; }
@@ -2440,7 +2440,7 @@ $control: var(--control-size);
 .outbound-quantity-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
 .outbound-quantity-grid > view { min-width: 0; padding: 8px 6px; border-radius: $radius-button; background: $bg; text-align: center; }
 .outbound-quantity-grid small, .outbound-quantity-grid strong { display: block; }
-.outbound-quantity-grid small { color: $muted; font-size: 11px; }
+.outbound-quantity-grid small { color: $muted; font-size: 12px; }
 .outbound-quantity-grid strong { margin-top: 3px; color: $ink; font-size: 15px; }
 .outbound-quantity-grid .danger { background: $danger-soft; color: $red; }
 .outbound-inline-edit { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding: 8px 10px; border: 1px solid $green-soft; border-radius: $radius-button; background: $green-soft; color: $green-deep; font-size: 13px; }

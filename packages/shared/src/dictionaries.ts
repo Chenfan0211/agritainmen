@@ -51,14 +51,14 @@ export type NewDictItem = Omit<DictItem, 'tone'> & Partial<Pick<DictItem, 'tone'
 export type DictItemChanges = Partial<Omit<DictItem, 'id'>>
 
 export const BUSINESS_DICTIONARY_TYPES = [
-  'productCategory', 'supplierCategory', 'generalCategory', 'productTag', 'farmTag', 'routeTag',
-  'serviceCategory', 'afterSaleReason', 'qualificationType', 'promoterType', 'promoterLevel',
-  'liveHostRole', 'bookingSession', 'roomNotice', 'unit', 'logistics', 'withdrawMethod'
+  'productCategory', 'supplierCategory', 'generalCategory', 'productTag', 'farmTag',
+  'afterSaleReason', 'qualificationType', 'promoterType', 'promoterLevel',
+  'unit', 'logistics', 'withdrawMethod'
 ] as const
 
 export const SYSTEM_DICTIONARY_TYPES = [
   'supplierStatus', 'productStatus', 'farmStatus', 'orderStatus', 'fulfillmentStatus', 'afterSaleStatus',
-  'promoterStatus', 'bookingStatus', 'voucherStatus', 'settlementStatus', 'commissionStatus',
+  'promoterStatus', 'voucherStatus', 'settlementStatus', 'commissionStatus',
   'productSource', 'productType', 'catalogChannel', 'deliveryMode', 'afterSaleType', 'refundMethod',
   'refundMode', 'pricePolicyType', 'accountRole', 'memberLevel', 'commissionTargetType'
 ] as const
@@ -79,7 +79,6 @@ const builtInLabels: Readonly<Record<string, Readonly<Record<string, string>>>> 
   fulfillmentStatus: { submitted: '待接单', accepted: '已接单', shipped: '已发货', delivering: '配送中', received: '已收货', completed: '已完成', cancelled: '已取消' },
   afterSaleStatus: { processing: '售后中', rejected: '售后拒绝', 'refund-pending': '待退款', 'return-pending': '待退货', refunded: '已退款', 'refund-failed': '退款失败' },
   promoterStatus: { active: '启用', paused: '停用', pending: '待审核' },
-  bookingStatus: { submitted: '待确认', confirmed: '已确认', rejected: '已拒绝', cancelled: '已取消', completed: '已完成' },
   voucherStatus: { paid: '待核销', redeemed: '已核销', refunded: '已退款' },
   settlementStatus: { settled: '已结算', pending: '待结算', processing: '处理中' },
   commissionStatus: { pending: '待入账', available: '可提现', completed: '已完成' },
